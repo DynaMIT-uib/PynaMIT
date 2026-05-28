@@ -12,15 +12,27 @@ from pynamit.sphere import CSBasis, SHBasis, normalize_horizontal_basis_kind
 
 
 INPUT_VARIABLES = {
-    "jr": {"jr": "scalar"},
-    "Br": {"Br": "scalar"},
-    "conductance": {"etaP": "scalar", "etaH": "scalar"},
-    "u": {"u": "tangential"},
+    "jr": ("jr",),
+    "Br": ("Br",),
+    "conductance": ("etaP", "etaH"),
+    "u": ("u",),
+}
+
+INPUT_FIELD_TYPES = {
+    "jr": "scalar",
+    "Br": "scalar",
+    "conductance": "scalar",
+    "u": "tangential",
 }
 
 OUTPUT_VARIABLES = {
-    "state": {"m_ind": "scalar", "m_imp": "scalar", "Phi": "scalar", "W": "scalar"},
-    "steady_state": {"m_ind": "scalar", "m_imp": "scalar", "Phi": "scalar", "W": "scalar"},
+    "state": ("m_ind", "m_imp", "Phi", "W"),
+    "steady_state": ("m_ind", "m_imp", "Phi", "W"),
+}
+
+OUTPUT_FIELD_TYPES = {
+    "state": "scalar",
+    "steady_state": "scalar",
 }
 
 
@@ -28,8 +40,8 @@ OUTPUT_VARIABLES = {
 class SimulationSchema:
     """Field-space schema for one simulation configuration.
 
-    Input/output storage bases are derived from the corresponding
-    ``FieldSpace`` mappings to keep coefficient-space metadata canonical.
+    ``FieldSpace`` mappings are the canonical persisted coefficient-space
+    metadata for inputs and outputs.
     """
 
     cs_basis: Any
@@ -37,21 +49,11 @@ class SimulationSchema:
     sh_basis_mean_free: Any
     horizontal_basis: Any
     radial_continuation_basis: Any
-    input_vars: dict[str, dict[str, str]]
-    output_vars: dict[str, dict[str, str]]
+    input_vars: dict[str, tuple[str, ...]]
+    output_vars: dict[str, tuple[str, ...]]
     input_field_spaces: dict[str, FieldSpace]
     output_field_spaces: dict[str, FieldSpace]
     interpolation_bases: dict[str, Any]
-
-    @property
-    def input_storage_bases(self) -> dict[str, Any]:
-        """Return input storage bases derived from input field spaces."""
-        return storage_bases_from_field_spaces(self.input_field_spaces)
-
-    @property
-    def output_storage_bases(self) -> dict[str, Any]:
-        """Return output storage bases derived from output field spaces."""
-        return storage_bases_from_field_spaces(self.output_field_spaces)
 
 
 def _setting(settings: Any, name: str) -> Any:
@@ -62,32 +64,25 @@ def _setting(settings: Any, name: str) -> Any:
     return getattr(settings, name)
 
 
-def _copy_variable_schema(schema: dict[str, dict[str, str]]) -> dict[str, dict[str, str]]:
-    """Return a shallow copy of nested variable schema dictionaries."""
-    return {key: dict(variables) for key, variables in schema.items()}
-
-
-def storage_bases_from_field_spaces(field_spaces: dict[str, FieldSpace]) -> dict[str, Any]:
-    """Return storage bases derived from field-space descriptors."""
-    return {key: field_space.basis for key, field_space in field_spaces.items()}
+def _copy_variable_schema(schema: dict[str, tuple[str, ...]]) -> dict[str, tuple[str, ...]]:
+    """Return a shallow copy of variable-name schema tuples."""
+    return {key: tuple(variables) for key, variables in schema.items()}
 
 
 def field_spaces_from_bases(
-    storage_bases: dict[str, Any],
-    variables: dict[str, dict[str, str]],
+    bases: dict[str, Any],
+    field_types: dict[str, str],
     mean_free_by_key: dict[str, bool] | None = None,
 ) -> dict[str, FieldSpace]:
     """Return field-space descriptors for time-series schemas."""
+    if set(bases) != set(field_types):
+        raise ValueError("Basis and field-type schemas must use the same keys.")
+
     field_spaces = {}
-    for key, basis in storage_bases.items():
-        field_types = {variables[key][var] for var in variables[key]}
-        if len(field_types) != 1:
-            raise ValueError(
-                "Mixed scalar and tangential input (unsupported), or invalid input type"
-            )
+    for key, basis in bases.items():
         field_spaces[key] = FieldSpace.from_basis(
             basis,
-            field_type=field_types.pop(),
+            field_type=field_types[key],
             mean_free=(
                 getattr(basis, "mean_free", False)
                 if mean_free_by_key is None
@@ -149,11 +144,11 @@ def build_simulation_schema(settings: Any, horizontal_basis_kind: str) -> Simula
     }
 
     input_field_spaces = field_spaces_from_bases(
-        input_bases, input_vars, mean_free_by_key=input_mean_free
+        input_bases, INPUT_FIELD_TYPES, mean_free_by_key=input_mean_free
     )
     output_field_spaces = field_spaces_from_bases(
         output_bases,
-        output_vars,
+        OUTPUT_FIELD_TYPES,
         mean_free_by_key={"state": True, "steady_state": True},
     )
 

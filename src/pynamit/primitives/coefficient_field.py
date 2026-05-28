@@ -17,37 +17,39 @@ class CoefficientField:
 
     def __init__(
         self,
-        field_space_or_basis: Any,
+        field_space: FieldSpace,
         coeffs: Any,
-        field_type: str | None = None,
         *,
         name: str | None = None,
     ):
         """Initialize a coefficient-backed field."""
-        self.field_space = self._normalize_field_space(field_space_or_basis, field_type)
-        self.basis = self.field_space.basis
-        self.field_type = self.field_space.field_type
-        self.mean_free = self.field_space.mean_free
+        if not isinstance(field_space, FieldSpace):
+            raise TypeError("CoefficientField requires a FieldSpace.")
+        self.field_space = field_space
         self.coeffs = self.field_space.validate_coefficients(
             self.field_space.project_mean_free(coeffs),
             name=name or f"{self.__class__.__name__}.coeffs",
         )
 
-    @staticmethod
-    def _normalize_field_space(field_space_or_basis: Any, field_type: str | None = None):
-        """Return a ``FieldSpace`` from either a field space or a raw basis."""
-        if isinstance(field_space_or_basis, FieldSpace):
-            effective_field_type = (
-                field_space_or_basis.field_type if field_type is None else field_type
-            )
-        else:
-            effective_field_type = "scalar" if field_type is None else field_type
-        return FieldSpace.from_basis(field_space_or_basis, field_type=effective_field_type)
-
     @property
     def kind(self):
         """Return the underlying basis family identifier."""
         return self.field_space.kind
+
+    @property
+    def basis(self):
+        """Return the storage basis for this coefficient field."""
+        return self.field_space.basis
+
+    @property
+    def field_type(self):
+        """Return whether coefficients represent a scalar or tangential field."""
+        return self.field_space.field_type
+
+    @property
+    def mean_free(self):
+        """Return whether the field space enforces zero-mean intent."""
+        return self.field_space.mean_free
 
     @property
     def coefficient_length(self):

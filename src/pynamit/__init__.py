@@ -6,7 +6,7 @@ utilities.
 
 Attributes
 ----------
-BasisEvaluator : class
+FieldTransform : class
     Class for evaluating basis functions.
 CSBasis : class
     Class for cubed sphere projections.
@@ -24,10 +24,6 @@ PynamEye : class
     Class for visualization.
 SHBasis : class
     Class for spherical harmonics basis functions.
-FieldExpansion : class
-    Compatibility class for grid-aware coefficient fields.
-FieldProjector : class
-    Class for projecting gridded fields to coefficient spaces.
 FieldSpace : class
     Class for describing field coefficient spaces.
 debugplot : function
@@ -52,11 +48,9 @@ from .sphere import (
     is_sh_basis,
     normalize_horizontal_basis_kind,
 )
-from .primitives.basis_evaluator import BasisEvaluator
+from .primitives.field_transform import FieldTransform
 from .primitives.coefficient_field import CoefficientField
 from .primitives.field_evaluator import FieldEvaluator
-from .primitives.field_expansion import FieldExpansion
-from .primitives.field_projector import FieldProjector
 from .primitives.field_space import FieldSpace
 from .simulation.dynamics import Dynamics
 from .simulation.input_vs_interpolated import plot_input_vs_interpolated
@@ -69,13 +63,11 @@ from .external_inputs import set_input_source, get_input_source
 __all__ = [
     "Basis",
     "BasisView",
-    "BasisEvaluator",
+    "FieldTransform",
     "CSBasis",
     "CoefficientField",
     "Dynamics",
     "FieldEvaluator",
-    "FieldExpansion",
-    "FieldProjector",
     "FieldSpace",
     "Grid",
     "GridBasis",

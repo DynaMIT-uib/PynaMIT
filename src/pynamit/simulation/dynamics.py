@@ -10,11 +10,10 @@ from pynamit.sphere import normalize_horizontal_basis_kind
 from pynamit.math.constants import RE
 from pynamit.math.least_squares_solver import get_default_least_squares_solver
 from pynamit.primitives.field_evaluator import FieldEvaluator
-from pynamit.primitives.field_projector import FieldProjector
+from pynamit.primitives.field_transform import FieldTransform
 from pynamit.sphere import Grid
 from pynamit.primitives.io import IO
 from pynamit.simulation.data import SimulationData
-from pynamit.simulation.schema import field_spaces_from_bases
 from pynamit.simulation.mainfield import Mainfield
 from pynamit.simulation.state import State
 from pynamit.math.backend import set_backend, to_jax, to_numpy, use_jax
@@ -208,13 +207,17 @@ class Dynamics(object):
 
         self.interpolation_bases = self.schema.interpolation_bases
 
-        self.input_projectors = {
-            key: FieldProjector(
+        input_grid = Grid(
+            theta=self.cs_basis.arr_theta,
+            phi=self.cs_basis.arr_phi,
+            area_weights=self.cs_basis.unit_area,
+        )
+        self.input_transforms = {
+            key: FieldTransform(
                 self.input_field_spaces[key],
-                target_grid_basis=self.cs_basis,
-                area_weighted_least_squares=bool(
-                    self.settings.area_weighted_least_squares
-                ),
+                input_grid,
+                grid_basis=self.cs_basis,
+                area_weighted=bool(self.settings.area_weighted_least_squares),
             )
             for key in self.input_vars
         }
@@ -236,7 +239,7 @@ class Dynamics(object):
             PFAC_matrix=self.data.pfac_matrix,
             radial_continuation_basis=self.radial_continuation_basis,
         )
-        self.horizontal_basis_evaluator = self.state.geometry.basis_evaluator
+        self.horizontal_field_transform = self.state.geometry.field_transform
 
         if "state" in self.output_timeseries.datasets.keys():
             self.current_time = np.max(self.output_timeseries.datasets["state"].time.values)
@@ -245,21 +248,6 @@ class Dynamics(object):
 
         self.data.save_settings_if_missing(print_info=True)
         self.data.save_pfac_matrix_if_missing(self.state.geometry.T_to_Ve, print_info=True)
-
-    @staticmethod
-    def _field_spaces_from_bases(storage_bases, variables, mean_free_by_key=None):
-        """Return field-space descriptors for time-series schemas."""
-        return field_spaces_from_bases(storage_bases, variables, mean_free_by_key)
-
-    @property
-    def input_storage_bases(self):
-        """Return input storage bases derived from the schema field spaces."""
-        return self.schema.input_storage_bases
-
-    @property
-    def output_storage_bases(self):
-        """Return output storage bases derived from the schema field spaces."""
-        return self.schema.output_storage_bases
 
     @classmethod
     def from_directory(cls, run_directory, **kwargs):
@@ -332,7 +320,7 @@ class Dynamics(object):
                 inductive_m_ind = self.state.steady_state_m_ind(E_coeffs_noind)
             else:
                 self.current_time = np.float64(0)
-                zeros = np.zeros(self.output_storage_bases["state"].index_length)
+                zeros = np.zeros(self.output_field_spaces["state"].index_length)
                 inductive_m_ind = to_jax(zeros) if use_jax() else zeros
                 inductive_m_ind = self.state.project_scalar_mean_free(inductive_m_ind)
         elif "steady_state" in self.output_timeseries.datasets.keys():
@@ -874,11 +862,11 @@ class Dynamics(object):
         """Project gridded input data and store coefficient entries."""
         input_time = self.adapt_input_time(time, input_data)
         input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
-        projector = self.input_projectors[key]
+        transform = self.input_transforms[key]
 
         projected_data = {}
         for var, values in input_data.items():
-            projected_values = projector.project(
+            projected_values = transform.project(
                 values,
                 input_grid=input_grid,
                 projection_basis=self.interpolation_bases[key],

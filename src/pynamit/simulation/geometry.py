@@ -1,7 +1,7 @@
 """Geometry module.
 
 This module contains the Geometry class, which encapsulates the spatial
-grid, basis evaluators, magnetic field properties, and interhemispheric
+grid, field transforms, magnetic field properties, and interhemispheric
 mappings.
 """
 
@@ -15,7 +15,8 @@ import xarray as xr
 from pynamit.math.constants import mu0
 from pynamit.math import as_linear_map
 from pynamit.sphere import Grid
-from pynamit.primitives.basis_evaluator import BasisEvaluator, resolve_sqrt_weights
+from pynamit.primitives.field_transform import FieldTransform, resolve_sqrt_weights
+from pynamit.primitives.field_space import FieldSpace
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.math.tensor_operations import weighted_tensor_pinv
 from pynamit.sphere import Basis, CSBasis, is_sh_basis
@@ -202,50 +203,55 @@ class Geometry:
         """Pseudo-inverse for horizontal vector field projections."""
         if self._G_helmholtz_pinv is None:
             self._G_helmholtz_pinv = weighted_tensor_pinv(
-                self.basis_evaluator.G_helmholtz,
+                self.field_transform.G_helmholtz,
                 sqrt_weights=self.grid_sqrt_weights(vector=True),
                 n_leading_flattened=2,
             )
         return self._G_helmholtz_pinv
 
     def _init_evaluators(self, cs_basis: CSBasis) -> None:
-        """Set up grid, basis evaluators, and field evaluators."""
+        """Set up grid, field transforms, and field evaluators."""
         self.grid = Grid(
             theta=cs_basis.arr_theta,
             phi=cs_basis.arr_phi,
             area_weights=cs_basis.unit_area,
         )
-        self.basis_evaluator = BasisEvaluator(
-            self.basis,
+        self.field_transform = FieldTransform(
+            FieldSpace.from_basis(self.basis, field_type="scalar"),
             self.grid,
             area_weighted=self.area_weighted_least_squares,
         )
-        self.basis_evaluator_zero_added = BasisEvaluator(
-            _extended_scalar_basis_for_potential(self.basis, self.settings),
+        self.field_transform_zero_added = FieldTransform(
+            FieldSpace.from_basis(
+                _extended_scalar_basis_for_potential(self.basis, self.settings),
+                field_type="scalar",
+            ),
             self.grid,
             area_weighted=self.area_weighted_least_squares,
         )
         if self.radial_continuation_basis is None:
             self.radial_continuation_evaluator = None
         elif self.radial_continuation_basis is self.basis:
-            self.radial_continuation_evaluator = self.basis_evaluator
+            self.radial_continuation_evaluator = self.field_transform
         else:
-            self.radial_continuation_evaluator = BasisEvaluator(
-                self.radial_continuation_basis,
+            self.radial_continuation_evaluator = FieldTransform(
+                FieldSpace.from_basis(
+                    self.radial_continuation_basis, field_type="scalar"
+                ),
                 self.grid,
                 area_weighted=self.area_weighted_least_squares,
             )
         self.b_evaluator = FieldEvaluator(self.mainfield, self.grid, self.RI)
 
         # Optional evaluators for the conjugate hemisphere
-        self.cp_grid = self.cp_basis_evaluator = self.cp_b_evaluator = None
+        self.cp_grid = self.cp_field_transform = self.cp_b_evaluator = None
         if self.connect_hemispheres:
             cp_theta, cp_phi = self.mainfield.conjugate_coordinates(
                 self.RI, self.grid.theta, self.grid.phi
             )
             self.cp_grid = Grid(theta=cp_theta, phi=cp_phi)
-            self.cp_basis_evaluator = BasisEvaluator(
-                self.basis,
+            self.cp_field_transform = FieldTransform(
+                FieldSpace.from_basis(self.basis, field_type="scalar"),
                 self.cp_grid,
                 area_weighted=self.area_weighted_least_squares,
             )
@@ -272,7 +278,7 @@ class Geometry:
         if self.radial_continuation_basis.coefficients_are_compatible_with(self.basis):
             return np.eye(self.basis.index_length)
         radial_to_grid = self.radial_continuation_evaluator.G
-        horizontal_to_grid = self.basis_evaluator.G
+        horizontal_to_grid = self.field_transform.G
         grid_to_radial = weighted_tensor_pinv(
             radial_to_grid,
             sqrt_weights=self.grid_sqrt_weights(),
@@ -284,7 +290,7 @@ class Geometry:
         """Project radial coefficients to horizontal space."""
         if self.radial_continuation_basis.coefficients_are_compatible_with(self.basis):
             return np.eye(self.basis.index_length)
-        horizontal_to_grid = self.basis_evaluator.G
+        horizontal_to_grid = self.field_transform.G
         radial_to_grid = self.radial_continuation_evaluator.G
         grid_to_horizontal = weighted_tensor_pinv(
             horizontal_to_grid,
@@ -323,7 +329,7 @@ class Geometry:
 
         self.jr_coeffs_to_j_apex = np.asarray(
             self.b_evaluator.radial_to_apex.reshape((-1, 1))
-            * self.basis_evaluator.G
+            * self.field_transform.G
         ).copy()
         self.E_coeffs_to_E_apex_ll_diff = None
 
@@ -331,7 +337,7 @@ class Geometry:
             # Modify jr constraint for interhemispheric connection
             jr_coeffs_to_j_apex_cp = np.asarray(
                 self.cp_b_evaluator.radial_to_apex.reshape((-1, 1))
-                * self.cp_basis_evaluator.G
+                * self.cp_field_transform.G
             )
             self.jr_coeffs_to_j_apex = self.jr_coeffs_to_j_apex - (
                 self.ll_mask.reshape((-1, 1)) * jr_coeffs_to_j_apex_cp
@@ -341,13 +347,13 @@ class Geometry:
             E_coeffs_to_E_apex = np.einsum(
                 "ijk,jklm->iklm",
                 self.b_evaluator.horizontal_to_apex,
-                np.asarray(self.basis_evaluator.G_helmholtz),
+                np.asarray(self.field_transform.G_helmholtz),
                 optimize=True,
             )
             E_coeffs_to_E_apex_cp = np.einsum(
                 "ijk,jklm->iklm",
                 self.cp_b_evaluator.horizontal_to_apex,
-                np.asarray(self.cp_basis_evaluator.G_helmholtz),
+                np.asarray(self.cp_field_transform.G_helmholtz),
                 optimize=True,
             )
             self.E_coeffs_to_E_apex_ll_diff = np.ascontiguousarray(
@@ -428,9 +434,12 @@ class Geometry:
             mapped_grid = Grid(theta=theta_mapped, phi=phi_mapped)
             rk_b_evaluator = FieldEvaluator(self.mainfield, self.grid, rk)
             mapped_b_evaluator = FieldEvaluator(self.mainfield, mapped_grid, self.RI)
-            mapped_basis_evaluator = BasisEvaluator(self.basis, mapped_grid)
+            mapped_field_transform = FieldTransform(
+                FieldSpace.from_basis(self.basis, field_type="scalar"),
+                mapped_grid,
+            )
 
-            m_imp_to_jr_grid = mapped_basis_evaluator.contract_G(m_imp_to_jr_coeffs)
+            m_imp_to_jr_grid = mapped_field_transform.contract_G(m_imp_to_jr_coeffs)
             jr_to_JS_rk = np.array(
                 [
                     rk_b_evaluator.Btheta / mapped_b_evaluator.Br,
@@ -493,7 +502,7 @@ class Geometry:
     def G_m_imp_to_JS(self) -> np.ndarray:
         """Operator mapping m_imp to sheet current on grid."""
         if self._G_m_imp_to_JS is None:
-            G_T_to_JS = -self.basis_evaluator.G_grad / mu0
+            G_T_to_JS = -self.field_transform.G_grad / mu0
             self._G_m_imp_to_JS = G_T_to_JS + np.tensordot(
                 self.G_Ve_to_JS, self.T_to_Ve.values, axes=([2], [0])
             )

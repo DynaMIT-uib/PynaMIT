@@ -94,7 +94,10 @@ dynamics.state.update_E()
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
 plt_grid = pynamit.Grid(lat=lat, lon=lon)
-plt_state_evaluator = pynamit.BasisEvaluator(dynamics.state_basis, plt_grid)
+plt_state_evaluator = pynamit.FieldTransform(
+    pynamit.FieldSpace.from_basis(dynamics.horizontal_basis, field_type="scalar"),
+    plt_grid,
+)
 nnn = plt_grid.lat.flatten() > 50
 sss = plt_grid.lat.flatten() < -50
 

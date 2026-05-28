@@ -246,9 +246,12 @@ if EQUATORIAL_EFIELD:
 
         grid = pynamit.Grid(lat=glat, lon=glon)
 
-        evaluator = pynamit.BasisEvaluator(a.basis, grid)
+        evaluator = pynamit.FieldTransform(
+            pynamit.FieldSpace.from_basis(a.basis, field_type="scalar"),
+            grid,
+        )
 
-        phi = evaluator.basis_to_grid(a.m_Phi)
+        phi = evaluator.to_grid(a.m_Phi)
 
         Br, Btheta, Bphi = a.mainfield.get_B(a.RI, grid.theta, grid.lon)
         Bh = np.sqrt(Btheta**2 + Bphi**2).flatten()

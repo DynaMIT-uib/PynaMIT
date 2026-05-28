@@ -3,18 +3,9 @@
 import numpy as np
 import pytest
 
-from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.coefficient_field import CoefficientField
-from pynamit.primitives.field_expansion import FieldExpansion
 from pynamit.primitives.field_space import FieldSpace
-from pynamit.sphere import CSBasis, Grid, SHBasis
-
-
-def _regular_grid():
-    lat = np.linspace(-70.0, 70.0, 11)
-    lon = np.linspace(0.0, 330.0, 12)
-    lat_grid, lon_grid = np.meshgrid(lat, lon, indexing="ij")
-    return Grid(lat=lat_grid.ravel(), lon=lon_grid.ravel())
+from pynamit.sphere import CSBasis, SHBasis
 
 
 def test_coefficient_field_applies_scalar_mean_free_projection():
@@ -26,6 +17,8 @@ def test_coefficient_field_applies_scalar_mean_free_projection():
     field = CoefficientField(field_space, coeffs)
 
     assert field.field_space is field_space
+    assert field.basis is basis
+    assert field.mean_free
     np.testing.assert_allclose(basis.scalar_mean(field.coeffs), 0.0, atol=1e-12)
     assert field.coeffs.shape == coeffs.shape
 
@@ -57,17 +50,3 @@ def test_coefficient_field_validates_coefficient_length():
 
     with pytest.raises(ValueError, match="CoefficientField.coeffs"):
         CoefficientField(field_space, np.zeros(basis.index_length + 1))
-
-
-def test_field_expansion_reuses_coefficient_field_storage():
-    """FieldExpansion is still evaluable, but storage comes from CoefficientField."""
-    basis = SHBasis(3, 2, mean_free=True)
-    grid = _regular_grid()
-    evaluator = BasisEvaluator(basis, grid)
-    coeffs = np.zeros(basis.index_length)
-    coeffs[1] = 1.0
-
-    field = FieldExpansion(FieldSpace(basis, field_type="scalar"), coeffs=coeffs)
-
-    assert isinstance(field, CoefficientField)
-    np.testing.assert_allclose(field.to_grid(evaluator), evaluator.basis_to_grid(coeffs))

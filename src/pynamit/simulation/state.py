@@ -117,7 +117,7 @@ class State:
     def _create_u_to_E_operator(self) -> np.ndarray:
         """Operator mapping wind coefficients to E coefficients."""
         bu = xp.asarray(self.geometry.bu)
-        G_helmholtz = xp.asarray(self.geometry.basis_evaluator.G_helmholtz)
+        G_helmholtz = xp.asarray(self.geometry.field_transform.G_helmholtz)
         G_u_to_uxB_grid = xp.einsum("ijk,jklm->iklm", bu, G_helmholtz, optimize=True)
         G_helmholtz_pinv = xp.asarray(self.geometry.G_helmholtz_pinv)
         return block_until_ready(xp.tensordot(G_helmholtz_pinv, G_u_to_uxB_grid, axes=2))
@@ -161,9 +161,9 @@ class State:
                 [xp.asarray(self.etaP.coeffs), xp.asarray(self.etaH.coeffs)], axis=0
             )
             if self.etaP.basis.coefficients_are_compatible_with(self.basis):
-                G_eta = xp.asarray(self.geometry.basis_evaluator.G)
+                G_eta = xp.asarray(self.geometry.field_transform.G)
             else:
-                G_eta = xp.asarray(self.geometry.basis_evaluator_zero_added.G)
+                G_eta = xp.asarray(self.geometry.field_transform_zero_added.G)
             b_stacked = xp.stack(
                 [xp.asarray(self.geometry.bP), xp.asarray(self.geometry.bH)], axis=0
             )

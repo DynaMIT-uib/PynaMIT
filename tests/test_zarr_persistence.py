@@ -8,9 +8,10 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from pynamit.sphere import CSBasis, SHBasis
+from pynamit.sphere import SHBasis
 from pynamit.default_run import run_pynamit
 from pynamit.primitives.io import IO
+from pynamit.primitives.field_space import FieldSpace
 from pynamit.primitives.timeseries import Timeseries
 from pynamit.simulation.dynamics import Dynamics
 
@@ -36,18 +37,15 @@ def _first_data_chunk(store: Path, variable_name: str) -> Path:
 
 
 def _build_state_timeseries() -> Timeseries:
-    cs_basis = CSBasis(4)
     sh_basis = SHBasis(2, 1)
     return Timeseries(
-        cs_basis,
-        {"state": sh_basis},
-        {"state": {"m_ind": "scalar", "m_imp": "scalar"}},
+        {"state": FieldSpace(sh_basis, field_type="scalar")},
+        {"state": ("m_ind", "m_imp")},
     )
 
 
 def _add_state(ts: Timeseries, time: float, scale: float) -> None:
-    n_coeffs = ts.storage_bases["state"].index_length
-    assert ts.storage_bases["state"] is ts.get_storage_spec("state").basis
+    n_coeffs = ts.get_storage_spec("state").index_length
     values = np.arange(n_coeffs, dtype=float) + scale
     ts.add_entry(
         "state",
@@ -190,7 +188,7 @@ def test_timeseries_rewrites_zarr_for_same_time_replacement(tmp_path):
 
     assert calls == [("state", None, 1), ("state", None, 1)]
     loaded = io.load_dataset("state")
-    n_coeffs = ts.storage_bases["state"].index_length
+    n_coeffs = ts.get_storage_spec("state").index_length
     np.testing.assert_allclose(
         loaded["SH_m_ind"].values[0], np.arange(n_coeffs, dtype=float) + 10.0
     )
