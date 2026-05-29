@@ -10,11 +10,11 @@ import numpy as np
 class FieldSpace:
     """Describe the coefficient space for one field.
 
-    ``FieldSpace`` deliberately carries no values and performs no
-    projection. It is the small bit of structural metadata shared by
-    time-series storage and field projection: the basis, whether the
-    field is scalar or tangential, and whether the space is intended to
-    be mean-free.
+    ``FieldSpace`` deliberately carries no values and does not evaluate
+    fields on grids. It is the structural metadata shared by time-series
+    storage and coefficient transforms: the basis, whether the field is
+    scalar or tangential, and whether stored coefficients should satisfy
+    a mean-free gauge.
     """
 
     basis: Any
@@ -95,7 +95,7 @@ class FieldSpace:
         ]
 
     def project_mean_free(self, coeffs):
-        """Apply the basis gauge projector when this field space requests it."""
+        """Apply this space's mean-free coefficient policy."""
         array = np.asarray(coeffs)
         if not self.mean_free:
             return array

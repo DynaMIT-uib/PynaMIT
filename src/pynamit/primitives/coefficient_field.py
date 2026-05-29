@@ -10,9 +10,9 @@ from pynamit.primitives.field_space import FieldSpace
 class CoefficientField:
     """Realized field coefficients in a ``FieldSpace``.
 
-    This is the value-carrying counterpart to ``FieldSpace``. It validates
-    coefficient length and applies the field-space mean-free projector, but it
-    deliberately does not own grid projection or grid evaluation machinery.
+    This is the value-carrying counterpart to ``FieldSpace``. It checks
+    coefficient length and applies the field-space coefficient policy.
+    It does not own grid projection or grid evaluation.
     """
 
     def __init__(
@@ -43,7 +43,7 @@ class CoefficientField:
 
     @property
     def field_type(self):
-        """Return whether coefficients represent a scalar or tangential field."""
+        """Return scalar or tangential field type."""
         return self.field_space.field_type
 
     @property
