@@ -113,10 +113,34 @@ def to_jax(array: Any) -> Any:
 
 def block_until_ready(array: Any) -> Any:
     """Synchronize a JAX array before handing work to NumPy/SciPy."""
+    if isinstance(array, tuple):
+        for item in array:
+            block_until_ready(item)
+        return array
+    if isinstance(array, list):
+        for item in array:
+            block_until_ready(item)
+        return array
+    if isinstance(array, dict):
+        for item in array.values():
+            block_until_ready(item)
+        return array
     block = getattr(array, "block_until_ready", None)
     if block is not None:
         block()
     return array
+
+
+def block_after_jax_linalg(array: Any) -> Any:
+    """Synchronize JAX CPU linear algebra before NumPy/OpenBLAS work.
+
+    JAX CPU ``pinv``/``svd``/``solve`` may lower to asynchronous LAPACK
+    FFI calls. On the conda-forge OpenBLAS/OpenMP stack, leaving such a
+    call in flight has corrupted later threaded NumPy GEMM/tensordot
+    results. These barriers keep the JAX acceleration, but make LAPACK
+    calls explicit handoff points before NumPy can run.
+    """
+    return block_until_ready(array)
 
 
 def to_numpy(array: Any) -> Any:
@@ -193,6 +217,7 @@ __all__ = [
     "set_backend",
     "get_array_module",
     "to_jax",
+    "block_after_jax_linalg",
     "block_until_ready",
     "to_numpy",
     "asarray",

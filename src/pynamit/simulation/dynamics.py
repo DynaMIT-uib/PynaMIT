@@ -6,17 +6,16 @@ coupling.
 
 import numpy as np
 import xarray as xr
-from pynamit.sphere import CSBasis, SHBasis, normalize_horizontal_basis_kind
+from pynamit.sphere import normalize_horizontal_basis_kind
 from pynamit.math.constants import RE
 from pynamit.math.least_squares_solver import get_default_least_squares_solver
 from pynamit.primitives.field_evaluator import FieldEvaluator
-from pynamit.primitives.field_projector import FieldProjector
-from pynamit.primitives.field_space import FieldSpace
+from pynamit.primitives.field_transform import FieldTransform
 from pynamit.sphere import Grid
 from pynamit.primitives.io import IO
+from pynamit.simulation.data import SimulationData
 from pynamit.simulation.mainfield import Mainfield
 from pynamit.simulation.state import State
-from pynamit.primitives.timeseries import Timeseries
 from pynamit.math.backend import set_backend, to_jax, to_numpy, use_jax
 
 FLOAT_ERROR_MARGIN = 1e-6  # Safety margin for floating point errors
@@ -179,121 +178,46 @@ class Dynamics(object):
             }
         )
 
-        self.uses_temporary_run_directory = run_directory is None
-        if self.uses_temporary_run_directory:
-            run_directory = IO.build_temporary_run_directory()
-
-        self.io = IO(
+        self.data = SimulationData.create(
+            self.settings,
             run_directory=run_directory,
-            preferred_dataset_storage=artifact_storage,
+            artifact_storage=artifact_storage,
+            horizontal_basis_kind=horizontal_basis_kind,
+            area_weighted_least_squares=self.settings.area_weighted_least_squares,
+            print_info=True,
         )
-        self.run_directory = self.io.run_directory
+        self.uses_temporary_run_directory = self.data.uses_temporary_run_directory
+        self.io = self.data.io
+        self.run_directory = self.data.run_directory
 
-        # Check if settings are consistent with previously saved runs.
-        settings_on_file = self.io.load_dataset("settings", print_info=True)
+        self.schema = self.data.schema
+        self.cs_basis = self.schema.cs_basis
+        self.sh_basis = self.schema.sh_basis
+        self.sh_basis_mean_free = self.schema.sh_basis_mean_free
+        self.horizontal_basis = self.schema.horizontal_basis
+        self.radial_continuation_basis = self.schema.radial_continuation_basis
 
-        if settings_on_file is not None:
-            if not self.settings.identical(settings_on_file):
-                raise ValueError(
-                    "Mismatch between Dynamics object arguments and settings on file."
-                )
+        self.input_vars = self.schema.input_vars
+        self.input_field_spaces = self.schema.input_field_spaces
+        self.input_timeseries = self.data.input_timeseries
 
-        PFAC_matrix_on_file = self.io.load_dataarray("PFAC_matrix", print_info=True)
+        self.output_vars = self.schema.output_vars
+        self.output_field_spaces = self.schema.output_field_spaces
+        self.output_timeseries = self.data.output_timeseries
 
-        sh_basis = SHBasis(self.settings.Nmax, self.settings.Mmax, mean_free=False)
-        sh_basis_mean_free = sh_basis.with_mean_free(True)
+        self.interpolation_bases = self.schema.interpolation_bases
 
-        cs_basis = CSBasis(self.settings.Ncs)
-        horizontal_basis = cs_basis if horizontal_basis_kind == "CS" else sh_basis_mean_free
-        self.horizontal_basis = horizontal_basis
-        self.radial_continuation_basis = (
-            horizontal_basis
-            if horizontal_basis.supports_radial_potential_operators
-            else sh_basis_mean_free
+        input_grid = Grid(
+            theta=self.cs_basis.arr_theta,
+            phi=self.cs_basis.arr_phi,
+            area_weights=self.cs_basis.unit_area,
         )
-
-        # Specify input format and load input data.
-        self.input_vars = {
-            "jr": {"jr": "scalar"},
-            "Br": {"Br": "scalar"},
-            "conductance": {"etaP": "scalar", "etaH": "scalar"},
-            "u": {"u": "tangential"},
-        }
-
-        if horizontal_basis_kind == "CS":
-            self.input_storage_bases = {
-                "jr": cs_basis,
-                "Br": cs_basis,
-                "conductance": cs_basis,
-                "u": cs_basis,
-            }
-        else:
-            self.input_storage_bases = {
-                "jr": sh_basis_mean_free,
-                "Br": sh_basis_mean_free,
-                "conductance": sh_basis,
-                "u": sh_basis_mean_free,
-            }
-
-        self.input_field_spaces = self._field_spaces_from_bases(
-            self.input_storage_bases, self.input_vars
-        )
-
-        self.input_timeseries = Timeseries(
-            self.input_field_spaces,
-            self.input_vars,
-            area_weighted_least_squares=bool(
-                self.settings.area_weighted_least_squares
-            ),
-        )
-        self.input_timeseries.load_all(self.io)
-
-        # Specify output format and load output data.
-        self.output_vars = {
-            "state": {"m_ind": "scalar", "m_imp": "scalar", "Phi": "scalar", "W": "scalar"},
-            "steady_state": {"m_ind": "scalar", "m_imp": "scalar", "Phi": "scalar", "W": "scalar"},
-        }
-
-        self.output_storage_bases = {
-            "state": horizontal_basis,
-            "steady_state": horizontal_basis,
-        }
-
-        self.output_field_spaces = self._field_spaces_from_bases(
-            self.output_storage_bases, self.output_vars
-        )
-
-        self.output_timeseries = Timeseries(
-            self.output_field_spaces,
-            self.output_vars,
-            area_weighted_least_squares=bool(
-                self.settings.area_weighted_least_squares
-            ),
-        )
-        self.output_timeseries.load_all(self.io)
-
-        if horizontal_basis_kind == "CS":
-            self.interpolation_bases = {
-                "jr": cs_basis,
-                "Br": cs_basis,
-                "conductance": cs_basis,
-                "u": cs_basis,
-            }
-        else:
-            self.interpolation_bases = {
-                "jr": sh_basis_mean_free if bool(self.settings.vector_jr) else cs_basis,
-                "Br": sh_basis_mean_free if bool(self.settings.vector_Br) else cs_basis,
-                "conductance": sh_basis if bool(self.settings.vector_conductance) else cs_basis,
-                "u": sh_basis_mean_free if bool(self.settings.vector_u) else cs_basis,
-            }
-
-        self.input_projectors = {
-            key: FieldProjector(
+        self.input_transforms = {
+            key: FieldTransform(
                 self.input_field_spaces[key],
-                target_grid_basis=cs_basis,
-                area_weighted_least_squares=bool(
-                    self.settings.area_weighted_least_squares
-                ),
+                input_grid,
+                grid_basis=self.cs_basis,
+                area_weighted=bool(self.settings.area_weighted_least_squares),
             )
             for key in self.input_vars
         }
@@ -308,43 +232,22 @@ class Dynamics(object):
         # Initialize the state of the ionosphere, restarting from the
         # last state checkpoint if available.
         self.state = State(
-            horizontal_basis,
+            self.horizontal_basis,
             self.mainfield,
-            cs_basis,
+            self.cs_basis,
             self.settings,
-            PFAC_matrix=PFAC_matrix_on_file,
+            PFAC_matrix=self.data.pfac_matrix,
             radial_continuation_basis=self.radial_continuation_basis,
         )
-        self.horizontal_basis_evaluator = self.state.geometry.basis_evaluator
+        self.horizontal_field_transform = self.state.geometry.field_transform
 
         if "state" in self.output_timeseries.datasets.keys():
             self.current_time = np.max(self.output_timeseries.datasets["state"].time.values)
         else:
             self.current_time = np.float64(0)
 
-        # Store settings and PFAC matrix on file.
-        if settings_on_file is None:
-            self.io.save_dataset(self.settings, "settings", print_info=True)
-
-        if PFAC_matrix_on_file is None:
-            self.io.save_dataarray(self.state.geometry.T_to_Ve, "PFAC_matrix", print_info=True)
-
-    @staticmethod
-    def _field_spaces_from_bases(storage_bases, variables):
-        """Return field-space descriptors for time-series schemas."""
-        field_spaces = {}
-        for key, basis in storage_bases.items():
-            field_types = {variables[key][var] for var in variables[key]}
-            if len(field_types) != 1:
-                raise ValueError(
-                    "Mixed scalar and tangential input (unsupported), or invalid input type"
-                )
-            field_spaces[key] = FieldSpace.from_basis(
-                basis,
-                field_type=field_types.pop(),
-                mean_free=getattr(basis, "mean_free", False),
-            )
-        return field_spaces
+        self.data.save_settings_if_missing(print_info=True)
+        self.data.save_pfac_matrix_if_missing(self.state.geometry.T_to_Ve, print_info=True)
 
     @classmethod
     def from_directory(cls, run_directory, **kwargs):
@@ -417,7 +320,7 @@ class Dynamics(object):
                 inductive_m_ind = self.state.steady_state_m_ind(E_coeffs_noind)
             else:
                 self.current_time = np.float64(0)
-                zeros = np.zeros(self.output_storage_bases["state"].index_length)
+                zeros = np.zeros(self.output_field_spaces["state"].index_length)
                 inductive_m_ind = to_jax(zeros) if use_jax() else zeros
                 inductive_m_ind = self.state.project_scalar_mean_free(inductive_m_ind)
         elif "steady_state" in self.output_timeseries.datasets.keys():
@@ -459,7 +362,7 @@ class Dynamics(object):
                 # Save state and steady state time series.
                 if should_save_sample:
                     if run_inductive:
-                        self.output_timeseries.save("state", self.io)
+                        self.data.save_output_dataset("state")
                         if not quiet:
                             print(
                                 "Saved state at t = {:.2f} s".format(self.current_time),
@@ -468,7 +371,7 @@ class Dynamics(object):
                             )
 
                     if run_steady_state:
-                        self.output_timeseries.save("steady_state", self.io)
+                        self.data.save_output_dataset("steady_state")
                         if not quiet:
                             print(
                                 "Saved steady state at t = {:.2f} s".format(self.current_time),
@@ -507,9 +410,9 @@ class Dynamics(object):
                     "steady_state", steady_state_m_ind, E_coeffs_noind, m_imp_noind
                 )
 
-            self.output_timeseries.save("state", self.io)
+            self.data.save_output_dataset("state")
             if bool(self.settings.save_steady_states):
-                self.output_timeseries.save("steady_state", self.io)
+                self.data.save_output_dataset("steady_state")
 
             if not quiet:
                 print(f"Imposed steady state at t = {float(self.current_time):.2f} s")
@@ -552,7 +455,7 @@ class Dynamics(object):
             ),
         }
 
-        self.output_timeseries.add_entry(key, state_data, time=self.current_time)
+        self.data.add_output_entry(key, state_data, time=self.current_time)
 
     def set_FAC(
         self,
@@ -959,11 +862,11 @@ class Dynamics(object):
         """Project gridded input data and store coefficient entries."""
         input_time = self.adapt_input_time(time, input_data)
         input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
-        projector = self.input_projectors[key]
+        transform = self.input_transforms[key]
 
         projected_data = {}
         for var, values in input_data.items():
-            projected_values = projector.project(
+            projected_values = transform.project(
                 values,
                 input_grid=input_grid,
                 projection_basis=self.interpolation_bases[key],
@@ -985,7 +888,7 @@ class Dynamics(object):
                 input_time[time_index],
             )
 
-        self.input_timeseries.save(key, self.io)
+        self.data.save_input_dataset(key)
 
     def _add_input_coefficients(self, key, input_data, time):
         """Store input-basis coefficients directly in a time series."""
@@ -998,7 +901,7 @@ class Dynamics(object):
                 input_time[time_index],
             )
 
-        self.input_timeseries.save(key, self.io)
+        self.data.save_input_dataset(key)
 
     def adapt_input_time(self, time, data):
         """Adapt array of time values given with the input data.

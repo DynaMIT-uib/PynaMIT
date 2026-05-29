@@ -114,32 +114,32 @@ dynamics.state.update_E()
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
 plt_grid = pynamit.Grid(lat=lat, lon=lon)
-plt_state_evaluator = pynamit.BasisEvaluator(dynamics.state_basis, plt_grid)
+state_field_space = pynamit.FieldSpace.from_basis(
+    dynamics.horizontal_basis, field_type="scalar"
+)
+plt_state_evaluator = pynamit.FieldTransform(state_field_space, plt_grid)
 
 G_Br = plt_state_evaluator.scaled_G(dynamics.state.m_ind_to_Br)
 Br = G_Br.dot(dynamics.state.geometry.T_to_Ve.dot(dynamics.state.m_imp.coeffs))
 
 
 if PLOT_WIND:
-    u_basis_evaluator = pynamit.BasisEvaluator(
-        dynamics.state_basis, pynamit.Grid(lat=u_lat, lon=u_lon)
+    u_field_transform = pynamit.FieldTransform(
+        state_field_space, pynamit.Grid(lat=u_lat, lon=u_lon)
+    )
+    scalar_state_space = pynamit.FieldSpace(dynamics.horizontal_basis, field_type="scalar")
+
+    u_theta_sh = pynamit.CoefficientField(
+        scalar_state_space,
+        u_field_transform.to_coefficients(u_theta),
+    )
+    u_phi_sh = pynamit.CoefficientField(
+        scalar_state_space,
+        u_field_transform.to_coefficients(u_phi),
     )
 
-    u_theta_sh = pynamit.FieldExpansion(
-        dynamics.state_basis,
-        basis_evaluator=u_basis_evaluator,
-        grid_values=u_theta,
-        field_type="scalar",
-    )
-    u_phi_sh = pynamit.FieldExpansion(
-        dynamics.state_basis,
-        basis_evaluator=u_basis_evaluator,
-        grid_values=u_phi,
-        field_type="scalar",
-    )
-
-    u_theta_int = u_theta_sh.to_grid(dynamics.state_basis_evaluator)
-    u_phi_int = u_phi_sh.to_grid(dynamics.state_basis_evaluator)
+    u_theta_int = dynamics.horizontal_field_transform.to_grid(u_theta_sh)
+    u_phi_int = dynamics.horizontal_field_transform.to_grid(u_phi_sh)
 
     fig, ax = plt.subplots(
         figsize=(10, 7), subplot_kw={"projection": ccrs.PlateCarree(central_longitude=lon0)}

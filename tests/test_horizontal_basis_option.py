@@ -40,6 +40,11 @@ def test_horizontal_basis_kind_is_persisted(tmp_path):
     assert dynamics.horizontal_basis is dynamics.state.basis
     assert dynamics.radial_continuation_basis is not dynamics.horizontal_basis
     assert dynamics.radial_continuation_basis.supports_radial_potential_operators
+    assert dynamics.input_field_spaces["jr"].mean_free
+    assert dynamics.input_field_spaces["Br"].mean_free
+    assert dynamics.input_field_spaces["u"].mean_free
+    assert not dynamics.input_field_spaces["conductance"].mean_free
+    assert dynamics.output_field_spaces["state"].mean_free
 
 
 def test_area_weighted_least_squares_option_is_persisted(tmp_path):
@@ -93,7 +98,7 @@ def test_cs_horizontal_basis_runs_with_cs_outputs(tmp_path):
     assert "CS_m_imp" in state
     assert state["CS_m_ind"].shape[-1] == dynamics.state.basis.index_length
     assert dynamics.horizontal_basis is dynamics.state.basis
-    assert dynamics.horizontal_basis_evaluator is dynamics.state.geometry.basis_evaluator
+    assert dynamics.horizontal_field_transform is dynamics.state.geometry.field_transform
 
 
 def test_cs_horizontal_basis_runs_with_pfac(tmp_path):
@@ -176,7 +181,7 @@ def test_cs_horizontal_basis_supports_connected_hemispheres(tmp_path):
 
     geometry = dynamics.state.geometry
 
-    assert geometry.cp_basis_evaluator.G_helmholtz.shape == (
+    assert geometry.cp_field_transform.G_helmholtz.shape == (
         2,
         geometry.cp_grid.size,
         2,
@@ -186,7 +191,7 @@ def test_cs_horizontal_basis_supports_connected_hemispheres(tmp_path):
         2,
         dynamics.horizontal_basis.index_length,
     )
-    assert np.all(np.isfinite(geometry.cp_basis_evaluator.G_helmholtz))
+    assert np.all(np.isfinite(geometry.cp_field_transform.G_helmholtz))
     assert np.all(np.isfinite(geometry.E_coeffs_to_E_apex_ll_diff))
 
 
@@ -244,7 +249,7 @@ def test_cs_to_radial_continuation_projection_matches_grid_least_squares(tmp_pat
     expected = tensor_pinv(
         geometry.radial_continuation_evaluator.G,
         n_leading_flattened=1,
-    ) @ geometry.basis_evaluator.G
+    ) @ geometry.field_transform.G
 
     np.testing.assert_allclose(geometry.horizontal_to_radial_continuation, expected)
 
@@ -277,7 +282,7 @@ def test_cs_to_radial_continuation_supports_area_weighted_projection(tmp_path):
         geometry.radial_continuation_evaluator.G,
         sqrt_weights=np.sqrt(geometry.cs_basis.unit_area),
         n_leading_flattened=1,
-    ) @ geometry.basis_evaluator.G
+    ) @ geometry.field_transform.G
 
     np.testing.assert_allclose(geometry.horizontal_to_radial_continuation, expected)
 

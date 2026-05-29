@@ -37,15 +37,15 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
     assert isinstance(dynamics.radial_continuation_basis.root_basis, SHBasis)
     assert dynamics.horizontal_basis is dynamics.state.basis
     assert dynamics.radial_continuation_basis is not dynamics.horizontal_basis
-    assert dynamics.horizontal_basis_evaluator is dynamics.state.geometry.basis_evaluator
-    assert dynamics.state.geometry.basis_evaluator_zero_added.basis is dynamics.horizontal_basis
-    assert dynamics.output_storage_bases["state"] is dynamics.horizontal_basis
+    assert dynamics.horizontal_field_transform is dynamics.state.geometry.field_transform
+    assert dynamics.state.geometry.field_transform_zero_added.basis is dynamics.horizontal_basis
+    assert dynamics.output_field_spaces["state"].basis is dynamics.horizontal_basis
 
-    basis_evaluator = dynamics.state.geometry.basis_evaluator
+    field_transform = dynamics.state.geometry.field_transform
     expected_helmholtz = dynamics.horizontal_basis.get_helmholtz_synthesis_matrix(
         dynamics.state.geometry.grid
     )
-    np.testing.assert_allclose(basis_evaluator.G_helmholtz, expected_helmholtz)
+    np.testing.assert_allclose(field_transform.G_helmholtz, expected_helmholtz)
     np.testing.assert_allclose(
         dynamics.state.geometry.surface_laplacian_operator.to_dense(),
         dynamics.horizontal_basis.get_surface_laplacian_matrix(

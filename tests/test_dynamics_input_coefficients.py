@@ -3,6 +3,7 @@
 import numpy as np
 
 from pynamit.math.constants import RE
+from pynamit.primitives.coefficient_field import CoefficientField
 from pynamit.simulation.dynamics import Dynamics
 
 
@@ -21,7 +22,7 @@ def _small_dynamics(tmp_path, **kwargs):
 def test_set_jr_accepts_input_basis_coefficients(tmp_path):
     """Radial current coefficients are stored directly."""
     dynamics = _small_dynamics(tmp_path)
-    n_coeffs = dynamics.input_storage_bases["jr"].index_length
+    n_coeffs = dynamics.input_field_spaces["jr"].index_length
     jr_coeffs = np.arange(n_coeffs, dtype=float) + 0.25
 
     dynamics.set_jr(jr_coeffs, time=4.0, coefficients=True)
@@ -34,7 +35,7 @@ def test_set_jr_accepts_input_basis_coefficients(tmp_path):
 def test_set_Br_accepts_input_basis_coefficients(tmp_path):
     """Magnetospheric Br coefficients are stored directly."""
     dynamics = _small_dynamics(tmp_path, RM=4 * RE)
-    n_coeffs = dynamics.input_storage_bases["Br"].index_length
+    n_coeffs = dynamics.input_field_spaces["Br"].index_length
     br_coeffs = np.linspace(-1.0, 1.0, n_coeffs)
 
     dynamics.set_Br(br_coeffs, time=2.0, coefficients=True)
@@ -47,7 +48,7 @@ def test_set_Br_accepts_input_basis_coefficients(tmp_path):
 def test_set_wind_accepts_helmholtz_input_basis_coefficients(tmp_path):
     """Wind Helmholtz coefficients are stored directly."""
     dynamics = _small_dynamics(tmp_path)
-    n_coeffs = dynamics.input_storage_bases["u"].index_length
+    n_coeffs = dynamics.input_field_spaces["u"].index_length
     cf_coeffs = np.arange(n_coeffs, dtype=float)
     df_coeffs = -np.arange(n_coeffs, dtype=float) - 1.0
 
@@ -61,10 +62,27 @@ def test_set_wind_accepts_helmholtz_input_basis_coefficients(tmp_path):
     np.testing.assert_allclose(dataset.time.values, [3.0])
 
 
+def test_state_update_uses_coefficient_field_for_wind(tmp_path):
+    """State coefficient storage does not need the grid-aware expansion object."""
+    dynamics = _small_dynamics(tmp_path)
+    n_coeffs = dynamics.input_field_spaces["u"].index_length
+    cf_coeffs = np.arange(n_coeffs, dtype=float)
+    df_coeffs = -np.arange(n_coeffs, dtype=float) - 1.0
+
+    dynamics.set_wind(cf_coeffs, df_coeffs, time=3.0, coefficients=True)
+    dynamics.state.update(dynamics.input_timeseries, time=3.0)
+
+    assert isinstance(dynamics.state.u, CoefficientField)
+    np.testing.assert_allclose(
+        dynamics.state.u.coeffs,
+        np.vstack([cf_coeffs, df_coeffs]),
+    )
+
+
 def test_set_resistance_accepts_input_basis_coefficients(tmp_path):
     """Pedersen and Hall resistance coefficients are stored directly."""
     dynamics = _small_dynamics(tmp_path)
-    n_coeffs = dynamics.input_storage_bases["conductance"].index_length
+    n_coeffs = dynamics.input_field_spaces["conductance"].index_length
     etaP_coeffs = np.arange(n_coeffs, dtype=float) + 1.0
     etaH_coeffs = np.arange(n_coeffs, dtype=float) - 2.0
 

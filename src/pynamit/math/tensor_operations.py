@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 
-from pynamit.math.backend import get_array_module, to_numpy
+from pynamit.math.backend import block_after_jax_linalg, get_array_module, to_numpy
 
 
 def tensor_product(A, B, n_contracted):
@@ -34,7 +34,7 @@ def tensor_pinv(A, n_leading_flattened=2, rtol=1e-15, hermitian=False):
 
     A_flat = A_arr.reshape((flat_first, flat_last))
     A_pinv = xp.linalg.pinv(A_flat, rtol=rtol, hermitian=hermitian)
-    return A_pinv.reshape(last_dims + first_dims)
+    return block_after_jax_linalg(A_pinv).reshape(last_dims + first_dims)
 
 
 def weighted_tensor_pinv(A, sqrt_weights=None, n_leading_flattened=2, rtol=1e-15):
@@ -55,9 +55,8 @@ def weighted_tensor_pinv(A, sqrt_weights=None, n_leading_flattened=2, rtol=1e-15
     A_flat = A_arr.reshape((flat_first, flat_last))
     weighted_A = weights_flat.reshape((-1, 1)) * A_flat
     weighted_pinv = xp.linalg.pinv(weighted_A, rtol=rtol)
-    return (weighted_pinv * weights_flat.reshape((1, -1))).reshape(
-        last_dims + first_dims
-    )
+    weighted_pinv = block_after_jax_linalg(weighted_pinv)
+    return (weighted_pinv * weights_flat.reshape((1, -1))).reshape(last_dims + first_dims)
 
 
 def tensor_transpose(A, n_leading_flattened=2):
@@ -147,11 +146,13 @@ def tensor_svd(
     flat_first = math.prod(first_dims)
     flat_last = math.prod(last_dims)
 
-    U, S, VT = xp.linalg.svd(
-        A_arr.reshape((flat_first, flat_last)),
-        full_matrices=full_matrices,
-        compute_uv=compute_uv,
-        hermitian=hermitian,
+    U, S, VT = block_after_jax_linalg(
+        xp.linalg.svd(
+            A_arr.reshape((flat_first, flat_last)),
+            full_matrices=full_matrices,
+            compute_uv=compute_uv,
+            hermitian=hermitian,
+        )
     )
 
     first_zero = S.shape[0]

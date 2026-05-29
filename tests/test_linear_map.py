@@ -55,6 +55,60 @@ def test_dense_linear_map_accepts_numpy_inputs_with_jax_backend():
 
 
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
+def test_dense_linear_map_preserves_jax_dense_source(monkeypatch):
+    """JAX dense inputs should not materialize during creation."""
+    import jax.numpy as jnp
+    import pynamit.math.linear_map as linear_map_module
+
+    matrix = jnp.asarray([[1.0, 2.0], [3.0, 5.0], [7.0, 11.0]])
+    x = jnp.asarray([0.25, -2.0])
+
+    def fail_asarray(_):
+        raise AssertionError("as_linear_map should preserve JAX dense inputs")
+
+    with monkeypatch.context() as context:
+        context.setattr(linear_map_module.np, "asarray", fail_asarray)
+        linear_map = as_linear_map(matrix)
+
+    result = linear_map.matvec(x)
+    with monkeypatch.context() as context:
+        context.setattr(linear_map_module, "to_numpy", fail_asarray)
+        dense = linear_map.materialize_dense(jnp)
+
+    assert "jax" in type(result).__module__
+    assert "jax" in type(dense).__module__
+    np.testing.assert_allclose(np.asarray(result), np.asarray(matrix) @ np.asarray(x))
+    np.testing.assert_allclose(np.asarray(dense), np.asarray(matrix))
+
+
+@pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
+def test_diagonal_linear_map_preserves_jax_dense_source(monkeypatch):
+    """JAX diagonal inputs should not materialize during creation."""
+    import jax.numpy as jnp
+    import pynamit.math.linear_map as linear_map_module
+
+    diagonal = jnp.asarray([2.0, 3.0])
+    x = jnp.asarray([0.25, -2.0])
+
+    def fail_asarray(_):
+        raise AssertionError("as_linear_map should preserve JAX diagonal inputs")
+
+    with monkeypatch.context() as context:
+        context.setattr(linear_map_module.np, "asarray", fail_asarray)
+        linear_map = as_linear_map(diagonal)
+
+    result = linear_map.matvec(x)
+    with monkeypatch.context() as context:
+        context.setattr(linear_map_module, "to_numpy", fail_asarray)
+        dense = linear_map.materialize_dense(jnp)
+
+    assert "jax" in type(result).__module__
+    assert "jax" in type(dense).__module__
+    np.testing.assert_allclose(np.asarray(result), np.asarray(diagonal) * np.asarray(x))
+    np.testing.assert_allclose(np.asarray(dense), np.diag(np.asarray(diagonal)))
+
+
+@pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
 def test_linear_map_materialize_dense_uses_active_backend():
     """Dense materialization can stay on the active backend."""
     previous_backend = use_jax()
@@ -151,6 +205,54 @@ def test_tensor_chain_batched_application_matches_dense():
     np.testing.assert_allclose(chain.rmatmat(y_block), dense.T @ y_block)
     np.testing.assert_allclose(chain.normal_matrix_diag(), np.sum(dense**2, axis=0))
     np.testing.assert_allclose(as_linear_map(chain).normal_matrix_diag(), np.sum(dense**2, axis=0))
+
+
+@pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
+def test_tensor_chain_materialize_dense_uses_active_backend():
+    """TensorChain dense materialization can stay on JAX."""
+    previous_backend = use_jax()
+    matrix = np.array([[1.0, 2.0], [3.0, 5.0]])
+    chain = TensorChain(
+        component_tensors=[matrix],
+        einsum_string_dense="ij->ij",
+        einsum_string_matvec="ij,j->i",
+        einsum_string_rmatvec="i,ij->j",
+        output_shape=(2,),
+        input_shape=(2,),
+    )
+
+    try:
+        set_backend("jax")
+        dense = chain.materialize_dense()
+    finally:
+        set_backend(previous_backend)
+
+    assert "jax" in type(dense).__module__
+    np.testing.assert_allclose(np.asarray(dense), matrix)
+
+
+@pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
+def test_tensor_chain_dtype_does_not_materialize_jax_components(monkeypatch):
+    """TensorChain dtype should only inspect dtype metadata."""
+    import jax.numpy as jnp
+    import pynamit.math.tensor_chain as tensor_chain_module
+
+    chain = TensorChain(
+        component_tensors=[jnp.asarray([[1.0, 2.0], [3.0, 5.0]])],
+        einsum_string_dense="ij->ij",
+        einsum_string_matvec="ij,j->i",
+        einsum_string_rmatvec="i,ij->j",
+        output_shape=(2,),
+        input_shape=(2,),
+    )
+
+    def fail_to_numpy(_):
+        raise AssertionError("dtype should not materialize component arrays")
+
+    monkeypatch.setattr(tensor_chain_module, "to_numpy", fail_to_numpy)
+
+    assert np.dtype(chain.dtype) == np.dtype(float)
+    assert chain.to_linear_map().dtype == np.dtype(float)
 
 
 def test_tensor_chain_complex_adjoint_matches_dense():

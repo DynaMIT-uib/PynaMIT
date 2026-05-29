@@ -9,7 +9,12 @@ from typing import Any, Callable, Dict, Final, List, Optional, Tuple, Union
 import numpy as np
 from scipy.sparse.linalg import LinearOperator, cg, lsmr
 
-from pynamit.math.backend import block_until_ready, get_array_module, to_numpy
+from pynamit.math.backend import (
+    block_after_jax_linalg,
+    block_until_ready,
+    get_array_module,
+    to_numpy,
+)
 from .least_squares_problem import LeastSquaresProblem
 from .linear_map import LinearMap, as_linear_map, diagonal_linear_map
 
@@ -97,15 +102,19 @@ class LeastSquaresSolver:
     ) -> np.ndarray:
         """Solve the normal equations with a direct dense solve."""
         xp, normal_matrix, normal_rhs = self._dense_normal_equations(problem, rhs_block)
-        return xp.linalg.solve(normal_matrix, normal_rhs)
+        return block_after_jax_linalg(xp.linalg.solve(normal_matrix, normal_rhs))
 
     def _solve_normal_pinv(
         self, problem: LeastSquaresProblem, rhs_block: np.ndarray, *args, **kwargs
     ) -> np.ndarray:
         """Solve through the pseudo-inverse of the normal equations."""
         xp, normal_matrix, normal_rhs = self._dense_normal_equations(problem, rhs_block)
-        normal_pinv = xp.linalg.pinv(normal_matrix, rtol=self.tolerance, hermitian=True)
-        return normal_pinv @ normal_rhs
+        normal_pinv = block_after_jax_linalg(
+            xp.linalg.pinv(normal_matrix, rtol=self.tolerance, hermitian=True)
+        )
+        # Finish this dependent backend matmul before callers assemble
+        # NumPy/SciPy blocks.
+        return block_until_ready(normal_pinv @ normal_rhs)
 
     def _dense_backend_arrays(
         self, problem: LeastSquaresProblem, rhs_block: np.ndarray
@@ -341,11 +350,12 @@ class LeastSquaresSolver:
             s_pinv[s > cutoff] = 1.0 / s[s > cutoff]
         else:
             system_matrix = block_until_ready(problem.assemble_dense_system_matrix())
-            _, s, vt = xp.linalg.svd(system_matrix, full_matrices=False)
+            _, s, vt = block_after_jax_linalg(
+                xp.linalg.svd(system_matrix, full_matrices=False)
+            )
             cutoff = tol * (s[0] if s.size > 0 else 0)
             safe_s = xp.where(s > cutoff, s, 1.0)
             s_pinv = xp.where(s > cutoff, 1.0 / safe_s, xp.zeros_like(s))
-            vt = block_until_ready(vt)
             s_pinv = block_until_ready(s_pinv)
 
         return vt, s_pinv, s_pinv**2

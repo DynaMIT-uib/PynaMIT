@@ -10,6 +10,7 @@ the simulation.
 import numpy as np
 import pandas as pd
 import xarray as xr
+from pynamit.primitives.coefficient_field import CoefficientField
 from pynamit.primitives.field_space import FieldSpace
 
 FLOAT_ERROR_MARGIN = 1e-6  # Safety margin for floating point errors
@@ -26,50 +27,26 @@ class Timeseries:
 
     def __init__(
         self,
-        field_spaces_or_cs_basis,
-        storage_bases_or_vars,
-        vars=None,
+        field_spaces,
+        variables,
+        *,
         area_weighted_least_squares=False,
     ):
         """Initialize the Timeseries class.
 
         Parameters
         ----------
-        field_spaces_or_cs_basis : dict or CSBasis
-            Mapping from time-series group to ``FieldSpace``. The legacy
-            constructor form passes the cubed-sphere basis here.
-        storage_bases_or_vars : dict
-            Variable schema in the new form, or storage bases in the
-            legacy constructor form.
-        vars : dict
-            Variable names and field types for each group when using the
-            legacy constructor form.
+        field_spaces : dict
+            Mapping from time-series group to ``FieldSpace``.
+        variables : dict
+            Variable names for each group.
         area_weighted_least_squares : bool, optional
             Preserved for callers that also construct projectors; the
             time-series object itself stores coefficients only.
         """
-        if vars is None:
-            self.cs_basis = None
-            self.vars = storage_bases_or_vars
-            self.field_spaces = {
-                key: self._normalize_field_space(key, field_space)
-                for key, field_space in field_spaces_or_cs_basis.items()
-            }
-        else:
-            self.cs_basis = field_spaces_or_cs_basis
-            self.vars = vars
-            self.field_spaces = {
-                key: FieldSpace.from_basis(
-                    basis,
-                    field_type=self._common_field_type(key),
-                    mean_free=getattr(basis, "mean_free", False),
-                )
-                for key, basis in storage_bases_or_vars.items()
-            }
+        self.variables = self._normalize_variables(variables)
+        self.field_spaces = self._normalize_field_spaces(field_spaces)
 
-        self.storage_bases = {
-            key: field_space.basis for key, field_space in self.field_spaces.items()
-        }
         self.area_weighted_least_squares = bool(area_weighted_least_squares)
 
         # Initialize variables and timeseries storage
@@ -80,29 +57,48 @@ class Timeseries:
         self._storage_kinds: dict[str, str] = {}
 
         self.basis_multiindices = {}
-        for key in self.vars.keys():
+        for key in self.variables.keys():
             self.basis_multiindices[key] = pd.MultiIndex.from_arrays(
                 self.field_spaces[key].multiindex_arrays(),
                 names=self.field_spaces[key].index_names,
             )
 
-    def _common_field_type(self, key):
-        """Return the shared field type for one time-series group."""
-        field_types = {self.vars[key][var] for var in self.vars[key]}
-        if len(field_types) != 1:
-            raise ValueError(
-                "Mixed scalar and tangential input (unsupported), or invalid input type"
-            )
-        return field_types.pop()
+    def _normalize_variables(self, variables):
+        """Return variable-name tuples after validating the schema shape."""
+        normalized = {}
+        for key, names in variables.items():
+            if isinstance(names, dict):
+                raise TypeError(
+                    "Timeseries variables must be sequences of variable names; "
+                    "field types belong in FieldSpace."
+                )
+            if isinstance(names, str):
+                raise TypeError("Timeseries variable groups must be sequences, not strings.")
+            normalized[key] = tuple(names)
+        return normalized
 
-    def _normalize_field_space(self, key, field_space):
-        """Validate or construct one field-space descriptor."""
-        common_field_type = self._common_field_type(key)
-        return FieldSpace.from_basis(field_space, field_type=common_field_type)
+    def _normalize_field_spaces(self, field_spaces):
+        """Return field spaces after validating schema keys and types."""
+        if set(field_spaces) != set(self.variables):
+            raise ValueError("Timeseries field_spaces and variables must use the same keys.")
+        normalized = {}
+        for key, field_space in field_spaces.items():
+            if not isinstance(field_space, FieldSpace):
+                raise TypeError("Timeseries field_spaces values must be FieldSpace instances.")
+            normalized[key] = field_space
+        return normalized
+
+    def get_storage_spec(self, key):
+        """Return the field-space descriptor for one stored series."""
+        return self.field_spaces[key]
+
+    def get_data_var_name(self, key, var):
+        """Return the stored xarray variable name for one series variable."""
+        return f"{self.get_storage_spec(key).kind}_{var}"
 
     def load_all(self, io):
         """Load all persisted timeseries datasets."""
-        for key in self.vars.keys():
+        for key in self.variables.keys():
             self.load(key, io)
 
     def load(self, key, io):
@@ -117,18 +113,19 @@ class Timeseries:
         dataset = io.load_dataset(key)
 
         if dataset is not None:
+            storage_basis = self.get_storage_spec(key).basis
             basis_multiindex = pd.MultiIndex.from_arrays(
                 [
-                    dataset[self.storage_bases[key].index_names[i]].values
-                    for i in range(len(self.storage_bases[key].index_names))
+                    dataset[storage_basis.index_names[i]].values
+                    for i in range(len(storage_basis.index_names))
                 ],
-                names=self.storage_bases[key].index_names,
+                names=storage_basis.index_names,
             )
             coords = xr.Coordinates.from_pandas_multiindex(basis_multiindex, dim="i").merge(
                 {"time": dataset.time.values}
             )
             self.datasets[key] = dataset.drop_vars(
-                self.storage_bases[key].index_names
+                storage_basis.index_names
             ).assign_coords(coords)
             self._pending_start[key] = int(self.datasets[key].sizes.get("time", 0))
             self._full_save_required[key] = False
@@ -150,12 +147,22 @@ class Timeseries:
         time : float
             The time point for the data.
         """
+        expected_variables = set(self.variables[key])
+        actual_variables = set(data)
+        if actual_variables != expected_variables:
+            raise ValueError(
+                f"{key} entry has variables {sorted(actual_variables)}, "
+                f"expected {sorted(expected_variables)}."
+            )
+
         data_vars = {}
         for var in data:
-            values = self.field_spaces[key].validate_coefficients(
-                data[var], name=f"{key}.{var}"
-            )
-            data_vars[self.storage_bases[key].kind + "_" + var] = (
+            values = CoefficientField(
+                self.field_spaces[key],
+                data[var],
+                name=f"{key}.{var}",
+            ).coeffs
+            data_vars[self.get_data_var_name(key, var)] = (
                 ["time", "i"],
                 values.reshape((1, -1)),
             )
@@ -218,7 +225,7 @@ class Timeseries:
 
         if current_data is not None:
             # Check if the data has changed since the last time.
-            if not all([var in self.previous_data.keys() for var in self.vars[key]]) or (
+            if not all([var in self.previous_data.keys() for var in self.variables[key]]) or (
                 not all(
                     [
                         np.allclose(
@@ -227,12 +234,12 @@ class Timeseries:
                             rtol=FLOAT_ERROR_MARGIN,
                             atol=0.0,
                         )
-                        for var in self.vars[key]
+                        for var in self.variables[key]
                     ]
                 )
             ):
                 # Update the previous data with the current data.
-                for var in self.vars[key]:
+                for var in self.variables[key]:
                     self.previous_data[var] = current_data[var]
 
                 return current_data
@@ -266,9 +273,9 @@ class Timeseries:
                 time=[time + FLOAT_ERROR_MARGIN], method="ffill"
             )
 
-            for var in self.vars[key]:
+            for var in self.variables[key]:
                 current_data[var] = dataset_before[
-                    self.storage_bases[key].kind + "_" + var
+                    self.get_data_var_name(key, var)
                 ].values.flatten()
 
             # If requested, add linear interpolation correction.
@@ -278,16 +285,16 @@ class Timeseries:
                 dataset_after = self.datasets[key].sel(
                     time=[time + FLOAT_ERROR_MARGIN], method="bfill"
                 )
-                for var in self.vars[key]:
+                for var in self.variables[key]:
                     current_data[var] += (
                         (time - dataset_before.time.item())
                         / (dataset_after.time.item() - dataset_before.time.item())
                         * (
                             dataset_after[
-                                self.storage_bases[key].kind + "_" + var
+                                self.get_data_var_name(key, var)
                             ].values.flatten()
                             - dataset_before[
-                                self.storage_bases[key].kind + "_" + var
+                                self.get_data_var_name(key, var)
                             ].values.flatten()
                         )
                     )

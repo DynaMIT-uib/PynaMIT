@@ -8,9 +8,10 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from pynamit.sphere import CSBasis, SHBasis
+from pynamit.sphere import SHBasis
 from pynamit.default_run import run_pynamit
 from pynamit.primitives.io import IO
+from pynamit.primitives.field_space import FieldSpace
 from pynamit.primitives.timeseries import Timeseries
 from pynamit.simulation.dynamics import Dynamics
 
@@ -36,17 +37,15 @@ def _first_data_chunk(store: Path, variable_name: str) -> Path:
 
 
 def _build_state_timeseries() -> Timeseries:
-    cs_basis = CSBasis(4)
     sh_basis = SHBasis(2, 1)
     return Timeseries(
-        cs_basis,
-        {"state": sh_basis},
-        {"state": {"m_ind": "scalar", "m_imp": "scalar"}},
+        {"state": FieldSpace(sh_basis, field_type="scalar")},
+        {"state": ("m_ind", "m_imp")},
     )
 
 
 def _add_state(ts: Timeseries, time: float, scale: float) -> None:
-    n_coeffs = ts.storage_bases["state"].index_length
+    n_coeffs = ts.get_storage_spec("state").index_length
     values = np.arange(n_coeffs, dtype=float) + scale
     ts.add_entry(
         "state",
@@ -78,6 +77,23 @@ def test_io_explicit_zarr_requires_dependency(tmp_path, monkeypatch):
 
     with pytest.raises(ImportError, match="optional 'zarr' dependency"):
         io.save_dataset(_small_dataset(), "state")
+
+
+def test_io_auto_zarr_permission_error_is_not_silent(tmp_path, monkeypatch):
+    """Permission failures should stop instead of silently changing format."""
+    monkeypatch.setattr(IO, "zarr_available", staticmethod(lambda: True))
+
+    def raising_to_zarr(self, store, *args, **kwargs):
+        raise PermissionError("simulated zarr permission failure")
+
+    monkeypatch.setattr(xr.Dataset, "to_zarr", raising_to_zarr)
+    io = IO(tmp_path / "run")
+
+    with pytest.raises(PermissionError, match="simulated zarr permission failure"):
+        io.save_dataset(_small_dataset(), "state")
+
+    assert not (tmp_path / "run" / "state.ncdf").exists()
+    assert not (tmp_path / "run" / "state.zarr").exists()
 
 
 def test_io_roundtrips_real_zarr_when_available(tmp_path):
@@ -172,7 +188,7 @@ def test_timeseries_rewrites_zarr_for_same_time_replacement(tmp_path):
 
     assert calls == [("state", None, 1), ("state", None, 1)]
     loaded = io.load_dataset("state")
-    n_coeffs = ts.storage_bases["state"].index_length
+    n_coeffs = ts.get_storage_spec("state").index_length
     np.testing.assert_allclose(
         loaded["SH_m_ind"].values[0], np.arange(n_coeffs, dtype=float) + 10.0
     )

@@ -133,7 +133,10 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     lat, lon = np.linspace(-89.9, 89.9, NLA), np.linspace(-180, 180, NLO)
     lat, lon = map(np.ravel, np.meshgrid(lat, lon))
     plt_grid = pynamit.Grid(lat=lat, lon=lon)
-    plt_state_evaluator = pynamit.BasisEvaluator(dynamics.state_basis, plt_grid)
+    plt_state_evaluator = pynamit.FieldTransform(
+        pynamit.FieldSpace.from_basis(dynamics.horizontal_basis, field_type="scalar"),
+        plt_grid,
+    )
     plt_b_evaluator = pynamit.FieldEvaluator(dynamics.state.mainfield, plt_grid, dynamics.state.RI)
 
     # Calculate values to plot.

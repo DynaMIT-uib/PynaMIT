@@ -1,7 +1,7 @@
-"""Basis evaluator module.
+"""Field transform module.
 
-This module contains the BasisEvaluator class for evaluating basis
-expansions on a grid.
+This module contains the FieldTransform class for converting between
+field-space coefficients and grid values.
 """
 
 import numpy as np
@@ -9,7 +9,11 @@ import numpy as np
 from pynamit.math.backend import get_array_module
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver, get_default_least_squares_solver
-from pynamit.sphere.core import SurfaceOperators
+from pynamit.primitives.coefficient_field import CoefficientField
+from pynamit.primitives.field_space import FieldSpace
+from pynamit.sphere.core import SurfaceOperators, is_grid_basis
+
+FLOAT_ERROR_MARGIN = 1e-6
 
 
 def grid_sqrt_area_weights(grid):
@@ -36,29 +40,38 @@ def resolve_sqrt_weights(grid, sqrt_weights=None, area_weighted=False, vector=Fa
     return xp.tile(weights, (2, 1)) if vector else weights
 
 
-class BasisEvaluator(object):
-    """Object for evaluating basis expansions on a grid.
+class FieldTransform(object):
+    """Two-way transform between one ``FieldSpace`` and one grid.
 
-    This class provides methods for evaluating basis expansions on a
-    grid and for constructing least-squares problems to find the basis
-    expansion coefficients corresponding to given grid values.
+    This class owns both synthesis (coefficients to grid values) and
+    analysis (grid values to coefficients). It also handles batched
+    projection from external input grids when a target grid basis is
+    supplied.
     """
 
     def __init__(
         self,
-        basis,
+        field_space,
         grid,
+        *,
+        grid_basis=None,
         sqrt_weights=None,
         reg_lambda=None,
         pinv_rtol=1e-15,
         area_weighted=False,
     ):
-        """Initialize the BasisEvaluator object."""
-        if not isinstance(basis, SurfaceOperators):
-            raise TypeError("BasisEvaluator requires a basis implementing SurfaceOperators.")
-        basis.validate_metadata()
-        self.basis = basis
+        """Initialize the FieldTransform object."""
+        if not isinstance(field_space, FieldSpace):
+            raise TypeError("FieldTransform requires a FieldSpace.")
+        if not isinstance(field_space.basis, SurfaceOperators):
+            raise TypeError(
+                "FieldTransform requires a FieldSpace whose basis implements SurfaceOperators."
+            )
+        self.field_space = field_space
+        self.basis = field_space.basis
+        self.basis.validate_metadata()
         self.grid = grid
+        self.grid_basis = grid_basis
         self.explicit_sqrt_weights = sqrt_weights is not None
         self.area_weighted = bool(area_weighted)
         self.sqrt_weights = resolve_sqrt_weights(
@@ -75,6 +88,7 @@ class BasisEvaluator(object):
 
         self._least_squares_problem = None
         self._least_squares_problem_helmholtz = None
+        self._input_transform = None
 
     @property
     def G(self):
@@ -261,7 +275,79 @@ class BasisEvaluator(object):
         solver = LeastSquaresSolver(solver=solver_type, tolerance=self.pinv_rtol)
         return solver.solve(problem=problem, rhs=grid_values)
 
-    def basis_to_grid(self, coeffs, derivative=None, helmholtz=False):
+    def to_grid(self, coeffs, derivative=None):
+        """Transform coefficients in this field space to grid values."""
+        coeff_array = self._coefficient_array(coeffs)
+        if self.field_space.field_type == "tangential":
+            return self._coefficients_to_grid(coeff_array, helmholtz=True)
+        return self._coefficients_to_grid(
+            coeff_array, derivative=derivative, helmholtz=False
+        )
+
+    def to_coefficients(self, grid_values, solver_type=None):
+        """Transform grid values to validated field coefficients."""
+        if is_grid_basis(self.basis):
+            coeffs = grid_values
+        elif self.field_space.field_type == "tangential":
+            coeffs = self.least_squares_solution_helmholtz(grid_values, solver_type)
+        else:
+            coeffs = self.least_squares_solution(grid_values, solver_type)
+        return CoefficientField(self.field_space, coeffs).coeffs
+
+    def regularization_term(self, coeffs):
+        """Return the field-space regularization term."""
+        coeff_array = self._coefficient_array(coeffs)
+        if self.field_space.field_type == "tangential":
+            return np.tensordot(self.L_helmholtz, coeff_array, 2)
+        return np.dot(coeff_array, np.dot(self.L, coeff_array))
+
+    def project(
+        self,
+        values,
+        *,
+        input_grid,
+        projection_basis,
+        sqrt_weights=None,
+        reg_lambda=None,
+        pinv_rtol=1e-15,
+    ):
+        """Project grid values to coefficient rows."""
+        value_batch = self._normalize_value_batch(values, input_grid)
+        direct_projection = self._basis_can_project_directly(projection_basis)
+
+        coeff_rows = []
+        if direct_projection:
+            self._validate_direct_projection_basis(projection_basis)
+            input_transform = self._get_input_transform(
+                projection_basis,
+                input_grid,
+                sqrt_weights=sqrt_weights,
+                reg_lambda=reg_lambda,
+                pinv_rtol=pinv_rtol,
+            )
+            for time_index in range(value_batch.shape[0]):
+                coeff_rows.append(input_transform.to_coefficients(value_batch[time_index]))
+        else:
+            for time_index in range(value_batch.shape[0]):
+                grid_values = self._interpolate_to_grid(value_batch[time_index], input_grid)
+                coeff_rows.append(self.to_coefficients(grid_values))
+
+        return np.asarray(
+            [
+                CoefficientField(self.field_space, row).coeffs.reshape(-1)
+                for row in coeff_rows
+            ]
+        )
+
+    def _coefficient_array(self, coeffs):
+        """Return validated coefficient values."""
+        if isinstance(coeffs, CoefficientField):
+            if coeffs.field_space != self.field_space:
+                raise ValueError("CoefficientField field_space does not match transform.")
+            coeffs = coeffs.coeffs
+        return self.field_space.validate_coefficients(coeffs)
+
+    def _coefficients_to_grid(self, coeffs, derivative=None, helmholtz=False):
         """Transform basis coefficients to grid values."""
         if derivative == "theta":
             return np.dot(self.G_th, coeffs)
@@ -272,20 +358,6 @@ class BasisEvaluator(object):
         else:
             return np.dot(self.G, coeffs)
 
-    def grid_to_basis(self, grid_values, helmholtz=False):
-        """Transform grid values to basis coefficients."""
-        if helmholtz:
-            return self.least_squares_solution_helmholtz(grid_values)
-        else:
-            return self.least_squares_solution(grid_values)
-
-    def regularization_term(self, coeffs, helmholtz=False):
-        """Return the regularization term."""
-        if helmholtz:
-            return np.tensordot(self.L_helmholtz, coeffs, 2)
-        else:
-            return np.dot(coeffs, np.dot(self.L, coeffs))
-
     def contract_G(self, operator):
         """Return G contracted with a coefficient vector or matrix."""
         operator = np.asarray(operator)
@@ -294,3 +366,159 @@ class BasisEvaluator(object):
         if operator.ndim == 2:
             return self.G @ operator
         raise ValueError("operator must be a vector or matrix.")
+
+    def _normalize_value_batch(self, values, input_grid):
+        """Return values with canonical time-first layout."""
+        n_points = int(input_grid.size)
+        array = np.asarray(values)
+
+        if self.field_space.field_type == "scalar":
+            if array.ndim == 1:
+                if array.size != n_points:
+                    raise ValueError(
+                        f"Scalar field has {array.size} points, expected {n_points}."
+                    )
+                return array.reshape(1, n_points)
+            if array.ndim == 2:
+                if array.shape[-1] == n_points:
+                    return array
+                if array.shape[0] == n_points:
+                    return array.T
+            raise ValueError(
+                "Scalar projection expects shape (N,), (T, N), or (N, T); "
+                f"got {array.shape} for grid size {n_points}."
+            )
+
+        if array.ndim == 2:
+            if array.shape == (2, n_points):
+                return array.reshape(1, 2, n_points)
+            if array.shape == (n_points, 2):
+                return array.T.reshape(1, 2, n_points)
+        elif array.ndim == 3:
+            if array.shape[1:] == (2, n_points):
+                return array
+            if array.shape[:2] == (2, n_points):
+                return np.moveaxis(array, -1, 0)
+            if array.shape[1:] == (n_points, 2):
+                return np.moveaxis(array, -1, 1)
+
+        raise ValueError(
+            "Tangential projection expects shape (2, N), (T, 2, N), "
+            f"(N, 2), or (T, N, 2); got {array.shape} for grid size {n_points}."
+        )
+
+    def _basis_can_project_directly(self, projection_basis):
+        """Return whether the input basis should be fitted directly."""
+        return isinstance(projection_basis, SurfaceOperators) and not is_grid_basis(
+            projection_basis
+        )
+
+    def _validate_direct_projection_basis(self, projection_basis):
+        """Raise if direct-fit coefficients would not match storage."""
+        if self.basis is projection_basis:
+            return
+        compatible = getattr(self.basis, "coefficients_are_compatible_with", None)
+        if callable(compatible) and compatible(projection_basis):
+            return
+        raise ValueError(
+            "Direct projection basis is not coefficient-compatible with the "
+            "target field space."
+        )
+
+    def _get_input_transform(
+        self,
+        projection_basis,
+        input_grid,
+        *,
+        sqrt_weights=None,
+        reg_lambda=None,
+        pinv_rtol=1e-15,
+    ):
+        """Return transform for direct input-grid projection."""
+        transform = self._input_transform
+        if transform is not None and self._input_transform_matches(
+            transform,
+            projection_basis,
+            input_grid,
+            sqrt_weights=sqrt_weights,
+            reg_lambda=reg_lambda,
+            pinv_rtol=pinv_rtol,
+        ):
+            return transform
+
+        transform = FieldTransform(
+            FieldSpace.from_basis(
+                projection_basis,
+                field_type=self.field_space.field_type,
+                mean_free=getattr(projection_basis, "mean_free", self.field_space.mean_free),
+            ),
+            input_grid,
+            sqrt_weights=sqrt_weights,
+            reg_lambda=reg_lambda,
+            pinv_rtol=pinv_rtol,
+            area_weighted=self.area_weighted,
+        )
+        self._input_transform = transform
+        return transform
+
+    def _input_transform_matches(
+        self,
+        transform,
+        projection_basis,
+        input_grid,
+        *,
+        sqrt_weights=None,
+        reg_lambda=None,
+        pinv_rtol=1e-15,
+    ):
+        """Return whether a cached input transform can be reused."""
+        if transform.basis is not projection_basis:
+            return False
+        if sqrt_weights is not None or transform.explicit_sqrt_weights:
+            return False
+        return (
+            input_grid.theta.shape == transform.grid.theta.shape
+            and input_grid.phi.shape == transform.grid.phi.shape
+            and transform.reg_lambda == reg_lambda
+            and transform.pinv_rtol == pinv_rtol
+            and transform.area_weighted == self.area_weighted
+            and np.allclose(
+                input_grid.theta,
+                transform.grid.theta,
+                rtol=0.0,
+                atol=FLOAT_ERROR_MARGIN,
+            )
+            and np.allclose(
+                input_grid.phi,
+                transform.grid.phi,
+                rtol=0.0,
+                atol=FLOAT_ERROR_MARGIN,
+            )
+        )
+
+    def _interpolate_to_grid(self, values, input_grid):
+        """Interpolate one field slice to this transform's grid."""
+        if self.grid_basis is None:
+            raise ValueError("grid_basis is required for grid interpolation.")
+
+        if self.field_space.field_type == "scalar":
+            return self.grid_basis.interpolate_scalar(
+                values,
+                input_grid.theta,
+                input_grid.phi,
+                self.grid_basis.arr_theta,
+                self.grid_basis.arr_phi,
+            )
+
+        interpolated_east, interpolated_north, _ = (
+            self.grid_basis.interpolate_vector_components(
+                values[1],
+                -values[0],
+                np.zeros_like(values[0]),
+                input_grid.theta,
+                input_grid.phi,
+                self.grid_basis.arr_theta,
+                self.grid_basis.arr_phi,
+            )
+        )
+        return np.vstack((-interpolated_north, interpolated_east))

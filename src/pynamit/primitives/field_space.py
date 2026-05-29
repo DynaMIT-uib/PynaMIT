@@ -10,11 +10,11 @@ import numpy as np
 class FieldSpace:
     """Describe the coefficient space for one field.
 
-    ``FieldSpace`` deliberately carries no values and performs no
-    projection. It is the small bit of structural metadata shared by
-    time-series storage and field projection: the basis, whether the
-    field is scalar or tangential, and whether the space is intended to
-    be mean-free.
+    ``FieldSpace`` deliberately carries no values and does not evaluate
+    fields on grids. It is the structural metadata shared by time-series
+    storage and coefficient transforms: the basis, whether the field is
+    scalar or tangential, and whether stored coefficients should satisfy
+    a mean-free gauge.
     """
 
     basis: Any
@@ -37,6 +37,11 @@ class FieldSpace:
                 raise ValueError(
                     f"FieldSpace already has field_type={basis.field_type!r}, "
                     f"not {field_type!r}."
+                )
+            if mean_free is not None and basis.mean_free != bool(mean_free):
+                raise ValueError(
+                    f"FieldSpace already has mean_free={basis.mean_free!r}, "
+                    f"not {bool(mean_free)!r}."
                 )
             return basis
         if mean_free is None:
@@ -88,6 +93,19 @@ class FieldSpace:
         return [
             np.tile(values, self.component_count) for values in self.index_arrays
         ]
+
+    def project_mean_free(self, coeffs):
+        """Apply this space's mean-free coefficient policy."""
+        array = np.asarray(coeffs)
+        if not self.mean_free:
+            return array
+
+        if self.field_type == "scalar":
+            projector = getattr(self.basis, "project_scalar_mean_free", None)
+        else:
+            projector = getattr(self.basis, "project_helmholtz_mean_free", None)
+
+        return projector(array) if callable(projector) else array
 
     def validate_coefficients(self, coeffs, *, name="coefficients"):
         """Return coefficients as an array after length validation."""

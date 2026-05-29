@@ -6,11 +6,12 @@ import pytest
 import numpy as np
 
 import pynamit
-from pynamit.primitives.basis_evaluator import (
-    BasisEvaluator,
+from pynamit.primitives.field_transform import (
+    FieldTransform,
     grid_sqrt_area_weights,
     resolve_sqrt_weights,
 )
+from pynamit.primitives.field_space import FieldSpace
 from pynamit.math import JAX_AVAILABLE, set_backend, to_jax, to_numpy, use_jax
 from pynamit.math.tensor_operations import weighted_tensor_pinv
 from pynamit.sphere import (
@@ -116,7 +117,7 @@ def test_surface_operator_builders_match_component_matrices():
     np.testing.assert_allclose(laplacian_matrix, laplacian)
     np.testing.assert_allclose(laplacian, cs_basis.laplacian())
 
-    evaluator = BasisEvaluator(cs_basis, grid)
+    evaluator = FieldTransform(FieldSpace(cs_basis, field_type="scalar"), grid)
     np.testing.assert_allclose(evaluator.G_th, G_theta)
     np.testing.assert_allclose(evaluator.G_ph, G_phi)
 
@@ -385,11 +386,11 @@ def test_csbasis_multi_vector_interpolation_matches_per_field_calls():
         np.testing.assert_allclose(multi[component_index], expected)
 
 
-def test_basis_evaluator_contract_g_matches_explicit_products():
-    """BasisEvaluator.contract_G contracts G with vectors/matrices."""
+def test_field_transform_contract_g_matches_explicit_products():
+    """FieldTransform.contract_G contracts G with vectors/matrices."""
     cs_basis = CSBasis(8)
-    evaluator = BasisEvaluator(
-        cs_basis,
+    evaluator = FieldTransform(
+        FieldSpace(cs_basis, field_type="scalar"),
         Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi),
     )
     vector = np.linspace(1.0, 2.0, cs_basis.index_length)
@@ -407,8 +408,8 @@ def test_basis_evaluator_contract_g_matches_explicit_products():
 def test_grid_basis_regularization_requires_degree_metadata():
     """Degree-weighted regularization declares basis support."""
     cs_basis = CSBasis(8)
-    evaluator = BasisEvaluator(
-        cs_basis,
+    evaluator = FieldTransform(
+        FieldSpace(cs_basis, field_type="scalar"),
         Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi),
         reg_lambda=1.0,
     )
@@ -452,10 +453,11 @@ def test_area_weight_option_and_explicit_weights_override():
     )
     explicit = np.linspace(1.0, 2.0, grid.size)
 
-    unweighted = BasisEvaluator(cs_basis, grid, area_weighted=False)
-    weighted = BasisEvaluator(cs_basis, grid, area_weighted=True)
-    overridden = BasisEvaluator(
-        cs_basis,
+    field_space = FieldSpace(cs_basis, field_type="scalar")
+    unweighted = FieldTransform(field_space, grid, area_weighted=False)
+    weighted = FieldTransform(field_space, grid, area_weighted=True)
+    overridden = FieldTransform(
+        field_space,
         grid,
         sqrt_weights=explicit,
         area_weighted=True,

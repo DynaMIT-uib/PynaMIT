@@ -51,6 +51,10 @@ dynamics = pynamit.Dynamics(
     t0=str(date),
     integrator="exponential",
 )
+state_field_space = pynamit.FieldSpace.from_basis(
+    dynamics.state.basis, field_type="scalar"
+)
+conductance_field_space = dynamics.input_field_spaces["conductance"]
 
 mage_dir = "./mage_data/"
 mage_tag = "msphere"
@@ -76,8 +80,8 @@ theta = np.rad2deg(np.arctan2(np.sqrt(x_c**2 + y_c**2), z_c))
 phi = np.rad2deg(np.arctan2(y_c, x_c))
 
 Br_grid = pynamit.Grid(theta=theta.flatten(), phi=phi.flatten())
-Br_basis_evaluator = pynamit.BasisEvaluator(
-    dynamics.state.basis,
+Br_field_transform = pynamit.FieldTransform(
+    state_field_space,
     Br_grid,
     sqrt_weights=np.sqrt(np.sin(np.deg2rad(theta.flatten()))),
     reg_lambda=BR_LAMBDA,
@@ -117,45 +121,45 @@ for step in range(0, nstep):
         lon = phi
         pynamit.globalplot(lon, lat, delta_Br, cmap=plt.cm.bwr, extend="both")
 
-    Br_expansion = pynamit.FieldExpansion(
-        dynamics.state.basis,
-        basis_evaluator=Br_basis_evaluator,
-        grid_values=delta_Br.flatten(),
-        field_type="scalar",
+    Br_field = pynamit.CoefficientField(
+        state_field_space,
+        Br_field_transform.to_coefficients(delta_Br.flatten()),
     )
 
     plt_lat, plt_lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)
     plt_lat, plt_lon = np.meshgrid(plt_lat, plt_lon)
     plt_grid = pynamit.Grid(lat=plt_lat, lon=plt_lon)
-    plt_evaluator = pynamit.BasisEvaluator(dynamics.state.basis, plt_grid)
-    conductance_plt_evaluator = pynamit.BasisEvaluator(dynamics.state.conductance_basis, plt_grid)
+    plt_evaluator = pynamit.FieldTransform(state_field_space, plt_grid)
+    conductance_plt_evaluator = pynamit.FieldTransform(
+        conductance_field_space, plt_grid
+    )
 
     if PLOT_BR:
         pynamit.globalplot(
             plt_lon,
             plt_lat,
-            Br_expansion.to_grid(plt_evaluator).reshape(plt_lon.shape),
+            plt_evaluator.to_grid(Br_field).reshape(plt_lon.shape),
             cmap=plt.cm.bwr,
             extend="both",
             title="Br at 1.5 RI",
         )
     # Shift from 1.5 RI to 1.0 RI.
     # This is now done inside state, assuming that Br is at RM.
-    # Br_expansion.coeffs = Br_expansion.coeffs
+    # Br_field.coeffs = Br_field.coeffs
     # * dynamics.state.basis.radial_shift_Ve(1.5, 1)
 
     # if PLOT_BR:
     #    pynamit.globalplot(
     #        plt_lon,
     #        plt_lat,
-    #        Br_expansion.to_grid(plt_evaluator).reshape(plt_lon.shape),
+    #        plt_evaluator.to_grid(Br_field).reshape(plt_lon.shape),
     #        cmap=plt.cm.bwr,
     #        extend="both",
     #        title="Br at 1.0 RI",
     #    )
 
     dynamics.set_Br(
-        Br_expansion.to_grid(dynamics.state.basis_evaluator),
+        dynamics.state.geometry.field_transform.to_grid(Br_field),
         theta=dynamics.state.geometry.grid.theta,
         phi=dynamics.state.geometry.grid.phi,
         time=dt * step,
@@ -321,7 +325,9 @@ for step in range(0, nstep):
         pynamit.globalplot(
             plt_lon,
             plt_lat,
-            dynamics.state.jr.to_grid(plt_evaluator).reshape(plt_lon.shape),
+            pynamit.FieldTransform(dynamics.state.jr.field_space, plt_grid)
+            .to_grid(dynamics.state.jr)
+            .reshape(plt_lon.shape),
             cmap=plt.cm.bwr,
             extend="both",
             title="jr",
@@ -331,7 +337,7 @@ for step in range(0, nstep):
         pynamit.globalplot(
             plt_lon,
             plt_lat,
-            dynamics.state.etaP.to_grid(conductance_plt_evaluator).reshape(plt_lon.shape),
+            conductance_plt_evaluator.to_grid(dynamics.state.etaP).reshape(plt_lon.shape),
             cmap=plt.cm.viridis,
             extend="both",
             title="etaP",
@@ -340,7 +346,7 @@ for step in range(0, nstep):
         pynamit.globalplot(
             plt_lon,
             plt_lat,
-            dynamics.state.etaH.to_grid(conductance_plt_evaluator).reshape(plt_lon.shape),
+            conductance_plt_evaluator.to_grid(dynamics.state.etaH).reshape(plt_lon.shape),
             cmap=plt.cm.viridis,
             extend="both",
             title="etaH",
@@ -473,11 +479,11 @@ for step in range(0, nstep):
         lat, lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)
         lat, lon = np.meshgrid(lat, lon)
         plt_grid = pynamit.Grid(lat=lat, lon=lon)
-        plt_evaluator = pynamit.BasisEvaluator(dynamics.state.jr_basis, plt_grid)
+        plt_evaluator = pynamit.FieldTransform(dynamics.state.jr.field_space, plt_grid)
         b_evaluator = pynamit.FieldEvaluator(dynamics.mainfield, plt_grid, RI)
 
         dynamics.set_state_variables("jr")
-        jr_interpolated = plt_evaluator.basis_to_grid(dynamics.state.jr.coeffs)
+        jr_interpolated = plt_evaluator.to_grid(dynamics.state.jr)
 
         # jr interpolated:
         contours_interpolated = {}
