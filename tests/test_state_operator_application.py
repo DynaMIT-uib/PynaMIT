@@ -197,3 +197,84 @@ def test_steady_state_operator_preserves_jax_matrix():
 
     assert "jax" in type(result).__module__
     np.testing.assert_allclose(np.asarray(result), matrix @ coeffs)
+
+
+def test_poloidal_matrix_accessors_match_runtime_operator_chain():
+    """Dense accessors should expose the same E_df/rate operators."""
+    n = 3
+    divergence_free_potential = np.arange(n * 2 * n, dtype=float).reshape(n, 2, n) / 10.0
+    u_to_E = np.arange(2 * n * 2 * n, dtype=float).reshape(2, n, 2, n) / 20.0
+    m_imp_to_E = np.arange(2 * n * n, dtype=float).reshape(2, n, n) / 30.0
+    E_direct_to_m_imp = np.arange(n * 2 * n, dtype=float).reshape(n, 2, n) / 40.0
+    jr_to_m_imp = np.arange(n * n, dtype=float).reshape(n, n) / 50.0
+    m_ind_to_E_df = np.arange(n * n, dtype=float).reshape(n, n) / 60.0
+    scale = 2.5
+
+    state = object.__new__(State)
+    state.basis = SimpleNamespace(index_length=n)
+    state.geometry = SimpleNamespace(
+        helmholtz_divergence_free_potential_operator=as_linear_map(
+            divergence_free_potential,
+            input_shape=(2, n),
+            output_shape=(n,),
+        ),
+        E_df_to_d_m_ind_dt=scale,
+    )
+    state._u_coeffs_to_E_coeffs = TensorChain(
+        component_tensors=[u_to_E],
+        einsum_string_dense="cmrs->cmrs",
+        einsum_string_matvec="cmrs,rs->cm",
+        einsum_string_rmatvec="cm,cmrs->rs",
+        output_shape=(2, n),
+        input_shape=(2, n),
+    )
+    state._m_imp_to_E_coeffs = TensorChain(
+        component_tensors=[m_imp_to_E],
+        einsum_string_dense="cml->cml",
+        einsum_string_matvec="cml,l->cm",
+        einsum_string_rmatvec="cm,cml->l",
+        output_shape=(2, n),
+        input_shape=(n,),
+    )
+    state._Br_to_E_coeffs = None
+    state._jr_to_m_imp_matrix = jr_to_m_imp
+    state._E_direct_to_m_imp_matrix = E_direct_to_m_imp
+    state._m_ind_to_E_df_operator = as_linear_map(m_ind_to_E_df)
+    state._direct_E_coeffs_to_total_E_coeffs_operator = None
+    state._direct_E_coeffs_to_E_df_operator = None
+    state.connect_hemispheres = True
+    state._E_map_constraint_operator = object()
+    state._ensure_m_imp_response_matrices = lambda: None
+
+    D = divergence_free_potential.reshape(n, 2 * n)
+    U = u_to_E.reshape(2 * n, 2 * n)
+    M_imp_to_E = m_imp_to_E.reshape(2 * n, n)
+    E_direct_feedback = E_direct_to_m_imp.reshape(n, 2 * n)
+    direct_E_to_total_E = np.eye(2 * n) + M_imp_to_E @ E_direct_feedback
+
+    expected_edf = {
+        "edf_from_u": D @ direct_E_to_total_E @ U,
+        "edf_from_jr": D @ M_imp_to_E @ jr_to_m_imp,
+        "edf_from_m_ind": m_ind_to_E_df,
+    }
+    expected_rates = {
+        key.replace("edf_from_", "dt_m_ind_from_"): scale * value
+        for key, value in expected_edf.items()
+    }
+
+    edf_matrices = state.get_poloidal_E_df_matrices()
+    rate_matrices = state.get_poloidal_rate_matrices()
+
+    assert set(edf_matrices) == set(expected_edf)
+    assert set(rate_matrices) == set(expected_rates)
+    for key, expected in expected_edf.items():
+        np.testing.assert_allclose(edf_matrices[key], expected)
+    for key, expected in expected_rates.items():
+        np.testing.assert_allclose(rate_matrices[key], expected)
+
+    sample = np.arange(2 * n, dtype=float)
+    operators = state.get_poloidal_E_df_operators()
+    np.testing.assert_allclose(
+        operators["edf_from_u"].matvec(sample),
+        expected_edf["edf_from_u"] @ sample,
+    )
