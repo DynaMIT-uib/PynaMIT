@@ -14,7 +14,7 @@ import xarray as xr
 
 from pynamit.math.constants import mu0
 from pynamit.math import as_linear_map
-from pynamit.math.backend import to_numpy
+from pynamit.math.backend import block_until_ready, get_array_module, to_jax, to_numpy, use_jax
 from pynamit.sphere import Grid
 from pynamit.primitives.field_transform import FieldTransform, resolve_sqrt_weights
 from pynamit.primitives.field_space import FieldSpace
@@ -503,11 +503,25 @@ class Geometry:
     def G_m_imp_to_JS(self) -> np.ndarray:
         """Operator mapping m_imp to sheet current on grid."""
         if self._G_m_imp_to_JS is None:
-            G_T_to_JS = -to_numpy(self.field_transform.G_grad) / mu0
-            G_Ve_to_JS = to_numpy(self.G_Ve_to_JS)
-            T_to_Ve = to_numpy(self.T_to_Ve.values)
-            PFAC_to_JS = np.einsum("ijk,kl->ijl", G_Ve_to_JS, T_to_Ve, optimize=False)
-            self._G_m_imp_to_JS = G_T_to_JS + PFAC_to_JS
+            if use_jax():
+                # Keep this on JAX. The result is consumed by JAX next,
+                # so a NumPy/OpenBLAS handoff would only add risk.
+                G_T_to_JS = -to_jax(self.field_transform.G_grad) / mu0
+                xp = get_array_module(G_T_to_JS)
+                PFAC_to_JS = xp.einsum(
+                    "ijk,kl->ijl",
+                    to_jax(self.G_Ve_to_JS),
+                    to_jax(self.T_to_Ve.values),
+                    optimize=True,
+                )
+                self._G_m_imp_to_JS = block_until_ready(G_T_to_JS + PFAC_to_JS)
+            else:
+                G_T_to_JS = -to_numpy(self.field_transform.G_grad) / mu0
+                self._G_m_imp_to_JS = G_T_to_JS + np.tensordot(
+                    to_numpy(self.G_Ve_to_JS),
+                    to_numpy(self.T_to_Ve.values),
+                    axes=([2], [0]),
+                )
         return self._G_m_imp_to_JS
 
     @property

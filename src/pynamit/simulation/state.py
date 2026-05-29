@@ -19,7 +19,15 @@ from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver, get_default_least_squares_solver
 from pynamit.math.linear_map import LinearMap, as_linear_map, diagonal_linear_map
 from pynamit.math.tensor_chain import TensorChain
-from pynamit.math.backend import block_until_ready, get_array_module, to_numpy, to_jax, use_jax, xp
+from pynamit.math.backend import (
+    block_after_jax_linalg,
+    block_until_ready,
+    get_array_module,
+    to_jax,
+    to_numpy,
+    use_jax,
+    xp,
+)
 from pynamit.sphere import Basis, CSBasis
 from pynamit.simulation.geometry import Geometry
 
@@ -61,7 +69,7 @@ class State:
 
         # Operator for mapping velocity field `u` to E-field
         # (independent of conductance)
-        self._u_coeffs_to_E_coeffs: Optional[np.ndarray] = None
+        self._u_coeffs_to_E_coeffs: Optional[TensorChain] = None
 
         # The solver is configured here but remains stateless.
         self.m_imp_solver = LeastSquaresSolver(
@@ -114,16 +122,24 @@ class State:
             return coeffs
         return projector(coeffs)
 
-    def _create_u_to_E_operator(self) -> np.ndarray:
+    def _create_u_to_E_operator(self) -> TensorChain:
         """Operator mapping wind coefficients to E coefficients."""
-        bu = xp.asarray(self.geometry.bu)
         G_helmholtz = xp.asarray(self.geometry.field_transform.G_helmholtz)
-        G_u_to_uxB_grid = xp.einsum("ijk,jklm->iklm", bu, G_helmholtz, optimize=True)
-        G_helmholtz_pinv = xp.asarray(self.geometry.G_helmholtz_pinv)
-        return block_until_ready(xp.tensordot(G_helmholtz_pinv, G_u_to_uxB_grid, axes=2))
+        return TensorChain(
+            component_tensors=[
+                xp.asarray(self.geometry.G_helmholtz_pinv),
+                xp.asarray(self.geometry.bu),
+                G_helmholtz,
+            ],
+            einsum_string_dense="cmpg,pqg,qgrs->cmrs",
+            einsum_string_matvec="cmpg,pqg,qgrs,rs->cm",
+            einsum_string_rmatvec="cm,cmpg,pqg,qgrs->rs",
+            output_shape=(2, self.basis.index_length),
+            input_shape=G_helmholtz.shape[2:],
+        )
 
     @property
-    def u_coeffs_to_E_coeffs(self) -> np.ndarray:
+    def u_coeffs_to_E_coeffs(self) -> TensorChain:
         """Operator mapping wind coefficients to E coefficients."""
         if self._u_coeffs_to_E_coeffs is None:
             self._u_coeffs_to_E_coeffs = self._create_u_to_E_operator()
@@ -140,7 +156,9 @@ class State:
         self._Br_to_E_coeffs_dense: Optional[np.ndarray] = None
         self._E_map_constraint_operator: Optional[TensorChain] = None
         self._m_ind_to_E_df_matrix: Optional[np.ndarray] = None
+        self._m_ind_to_E_df_operator: Optional[LinearMap] = None
         self._E_noind_to_m_ind_steady_matrix: Optional[np.ndarray] = None
+        self._E_noind_to_m_ind_steady_operator: Optional[LinearMap] = None
         self._jr_to_m_imp_matrix: Optional[np.ndarray] = None
         self._E_direct_to_m_imp_matrix: Optional[np.ndarray] = None
         self._m_imp_problem: Optional[LeastSquaresProblem] = None
@@ -216,8 +234,7 @@ class State:
         """Return a dense E-coefficient operator."""
         if op is None:
             return None
-        dense_op = op.to_dense().reshape(op.output_shape + op.input_shape)
-        return to_jax(dense_op) if use_jax() else dense_op
+        return op.materialize_dense().reshape(op.output_shape + op.input_shape)
 
     @property
     def m_ind_to_E_coeffs_dense(self) -> Optional[np.ndarray]:
@@ -339,13 +356,19 @@ class State:
             array_module = get_array_module(system_matrix)
             system_matrix_H = system_matrix.T.conj()
             normal_matrix = system_matrix_H @ system_matrix
-            normal_pinv = array_module.linalg.pinv(
-                normal_matrix, rtol=self.m_imp_solver.tolerance, hermitian=True
+            normal_pinv = block_after_jax_linalg(
+                array_module.linalg.pinv(
+                    normal_matrix,
+                    rtol=self.m_imp_solver.tolerance,
+                    hermitian=True,
+                )
             )
 
             def cached_pinv_response(rhs_entries: List[Optional[np.ndarray]]) -> np.ndarray:
                 rhs_block, rhs_shape, _ = problem.assemble_rhs_block(rhs_entries)
-                solution_block = normal_pinv @ (system_matrix_H @ rhs_block)
+                # Finish the cached response application before the next
+                # RHS/operator block may be assembled with NumPy.
+                solution_block = block_until_ready(normal_pinv @ (system_matrix_H @ rhs_block))
                 return solution_block.reshape(problem.solution_shape + rhs_shape)
 
             solve_response = cached_pinv_response
@@ -436,17 +459,30 @@ class State:
 
     def _apply_operator(self, op: Any, coeffs: Any, output_shape: Tuple[int, ...]) -> np.ndarray:
         if op is None or coeffs is None or (isinstance(coeffs, (int, float)) and coeffs == 0):
-            return xp.zeros(output_shape)
+            return get_array_module(op, coeffs).zeros(output_shape)
 
-        coeffs_np = to_numpy(coeffs)
-        if isinstance(op, (TensorChain, LinearMap, LinearOperator)):
-            res_np = as_linear_map(op).matvec(coeffs_np.flatten()).reshape(output_shape)
-            return to_jax(res_np) if use_jax() else res_np
+        chain = op if isinstance(op, TensorChain) else getattr(op, "_tensor_chain", None)
+        if isinstance(chain, TensorChain):
+            array_module = get_array_module(coeffs, *chain.component_tensors)
+            coeffs_arr = array_module.asarray(coeffs)
+            result = chain.matvec(coeffs_arr.flatten()).reshape(output_shape)
+            return result
 
-        module = xp
-        op_arr = module.asarray(op)
-        coeffs_arr = module.asarray(coeffs)
-        res = module.tensordot(op_arr, coeffs_arr, axes=coeffs_arr.ndim)
+        if isinstance(op, LinearMap):
+            array_module = get_array_module(coeffs)
+            coeffs_arr = array_module.asarray(coeffs)
+            result = op.matvec(coeffs_arr.flatten()).reshape(output_shape)
+            return result
+
+        if isinstance(op, LinearOperator):
+            coeffs_np = to_numpy(coeffs)
+            result = as_linear_map(op).matvec(coeffs_np.flatten()).reshape(output_shape)
+            return to_jax(result) if use_jax() else result
+
+        array_module = get_array_module(op, coeffs)
+        op_arr = array_module.asarray(op)
+        coeffs_arr = array_module.asarray(coeffs)
+        res = array_module.tensordot(op_arr, coeffs_arr, axes=coeffs_arr.ndim)
         return res.reshape(output_shape) if res.shape != output_shape else res
 
     def _calculate_total_E_field(
@@ -491,46 +527,95 @@ class State:
         return self._m_ind_to_E_df_matrix
 
     @property
+    def m_ind_to_E_df_operator(self) -> LinearMap:
+        """Linear map from m_ind to divergence-free E potential."""
+        if self._m_ind_to_E_df_operator is None:
+            self._m_ind_to_E_df_operator = self._create_m_ind_to_E_df_operator()
+        return self._m_ind_to_E_df_operator
+
+    @property
     def E_noind_to_m_ind_steady_matrix(self) -> np.ndarray:
         """Dense matrix mapping no-induction E-field to steady m_ind."""
         if self._E_noind_to_m_ind_steady_matrix is None:
             array_module = get_array_module(self.m_ind_to_E_df_matrix)
-            self._E_noind_to_m_ind_steady_matrix = -array_module.linalg.pinv(
-                self.m_ind_to_E_df_matrix, rtol=1e-15
+            self._E_noind_to_m_ind_steady_matrix = -block_after_jax_linalg(
+                array_module.linalg.pinv(self.m_ind_to_E_df_matrix, rtol=1e-15)
             )
         return self._E_noind_to_m_ind_steady_matrix
+
+    @property
+    def E_noind_to_m_ind_steady_operator(self) -> LinearMap:
+        """Linear map from no-induction E_df to steady m_ind."""
+        if self._E_noind_to_m_ind_steady_operator is None:
+            self._E_noind_to_m_ind_steady_operator = as_linear_map(
+                self.E_noind_to_m_ind_steady_matrix
+            )
+        return self._E_noind_to_m_ind_steady_operator
+
+    def _create_m_ind_to_E_df_operator(self) -> LinearMap:
+        """Construct matrix-free m_ind -> E_df map."""
+        n = self.basis.index_length
+        m_ind_to_E = self.m_ind_to_E_coeffs
+        E_df_operator = self.geometry.helmholtz_divergence_free_potential_operator
+        if m_ind_to_E is None:
+            raise RuntimeError("m_ind_to_E_coeffs is not available.")
+
+        def E_total_block(m_ind_block: Any) -> Any:
+            array_module = get_array_module(m_ind_block, *m_ind_to_E.component_tensors)
+            m_ind_block = array_module.asarray(m_ind_block).reshape(n, -1)
+            E_direct = m_ind_to_E.matmat(m_ind_block).reshape(2, n, -1)
+            E_total = E_direct
+
+            if self.connect_hemispheres and self.E_map_constraint_operator is not None:
+                self._ensure_m_imp_response_matrices()
+                if self._E_direct_to_m_imp_matrix is not None:
+                    E_direct_to_m_imp = array_module.asarray(self._E_direct_to_m_imp_matrix)
+                    m_imp_block = array_module.tensordot(
+                        E_direct_to_m_imp,
+                        E_direct,
+                        axes=([1, 2], [0, 1]),
+                    )
+                    m_imp_to_E = self.m_imp_to_E_coeffs
+                    if m_imp_to_E is None:
+                        raise RuntimeError("m_imp_to_E_coeffs is not available.")
+                    E_imp = m_imp_to_E.matmat(m_imp_block).reshape(2, n, -1)
+                    E_total = E_total + E_imp
+
+            return E_total.reshape(2 * n, -1)
+
+        def matmat(block: Any) -> Any:
+            return E_df_operator.matmat(E_total_block(block))
+
+        def rmatmat(block: Any) -> Any:
+            matrix = self.m_ind_to_E_df_matrix
+            array_module = get_array_module(matrix, block)
+            matrix = array_module.asarray(matrix)
+            block = array_module.asarray(block).reshape(n, -1)
+            return matrix.T.conj() @ block
+
+        def matvec(vec: Any) -> Any:
+            array_module = get_array_module(vec, *m_ind_to_E.component_tensors)
+            return matmat(array_module.asarray(vec).reshape(n, 1)).reshape(n)
+
+        def rmatvec(vec: Any) -> Any:
+            array_module = get_array_module(vec, *m_ind_to_E.component_tensors)
+            return rmatmat(array_module.asarray(vec).reshape(n, 1)).reshape(n)
+
+        return LinearMap(
+            shape=(n, n),
+            dtype=np.result_type(m_ind_to_E.dtype, E_df_operator.dtype),
+            _matvec=matvec,
+            _rmatvec=rmatvec,
+            _matmat=matmat,
+            _rmatmat=rmatmat,
+        )
 
     def _build_m_ind_to_E_df_matrix(self) -> None:
         """Construct the dense matrix for the induction operator."""
         logger.info("Building dense induction operator matrix (m_ind -> E_df)...")
-
-        divergence_free_potential = to_numpy(
-            self.geometry.helmholtz_divergence_free_potential
+        self._m_ind_to_E_df_matrix = block_until_ready(
+            self.m_ind_to_E_df_operator.materialize_dense()
         )
-        E_direct_matrix = to_numpy(self.m_ind_to_E_coeffs_dense)
-        E_df_matrix = np.tensordot(
-            divergence_free_potential,
-            E_direct_matrix,
-            axes=([1, 2], [0, 1]),
-        )
-
-        self._ensure_m_imp_response_matrices()
-        if self._E_direct_to_m_imp_matrix is not None:
-            E_direct_to_m_imp = to_numpy(self._E_direct_to_m_imp_matrix)
-            m_imp_matrix = np.tensordot(
-                E_direct_to_m_imp,
-                E_direct_matrix,
-                axes=([1, 2], [0, 1]),
-            )
-            E_imp_matrix = to_numpy(self.m_imp_to_E_coeffs_dense)
-            E_imp_to_df = np.tensordot(
-                divergence_free_potential,
-                E_imp_matrix,
-                axes=([1, 2], [0, 1]),
-            )
-            E_df_matrix += E_imp_to_df @ m_imp_matrix
-
-        self._m_ind_to_E_df_matrix = to_jax(E_df_matrix) if use_jax() else E_df_matrix
         logger.info("Dense induction operator built.")
 
     def _calculate_d_m_ind_dt(self, m_ind: np.ndarray, E_coeffs_noind: np.ndarray) -> np.ndarray:
@@ -542,7 +627,7 @@ class State:
         """
         # Total divergence-free E-field is the sum of induced and
         # non-induced parts.
-        E_df_total = self.m_ind_to_E_df_matrix @ m_ind
+        E_df_total = self.m_ind_to_E_df_operator.matvec(m_ind)
         E_df_total += self.geometry.helmholtz_divergence_free_potential_operator.matvec(
             E_coeffs_noind
         )
@@ -627,5 +712,5 @@ class State:
         E_noind_df = self.geometry.helmholtz_divergence_free_potential_operator.matvec(
             E_coeffs_noind
         )
-        steady = self.E_noind_to_m_ind_steady_matrix @ E_noind_df
+        steady = self.E_noind_to_m_ind_steady_operator.matvec(E_noind_df)
         return self.project_scalar_mean_free(steady)

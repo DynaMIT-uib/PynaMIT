@@ -17,6 +17,12 @@ from pynamit.math.backend import asarray, get_array_module, to_numpy
 _EINSUM_BATCH_LABELS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 
+def _dtype_of(value: Any):
+    """Return dtype metadata without materializing backend arrays."""
+    dtype = getattr(value, "dtype", None)
+    return np.asarray(value).dtype if dtype is None else dtype
+
+
 def _batched_einsum_string(einsum_string: str, operand_index: int) -> Optional[str]:
     """Return an einsum string with one extra batch axis."""
     spec = einsum_string.replace(" ", "")
@@ -68,7 +74,8 @@ class TensorChain:
     def dtype(self):
         """Data type of the operator, given by its component tensors."""
         return np.result_type(
-            self.scaling_factor, *[arr.dtype for arr in self._numpy_component_arrays()]
+            _dtype_of(self.scaling_factor),
+            *[_dtype_of(tensor) for tensor in self.component_tensors],
         )
 
     def with_scaling(self, factor: Any) -> "TensorChain":
@@ -111,14 +118,22 @@ class TensorChain:
             _normal_matrix_diag=self.normal_matrix_diag,
         )
 
-    def to_dense(self) -> np.ndarray:
-        """Return dense matrix representation of the operator."""
-        xp = get_array_module(*self.component_tensors)
-        dense_matrix = xp.einsum(self.einsum_string_dense, *self.component_tensors, optimize=True)
-        dense_matrix = to_numpy(dense_matrix)
-        return (dense_matrix * self.scaling_factor).reshape(
+    def materialize_dense(self, xp: Any = None) -> Any:
+        """Return dense matrix on the requested backend."""
+        xp = get_array_module(*self.component_tensors) if xp is None else xp
+        component_arrays = [xp.asarray(tensor) for tensor in self.component_tensors]
+        dense_matrix = xp.einsum(
+            self.einsum_string_dense,
+            *component_arrays,
+            optimize=True,
+        )
+        return (dense_matrix * xp.asarray(self.scaling_factor)).reshape(
             math.prod(self.output_shape), math.prod(self.input_shape)
         )
+
+    def to_dense(self) -> np.ndarray:
+        """Return dense NumPy matrix representation of the operator."""
+        return to_numpy(self.materialize_dense())
 
     def normal_matrix_diag(self) -> np.ndarray:
         """Compute ``diag(A* A)`` without building the dense matrix."""

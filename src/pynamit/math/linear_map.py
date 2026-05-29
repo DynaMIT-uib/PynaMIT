@@ -10,7 +10,7 @@ import numpy as np
 import scipy.sparse
 from scipy.sparse.linalg import LinearOperator as ScipyLinearOperator
 
-from pynamit.math.backend import asarray, get_array_module, use_jax
+from pynamit.math.backend import asarray, get_array_module, to_numpy, use_jax
 from pynamit.math.tensor_chain import TensorChain
 
 MatrixShape: TypeAlias = tuple[int, int]
@@ -28,6 +28,7 @@ class LinearMap:
     _matmat: Optional[VectorizedMapFunc] = None
     _rmatmat: Optional[VectorizedMapFunc] = None
     _to_dense: Optional[Callable[[], np.ndarray]] = None
+    _materialize_dense: Optional[Callable[[Any], Any]] = None
     _normal_matrix_diag: Optional[Callable[[], np.ndarray]] = None
 
     @property
@@ -74,6 +75,9 @@ class LinearMap:
     def materialize_dense(self, xp: Any = None) -> Any:
         """Materialize this map as a dense array on ``xp``."""
         xp = get_array_module() if xp is None else xp
+
+        if self._materialize_dense is not None:
+            return self._materialize_dense(xp)
 
         if self._to_dense is not None:
             return xp.asarray(self._to_dense())
@@ -241,43 +245,58 @@ def _normal_matrix_diag_from_matmat(
     return diag
 
 
+def _dense_array_candidate(value: Any) -> Any:
+    """Return dense input without materializing backend arrays."""
+    if (
+        getattr(value, "shape", None) is not None
+        and getattr(value, "ndim", None) is not None
+        and getattr(value, "dtype", None) is not None
+    ):
+        return value
+    return np.asarray(value)
+
+
 def _linear_map_from_dense(matrix: Any) -> LinearMap:
-    mat_array = np.asarray(matrix)
+    mat_array = _dense_array_candidate(matrix)
     if mat_array.ndim != 2:
         raise ValueError("Dense operators must be 2-D arrays.")
     shape = tuple(int(dim) for dim in mat_array.shape)
     dtype = mat_array.dtype
 
     def matvec(vec: Any) -> Any:
-        xp = _runtime_array_module(vec)
+        xp = _runtime_array_module(mat_array, vec)
         mat_arr = xp.asarray(mat_array)
         vec_arr = xp.asarray(vec).reshape(shape[1])
         return xp.matmul(mat_arr, vec_arr)
 
     def rmatvec(vec: Any) -> Any:
-        xp = _runtime_array_module(vec)
+        xp = _runtime_array_module(mat_array, vec)
         mat_arr = xp.asarray(mat_array)
         vec_arr = xp.asarray(vec).reshape(shape[0])
         return xp.matmul(xp.swapaxes(xp.conjugate(mat_arr), -2, -1), vec_arr)
 
     def matmat(block: Any) -> Any:
-        xp = _runtime_array_module(block)
+        xp = _runtime_array_module(mat_array, block)
         mat_arr = xp.asarray(mat_array)
         block_arr = xp.asarray(block).reshape(shape[1], -1)
         return xp.matmul(mat_arr, block_arr)
 
     def rmatmat(block: Any) -> Any:
-        xp = _runtime_array_module(block)
+        xp = _runtime_array_module(mat_array, block)
         mat_arr = xp.asarray(mat_array)
         block_arr = xp.asarray(block).reshape(shape[0], -1)
         adjoint = xp.swapaxes(xp.conjugate(mat_arr), -2, -1)
         return xp.matmul(adjoint, block_arr)
 
     def to_dense() -> np.ndarray:
-        return mat_array
+        return to_numpy(mat_array)
 
     def normal_matrix_diag() -> np.ndarray:
-        return np.sum(np.abs(mat_array) ** 2, axis=0)
+        mat_np = to_numpy(mat_array)
+        return np.sum(np.abs(mat_np) ** 2, axis=0)
+
+    def materialize_dense(xp: Any) -> Any:
+        return xp.asarray(mat_array)
 
     return LinearMap(
         shape=shape,
@@ -287,45 +306,49 @@ def _linear_map_from_dense(matrix: Any) -> LinearMap:
         _matmat=matmat,
         _rmatmat=rmatmat,
         _to_dense=to_dense,
+        _materialize_dense=materialize_dense,
         _normal_matrix_diag=normal_matrix_diag,
     )
 
 
 def diagonal_linear_map(diag_values: Any) -> LinearMap:
     """Return a map backed by a diagonal vector."""
-    diag_array = np.asarray(diag_values).reshape(-1)
+    diag_array = _dense_array_candidate(diag_values).reshape(-1)
     size = int(diag_array.size)
     dtype = diag_array.dtype
 
     def matvec(vec: Any) -> Any:
-        xp = _runtime_array_module(vec)
+        xp = _runtime_array_module(diag_array, vec)
         diag_arr = xp.asarray(diag_array)
         vec_arr = xp.asarray(vec).reshape(size)
         return diag_arr * vec_arr
 
     def rmatvec(vec: Any) -> Any:
-        xp = _runtime_array_module(vec)
+        xp = _runtime_array_module(diag_array, vec)
         diag_arr = xp.asarray(diag_array)
         vec_arr = xp.asarray(vec).reshape(size)
         return xp.conjugate(diag_arr) * vec_arr
 
     def matmat(block: Any) -> Any:
-        xp = _runtime_array_module(block)
+        xp = _runtime_array_module(diag_array, block)
         diag_arr = xp.asarray(diag_array).reshape(size, 1)
         block_arr = xp.asarray(block).reshape(size, -1)
         return diag_arr * block_arr
 
     def rmatmat(block: Any) -> Any:
-        xp = _runtime_array_module(block)
+        xp = _runtime_array_module(diag_array, block)
         diag_arr = xp.asarray(diag_array).reshape(size, 1)
         block_arr = xp.asarray(block).reshape(size, -1)
         return xp.conjugate(diag_arr) * block_arr
 
     def to_dense() -> np.ndarray:
-        return np.diag(diag_array)
+        return np.diag(to_numpy(diag_array))
 
     def normal_matrix_diag() -> np.ndarray:
-        return np.abs(diag_array) ** 2
+        return np.abs(to_numpy(diag_array)) ** 2
+
+    def materialize_dense(xp: Any) -> Any:
+        return xp.diag(xp.asarray(diag_array))
 
     return LinearMap(
         shape=(size, size),
@@ -335,6 +358,7 @@ def diagonal_linear_map(diag_values: Any) -> LinearMap:
         _matmat=matmat,
         _rmatmat=rmatmat,
         _to_dense=to_dense,
+        _materialize_dense=materialize_dense,
         _normal_matrix_diag=normal_matrix_diag,
     )
 
@@ -466,7 +490,7 @@ def as_linear_map(
         return _linear_map_from_scipy_sparse(op)
 
     try:
-        arr = np.asarray(op)
+        arr = _dense_array_candidate(op)
     except Exception as exc:
         message = f"Unsupported operator type '{type(op)}' for LinearMap conversion."
         raise TypeError(message) from exc
