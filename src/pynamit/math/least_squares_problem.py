@@ -242,12 +242,6 @@ class LeastSquaresProblem:
         d_block = xp.vstack(blocks) if blocks else xp.zeros((0, num_rhs), dtype=dtype)
         return d_block, rhs_shape, num_rhs
 
-    def get_system_operator(self, include_regularization: bool = True) -> LinearOperator:
-        """Get a SciPy operator for the base least-squares system."""
-        return self.get_system_linear_map(
-            include_regularization=include_regularization
-        ).as_linear_operator()
-
     def get_system_linear_map(self, include_regularization: bool = True) -> LinearMap:
         """Get the base ``LinearMap`` system operator."""
         return self._get_base_system_linear_map(include_regularization)

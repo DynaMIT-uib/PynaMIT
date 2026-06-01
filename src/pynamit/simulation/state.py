@@ -6,6 +6,7 @@ for simulating ionospheric electrodynamics.
 """
 
 from __future__ import annotations
+from functools import cached_property
 import logging
 from typing import Any, List, Optional, Tuple
 
@@ -30,6 +31,7 @@ from pynamit.math.backend import (
 )
 from pynamit.sphere import Basis, CSBasis
 from pynamit.simulation.geometry import Geometry
+from pynamit.simulation.operators import StateOperators
 
 logger = logging.getLogger(__name__)
 
@@ -554,190 +556,10 @@ class State:
             )
         return self._E_noind_to_m_ind_steady_operator
 
-    @property
-    def E_coeffs_to_E_df_operator(self) -> LinearMap:
-        """Linear map extracting the divergence-free E potential."""
-        return self.geometry.helmholtz_divergence_free_potential_operator
-
-    @property
-    def E_coeffs_to_E_df_matrix(self) -> np.ndarray:
-        """Dense matrix extracting the divergence-free E potential."""
-        return block_until_ready(self.E_coeffs_to_E_df_operator.materialize_dense())
-
-    @property
-    def jr_to_m_imp_matrix(self) -> np.ndarray:
-        """Dense response matrix from radial current to m_imp."""
-        self._ensure_m_imp_response_matrices()
-        return self._jr_to_m_imp_matrix
-
-    @property
-    def E_direct_to_m_imp_matrix(self) -> Optional[np.ndarray]:
-        """Dense IH response from direct E coefficients to m_imp."""
-        self._ensure_m_imp_response_matrices()
-        return self._E_direct_to_m_imp_matrix
-
-    @property
-    def direct_E_coeffs_to_total_E_coeffs_operator(self) -> LinearMap:
-        """Map direct E coefficients to total model E coefficients.
-
-        This operator applies the same interhemispheric m_imp feedback
-        path as ``_calculate_total_E_field``.  Without an active E-map
-        constraint it reduces to identity.
-        """
-        if self._direct_E_coeffs_to_total_E_coeffs_operator is None:
-            self._direct_E_coeffs_to_total_E_coeffs_operator = (
-                self._create_direct_E_coeffs_to_total_E_coeffs_operator()
-            )
-        return self._direct_E_coeffs_to_total_E_coeffs_operator
-
-    @property
-    def direct_E_coeffs_to_E_df_operator(self) -> LinearMap:
-        """Map direct E coefficients to total E_df forcing."""
-        if self._direct_E_coeffs_to_E_df_operator is None:
-            self._direct_E_coeffs_to_E_df_operator = (
-                self.E_coeffs_to_E_df_operator
-                @ self.direct_E_coeffs_to_total_E_coeffs_operator
-            )
-        return self._direct_E_coeffs_to_E_df_operator
-
-    def _create_direct_E_coeffs_to_total_E_coeffs_operator(self) -> LinearMap:
-        """Construct direct-E to total-E map with m_imp feedback."""
-        n = self.basis.index_length
-        flat_E_size = 2 * n
-        E_direct_to_m_imp = None
-        m_imp_to_E = self.m_imp_to_E_coeffs
-
-        if self.connect_hemispheres and self.E_map_constraint_operator is not None:
-            E_direct_to_m_imp = self.E_direct_to_m_imp_matrix
-
-        tensor_args = []
-        if E_direct_to_m_imp is not None:
-            tensor_args.append(E_direct_to_m_imp)
-        if m_imp_to_E is not None:
-            tensor_args.extend(m_imp_to_E.component_tensors)
-        dtype = np.result_type(
-            np.float64,
-            getattr(E_direct_to_m_imp, "dtype", np.float64),
-            getattr(m_imp_to_E, "dtype", np.float64),
-        )
-
-        def matmat(block: Any) -> Any:
-            array_module = get_array_module(block, *tensor_args)
-            block = array_module.asarray(block).reshape(flat_E_size, -1)
-            total = block
-            if E_direct_to_m_imp is not None:
-                m_imp_block = (
-                    array_module.asarray(E_direct_to_m_imp).reshape(n, flat_E_size) @ block
-                )
-                if m_imp_to_E is None:
-                    raise RuntimeError("m_imp_to_E_coeffs is not available.")
-                total = total + m_imp_to_E.matmat(m_imp_block).reshape(flat_E_size, -1)
-            return total
-
-        def rmatmat(block: Any) -> Any:
-            array_module = get_array_module(block, *tensor_args)
-            block = array_module.asarray(block).reshape(flat_E_size, -1)
-            result = block
-            if E_direct_to_m_imp is not None:
-                if m_imp_to_E is None:
-                    raise RuntimeError("m_imp_to_E_coeffs is not available.")
-                m_imp_adjoint = m_imp_to_E.rmatmat(block).reshape(n, -1)
-                result = result + (
-                    array_module.asarray(E_direct_to_m_imp)
-                    .reshape(n, flat_E_size)
-                    .T.conj()
-                    @ m_imp_adjoint
-                )
-            return result
-
-        def matvec(vec: Any) -> Any:
-            array_module = get_array_module(vec, *tensor_args)
-            return matmat(array_module.asarray(vec).reshape(flat_E_size, 1)).reshape(
-                flat_E_size
-            )
-
-        def rmatvec(vec: Any) -> Any:
-            array_module = get_array_module(vec, *tensor_args)
-            return rmatmat(array_module.asarray(vec).reshape(flat_E_size, 1)).reshape(
-                flat_E_size
-            )
-
-        return LinearMap(
-            shape=(flat_E_size, flat_E_size),
-            dtype=dtype,
-            _matvec=matvec,
-            _rmatvec=rmatvec,
-            _matmat=matmat,
-            _rmatmat=rmatmat,
-        )
-
-    @staticmethod
-    def _dense_numpy_matrix(operator: Any) -> np.ndarray:
-        """Return one operator as a dense NumPy array."""
-        dense = as_linear_map(operator).materialize_dense()
-        return np.asarray(to_numpy(block_until_ready(dense)))
-
-    def get_poloidal_E_df_operators(self, *, include_Br: bool = True) -> dict[str, LinearMap]:
-        """Return model operators mapping inputs/state into total E_df.
-
-        The returned maps use the same m_imp response matrices and
-        interhemispheric feedback path as the runtime simulation.
-        """
-        if self.m_imp_to_E_coeffs is None:
-            raise RuntimeError("m_imp_to_E_coeffs is not available.")
-
-        operators = {
-            "edf_from_u": self.direct_E_coeffs_to_E_df_operator
-            @ self.u_coeffs_to_E_coeffs,
-            "edf_from_jr": self.E_coeffs_to_E_df_operator
-            @ self.m_imp_to_E_coeffs
-            @ as_linear_map(self.jr_to_m_imp_matrix),
-            "edf_from_m_ind": self.m_ind_to_E_df_operator,
-        }
-
-        if include_Br and self.Br_to_E_coeffs is not None:
-            operators["edf_from_Br"] = (
-                self.direct_E_coeffs_to_E_df_operator @ self.Br_to_E_coeffs
-            )
-
-        return operators
-
-    def get_poloidal_E_df_matrices(self, *, include_Br: bool = True) -> dict[str, np.ndarray]:
-        """Return dense input/state to total E_df matrices."""
-        return {
-            key: self._dense_numpy_matrix(operator)
-            for key, operator in self.get_poloidal_E_df_operators(
-                include_Br=include_Br
-            ).items()
-        }
-
-    def get_poloidal_rate_operators(self, *, include_Br: bool = True) -> dict[str, LinearMap]:
-        """Return operators mapping inputs/state to d(m_ind)/dt."""
-        scale = float(self.geometry.E_df_to_d_m_ind_dt)
-        return {
-            key.replace("edf_from_", "dt_m_ind_from_"): scale * operator
-            for key, operator in self.get_poloidal_E_df_operators(
-                include_Br=include_Br
-            ).items()
-        }
-
-    def get_poloidal_rate_matrices(self, *, include_Br: bool = True) -> dict[str, np.ndarray]:
-        """Return dense matrices mapping inputs/state to d(m_ind)/dt."""
-        scale = float(self.geometry.E_df_to_d_m_ind_dt)
-        return {
-            key.replace("edf_from_", "dt_m_ind_from_"): scale * matrix
-            for key, matrix in self.get_poloidal_E_df_matrices(
-                include_Br=include_Br
-            ).items()
-        }
-
-    def get_poloidal_model_matrices(
-        self, *, df_only: bool = False, include_Br: bool = True
-    ) -> dict[str, np.ndarray]:
-        """Return dense poloidal matrices used by the simulation."""
-        if df_only:
-            return self.get_poloidal_E_df_matrices(include_Br=include_Br)
-        return self.get_poloidal_rate_matrices(include_Br=include_Br)
+    @cached_property
+    def operators(self) -> StateOperators:
+        """Simulation model operator accessors."""
+        return StateOperators(self)
 
     def _create_m_ind_to_E_df_operator(self) -> LinearMap:
         """Construct matrix-free m_ind -> E_df map."""

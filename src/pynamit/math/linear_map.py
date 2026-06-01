@@ -4,17 +4,55 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any, Callable, Optional, TypeAlias
+from typing import Any, Callable, Literal, Optional, TypeAlias
 
 import numpy as np
 import scipy.sparse
 from scipy.sparse.linalg import LinearOperator as ScipyLinearOperator
 
-from pynamit.math.backend import asarray, get_array_module, to_numpy, use_jax
+from pynamit.math.backend import (
+    JAX_AVAILABLE,
+    asarray,
+    block_until_ready,
+    get_array_module,
+    to_numpy,
+    use_jax,
+)
 from pynamit.math.tensor_chain import TensorChain
 
 MatrixShape: TypeAlias = tuple[int, int]
 VectorizedMapFunc: TypeAlias = Callable[[Any], Any]
+DenseBackend: TypeAlias = Literal["active", "auto", "numpy", "np", "jax", "jnp"]
+
+
+def _array_module_for_dense_backend(backend: DenseBackend | Any = "active") -> Any:
+    """Return the array module for explicit dense materialization."""
+    if backend is None:
+        return None
+    if not isinstance(backend, str):
+        return backend
+
+    normalized = backend.strip().lower()
+    if normalized in {"active", "auto", ""}:
+        return None
+    if normalized in {"numpy", "np"}:
+        return np
+    if normalized in {"jax", "jnp"}:
+        if not JAX_AVAILABLE:
+            raise RuntimeError("JAX is not installed; cannot materialize on JAX.")
+        import jax.numpy as jnp
+
+        return jnp
+    raise ValueError(
+        f"Unknown dense backend {backend!r}. "
+        "Use 'active', 'numpy', 'jax', or an array module."
+    )
+
+
+def dense_operator(operator: Any, *, backend: DenseBackend | Any = "active") -> Any:
+    """Return one operator as a dense array."""
+    xp = _array_module_for_dense_backend(backend)
+    return block_until_ready(as_linear_map(operator).materialize_dense(xp))
 
 
 @dataclass(frozen=True)
