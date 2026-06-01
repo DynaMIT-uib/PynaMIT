@@ -1,4 +1,4 @@
-"""Fetch dense poloidal operator blocks used by the simulation.
+"""Fetch dense model operator blocks used by the simulation.
 
 This script builds a minimal ``Dynamics`` object, sets one conductance
 snapshot, and extracts dense matrices through ``State`` accessors.  The
@@ -14,6 +14,7 @@ import datetime
 import numpy as np
 
 from pynamit.external_inputs import get_conductance_inputs
+from pynamit.math.backend import block_until_ready, to_numpy
 from pynamit.math.constants import RE
 from pynamit.simulation.dynamics import Dynamics
 
@@ -60,13 +61,17 @@ def build_dynamics(
     return dynamics
 
 
-def fetch_poloidal_dense_matrices(
+def fetch_model_dense_matrices(
     dynamics: Dynamics, *, df_only: bool = False, include_Br: bool = True
 ) -> dict[str, np.ndarray]:
     """Return dense matrices from the active simulation state."""
-    return dynamics.state.get_poloidal_model_matrices(
+    matrices = dynamics.state.operators.model_dense(
         df_only=df_only, include_Br=include_Br
     )
+    return {
+        key: np.asarray(to_numpy(block_until_ready(matrix)))
+        for key, matrix in matrices.items()
+    }
 
 
 def _print_summary(matrices: dict[str, np.ndarray]) -> None:
@@ -92,7 +97,7 @@ def _print_summary(matrices: dict[str, np.ndarray]) -> None:
 def main() -> None:
     """Run the dense matrix extraction CLI."""
     parser = argparse.ArgumentParser(
-        description="Build dense poloidal matrices from the active simulation operators."
+        description="Build dense matrices from the active simulation operators."
     )
     parser.add_argument("--nmax", type=int, default=12)
     parser.add_argument("--mmax", type=int, default=12)
@@ -177,7 +182,7 @@ def main() -> None:
         artifact_storage=args.artifact_storage,
         least_squares_solver=args.least_squares_solver,
     )
-    matrices = fetch_poloidal_dense_matrices(
+    matrices = fetch_model_dense_matrices(
         dynamics, df_only=bool(args.df_only), include_Br=not bool(args.exclude_br)
     )
     _print_summary(matrices)

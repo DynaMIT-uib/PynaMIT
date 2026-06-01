@@ -199,7 +199,7 @@ def test_steady_state_operator_preserves_jax_matrix():
     np.testing.assert_allclose(np.asarray(result), matrix @ coeffs)
 
 
-def test_poloidal_matrix_accessors_match_runtime_operator_chain():
+def test_model_operator_accessors_match_runtime_operator_chain():
     """Dense accessors should expose the same E_df/rate operators."""
     n = 3
     divergence_free_potential = np.arange(n * 2 * n, dtype=float).reshape(n, 2, n) / 10.0
@@ -262,8 +262,8 @@ def test_poloidal_matrix_accessors_match_runtime_operator_chain():
         for key, value in expected_edf.items()
     }
 
-    edf_matrices = state.get_poloidal_E_df_matrices()
-    rate_matrices = state.get_poloidal_rate_matrices()
+    edf_matrices = state.operators.E_df_dense()
+    rate_matrices = state.operators.rates_dense()
 
     assert set(edf_matrices) == set(expected_edf)
     assert set(rate_matrices) == set(expected_rates)
@@ -273,8 +273,64 @@ def test_poloidal_matrix_accessors_match_runtime_operator_chain():
         np.testing.assert_allclose(rate_matrices[key], expected)
 
     sample = np.arange(2 * n, dtype=float)
-    operators = state.get_poloidal_E_df_operators()
+    operators = state.operators.E_df()
     np.testing.assert_allclose(
         operators["edf_from_u"].matvec(sample),
         expected_edf["edf_from_u"] @ sample,
     )
+
+    scipy_operator = operators["edf_from_u"].as_linear_operator()
+    np.testing.assert_allclose(
+        scipy_operator.matvec(sample),
+        expected_edf["edf_from_u"] @ sample,
+    )
+
+
+@pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
+def test_model_dense_accessors_accept_explicit_jax_backend():
+    """Dense model accessors should accept backend='jax'."""
+    previous_backend = use_jax()
+    n = 2
+    state = object.__new__(State)
+    state.basis = SimpleNamespace(index_length=n)
+    state.geometry = SimpleNamespace(
+        helmholtz_divergence_free_potential_operator=as_linear_map(
+            np.arange(n * 2 * n, dtype=float).reshape(n, 2, n),
+            input_shape=(2, n),
+            output_shape=(n,),
+        ),
+        E_df_to_d_m_ind_dt=1.0,
+    )
+    state._u_coeffs_to_E_coeffs = TensorChain(
+        component_tensors=[np.ones((2, n, 2, n))],
+        einsum_string_dense="cmrs->cmrs",
+        einsum_string_matvec="cmrs,rs->cm",
+        einsum_string_rmatvec="cm,cmrs->rs",
+        output_shape=(2, n),
+        input_shape=(2, n),
+    )
+    state._m_imp_to_E_coeffs = TensorChain(
+        component_tensors=[np.ones((2, n, n))],
+        einsum_string_dense="cml->cml",
+        einsum_string_matvec="cml,l->cm",
+        einsum_string_rmatvec="cm,cml->l",
+        output_shape=(2, n),
+        input_shape=(n,),
+    )
+    state._Br_to_E_coeffs = None
+    state._jr_to_m_imp_matrix = np.eye(n)
+    state._E_direct_to_m_imp_matrix = None
+    state._m_ind_to_E_df_operator = as_linear_map(np.eye(n))
+    state._direct_E_coeffs_to_total_E_coeffs_operator = None
+    state._direct_E_coeffs_to_E_df_operator = None
+    state.connect_hemispheres = False
+    state._E_map_constraint_operator = None
+    state._ensure_m_imp_response_matrices = lambda: None
+
+    try:
+        set_backend("numpy")
+        matrices = state.operators.E_df_dense(backend="jax")
+    finally:
+        set_backend(previous_backend)
+
+    assert all("jax" in type(matrix).__module__ for matrix in matrices.values())
