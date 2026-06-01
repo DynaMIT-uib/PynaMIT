@@ -49,12 +49,6 @@ def _array_module_for_dense_backend(backend: DenseBackend | Any = "active") -> A
     )
 
 
-def dense_operator(operator: Any, *, backend: DenseBackend | Any = "active") -> Any:
-    """Return one operator as a dense array."""
-    xp = _array_module_for_dense_backend(backend)
-    return block_until_ready(as_linear_map(operator).materialize_dense(xp))
-
-
 @dataclass(frozen=True)
 class LinearMap:
     """Backend-agnostic linear map on flattened vectors."""
@@ -124,6 +118,11 @@ class LinearMap:
         eye = xp.eye(self.shape[1], dtype=eye_dtype)
         dense = self.matmat(eye)
         return np.asarray(dense) if xp is np else xp.asarray(dense)
+
+    def dense(self, *, backend: DenseBackend | Any = "active") -> Any:
+        """Materialize this map as a dense array on one backend."""
+        xp = _array_module_for_dense_backend(backend)
+        return block_until_ready(self.materialize_dense(xp))
 
     def normal_matrix_diag(self) -> np.ndarray:
         """Compute ``diag(A* A)`` for this map."""

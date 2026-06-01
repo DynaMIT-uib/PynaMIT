@@ -13,7 +13,7 @@ from typing import Any, Optional, TYPE_CHECKING
 import numpy as np
 
 from pynamit.math.backend import get_array_module
-from pynamit.math.linear_map import DenseBackend, LinearMap, as_linear_map, dense_operator
+from pynamit.math.linear_map import DenseBackend, LinearMap, as_linear_map
 
 if TYPE_CHECKING:
     from pynamit.simulation.state import State
@@ -35,6 +35,18 @@ class StateOperators:
     def jr_to_m_imp(self) -> LinearMap:
         """Linear map from radial current to imposed potential."""
         return as_linear_map(self._jr_to_m_imp_matrix)
+
+    @property
+    def E_direct_to_m_imp(self) -> Optional[LinearMap]:
+        """Map direct E coefficients to imposed potential."""
+        matrix = self._E_direct_to_m_imp_matrix
+        if matrix is None:
+            return None
+        return as_linear_map(
+            matrix,
+            input_shape=(2, self.state.basis.index_length),
+            output_shape=(self.state.basis.index_length,),
+        )
 
     @property
     def _jr_to_m_imp_matrix(self) -> np.ndarray:
@@ -77,12 +89,10 @@ class StateOperators:
             self.state.connect_hemispheres
             and self.state.E_map_constraint_operator is not None
         ):
-            E_direct_to_m_imp = self._E_direct_to_m_imp_matrix
+            E_direct_to_m_imp = self.E_direct_to_m_imp
             m_imp_to_E = self.state.m_imp_to_E_coeffs
 
         tensor_args = []
-        if E_direct_to_m_imp is not None:
-            tensor_args.append(E_direct_to_m_imp)
         if m_imp_to_E is not None:
             tensor_args.extend(m_imp_to_E.component_tensors)
         dtype = np.result_type(
@@ -98,10 +108,7 @@ class StateOperators:
             if E_direct_to_m_imp is not None:
                 if m_imp_to_E is None:
                     raise RuntimeError("m_imp_to_E_coeffs is not available.")
-                feedback = array_module.asarray(E_direct_to_m_imp).reshape(
-                    n, flat_E_size
-                )
-                m_imp_block = feedback @ block
+                m_imp_block = E_direct_to_m_imp.matmat(block).reshape(n, -1)
                 total = total + m_imp_to_E.matmat(m_imp_block).reshape(
                     flat_E_size, -1
                 )
@@ -114,11 +121,10 @@ class StateOperators:
             if E_direct_to_m_imp is not None:
                 if m_imp_to_E is None:
                     raise RuntimeError("m_imp_to_E_coeffs is not available.")
-                feedback = array_module.asarray(E_direct_to_m_imp).reshape(
-                    n, flat_E_size
-                )
                 m_imp_adjoint = m_imp_to_E.rmatmat(block).reshape(n, -1)
-                result = result + feedback.T.conj() @ m_imp_adjoint
+                result = result + E_direct_to_m_imp.rmatmat(m_imp_adjoint).reshape(
+                    flat_E_size, -1
+                )
             return result
 
         def matvec(vec: Any) -> Any:
@@ -141,16 +147,6 @@ class StateOperators:
             _matmat=matmat,
             _rmatmat=rmatmat,
         )
-
-    @staticmethod
-    def _dense_maps(
-        operators: dict[str, LinearMap], *, backend: DenseBackend | Any = "active"
-    ) -> dict[str, Any]:
-        """Materialize named operators as dense arrays."""
-        return {
-            key: dense_operator(operator, backend=backend)
-            for key, operator in operators.items()
-        }
 
     def E_df(self, *, include_Br: bool = True) -> dict[str, LinearMap]:
         """Return named input/state to total E_df operators."""
@@ -185,13 +181,19 @@ class StateOperators:
         self, *, include_Br: bool = True, backend: DenseBackend | Any = "active"
     ) -> dict[str, Any]:
         """Return E_df maps as dense arrays on the requested backend."""
-        return self._dense_maps(self.E_df(include_Br=include_Br), backend=backend)
+        return {
+            key: operator.dense(backend=backend)
+            for key, operator in self.E_df(include_Br=include_Br).items()
+        }
 
     def rates_dense(
         self, *, include_Br: bool = True, backend: DenseBackend | Any = "active"
     ) -> dict[str, Any]:
         """Return d(m_ind)/dt maps as dense backend arrays."""
-        return self._dense_maps(self.rates(include_Br=include_Br), backend=backend)
+        return {
+            key: operator.dense(backend=backend)
+            for key, operator in self.rates(include_Br=include_Br).items()
+        }
 
     def model(
         self, *, df_only: bool = False, include_Br: bool = True
@@ -209,6 +211,9 @@ class StateOperators:
         backend: DenseBackend | Any = "active",
     ) -> dict[str, Any]:
         """Return dense simulation model maps."""
-        return self._dense_maps(
-            self.model(df_only=df_only, include_Br=include_Br), backend=backend
-        )
+        return {
+            key: operator.dense(backend=backend)
+            for key, operator in self.model(
+                df_only=df_only, include_Br=include_Br
+            ).items()
+        }

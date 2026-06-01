@@ -6,7 +6,11 @@ from scipy.sparse import csr_matrix
 
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver
-from pynamit.math.linear_map import LinearMap, as_linear_map, diagonal_linear_map
+from pynamit.math.linear_map import (
+    LinearMap,
+    as_linear_map,
+    diagonal_linear_map,
+)
 from pynamit.math.tensor_chain import TensorChain
 from pynamit.math import JAX_AVAILABLE, set_backend, use_jax
 
@@ -35,6 +39,15 @@ def test_diagonal_linear_map_matches_dense_diagonal():
 
     np.testing.assert_allclose(diag.matvec(x), expected @ x)
     np.testing.assert_allclose(diag.to_dense(), expected)
+
+
+def test_linear_map_dense_materializes_on_requested_backend():
+    """LinearMap.dense is the primary dense materialization API."""
+    matrix = np.array([[1.0, 2.0], [3.0, 5.0]])
+
+    dense = as_linear_map(matrix).dense(backend="numpy")
+
+    np.testing.assert_allclose(dense, matrix)
 
 
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
@@ -224,6 +237,30 @@ def test_tensor_chain_materialize_dense_uses_active_backend():
     try:
         set_backend("jax")
         dense = chain.materialize_dense()
+    finally:
+        set_backend(previous_backend)
+
+    assert "jax" in type(dense).__module__
+    np.testing.assert_allclose(np.asarray(dense), matrix)
+
+
+@pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
+def test_tensor_chain_linear_map_dense_uses_active_backend():
+    """TensorChain LinearMap conversion preserves dense backend."""
+    previous_backend = use_jax()
+    matrix = np.array([[1.0, 2.0], [3.0, 5.0]])
+    chain = TensorChain(
+        component_tensors=[matrix],
+        einsum_string_dense="ij->ij",
+        einsum_string_matvec="ij,j->i",
+        einsum_string_rmatvec="i,ij->j",
+        output_shape=(2,),
+        input_shape=(2,),
+    )
+
+    try:
+        set_backend("jax")
+        dense = as_linear_map(chain).dense()
     finally:
         set_backend(previous_backend)
 

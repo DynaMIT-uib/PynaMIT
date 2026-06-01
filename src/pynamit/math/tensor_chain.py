@@ -115,6 +115,7 @@ class TensorChain:
             _matmat=lambda block: self.matmat(block),
             _rmatmat=lambda block: self.rmatmat(block),
             _to_dense=self.to_dense,
+            _materialize_dense=self.materialize_dense,
             _normal_matrix_diag=self.normal_matrix_diag,
         )
 

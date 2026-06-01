@@ -238,7 +238,7 @@ class State:
         """Return a dense E-coefficient operator."""
         if op is None:
             return None
-        return op.materialize_dense().reshape(op.output_shape + op.input_shape)
+        return op.to_linear_map().dense().reshape(op.output_shape + op.input_shape)
 
     @property
     def m_ind_to_E_coeffs_dense(self) -> Optional[np.ndarray]:
@@ -622,9 +622,7 @@ class State:
     def _build_m_ind_to_E_df_matrix(self) -> None:
         """Construct the dense matrix for the induction operator."""
         logger.info("Building dense induction operator matrix (m_ind -> E_df)...")
-        self._m_ind_to_E_df_matrix = block_until_ready(
-            self.m_ind_to_E_df_operator.materialize_dense()
-        )
+        self._m_ind_to_E_df_matrix = self.m_ind_to_E_df_operator.dense()
         logger.info("Dense induction operator built.")
 
     def _calculate_d_m_ind_dt(self, m_ind: np.ndarray, E_coeffs_noind: np.ndarray) -> np.ndarray:

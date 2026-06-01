@@ -13,7 +13,11 @@ from pynamit.math.backend import (
     vmap,
     xp,
 )
-from pynamit.math.linear_map import LinearMap, as_linear_map, diagonal_linear_map
+from pynamit.math.linear_map import (
+    LinearMap,
+    as_linear_map,
+    diagonal_linear_map,
+)
 from pynamit.math.tensor_chain import TensorChain
 
 __all__ = [
