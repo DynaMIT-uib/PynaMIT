@@ -12,7 +12,7 @@ from pynamit.math.linear_map import (
     diagonal_linear_map,
 )
 from pynamit.math.tensor_chain import TensorChain
-from pynamit.math import JAX_AVAILABLE, set_backend, use_jax
+from pynamit.math import JAX_AVAILABLE, get_array_module, set_backend, use_jax
 
 
 def test_dense_linear_map_matches_matrix_operations():
@@ -144,6 +144,44 @@ def test_linear_map_materialize_dense_uses_active_backend():
 
     assert "jax" in type(dense).__module__
     np.testing.assert_allclose(dense, matrix)
+
+
+@pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
+def test_linear_map_backend_context_drives_matrix_free_batches():
+    """Matrix-free batching follows operator backend context."""
+    import jax.numpy as jnp
+
+    previous_backend = use_jax()
+    matrix = np.array([[1.0, 2.0], [3.0, 5.0]])
+    backend_context = jnp.asarray(0.0)
+
+    def matvec(vec):
+        xp = get_array_module(vec, backend_context)
+        return xp.asarray(matrix) @ xp.asarray(vec)
+
+    def rmatvec(vec):
+        xp = get_array_module(vec, backend_context)
+        return xp.asarray(matrix).T @ xp.asarray(vec)
+
+    linear_map = LinearMap(
+        shape=matrix.shape,
+        dtype=matrix.dtype,
+        _matvec=matvec,
+        _rmatvec=rmatvec,
+        _backend_context=(backend_context,),
+    )
+
+    try:
+        set_backend("numpy")
+        result = linear_map.matmat(np.eye(2))
+        adjoint_result = linear_map.rmatmat(np.eye(2))
+    finally:
+        set_backend(previous_backend)
+
+    assert "jax" in type(result).__module__
+    assert "jax" in type(adjoint_result).__module__
+    np.testing.assert_allclose(np.asarray(result), matrix)
+    np.testing.assert_allclose(np.asarray(adjoint_result), matrix.T)
 
 
 def test_sparse_linear_map_uses_sparse_normal_diagonal():
@@ -304,7 +342,6 @@ def test_tensor_chain_complex_adjoint_matches_dense():
         einsum_string_rmatvec="i,ij,jk->k",
         output_shape=(3,),
         input_shape=(2,),
-        scaling_factor=2.0 - 0.5j,
     )
     dense = chain.to_dense()
     y = rng.normal(size=3) + 1j * rng.normal(size=3)

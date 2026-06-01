@@ -10,7 +10,6 @@ import math
 import numpy as np
 from dataclasses import dataclass, field
 from typing import Any, List, Optional
-from scipy.sparse.linalg import LinearOperator
 
 from pynamit.math.backend import asarray, get_array_module, to_numpy
 
@@ -49,10 +48,9 @@ class TensorChain:
     """
     Represents a linear operator formed by an einsum contraction.
 
-    This class can generate a dense matrix representation or a
-    matrix-free scipy LinearOperator, which is efficient for iterative
-    solvers. It also handles caching of optimized einsum paths for
-    performance.
+    This class is the einsum-backed implementation behind ``LinearMap``
+    conversion. It also handles caching of optimized contraction paths
+    for performance.
     """
 
     component_tensors: List[Any]
@@ -61,7 +59,6 @@ class TensorChain:
     einsum_string_rmatvec: str
     output_shape: tuple
     input_shape: tuple
-    scaling_factor: Any = 1.0
     _einsum_path_matvec: Optional[list] = field(default=None, repr=False)
     _einsum_path_rmatvec: Optional[list] = field(default=None, repr=False)
     _einsum_path_matmat: Optional[list] = field(default=None, repr=False)
@@ -74,31 +71,8 @@ class TensorChain:
     def dtype(self):
         """Data type of the operator, given by its component tensors."""
         return np.result_type(
-            _dtype_of(self.scaling_factor),
             *[_dtype_of(tensor) for tensor in self.component_tensors],
         )
-
-    def with_scaling(self, factor: Any) -> "TensorChain":
-        """Return a scaled TensorChain instance."""
-        return TensorChain(
-            component_tensors=self.component_tensors,
-            einsum_string_dense=self.einsum_string_dense,
-            einsum_string_matvec=self.einsum_string_matvec,
-            einsum_string_rmatvec=self.einsum_string_rmatvec,
-            output_shape=self.output_shape,
-            input_shape=self.input_shape,
-            scaling_factor=self.scaling_factor * factor,
-        )
-
-    def __mul__(self, other: Any) -> "TensorChain":
-        """Return a scalar-scaled tensor chain."""
-        if not np.isscalar(other):
-            return NotImplemented
-        return self.with_scaling(other)
-
-    def __rmul__(self, other: Any) -> "TensorChain":
-        """Return a scalar-scaled tensor chain."""
-        return self.__mul__(other)
 
     def to_linear_map(self):
         """Convert this tensor chain to a generic ``LinearMap``."""
@@ -117,6 +91,7 @@ class TensorChain:
             _to_dense=self.to_dense,
             _materialize_dense=self.materialize_dense,
             _normal_matrix_diag=self.normal_matrix_diag,
+            _backend_context=tuple(self.component_tensors),
         )
 
     def materialize_dense(self, xp: Any = None) -> Any:
@@ -128,7 +103,7 @@ class TensorChain:
             *component_arrays,
             optimize=True,
         )
-        return (dense_matrix * xp.asarray(self.scaling_factor)).reshape(
+        return dense_matrix.reshape(
             math.prod(self.output_shape), math.prod(self.input_shape)
         )
 
@@ -232,7 +207,7 @@ class TensorChain:
             x_tensor,
             optimize=self._matvec_path(),
         )
-        return (res * self.scaling_factor).reshape(-1)
+        return res.reshape(-1)
 
     def _rmatvec_numpy(self, y_flat: Any) -> np.ndarray:
         """Apply the adjoint using cached NumPy contraction paths."""
@@ -241,7 +216,7 @@ class TensorChain:
         grad_x = np.einsum(
             self.einsum_string_rmatvec, grad_tensor, *conj_tensors, optimize=self._rmatvec_path()
         )
-        return (grad_x * np.conj(self.scaling_factor)).reshape(-1)
+        return grad_x.reshape(-1)
 
     def _matmat_numpy(self, x_block: Any) -> Optional[np.ndarray]:
         """Apply multiple vectors with cached NumPy paths."""
@@ -254,7 +229,7 @@ class TensorChain:
         res = np.einsum(
             einsum_string, *self._numpy_component_arrays(), x_tensor, optimize=einsum_path
         )
-        return (res * self.scaling_factor).reshape(math.prod(self.output_shape), block.shape[1])
+        return res.reshape(math.prod(self.output_shape), block.shape[1])
 
     def _rmatmat_numpy(self, y_block: Any) -> Optional[np.ndarray]:
         """Apply adjoints using cached NumPy contraction paths."""
@@ -266,9 +241,7 @@ class TensorChain:
         grad_tensor = block.reshape(self.output_shape + (block.shape[1],))
         conj_tensors = [arr.conj() for arr in self._numpy_component_arrays()]
         grad_x = np.einsum(einsum_string, grad_tensor, *conj_tensors, optimize=einsum_path)
-        return (grad_x * np.conj(self.scaling_factor)).reshape(
-            math.prod(self.input_shape), block.shape[1]
-        )
+        return grad_x.reshape(math.prod(self.input_shape), block.shape[1])
 
     def matvec(self, x_flat: Any) -> Any:
         """Apply the tensor chain to one flattened vector."""
@@ -278,7 +251,7 @@ class TensorChain:
         component_arrays = [xp.asarray(t) for t in self.component_tensors]
         x_tensor = xp.asarray(x_flat).reshape(self.input_shape)
         res = xp.einsum(self.einsum_string_matvec, *component_arrays, x_tensor, optimize=True)
-        return xp.reshape(res * self.scaling_factor, (-1,))
+        return xp.reshape(res, (-1,))
 
     def rmatvec(self, y_flat: Any) -> Any:
         """Apply the adjoint tensor chain to one flattened vector."""
@@ -288,7 +261,7 @@ class TensorChain:
         grad_tensor = xp.asarray(y_flat).reshape(self.output_shape)
         conj_tensors = [xp.conjugate(xp.asarray(t)) for t in self.component_tensors]
         grad_x = xp.einsum(self.einsum_string_rmatvec, grad_tensor, *conj_tensors, optimize=True)
-        return xp.reshape(grad_x * xp.conjugate(xp.asarray(self.scaling_factor)), (-1,))
+        return xp.reshape(grad_x, (-1,))
 
     def matmat(self, x_block: Any) -> Any:
         """Apply the tensor chain to multiple flattened vectors."""
@@ -305,7 +278,7 @@ class TensorChain:
             component_arrays = [xp.asarray(t) for t in self.component_tensors]
             x_tensor = xp.asarray(x_arr).reshape(self.input_shape + (x_arr.shape[1],))
             res = xp.einsum(einsum_string, *component_arrays, x_tensor, optimize=True)
-            return xp.reshape(res * self.scaling_factor, (-1, x_arr.shape[1]))
+            return xp.reshape(res, (-1, x_arr.shape[1]))
         outputs = [self.matvec(x_arr[:, i]) for i in range(x_arr.shape[1])]
         return xp.stack(outputs, axis=1)
 
@@ -324,14 +297,6 @@ class TensorChain:
             grad_tensor = xp.asarray(y_arr).reshape(self.output_shape + (y_arr.shape[1],))
             conj_tensors = [xp.conjugate(xp.asarray(t)) for t in self.component_tensors]
             grad_x = xp.einsum(einsum_string, grad_tensor, *conj_tensors, optimize=True)
-            return xp.reshape(
-                grad_x * xp.conjugate(xp.asarray(self.scaling_factor)), (-1, y_arr.shape[1])
-            )
+            return xp.reshape(grad_x, (-1, y_arr.shape[1]))
         outputs = [self.rmatvec(y_arr[:, i]) for i in range(y_arr.shape[1])]
         return xp.stack(outputs, axis=1)
-
-    def as_linear_operator(self) -> LinearOperator:
-        """Return a matrix-free LinearOperator representation."""
-        lin_op = self.to_linear_map().as_linear_operator()
-        setattr(lin_op, "_tensor_chain", self)
-        return lin_op

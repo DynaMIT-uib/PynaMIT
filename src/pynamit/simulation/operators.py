@@ -84,31 +84,28 @@ class StateOperators:
         flat_E_size = 2 * n
         E_direct_to_m_imp = None
         m_imp_to_E = None
-        m_imp_to_E_chain = None
 
-        if (
-            self.state.connect_hemispheres
-            and self.state.E_map_constraint_operator is not None
-        ):
+        if self.state.connect_hemispheres and self.state._E_map_constraint_chain is not None:
             E_direct_to_m_imp = self.E_direct_to_m_imp
-            m_imp_to_E_chain = self.state.m_imp_to_E_coeffs
-            m_imp_to_E = (
-                as_linear_map(m_imp_to_E_chain)
-                if m_imp_to_E_chain is not None
-                else None
-            )
+            m_imp_to_E = self.state.m_imp_to_E_coeffs
 
-        tensor_args = []
-        if m_imp_to_E_chain is not None:
-            tensor_args.extend(m_imp_to_E_chain.component_tensors)
+        backend_context = ()
+        if E_direct_to_m_imp is not None:
+            backend_context += E_direct_to_m_imp._backend_context
+        if m_imp_to_E is not None:
+            backend_context += m_imp_to_E._backend_context
+
         dtype = np.result_type(
             np.float64,
             getattr(E_direct_to_m_imp, "dtype", np.float64),
             getattr(m_imp_to_E, "dtype", np.float64),
         )
 
+        def array_module_for(value: Any) -> Any:
+            return get_array_module(value, *backend_context)
+
         def matmat(block: Any) -> Any:
-            array_module = get_array_module(block, *tensor_args)
+            array_module = array_module_for(block)
             block = array_module.asarray(block).reshape(flat_E_size, -1)
             total = block
             if E_direct_to_m_imp is not None:
@@ -121,7 +118,7 @@ class StateOperators:
             return total
 
         def rmatmat(block: Any) -> Any:
-            array_module = get_array_module(block, *tensor_args)
+            array_module = array_module_for(block)
             block = array_module.asarray(block).reshape(flat_E_size, -1)
             result = block
             if E_direct_to_m_imp is not None:
@@ -134,13 +131,13 @@ class StateOperators:
             return result
 
         def matvec(vec: Any) -> Any:
-            array_module = get_array_module(vec, *tensor_args)
+            array_module = array_module_for(vec)
             return matmat(array_module.asarray(vec).reshape(flat_E_size, 1)).reshape(
                 flat_E_size
             )
 
         def rmatvec(vec: Any) -> Any:
-            array_module = get_array_module(vec, *tensor_args)
+            array_module = array_module_for(vec)
             return rmatmat(array_module.asarray(vec).reshape(flat_E_size, 1)).reshape(
                 flat_E_size
             )
@@ -152,14 +149,14 @@ class StateOperators:
             _rmatvec=rmatvec,
             _matmat=matmat,
             _rmatmat=rmatmat,
+            _backend_context=backend_context,
         )
 
     def E_df(self, *, include_Br: bool = True) -> dict[str, LinearMap]:
         """Return named input/state to total E_df operators."""
-        m_imp_to_E_chain = self.state.m_imp_to_E_coeffs
-        if m_imp_to_E_chain is None:
+        m_imp_to_E = self.state.m_imp_to_E_coeffs
+        if m_imp_to_E is None:
             raise RuntimeError("m_imp_to_E_coeffs is not available.")
-        m_imp_to_E = as_linear_map(m_imp_to_E_chain)
 
         operators = {
             "edf_from_u": self.direct_E_to_E_df @ self.state.u_coeffs_to_E_coeffs,
@@ -169,10 +166,10 @@ class StateOperators:
             "edf_from_m_ind": self.state.m_ind_to_E_df_operator,
         }
 
-        if include_Br and self.state.Br_to_E_coeffs is not None:
-            operators["edf_from_Br"] = (
-                self.direct_E_to_E_df @ self.state.Br_to_E_coeffs
-            )
+        if include_Br:
+            Br_to_E = self.state.Br_to_E_coeffs
+            if Br_to_E is not None:
+                operators["edf_from_Br"] = self.direct_E_to_E_df @ Br_to_E
 
         return operators
 

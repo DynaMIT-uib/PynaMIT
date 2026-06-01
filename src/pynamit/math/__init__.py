@@ -18,12 +18,10 @@ from pynamit.math.linear_map import (
     as_linear_map,
     diagonal_linear_map,
 )
-from pynamit.math.tensor_chain import TensorChain
 
 __all__ = [
     "JAX_AVAILABLE",
     "LinearMap",
-    "TensorChain",
     "as_linear_map",
     "asarray",
     "block_until_ready",

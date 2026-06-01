@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, Literal, Optional, TypeAlias
 
 import numpy as np
@@ -55,18 +55,27 @@ class LinearMap:
 
     shape: MatrixShape
     dtype: Any
-    _matvec: VectorizedMapFunc
-    _rmatvec: VectorizedMapFunc
-    _matmat: Optional[VectorizedMapFunc] = None
-    _rmatmat: Optional[VectorizedMapFunc] = None
-    _to_dense: Optional[Callable[[], np.ndarray]] = None
-    _materialize_dense: Optional[Callable[[Any], Any]] = None
-    _normal_matrix_diag: Optional[Callable[[], np.ndarray]] = None
+    _matvec: VectorizedMapFunc = field(repr=False)
+    _rmatvec: VectorizedMapFunc = field(repr=False)
+    _matmat: Optional[VectorizedMapFunc] = field(default=None, repr=False)
+    _rmatmat: Optional[VectorizedMapFunc] = field(default=None, repr=False)
+    _to_dense: Optional[Callable[[], np.ndarray]] = field(default=None, repr=False)
+    _materialize_dense: Optional[Callable[[Any], Any]] = field(
+        default=None, repr=False
+    )
+    _normal_matrix_diag: Optional[Callable[[], np.ndarray]] = field(
+        default=None, repr=False
+    )
+    _backend_context: tuple[Any, ...] = field(default=(), repr=False)
 
     @property
     def ndim(self) -> int:
         """Dimensionality of the linear map."""
         return 2
+
+    def array_module(self, *operands: Any) -> Any:
+        """Return the array module implied by operands and this map."""
+        return get_array_module(*operands, *self._backend_context)
 
     def matvec(self, x: Any) -> Any:
         """Apply this map to one flattened vector."""
@@ -80,7 +89,7 @@ class LinearMap:
         """Apply this map to a block of column vectors."""
         if self._matmat is not None:
             return self._matmat(x_block)
-        xp = get_array_module(x_block)
+        xp = self.array_module(x_block)
         x_arr = xp.asarray(x_block)
         if x_arr.ndim == 1:
             return self.matvec(x_arr)
@@ -91,7 +100,7 @@ class LinearMap:
         """Apply the adjoint map to a block of column vectors."""
         if self._rmatmat is not None:
             return self._rmatmat(y_block)
-        xp = get_array_module(y_block)
+        xp = self.array_module(y_block)
         y_arr = xp.asarray(y_block)
         if y_arr.ndim == 1:
             return self.rmatvec(y_arr)
@@ -180,6 +189,7 @@ class LinearMap:
             _rmatmat=rmatmat,
             _to_dense=to_dense if other_map._to_dense is not None else None,
             _normal_matrix_diag=normal_matrix_diag,
+            _backend_context=self._backend_context + other_map._backend_context,
         )
 
     def __mul__(self, other: Any) -> "LinearMap":
@@ -215,6 +225,7 @@ class LinearMap:
             _rmatmat=rmatmat,
             _to_dense=to_dense if self._to_dense is not None else None,
             _normal_matrix_diag=normal_matrix_diag,
+            _backend_context=self._backend_context,
         )
 
     def __rmul__(self, other: Any) -> "LinearMap":
@@ -251,9 +262,7 @@ class LinearMap:
 
 
 def _looks_like_operator(value: Any) -> bool:
-    return isinstance(value, (LinearMap, TensorChain, ScipyLinearOperator)) or hasattr(
-        value, "matvec"
-    )
+    return isinstance(value, (LinearMap, ScipyLinearOperator)) or hasattr(value, "matvec")
 
 
 def _runtime_array_module(*values: Any) -> Any:
@@ -345,6 +354,7 @@ def _linear_map_from_dense(matrix: Any) -> LinearMap:
         _to_dense=to_dense,
         _materialize_dense=materialize_dense,
         _normal_matrix_diag=normal_matrix_diag,
+        _backend_context=(mat_array,),
     )
 
 
@@ -397,6 +407,7 @@ def diagonal_linear_map(diag_values: Any) -> LinearMap:
         _to_dense=to_dense,
         _materialize_dense=materialize_dense,
         _normal_matrix_diag=normal_matrix_diag,
+        _backend_context=(diag_array,),
     )
 
 
@@ -465,21 +476,33 @@ def _linear_map_from_scipy_sparse(op: scipy.sparse.spmatrix) -> LinearMap:
 def _linear_map_from_jax_sparse(op: Any) -> LinearMap:
     shape = tuple(int(dim) for dim in op.shape)
     dtype = op.dtype
+    backend_context = tuple(
+        operand
+        for operand in (getattr(op, "data", None), getattr(op, "indices", None))
+        if operand is not None
+    )
 
     def matvec(vec: Any) -> Any:
-        return op @ asarray(vec).reshape(shape[1])
+        xp = get_array_module(vec, *backend_context)
+        return op @ xp.asarray(vec).reshape(shape[1])
 
     def rmatvec(vec: Any) -> Any:
-        return op.T @ asarray(vec).reshape(shape[0])
+        xp = get_array_module(vec, *backend_context)
+        return op.T @ xp.asarray(vec).reshape(shape[0])
 
     def matmat(block: Any) -> Any:
-        return op @ asarray(block).reshape(shape[1], -1)
+        xp = get_array_module(block, *backend_context)
+        return op @ xp.asarray(block).reshape(shape[1], -1)
 
     def rmatmat(block: Any) -> Any:
-        return op.T @ asarray(block).reshape(shape[0], -1)
+        xp = get_array_module(block, *backend_context)
+        return op.T @ xp.asarray(block).reshape(shape[0], -1)
 
     def to_dense() -> np.ndarray:
         return np.asarray(op.todense())
+
+    def materialize_dense(xp: Any) -> Any:
+        return xp.asarray(op.todense())
 
     return LinearMap(
         shape=shape,
@@ -489,6 +512,8 @@ def _linear_map_from_jax_sparse(op: Any) -> LinearMap:
         _matmat=matmat,
         _rmatmat=rmatmat,
         _to_dense=to_dense,
+        _materialize_dense=materialize_dense,
+        _backend_context=backend_context,
     )
 
 
@@ -511,9 +536,6 @@ def as_linear_map(
         return _linear_map_from_jax_sparse(op)
 
     if isinstance(op, ScipyLinearOperator):
-        chain = getattr(op, "_tensor_chain", None)
-        if isinstance(chain, TensorChain):
-            return chain.to_linear_map()
         return _linear_map_from_linear_operator(op)
 
     if scipy.sparse.issparse(op):

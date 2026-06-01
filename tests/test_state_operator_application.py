@@ -6,14 +6,25 @@ import numpy as np
 import pytest
 
 from pynamit.math import JAX_AVAILABLE, set_backend, use_jax
-from pynamit.math.linear_map import as_linear_map
+from pynamit.math.linear_map import LinearMap, as_linear_map
 from pynamit.math.tensor_chain import TensorChain
 from pynamit.simulation.state import State
 
 
+def _dummy_constraint_chain():
+    return TensorChain(
+        component_tensors=[np.eye(1)],
+        einsum_string_dense="ij->ij",
+        einsum_string_matvec="ij,j->i",
+        einsum_string_rmatvec="i,ij->j",
+        output_shape=(1,),
+        input_shape=(1,),
+    )
+
+
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
-def test_apply_operator_keeps_tensor_chain_on_jax():
-    """Tensor chains should not be forced through NumPy."""
+def test_apply_operator_keeps_linear_map_on_jax():
+    """State operator application should use LinearMap directly."""
     import jax.numpy as jnp
 
     previous_backend = use_jax()
@@ -30,7 +41,7 @@ def test_apply_operator_keeps_tensor_chain_on_jax():
 
     try:
         set_backend("jax")
-        result = State._apply_operator(None, chain, coeffs, (2,))
+        result = State._apply_operator(None, chain.to_linear_map(), coeffs, (2,))
     finally:
         set_backend(previous_backend)
 
@@ -39,8 +50,33 @@ def test_apply_operator_keeps_tensor_chain_on_jax():
 
 
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
-def test_u_coeffs_to_E_coeffs_is_tensor_chain_on_jax():
-    """Wind-to-E application should use the TensorChain path."""
+def test_apply_operator_zero_uses_linear_map_backend_context():
+    """Zero outputs follow the LinearMap backend context."""
+    import jax.numpy as jnp
+
+    previous_backend = use_jax()
+    chain = TensorChain(
+        component_tensors=[jnp.asarray(np.eye(2))],
+        einsum_string_dense="ij->ij",
+        einsum_string_matvec="ij,j->i",
+        einsum_string_rmatvec="i,ij->j",
+        output_shape=(2,),
+        input_shape=(2,),
+    )
+
+    try:
+        set_backend("numpy")
+        result = State._apply_operator(None, chain.to_linear_map(), 0, (2,))
+    finally:
+        set_backend(previous_backend)
+
+    assert "jax" in type(result).__module__
+    np.testing.assert_allclose(np.asarray(result), np.zeros(2))
+
+
+@pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
+def test_u_coeffs_to_E_coeffs_is_linear_map_on_jax():
+    """Wind-to-E is exposed as LinearMap backed by TensorChain."""
     import jax.numpy as jnp
 
     previous_backend = use_jax()
@@ -61,15 +97,17 @@ def test_u_coeffs_to_E_coeffs_is_tensor_chain_on_jax():
         bu=jnp.asarray(bu),
         field_transform=SimpleNamespace(G_helmholtz=jnp.asarray(G_helmholtz)),
     )
+    state._u_coeffs_to_E_coeffs_chain_cache = None
 
     try:
         set_backend("jax")
-        operator = state._create_u_to_E_operator()
+        operator = state.u_coeffs_to_E_coeffs
         result = State._apply_operator(None, operator, jnp.asarray(coeffs), (2, n))
     finally:
         set_backend(previous_backend)
 
-    assert isinstance(operator, TensorChain)
+    assert isinstance(operator, LinearMap)
+    assert isinstance(state._u_coeffs_to_E_coeffs_chain, TensorChain)
     assert "jax" in type(result).__module__
     np.testing.assert_allclose(np.asarray(result), expected)
 
@@ -118,7 +156,7 @@ def test_induction_matrix_assembly_stays_on_jax(monkeypatch):
             output_shape=(n,),
         )
     )
-    state._m_ind_to_E_coeffs = TensorChain(
+    state._m_ind_to_E_coeffs_chain_cache = TensorChain(
         component_tensors=[jnp.asarray(E_direct_matrix)],
         einsum_string_dense="cml->cml",
         einsum_string_matvec="cml,l->cm",
@@ -126,7 +164,7 @@ def test_induction_matrix_assembly_stays_on_jax(monkeypatch):
         output_shape=(2, n),
         input_shape=(n,),
     )
-    state._m_imp_to_E_coeffs = TensorChain(
+    state._m_imp_to_E_coeffs_chain_cache = TensorChain(
         component_tensors=[jnp.asarray(E_imp_matrix)],
         einsum_string_dense="cml->cml",
         einsum_string_matvec="cml,l->cm",
@@ -138,7 +176,7 @@ def test_induction_matrix_assembly_stays_on_jax(monkeypatch):
     state._m_ind_to_E_df_operator = None
     state._m_ind_to_E_df_matrix = None
     state.connect_hemispheres = True
-    state._E_map_constraint_operator = object()
+    state._E_map_constraint_chain_cache = _dummy_constraint_chain()
     state._ensure_m_imp_response_matrices = lambda: None
 
     try:
@@ -195,7 +233,7 @@ def test_model_operator_accessors_match_runtime_operator_chain():
         ),
         E_df_to_d_m_ind_dt=scale,
     )
-    state._u_coeffs_to_E_coeffs = TensorChain(
+    state._u_coeffs_to_E_coeffs_chain_cache = TensorChain(
         component_tensors=[u_to_E],
         einsum_string_dense="cmrs->cmrs",
         einsum_string_matvec="cmrs,rs->cm",
@@ -203,7 +241,7 @@ def test_model_operator_accessors_match_runtime_operator_chain():
         output_shape=(2, n),
         input_shape=(2, n),
     )
-    state._m_imp_to_E_coeffs = TensorChain(
+    state._m_imp_to_E_coeffs_chain_cache = TensorChain(
         component_tensors=[m_imp_to_E],
         einsum_string_dense="cml->cml",
         einsum_string_matvec="cml,l->cm",
@@ -211,14 +249,14 @@ def test_model_operator_accessors_match_runtime_operator_chain():
         output_shape=(2, n),
         input_shape=(n,),
     )
-    state._Br_to_E_coeffs = None
+    state._Br_to_E_coeffs_chain_cache = None
     state._jr_to_m_imp_matrix = jr_to_m_imp
     state._E_direct_to_m_imp_matrix = E_direct_to_m_imp
     state._m_ind_to_E_df_operator = as_linear_map(m_ind_to_E_df)
     state._direct_E_coeffs_to_total_E_coeffs_operator = None
     state._direct_E_coeffs_to_E_df_operator = None
     state.connect_hemispheres = True
-    state._E_map_constraint_operator = object()
+    state._E_map_constraint_chain_cache = _dummy_constraint_chain()
     state._ensure_m_imp_response_matrices = lambda: None
 
     D = divergence_free_potential.reshape(n, 2 * n)
@@ -276,7 +314,7 @@ def test_model_dense_accessors_accept_explicit_jax_backend():
         ),
         E_df_to_d_m_ind_dt=1.0,
     )
-    state._u_coeffs_to_E_coeffs = TensorChain(
+    state._u_coeffs_to_E_coeffs_chain_cache = TensorChain(
         component_tensors=[np.ones((2, n, 2, n))],
         einsum_string_dense="cmrs->cmrs",
         einsum_string_matvec="cmrs,rs->cm",
@@ -284,7 +322,7 @@ def test_model_dense_accessors_accept_explicit_jax_backend():
         output_shape=(2, n),
         input_shape=(2, n),
     )
-    state._m_imp_to_E_coeffs = TensorChain(
+    state._m_imp_to_E_coeffs_chain_cache = TensorChain(
         component_tensors=[np.ones((2, n, n))],
         einsum_string_dense="cml->cml",
         einsum_string_matvec="cml,l->cm",
@@ -292,14 +330,14 @@ def test_model_dense_accessors_accept_explicit_jax_backend():
         output_shape=(2, n),
         input_shape=(n,),
     )
-    state._Br_to_E_coeffs = None
+    state._Br_to_E_coeffs_chain_cache = None
     state._jr_to_m_imp_matrix = np.eye(n)
     state._E_direct_to_m_imp_matrix = None
     state._m_ind_to_E_df_operator = as_linear_map(np.eye(n))
     state._direct_E_coeffs_to_total_E_coeffs_operator = None
     state._direct_E_coeffs_to_E_df_operator = None
     state.connect_hemispheres = False
-    state._E_map_constraint_operator = None
+    state._E_map_constraint_chain_cache = None
     state._ensure_m_imp_response_matrices = lambda: None
 
     try:

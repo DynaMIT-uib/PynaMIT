@@ -70,7 +70,7 @@ class State:
 
         # Operator for mapping velocity field `u` to E-field
         # (independent of conductance)
-        self._u_coeffs_to_E_coeffs: Optional[TensorChain] = None
+        self._u_coeffs_to_E_coeffs_chain_cache: Optional[TensorChain] = None
 
         # The solver is configured here but remains stateless.
         self.m_imp_solver = LeastSquaresSolver(
@@ -140,22 +140,27 @@ class State:
         )
 
     @property
-    def u_coeffs_to_E_coeffs(self) -> TensorChain:
-        """Operator mapping wind coefficients to E coefficients."""
-        if self._u_coeffs_to_E_coeffs is None:
-            self._u_coeffs_to_E_coeffs = self._create_u_to_E_operator()
-        return self._u_coeffs_to_E_coeffs
+    def _u_coeffs_to_E_coeffs_chain(self) -> TensorChain:
+        """Tensor-chain implementation for wind-to-E coefficients."""
+        if self._u_coeffs_to_E_coeffs_chain_cache is None:
+            self._u_coeffs_to_E_coeffs_chain_cache = self._create_u_to_E_operator()
+        return self._u_coeffs_to_E_coeffs_chain_cache
+
+    @property
+    def u_coeffs_to_E_coeffs(self) -> LinearMap:
+        """Linear map from wind coefficients to E coefficients."""
+        return self._u_coeffs_to_E_coeffs_chain.to_linear_map()
 
     def _invalidate_caches(self) -> None:
         """Invalidate all conductance-dependent cached properties."""
         self._M_total_on_grid: Optional[np.ndarray] = None
-        self._m_ind_to_E_coeffs: Optional[TensorChain] = None
-        self._m_imp_to_E_coeffs: Optional[TensorChain] = None
-        self._Br_to_E_coeffs: Optional[TensorChain] = None
-        self._m_ind_to_E_coeffs_dense: Optional[np.ndarray] = None
-        self._m_imp_to_E_coeffs_dense: Optional[np.ndarray] = None
-        self._Br_to_E_coeffs_dense: Optional[np.ndarray] = None
-        self._E_map_constraint_operator: Optional[TensorChain] = None
+        self._m_ind_to_E_coeffs_chain_cache: Optional[TensorChain] = None
+        self._m_imp_to_E_coeffs_chain_cache: Optional[TensorChain] = None
+        self._Br_to_E_coeffs_chain_cache: Optional[TensorChain] = None
+        self._m_ind_to_E_coeffs_dense_cache: Optional[np.ndarray] = None
+        self._m_imp_to_E_coeffs_dense_cache: Optional[np.ndarray] = None
+        self._Br_to_E_coeffs_dense_cache: Optional[np.ndarray] = None
+        self._E_map_constraint_chain_cache: Optional[TensorChain] = None
         self._m_ind_to_E_df_matrix: Optional[np.ndarray] = None
         self._m_ind_to_E_df_operator: Optional[LinearMap] = None
         self._E_noind_to_m_ind_steady_matrix: Optional[np.ndarray] = None
@@ -211,27 +216,49 @@ class State:
         )
 
     @property
-    def m_ind_to_E_coeffs(self) -> Optional[TensorChain]:
-        """Operator mapping m_ind coefficients to E coefficients."""
-        if self._m_ind_to_E_coeffs is None:
-            self._m_ind_to_E_coeffs = self._create_E_coeffs_operator(self.geometry.G_m_ind_to_JS)
-        return self._m_ind_to_E_coeffs
+    def _m_ind_to_E_coeffs_chain(self) -> Optional[TensorChain]:
+        """Tensor-chain implementation for m_ind-to-E coefficients."""
+        if self._m_ind_to_E_coeffs_chain_cache is None:
+            self._m_ind_to_E_coeffs_chain_cache = self._create_E_coeffs_operator(
+                self.geometry.G_m_ind_to_JS
+            )
+        return self._m_ind_to_E_coeffs_chain_cache
 
     @property
-    def m_imp_to_E_coeffs(self) -> Optional[TensorChain]:
-        """Operator mapping m_imp coefficients to E coefficients."""
-        if self._m_imp_to_E_coeffs is None:
-            self._m_imp_to_E_coeffs = self._create_E_coeffs_operator(self.geometry.G_m_imp_to_JS)
-        return self._m_imp_to_E_coeffs
+    def m_ind_to_E_coeffs(self) -> Optional[LinearMap]:
+        """Linear map from m_ind coefficients to E coefficients."""
+        chain = self._m_ind_to_E_coeffs_chain
+        return None if chain is None else chain.to_linear_map()
 
     @property
-    def Br_to_E_coeffs(self) -> Optional[TensorChain]:
-        """Operator mapping Br coefficients to E coefficients."""
-        if self._Br_to_E_coeffs is None:
-            self._Br_to_E_coeffs = self._create_E_coeffs_operator(
+    def _m_imp_to_E_coeffs_chain(self) -> Optional[TensorChain]:
+        """Tensor-chain implementation for m_imp-to-E coefficients."""
+        if self._m_imp_to_E_coeffs_chain_cache is None:
+            self._m_imp_to_E_coeffs_chain_cache = self._create_E_coeffs_operator(
+                self.geometry.G_m_imp_to_JS
+            )
+        return self._m_imp_to_E_coeffs_chain_cache
+
+    @property
+    def m_imp_to_E_coeffs(self) -> Optional[LinearMap]:
+        """Linear map from m_imp coefficients to E coefficients."""
+        chain = self._m_imp_to_E_coeffs_chain
+        return None if chain is None else chain.to_linear_map()
+
+    @property
+    def _Br_to_E_coeffs_chain(self) -> Optional[TensorChain]:
+        """Tensor-chain implementation for Br-to-E coefficients."""
+        if self._Br_to_E_coeffs_chain_cache is None:
+            self._Br_to_E_coeffs_chain_cache = self._create_E_coeffs_operator(
                 getattr(self.geometry, "G_Br_to_JS", None)
             )
-        return self._Br_to_E_coeffs
+        return self._Br_to_E_coeffs_chain_cache
+
+    @property
+    def Br_to_E_coeffs(self) -> Optional[LinearMap]:
+        """Linear map from Br coefficients to E coefficients."""
+        chain = self._Br_to_E_coeffs_chain
+        return None if chain is None else chain.to_linear_map()
 
     def _dense_E_coeffs_operator(self, op: Optional[TensorChain]) -> Optional[np.ndarray]:
         """Return a dense E-coefficient operator."""
@@ -240,34 +267,40 @@ class State:
         return op.to_linear_map().dense().reshape(op.output_shape + op.input_shape)
 
     @property
-    def m_ind_to_E_coeffs_dense(self) -> Optional[np.ndarray]:
+    def _m_ind_to_E_coeffs_dense(self) -> Optional[np.ndarray]:
         """Dense operator mapping m_ind to E coefficients."""
-        if self._m_ind_to_E_coeffs_dense is None:
-            self._m_ind_to_E_coeffs_dense = self._dense_E_coeffs_operator(self.m_ind_to_E_coeffs)
-        return self._m_ind_to_E_coeffs_dense
+        if self._m_ind_to_E_coeffs_dense_cache is None:
+            self._m_ind_to_E_coeffs_dense_cache = self._dense_E_coeffs_operator(
+                self._m_ind_to_E_coeffs_chain
+            )
+        return self._m_ind_to_E_coeffs_dense_cache
 
     @property
-    def m_imp_to_E_coeffs_dense(self) -> Optional[np.ndarray]:
+    def _m_imp_to_E_coeffs_dense(self) -> Optional[np.ndarray]:
         """Dense operator mapping m_imp to E coefficients."""
-        if self._m_imp_to_E_coeffs_dense is None:
-            self._m_imp_to_E_coeffs_dense = self._dense_E_coeffs_operator(self.m_imp_to_E_coeffs)
-        return self._m_imp_to_E_coeffs_dense
+        if self._m_imp_to_E_coeffs_dense_cache is None:
+            self._m_imp_to_E_coeffs_dense_cache = self._dense_E_coeffs_operator(
+                self._m_imp_to_E_coeffs_chain
+            )
+        return self._m_imp_to_E_coeffs_dense_cache
 
     @property
-    def Br_to_E_coeffs_dense(self) -> Optional[np.ndarray]:
+    def _Br_to_E_coeffs_dense(self) -> Optional[np.ndarray]:
         """Dense operator mapping Br coefficients to E coefficients."""
-        if self._Br_to_E_coeffs_dense is None:
-            self._Br_to_E_coeffs_dense = self._dense_E_coeffs_operator(self.Br_to_E_coeffs)
-        return self._Br_to_E_coeffs_dense
+        if self._Br_to_E_coeffs_dense_cache is None:
+            self._Br_to_E_coeffs_dense_cache = self._dense_E_coeffs_operator(
+                self._Br_to_E_coeffs_chain
+            )
+        return self._Br_to_E_coeffs_dense_cache
 
     @property
-    def E_map_constraint_operator(self) -> Optional[TensorChain]:
-        """Operator enforcing E-field mapping at low latitudes."""
-        if self._E_map_constraint_operator is None:
-            inner_chain = self.m_imp_to_E_coeffs
+    def _E_map_constraint_chain(self) -> Optional[TensorChain]:
+        """Tensor-chain implementation for the E-map constraint."""
+        if self._E_map_constraint_chain_cache is None:
+            inner_chain = self._m_imp_to_E_coeffs_chain
             outer_tensor = self.geometry.E_coeffs_to_E_apex_ll_diff
             if inner_chain is not None and outer_tensor is not None:
-                self._E_map_constraint_operator = TensorChain(
+                self._E_map_constraint_chain_cache = TensorChain(
                     component_tensors=[outer_tensor] + inner_chain.component_tensors,
                     einsum_string_dense="ticm,cmpg,pqg,qgl->til",
                     einsum_string_matvec="ticm,cmpg,pqg,qgl,l->ti",
@@ -275,7 +308,7 @@ class State:
                     output_shape=(2, int(np.sum(self.geometry.ll_mask))),
                     input_shape=inner_chain.input_shape,
                 )
-        return self._E_map_constraint_operator
+        return self._E_map_constraint_chain_cache
 
     # ----- Solver Setup and Execution -----
     @property
@@ -294,10 +327,11 @@ class State:
             data_shapes.append(self.geometry.jr_coeffs_to_j_apex.shape[:-1])
 
             # E-field must map at low latitudes.
-            if self.connect_hemispheres and self.E_map_constraint_operator is not None:
-                op_E = self.E_map_constraint_operator.with_scaling(self.ih_constraint_scaling)
+            E_map_constraint_chain = self._E_map_constraint_chain
+            if self.connect_hemispheres and E_map_constraint_chain is not None:
+                op_E = self.ih_constraint_scaling * E_map_constraint_chain.to_linear_map()
                 operators.append(op_E)
-                data_shapes.append(op_E.output_shape)
+                data_shapes.append(E_map_constraint_chain.output_shape)
 
             # Add Tikhonov regularization if lambda is set.
             reg_ops, reg_weights = [], []
@@ -384,7 +418,7 @@ class State:
         jr_to_m_imp = solve_response(rhs_entries)
 
         E_direct_to_m_imp = None
-        if self.connect_hemispheres and self.E_map_constraint_operator is not None:
+        if self.connect_hemispheres and self._E_map_constraint_chain is not None:
             E_rhs = -self.geometry.E_coeffs_to_E_apex_ll_diff.reshape(
                 problem.A[1].output_shape + (2 * n,)
             )
@@ -462,13 +496,17 @@ class State:
 
     def _apply_operator(self, op: Any, coeffs: Any, output_shape: Tuple[int, ...]) -> Any:
         if op is None or coeffs is None or (isinstance(coeffs, (int, float)) and coeffs == 0):
-            return get_array_module(op, coeffs).zeros(output_shape)
+            array_module = (
+                op.array_module(coeffs)
+                if isinstance(op, LinearMap)
+                else get_array_module(op, coeffs)
+            )
+            return array_module.zeros(output_shape)
 
-        if isinstance(op, (TensorChain, LinearMap)):
-            linear_map = as_linear_map(op)
-            array_module = get_array_module(coeffs)
+        if isinstance(op, LinearMap):
+            array_module = op.array_module(coeffs)
             coeffs_arr = array_module.asarray(coeffs)
-            result = linear_map.matvec(coeffs_arr.flatten()).reshape(output_shape)
+            result = op.matvec(coeffs_arr.flatten()).reshape(output_shape)
             return result
 
         array_module = get_array_module(op, coeffs)
@@ -483,7 +521,7 @@ class State:
         E_shape = (2, self.basis.index_length)
         E_direct_coeffs = self.project_helmholtz_mean_free(E_direct_coeffs)
         m_imp = self._solve_for_m_imp(jr_coeffs, E_direct_coeffs)
-        E_imp = self._apply_operator(self.m_imp_to_E_coeffs_dense, m_imp, E_shape)
+        E_imp = self._apply_operator(self._m_imp_to_E_coeffs_dense, m_imp, E_shape)
         return self.project_helmholtz_mean_free(E_direct_coeffs + E_imp), m_imp
 
     def calculate_noind_coeffs(self) -> Tuple[np.ndarray, np.ndarray]:
@@ -493,7 +531,7 @@ class State:
         E_direct = self._apply_operator(self.u_coeffs_to_E_coeffs, u_coeffs, E_shape)
         if self.Br is not None:
             E_direct += self._apply_operator(
-                self.Br_to_E_coeffs_dense, xp.asarray(self.Br.coeffs), E_shape
+                self._Br_to_E_coeffs_dense, xp.asarray(self.Br.coeffs), E_shape
             )
 
         jr_coeffs = None if self.jr is None else xp.asarray(self.jr.coeffs)
@@ -503,7 +541,7 @@ class State:
         """Calculate total E-field coefficients."""
         E_shape = (2, self.basis.index_length)
         E_direct_ind = self._apply_operator(
-            self.m_ind_to_E_coeffs_dense,
+            self._m_ind_to_E_coeffs_dense,
             xp.asarray(self.project_scalar_mean_free(m_ind)),
             E_shape,
         )
@@ -556,25 +594,40 @@ class State:
         E_df_operator = self.geometry.helmholtz_divergence_free_potential_operator
         if m_ind_to_E is None:
             raise RuntimeError("m_ind_to_E_coeffs is not available.")
+        E_map_constraint_chain = self._E_map_constraint_chain
+        m_imp_to_E = (
+            self.m_imp_to_E_coeffs
+            if self.connect_hemispheres and E_map_constraint_chain is not None
+            else None
+        )
+        backend_context = m_ind_to_E._backend_context + E_df_operator._backend_context
+        if m_imp_to_E is not None:
+            backend_context += m_imp_to_E._backend_context
 
         def E_total_block(m_ind_block: Any) -> Any:
-            array_module = get_array_module(m_ind_block, *m_ind_to_E.component_tensors)
+            array_module = m_ind_to_E.array_module(m_ind_block)
             m_ind_block = array_module.asarray(m_ind_block).reshape(n, -1)
             E_direct = m_ind_to_E.matmat(m_ind_block).reshape(2, n, -1)
             E_total = E_direct
 
-            if self.connect_hemispheres and self.E_map_constraint_operator is not None:
+            if self.connect_hemispheres and E_map_constraint_chain is not None:
                 self._ensure_m_imp_response_matrices()
                 if self._E_direct_to_m_imp_matrix is not None:
-                    E_direct_to_m_imp = array_module.asarray(self._E_direct_to_m_imp_matrix)
+                    if m_imp_to_E is None:
+                        raise RuntimeError("m_imp_to_E_coeffs is not available.")
+                    array_module = m_imp_to_E.array_module(
+                        E_direct, self._E_direct_to_m_imp_matrix
+                    )
+                    E_direct = array_module.asarray(E_direct)
+                    E_total = array_module.asarray(E_total)
+                    E_direct_to_m_imp = array_module.asarray(
+                        self._E_direct_to_m_imp_matrix
+                    )
                     m_imp_block = array_module.tensordot(
                         E_direct_to_m_imp,
                         E_direct,
                         axes=([1, 2], [0, 1]),
                     )
-                    m_imp_to_E = self.m_imp_to_E_coeffs
-                    if m_imp_to_E is None:
-                        raise RuntimeError("m_imp_to_E_coeffs is not available.")
                     E_imp = m_imp_to_E.matmat(m_imp_block).reshape(2, n, -1)
                     E_total = E_total + E_imp
 
@@ -591,11 +644,11 @@ class State:
             return matrix.T.conj() @ block
 
         def matvec(vec: Any) -> Any:
-            array_module = get_array_module(vec, *m_ind_to_E.component_tensors)
+            array_module = m_ind_to_E.array_module(vec)
             return matmat(array_module.asarray(vec).reshape(n, 1)).reshape(n)
 
         def rmatvec(vec: Any) -> Any:
-            array_module = get_array_module(vec, *m_ind_to_E.component_tensors)
+            array_module = m_ind_to_E.array_module(vec)
             return rmatmat(array_module.asarray(vec).reshape(n, 1)).reshape(n)
 
         return LinearMap(
@@ -605,6 +658,7 @@ class State:
             _rmatvec=rmatvec,
             _matmat=matmat,
             _rmatmat=rmatmat,
+            _backend_context=backend_context,
         )
 
     def _build_m_ind_to_E_df_matrix(self) -> None:
