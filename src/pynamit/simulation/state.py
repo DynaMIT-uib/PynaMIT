@@ -600,9 +600,9 @@ class State:
             if self.connect_hemispheres and E_map_constraint_chain is not None
             else None
         )
-        backend_context = m_ind_to_E._backend_context + E_df_operator._backend_context
+        backend_context = m_ind_to_E.backend_context + E_df_operator.backend_context
         if m_imp_to_E is not None:
-            backend_context += m_imp_to_E._backend_context
+            backend_context += m_imp_to_E.backend_context
 
         def E_total_block(m_ind_block: Any) -> Any:
             array_module = m_ind_to_E.array_module(m_ind_block)

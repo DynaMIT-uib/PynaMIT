@@ -18,7 +18,6 @@ from pynamit.math.backend import (
     to_numpy,
     use_jax,
 )
-from pynamit.math.tensor_chain import TensorChain
 
 MatrixShape: TypeAlias = tuple[int, int]
 VectorizedMapFunc: TypeAlias = Callable[[Any], Any]
@@ -72,6 +71,11 @@ class LinearMap:
     def ndim(self) -> int:
         """Dimensionality of the linear map."""
         return 2
+
+    @property
+    def backend_context(self) -> tuple[Any, ...]:
+        """Closed-over operands used for backend selection."""
+        return self._backend_context
 
     def array_module(self, *operands: Any) -> Any:
         """Return the array module implied by operands and this map."""
@@ -525,8 +529,6 @@ def as_linear_map(
     """Convert supported operator types into a ``LinearMap``."""
     if isinstance(op, LinearMap):
         return op
-    if isinstance(op, TensorChain):
-        return op.to_linear_map()
 
     op_type = str(type(op))
     is_jax_sparse = "jax.experimental.sparse" in op_type or (

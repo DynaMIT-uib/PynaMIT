@@ -335,8 +335,30 @@ class LeastSquaresSolver:
             x = xp.asarray(x_flat).reshape(size)
             return vt_arr.T.conj() @ (weights_arr * (vt_arr @ x))
 
+        def rmatvec(x_flat):
+            x = xp.asarray(x_flat).reshape(size)
+            return vt_arr.T.conj() @ (xp.conjugate(weights_arr) * (vt_arr @ x))
+
+        def matmat(block):
+            x = xp.asarray(block).reshape(size, -1)
+            return vt_arr.T.conj() @ (weights_arr.reshape(-1, 1) * (vt_arr @ x))
+
+        def rmatmat(block):
+            x = xp.asarray(block).reshape(size, -1)
+            return vt_arr.T.conj() @ (
+                xp.conjugate(weights_arr).reshape(-1, 1) * (vt_arr @ x)
+            )
+
         dtype = np.result_type(vt_arr.dtype, weights_arr.dtype)
-        return LinearMap(shape=(size, size), dtype=dtype, _matvec=matvec, _rmatvec=matvec)
+        return LinearMap(
+            shape=(size, size),
+            dtype=dtype,
+            _matvec=matvec,
+            _rmatvec=rmatvec,
+            _matmat=matmat,
+            _rmatmat=rmatmat,
+            _backend_context=(vt_arr, weights_arr),
+        )
 
     def _get_pinv_components(
         self, problem: LeastSquaresProblem, tol: float

@@ -330,12 +330,12 @@ class LeastSquaresProblem:
     ) -> tuple[Any, ...]:
         context = ()
         for item in self.A:
-            context += item.linear_map._backend_context
+            context += item.linear_map.backend_context
         for item in self.sqrt_weights:
             if item is not None:
-                context += item.linear_map._backend_context
+                context += item.linear_map.backend_context
         for _, item in regularization_terms:
-            context += item.linear_map._backend_context
+            context += item.linear_map.backend_context
         return context
 
     def _apply_weight(self, item: Optional[OperatorTerm], block: Any) -> Any:

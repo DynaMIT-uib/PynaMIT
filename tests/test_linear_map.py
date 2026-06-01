@@ -218,7 +218,7 @@ def test_composed_linear_map_normal_diagonal_uses_matmat_path():
 
 
 def test_tensor_chain_converts_to_linear_map():
-    """TensorChain can be used through the LinearMap interface."""
+    """TensorChain can be converted to the LinearMap interface."""
     matrix = np.array([[1.0, 2.0, -1.0], [0.0, 3.0, 4.0]])
     chain = TensorChain(
         component_tensors=[matrix],
@@ -228,7 +228,7 @@ def test_tensor_chain_converts_to_linear_map():
         output_shape=(2,),
         input_shape=(3,),
     )
-    linear_map = as_linear_map(chain)
+    linear_map = chain.to_linear_map()
     x = np.array([2.0, -1.0, 0.5])
 
     np.testing.assert_allclose(linear_map.matvec(x), matrix @ x)
@@ -255,7 +255,9 @@ def test_tensor_chain_batched_application_matches_dense():
     np.testing.assert_allclose(chain.matmat(x_block), dense @ x_block)
     np.testing.assert_allclose(chain.rmatmat(y_block), dense.T @ y_block)
     np.testing.assert_allclose(chain.normal_matrix_diag(), np.sum(dense**2, axis=0))
-    np.testing.assert_allclose(as_linear_map(chain).normal_matrix_diag(), np.sum(dense**2, axis=0))
+    np.testing.assert_allclose(
+        chain.to_linear_map().normal_matrix_diag(), np.sum(dense**2, axis=0)
+    )
 
 
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
@@ -298,7 +300,7 @@ def test_tensor_chain_linear_map_dense_uses_active_backend():
 
     try:
         set_backend("jax")
-        dense = as_linear_map(chain).dense()
+        dense = chain.to_linear_map().dense()
     finally:
         set_backend(previous_backend)
 

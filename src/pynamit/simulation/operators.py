@@ -91,9 +91,9 @@ class StateOperators:
 
         backend_context = ()
         if E_direct_to_m_imp is not None:
-            backend_context += E_direct_to_m_imp._backend_context
+            backend_context += E_direct_to_m_imp.backend_context
         if m_imp_to_E is not None:
-            backend_context += m_imp_to_E._backend_context
+            backend_context += m_imp_to_E.backend_context
 
         dtype = np.result_type(
             np.float64,
