@@ -84,17 +84,23 @@ class StateOperators:
         flat_E_size = 2 * n
         E_direct_to_m_imp = None
         m_imp_to_E = None
+        m_imp_to_E_chain = None
 
         if (
             self.state.connect_hemispheres
             and self.state.E_map_constraint_operator is not None
         ):
             E_direct_to_m_imp = self.E_direct_to_m_imp
-            m_imp_to_E = self.state.m_imp_to_E_coeffs
+            m_imp_to_E_chain = self.state.m_imp_to_E_coeffs
+            m_imp_to_E = (
+                as_linear_map(m_imp_to_E_chain)
+                if m_imp_to_E_chain is not None
+                else None
+            )
 
         tensor_args = []
-        if m_imp_to_E is not None:
-            tensor_args.extend(m_imp_to_E.component_tensors)
+        if m_imp_to_E_chain is not None:
+            tensor_args.extend(m_imp_to_E_chain.component_tensors)
         dtype = np.result_type(
             np.float64,
             getattr(E_direct_to_m_imp, "dtype", np.float64),
@@ -150,9 +156,10 @@ class StateOperators:
 
     def E_df(self, *, include_Br: bool = True) -> dict[str, LinearMap]:
         """Return named input/state to total E_df operators."""
-        m_imp_to_E = self.state.m_imp_to_E_coeffs
-        if m_imp_to_E is None:
+        m_imp_to_E_chain = self.state.m_imp_to_E_coeffs
+        if m_imp_to_E_chain is None:
             raise RuntimeError("m_imp_to_E_coeffs is not available.")
+        m_imp_to_E = as_linear_map(m_imp_to_E_chain)
 
         operators = {
             "edf_from_u": self.direct_E_to_E_df @ self.state.u_coeffs_to_E_coeffs,

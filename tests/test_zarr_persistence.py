@@ -80,7 +80,7 @@ def test_io_explicit_zarr_requires_dependency(tmp_path, monkeypatch):
 
 
 def test_io_auto_zarr_permission_error_is_not_silent(tmp_path, monkeypatch):
-    """Permission failures should stop instead of silently changing format."""
+    """Permission failures should stop instead of switching format."""
     monkeypatch.setattr(IO, "zarr_available", staticmethod(lambda: True))
 
     def raising_to_zarr(self, store, *args, **kwargs):

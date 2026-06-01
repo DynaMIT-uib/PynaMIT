@@ -83,7 +83,7 @@ def test_simulation_data_owns_schema_io_and_timeseries(tmp_path):
 
 
 def test_simulation_data_rejects_saved_settings_mismatch(tmp_path):
-    """Saved settings still guard against restarting with different arguments."""
+    """Saved settings guard against restarting with new args."""
     run_dir = tmp_path / "run"
     settings = _settings(Nmax=3)
     data = SimulationData.create(
@@ -104,7 +104,7 @@ def test_simulation_data_rejects_saved_settings_mismatch(tmp_path):
 
 
 def test_dynamics_delegates_persistence_to_simulation_data(tmp_path):
-    """Dynamics exposes compatibility aliases backed by SimulationData."""
+    """Dynamics aliases are backed by SimulationData."""
     dynamics = Dynamics(
         run_directory=str(tmp_path / "run"),
         Nmax=2,

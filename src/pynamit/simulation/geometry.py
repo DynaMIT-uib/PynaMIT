@@ -25,15 +25,17 @@ from pynamit.sphere import Basis, CSBasis, is_sh_basis
 logger = logging.getLogger(__name__)
 
 
+def _operator_array(operator):
+    """Return a dense array for an operator-like value."""
+    values = np.asarray(operator)
+    if values.ndim in (1, 2) and values.dtype != object:
+        return values
+    return np.asarray(as_linear_map(operator).dense(backend="numpy"))
+
+
 def _compact_operator_array(operator):
     """Return diagonal vector when possible, else dense matrix."""
-    to_dense = getattr(operator, "to_dense", None)
-    if callable(to_dense):
-        dense = np.asarray(to_dense())
-    elif hasattr(operator, "toarray"):
-        dense = np.asarray(operator.toarray())
-    else:
-        dense = np.asarray(operator)
+    dense = _operator_array(operator)
 
     if dense.ndim == 1:
         return dense.copy()
@@ -67,7 +69,7 @@ def _extended_scalar_basis_for_potential(basis, settings):
 
 def _dense_operator_array(operator, input_length, output_length):
     """Return an explicit dense operator array."""
-    values = np.asarray(operator)
+    values = _operator_array(operator)
     if values.ndim == 1:
         if values.size != output_length or input_length != output_length:
             raise ValueError("Diagonal operator length does not match requested shape.")

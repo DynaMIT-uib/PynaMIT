@@ -13,7 +13,6 @@ from typing import Any, List, Optional, Tuple
 import numpy as np
 from scipy.integrate import solve_ivp
 from scipy.linalg import expm
-from scipy.sparse.linalg import LinearOperator
 
 from pynamit.primitives.coefficient_field import CoefficientField
 from pynamit.math.least_squares_problem import LeastSquaresProblem
@@ -461,27 +460,16 @@ class State:
 
     # ----- State Calculation -----
 
-    def _apply_operator(self, op: Any, coeffs: Any, output_shape: Tuple[int, ...]) -> np.ndarray:
+    def _apply_operator(self, op: Any, coeffs: Any, output_shape: Tuple[int, ...]) -> Any:
         if op is None or coeffs is None or (isinstance(coeffs, (int, float)) and coeffs == 0):
             return get_array_module(op, coeffs).zeros(output_shape)
 
-        chain = op if isinstance(op, TensorChain) else getattr(op, "_tensor_chain", None)
-        if isinstance(chain, TensorChain):
-            array_module = get_array_module(coeffs, *chain.component_tensors)
-            coeffs_arr = array_module.asarray(coeffs)
-            result = chain.matvec(coeffs_arr.flatten()).reshape(output_shape)
-            return result
-
-        if isinstance(op, LinearMap):
+        if isinstance(op, (TensorChain, LinearMap)):
+            linear_map = as_linear_map(op)
             array_module = get_array_module(coeffs)
             coeffs_arr = array_module.asarray(coeffs)
-            result = op.matvec(coeffs_arr.flatten()).reshape(output_shape)
+            result = linear_map.matvec(coeffs_arr.flatten()).reshape(output_shape)
             return result
-
-        if isinstance(op, LinearOperator):
-            coeffs_np = to_numpy(coeffs)
-            result = as_linear_map(op).matvec(coeffs_np.flatten()).reshape(output_shape)
-            return to_jax(result) if use_jax() else result
 
         array_module = get_array_module(op, coeffs)
         op_arr = array_module.asarray(op)

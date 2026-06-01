@@ -1,7 +1,7 @@
 """Saved-run data container for Dynamics.
 
 ``SimulationData`` owns the persisted-run plumbing that is shared by
-runtime simulation, restart, and saved-result inspection: IO, the storage
+runtime simulation, restart, and saved-result inspection: IO, storage
 schema, and loaded input/output time-series datasets.
 """
 
@@ -41,7 +41,7 @@ class SimulationData:
         area_weighted_least_squares=False,
         print_info=False,
     ) -> "SimulationData":
-        """Create a persisted-run context and load any saved artifacts."""
+        """Create persisted-run context and load saved artifacts."""
         uses_temporary_run_directory = run_directory is None
         if uses_temporary_run_directory:
             run_directory = IO.build_temporary_run_directory()
@@ -92,12 +92,12 @@ class SimulationData:
 
     @property
     def settings_from_file(self):
-        """Return whether settings were loaded from this run directory."""
+        """Return whether settings were loaded from this run dir."""
         return self.settings_loaded_from_file
 
     @property
     def pfac_matrix_from_file(self):
-        """Return whether the PFAC matrix was loaded from this run directory."""
+        """Return whether PFAC was loaded from this run dir."""
         return self.pfac_matrix_loaded_from_file
 
     def save_settings_if_missing(self, *, print_info=False):
@@ -108,7 +108,7 @@ class SimulationData:
         self.settings_on_file = self.settings
 
     def save_pfac_matrix_if_missing(self, pfac_matrix, *, print_info=False):
-        """Persist the PFAC sidecar matrix when this is a new run directory."""
+        """Persist the PFAC sidecar for a new run directory."""
         if self.pfac_matrix is not None:
             return
         self.io.save_dataarray(pfac_matrix, "PFAC_matrix", print_info=print_info)

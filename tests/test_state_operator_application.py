@@ -4,7 +4,6 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from scipy.sparse.linalg import LinearOperator
 
 from pynamit.math import JAX_AVAILABLE, set_backend, use_jax
 from pynamit.math.linear_map import as_linear_map
@@ -32,30 +31,6 @@ def test_apply_operator_keeps_tensor_chain_on_jax():
     try:
         set_backend("jax")
         result = State._apply_operator(None, chain, coeffs, (2,))
-    finally:
-        set_backend(previous_backend)
-
-    assert "jax" in type(result).__module__
-    np.testing.assert_allclose(np.asarray(result), matrix @ np.asarray(coeffs))
-
-
-@pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
-def test_apply_operator_handles_scipy_linear_operator_on_jax_backend():
-    """SciPy operators still use a synchronized NumPy application."""
-    import jax.numpy as jnp
-
-    previous_backend = use_jax()
-    matrix = np.array([[2.0, -1.0], [0.5, 4.0]])
-    coeffs = jnp.asarray([3.0, -2.0])
-    operator = LinearOperator(
-        matrix.shape,
-        matvec=lambda vector: matrix @ np.asarray(vector),
-        dtype=matrix.dtype,
-    )
-
-    try:
-        set_backend("jax")
-        result = State._apply_operator(None, operator, coeffs, (2,))
     finally:
         set_backend(previous_backend)
 
