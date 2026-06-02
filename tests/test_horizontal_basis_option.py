@@ -131,7 +131,7 @@ def test_cs_horizontal_basis_runs_with_pfac(tmp_path):
     )
     assert np.linalg.norm(pfac) > 0.0
     assert np.all(np.isfinite(pfac))
-    assert np.all(np.isfinite(geometry.G_m_imp_to_JS))
+    assert np.all(np.isfinite(geometry.m_imp_to_gridded_JS))
 
 
 def test_cs_horizontal_basis_supports_rm_radial_continuation(tmp_path):
@@ -149,14 +149,14 @@ def test_cs_horizontal_basis_supports_rm_radial_continuation(tmp_path):
 
     geometry = dynamics.state.geometry
 
-    assert geometry.G_m_ind_to_JS.shape == (
+    assert geometry.m_ind_to_gridded_JS.shape == (
         2,
         geometry.grid.size,
         dynamics.horizontal_basis.index_length,
     )
-    assert geometry.G_Br_to_JS.shape == geometry.G_m_ind_to_JS.shape
-    assert np.all(np.isfinite(geometry.G_m_ind_to_JS))
-    assert np.all(np.isfinite(geometry.G_Br_to_JS))
+    assert geometry.Br_to_gridded_JS.shape == geometry.m_ind_to_gridded_JS.shape
+    assert np.all(np.isfinite(geometry.m_ind_to_gridded_JS))
+    assert np.all(np.isfinite(geometry.Br_to_gridded_JS))
 
 
 def test_cs_horizontal_basis_supports_connected_hemispheres(tmp_path):
@@ -181,7 +181,7 @@ def test_cs_horizontal_basis_supports_connected_hemispheres(tmp_path):
 
     geometry = dynamics.state.geometry
 
-    assert geometry.cp_field_transform.G_helmholtz.shape == (
+    assert geometry.cp_field_transform.helmholtz_coeffs_to_gridded_vector.shape == (
         2,
         geometry.cp_grid.size,
         2,
@@ -191,7 +191,9 @@ def test_cs_horizontal_basis_supports_connected_hemispheres(tmp_path):
         2,
         dynamics.horizontal_basis.index_length,
     )
-    assert np.all(np.isfinite(geometry.cp_field_transform.G_helmholtz))
+    assert np.all(
+        np.isfinite(geometry.cp_field_transform.helmholtz_coeffs_to_gridded_vector)
+    )
     assert np.all(np.isfinite(geometry.E_coeffs_to_E_apex_ll_diff))
 
 
@@ -223,14 +225,14 @@ def test_cs_horizontal_basis_combines_pfac_rm_and_connected_terms(tmp_path):
         dynamics.horizontal_basis.index_length,
         dynamics.horizontal_basis.index_length,
     )
-    assert geometry.G_Br_to_JS.shape == geometry.G_m_ind_to_JS.shape
+    assert geometry.Br_to_gridded_JS.shape == geometry.m_ind_to_gridded_JS.shape
     assert geometry.E_coeffs_to_E_apex_ll_diff.shape[-2:] == (
         2,
         dynamics.horizontal_basis.index_length,
     )
     assert np.linalg.norm(geometry.T_to_Ve.values) > 0.0
     assert np.all(np.isfinite(geometry.T_to_Ve.values))
-    assert np.all(np.isfinite(geometry.G_Br_to_JS))
+    assert np.all(np.isfinite(geometry.Br_to_gridded_JS))
 
 
 def test_cs_to_radial_continuation_projection_matches_grid_least_squares(tmp_path):
@@ -247,15 +249,15 @@ def test_cs_to_radial_continuation_projection_matches_grid_least_squares(tmp_pat
 
     geometry = dynamics.state.geometry
     expected = tensor_pinv(
-        geometry.radial_continuation_evaluator.G,
+        geometry.radial_continuation_evaluator.scalar_coeffs_to_grid,
         n_leading_flattened=1,
-    ) @ geometry.field_transform.G
+    ) @ geometry.field_transform.scalar_coeffs_to_grid
 
     np.testing.assert_allclose(geometry.horizontal_to_radial_continuation, expected)
 
     rng = np.random.default_rng(20260520)
     radial_coeffs = rng.standard_normal(dynamics.radial_continuation_basis.index_length)
-    cs_coeffs = geometry.radial_continuation_evaluator.G @ radial_coeffs
+    cs_coeffs = geometry.radial_continuation_evaluator.scalar_coeffs_to_grid @ radial_coeffs
 
     np.testing.assert_allclose(
         geometry.horizontal_to_radial_continuation @ cs_coeffs,
@@ -279,10 +281,10 @@ def test_cs_to_radial_continuation_supports_area_weighted_projection(tmp_path):
 
     geometry = dynamics.state.geometry
     expected = weighted_tensor_pinv(
-        geometry.radial_continuation_evaluator.G,
+        geometry.radial_continuation_evaluator.scalar_coeffs_to_grid,
         sqrt_weights=np.sqrt(geometry.cs_basis.unit_area),
         n_leading_flattened=1,
-    ) @ geometry.field_transform.G
+    ) @ geometry.field_transform.scalar_coeffs_to_grid
 
     np.testing.assert_allclose(geometry.horizontal_to_radial_continuation, expected)
 

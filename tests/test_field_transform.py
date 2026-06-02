@@ -3,6 +3,9 @@
 import numpy as np
 import pytest
 
+import pynamit
+from pynamit.math import JAX_AVAILABLE, set_backend, to_numpy, use_jax
+from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_transform import FieldTransform
 from pynamit.primitives.field_space import FieldSpace
 from pynamit.primitives.timeseries import Timeseries
@@ -32,6 +35,28 @@ def test_field_transform_projects_scalar_grid_values():
     np.testing.assert_allclose(actual[0], expected, atol=1e-10)
 
 
+def test_basis_evaluator_uses_field_transform_implementation():
+    """Historical BasisEvaluator name wraps FieldTransform."""
+    basis = SHBasis(3, 2, mean_free=True)
+    grid = _regular_grid()
+    evaluator = BasisEvaluator(basis, grid)
+
+    assert isinstance(evaluator, FieldTransform)
+    assert pynamit.BasisEvaluator is BasisEvaluator
+
+    coeffs = np.zeros(basis.index_length)
+    coeffs[1] = 1.0
+    np.testing.assert_allclose(
+        evaluator.basis_to_grid(coeffs),
+        evaluator.to_grid(coeffs),
+    )
+    np.testing.assert_allclose(
+        evaluator.grid_to_basis(evaluator.basis_to_grid(coeffs)),
+        coeffs,
+        atol=1e-10,
+    )
+
+
 def test_field_transform_projects_tangential_grid_values():
     """Tangential projection recovers Helmholtz coefficients."""
     basis = SHBasis(3, 2, mean_free=True)
@@ -46,6 +71,68 @@ def test_field_transform_projects_tangential_grid_values():
     actual = transform.project(values, input_grid=grid, projection_basis=basis)
 
     np.testing.assert_allclose(actual[0], expected.reshape(-1), atol=1e-10)
+
+
+@pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
+def test_field_transform_to_grid_preserves_jax_backend():
+    """Coefficient-to-grid synthesis uses LinearMap backend handling."""
+    previous_backend = use_jax()
+    try:
+        set_backend("jax")
+        basis = CSBasis(4)
+        grid = Grid(theta=basis.arr_theta, phi=basis.arr_phi, area_weights=basis.unit_area)
+
+        scalar_transform = FieldTransform(FieldSpace(basis, field_type="scalar"), grid)
+        scalar_coeffs = np.linspace(0.0, 1.0, basis.index_length)
+        scalar_values = scalar_transform.to_grid(scalar_coeffs)
+        assert "jax" in type(scalar_values).__module__
+        np.testing.assert_allclose(
+            to_numpy(scalar_values),
+            to_numpy(scalar_transform.scalar_coeffs_to_grid) @ scalar_coeffs,
+        )
+
+        vector_transform = FieldTransform(FieldSpace(basis, field_type="tangential"), grid)
+        vector_coeffs = np.vstack([scalar_coeffs, scalar_coeffs[::-1]])
+        vector_values = vector_transform.to_grid(vector_coeffs)
+        assert "jax" in type(vector_values).__module__
+        np.testing.assert_allclose(
+            to_numpy(vector_values),
+            np.tensordot(
+                to_numpy(vector_transform.helmholtz_coeffs_to_gridded_vector),
+                vector_coeffs,
+                2,
+            ),
+        )
+    finally:
+        set_backend(previous_backend)
+
+
+@pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
+def test_field_transform_to_grid_preserves_explicit_jax_coefficients():
+    """Explicit JAX coefficients reach the LinearMap apply path."""
+    import jax.numpy as jnp
+
+    previous_backend = use_jax()
+    try:
+        set_backend("numpy")
+        basis = CSBasis(4)
+        grid = Grid(
+            theta=np.asarray(basis.arr_theta),
+            phi=np.asarray(basis.arr_phi),
+            area_weights=np.asarray(basis.unit_area),
+        )
+        transform = FieldTransform(FieldSpace(basis, field_type="scalar"), grid)
+        coeffs = jnp.linspace(0.0, 1.0, basis.index_length)
+
+        values = transform.to_grid(coeffs)
+
+        assert "jax" in type(values).__module__
+        np.testing.assert_allclose(
+            to_numpy(values),
+            transform.scalar_coeffs_to_grid @ to_numpy(coeffs),
+        )
+    finally:
+        set_backend(previous_backend)
 
 
 def test_field_transform_applies_cs_mean_free_projection():

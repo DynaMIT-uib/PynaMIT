@@ -85,7 +85,7 @@ u_lat, u_lon, u_phi, u_theta = (
     np.load("utheta.npy"),
 )
 u_lat, u_lon = np.meshgrid(u_lat, u_lon, indexing="ij")
-dynamics.set_wind(
+dynamics.set_neutral_wind(
     u_theta=u_theta.flatten(),
     u_phi=u_phi.flatten(),
     lat=u_lat.flatten(),

@@ -112,9 +112,9 @@ class Geometry:
         else:
             self._T_to_Ve: Optional[xr.DataArray] = None
 
-        self._G_m_ind_to_JS = None
-        self._G_m_imp_to_JS = None
-        self._G_Br_to_JS = None
+        self._m_ind_to_gridded_JS = None
+        self._m_imp_to_gridded_JS = None
+        self._Br_to_gridded_JS = None
 
         if not self.basis.supports_surface_potential_operators:
             raise NotImplementedError(
@@ -165,30 +165,30 @@ class Geometry:
             input_shape=(self.basis.index_length,),
             output_shape=(self.radial_continuation_basis.index_length,),
         )
-        self.G_Ve_to_JS = np.tensordot(
+        self.horizontal_potential_to_gridded_JS = np.tensordot(
             self.radial_Ve_to_JS,
             self.horizontal_to_radial_continuation,
             axes=([2], [0]),
         )
 
-        self._G_helmholtz_pinv = None
+        self._helmholtz_analysis_matrix = None
 
     def tangential_to_helmholtz(self, vec: np.ndarray) -> np.ndarray:
         """Convert tangential vector field to Helmholtz coeffs."""
-        coeffs = np.tensordot(self.G_helmholtz_pinv, vec, 2)
+        coeffs = np.tensordot(self.helmholtz_analysis_matrix, vec, 2)
         projector = getattr(self.basis, "project_helmholtz_mean_free", None)
         return projector(coeffs) if callable(projector) else coeffs
 
     @property
-    def G_helmholtz_pinv(self) -> np.ndarray:
-        """Pseudo-inverse for horizontal vector field projections."""
-        if self._G_helmholtz_pinv is None:
-            self._G_helmholtz_pinv = weighted_tensor_pinv(
-                self.field_transform.G_helmholtz,
+    def helmholtz_analysis_matrix(self) -> np.ndarray:
+        """Matrix mapping gridded vectors to Helmholtz coefficients."""
+        if self._helmholtz_analysis_matrix is None:
+            self._helmholtz_analysis_matrix = weighted_tensor_pinv(
+                self.field_transform.helmholtz_coeffs_to_gridded_vector,
                 sqrt_weights=self.grid_sqrt_weights(vector=True),
                 n_leading_flattened=2,
             )
-        return self._G_helmholtz_pinv
+        return self._helmholtz_analysis_matrix
 
     def _init_evaluators(self, cs_basis: CSBasis) -> None:
         """Set up grid, field transforms, and field evaluators."""
@@ -258,8 +258,8 @@ class Geometry:
         """
         if self.radial_continuation_basis.coefficients_are_compatible_with(self.basis):
             return np.eye(self.basis.index_length)
-        radial_to_grid = self.radial_continuation_evaluator.G
-        horizontal_to_grid = self.field_transform.G
+        radial_to_grid = self.radial_continuation_evaluator.scalar_coeffs_to_grid
+        horizontal_to_grid = self.field_transform.scalar_coeffs_to_grid
         grid_to_radial = weighted_tensor_pinv(
             radial_to_grid,
             sqrt_weights=self.grid_sqrt_weights(),
@@ -271,8 +271,8 @@ class Geometry:
         """Project radial coefficients to horizontal space."""
         if self.radial_continuation_basis.coefficients_are_compatible_with(self.basis):
             return np.eye(self.basis.index_length)
-        horizontal_to_grid = self.field_transform.G
-        radial_to_grid = self.radial_continuation_evaluator.G
+        horizontal_to_grid = self.field_transform.scalar_coeffs_to_grid
+        radial_to_grid = self.radial_continuation_evaluator.scalar_coeffs_to_grid
         grid_to_horizontal = weighted_tensor_pinv(
             horizontal_to_grid,
             sqrt_weights=self.grid_sqrt_weights(),
@@ -283,7 +283,7 @@ class Geometry:
     def _build_radial_potential_to_sheet_current(self) -> np.ndarray:
         """Return radial potential to sheet current on grid."""
         return (1.0 / self.RI) * np.tensordot(
-            self.radial_continuation_evaluator.G_rxgrad,
+            self.radial_continuation_evaluator.scalar_coeffs_to_gridded_rhat_cross_gradient,
             (-self.RI / mu0) * self.radial_boundary_potential_discontinuity,
             axes=([2], [0]),
         )
@@ -310,7 +310,7 @@ class Geometry:
 
         self.jr_coeffs_to_j_apex = np.asarray(
             self.b_evaluator.radial_to_apex.reshape((-1, 1))
-            * self.field_transform.G
+            * self.field_transform.scalar_coeffs_to_grid
         ).copy()
         self.E_coeffs_to_E_apex_ll_diff = None
 
@@ -318,7 +318,7 @@ class Geometry:
             # Modify jr constraint for interhemispheric connection
             jr_coeffs_to_j_apex_cp = np.asarray(
                 self.cp_b_evaluator.radial_to_apex.reshape((-1, 1))
-                * self.cp_field_transform.G
+                * self.cp_field_transform.scalar_coeffs_to_grid
             )
             self.jr_coeffs_to_j_apex = self.jr_coeffs_to_j_apex - (
                 self.ll_mask.reshape((-1, 1)) * jr_coeffs_to_j_apex_cp
@@ -328,13 +328,13 @@ class Geometry:
             E_coeffs_to_E_apex = np.einsum(
                 "ijk,jklm->iklm",
                 self.b_evaluator.horizontal_to_apex,
-                np.asarray(self.field_transform.G_helmholtz),
+                np.asarray(self.field_transform.helmholtz_coeffs_to_gridded_vector),
                 optimize=True,
             )
             E_coeffs_to_E_apex_cp = np.einsum(
                 "ijk,jklm->iklm",
                 self.cp_b_evaluator.horizontal_to_apex,
-                np.asarray(self.cp_field_transform.G_helmholtz),
+                np.asarray(self.cp_field_transform.helmholtz_coeffs_to_gridded_vector),
                 optimize=True,
             )
             self.E_coeffs_to_E_apex_ll_diff = np.ascontiguousarray(
@@ -420,7 +420,9 @@ class Geometry:
                 mapped_grid,
             )
 
-            m_imp_to_jr_grid = mapped_field_transform.contract_G(m_imp_to_jr_coeffs)
+            m_imp_to_jr_grid = mapped_field_transform.contract_scalar_coeffs_to_grid(
+                m_imp_to_jr_coeffs
+            )
             jr_to_JS_rk = np.array(
                 [
                     rk_b_evaluator.Btheta / mapped_b_evaluator.Br,
@@ -477,38 +479,46 @@ class Geometry:
                 JS_rk_to_Ve, m_imp_to_JS_rk, axes=2
             )
 
-    # ----- G operators mapping to sheet current (JS) -----
+    # ----- Source coefficients to gridded sheet current -----
 
     @property
-    def G_m_imp_to_JS(self) -> np.ndarray:
-        """Operator mapping m_imp to sheet current on grid."""
-        if self._G_m_imp_to_JS is None:
+    def m_imp_to_gridded_JS(self) -> np.ndarray:
+        """Operator mapping m_imp to gridded sheet current."""
+        if self._m_imp_to_gridded_JS is None:
             if use_jax():
                 # Keep this on JAX. The result is consumed by JAX next,
                 # so a NumPy/OpenBLAS handoff would only add risk.
-                G_T_to_JS = -to_jax(self.field_transform.G_grad) / mu0
-                xp = get_array_module(G_T_to_JS)
+                toroidal_to_gridded_JS = (
+                    -to_jax(self.field_transform.scalar_coeffs_to_gridded_gradient)
+                    / mu0
+                )
+                xp = get_array_module(toroidal_to_gridded_JS)
                 PFAC_to_JS = xp.einsum(
                     "ijk,kl->ijl",
-                    to_jax(self.G_Ve_to_JS),
+                    to_jax(self.horizontal_potential_to_gridded_JS),
                     to_jax(self.T_to_Ve.values),
                     optimize=True,
                 )
-                self._G_m_imp_to_JS = block_until_ready(G_T_to_JS + PFAC_to_JS)
+                self._m_imp_to_gridded_JS = block_until_ready(
+                    toroidal_to_gridded_JS + PFAC_to_JS
+                )
             else:
-                G_T_to_JS = -to_numpy(self.field_transform.G_grad) / mu0
-                self._G_m_imp_to_JS = G_T_to_JS + np.tensordot(
-                    to_numpy(self.G_Ve_to_JS),
+                toroidal_to_gridded_JS = (
+                    -to_numpy(self.field_transform.scalar_coeffs_to_gridded_gradient)
+                    / mu0
+                )
+                self._m_imp_to_gridded_JS = toroidal_to_gridded_JS + np.tensordot(
+                    to_numpy(self.horizontal_potential_to_gridded_JS),
                     to_numpy(self.T_to_Ve.values),
                     axes=([2], [0]),
                 )
-        return self._G_m_imp_to_JS
+        return self._m_imp_to_gridded_JS
 
     @property
-    def G_m_ind_to_JS(self) -> np.ndarray:
-        """Operator mapping m_ind to sheet current on grid."""
-        if self._G_m_ind_to_JS is None:
-            G = self.G_Ve_to_JS.copy()
+    def m_ind_to_gridded_JS(self) -> np.ndarray:
+        """Operator mapping m_ind to gridded sheet current."""
+        if self._m_ind_to_gridded_JS is None:
+            m_ind_to_gridded_JS = self.horizontal_potential_to_gridded_JS.copy()
             if self.RM is not None:
                 br_shift = _diagonal_operator_values(
                     self.radial_continuation_basis.external_potential_continuation(
@@ -531,7 +541,7 @@ class Geometry:
                     (-br_shift / den / radial_m_ind_to_Br).reshape((-1, 1))
                     * self.horizontal_to_radial_continuation
                 )
-                self._G_Br_to_JS = np.tensordot(
+                self._Br_to_gridded_JS = np.tensordot(
                     self.radial_Ve_to_JS,
                     br_to_radial_potential,
                     axes=([2], [0]),
@@ -540,19 +550,19 @@ class Geometry:
                     (1.0 + (br_shift * vi_shift / den)).reshape((-1, 1))
                     * self.horizontal_to_radial_continuation
                 )
-                G = np.tensordot(
+                m_ind_to_gridded_JS = np.tensordot(
                     self.radial_Ve_to_JS,
                     m_ind_to_radial_potential,
                     axes=([2], [0]),
                 )
-            self._G_m_ind_to_JS = G
-        return self._G_m_ind_to_JS
+            self._m_ind_to_gridded_JS = m_ind_to_gridded_JS
+        return self._m_ind_to_gridded_JS
 
     @property
-    def G_Br_to_JS(self) -> Optional[np.ndarray]:
-        """Map boundary Br coefficients to sheet current."""
+    def Br_to_gridded_JS(self) -> Optional[np.ndarray]:
+        """Operator mapping boundary Br to gridded sheet current."""
         if self.RM is None:
             return None
-        if self._G_Br_to_JS is None:
-            _ = self.G_m_ind_to_JS
-        return self._G_Br_to_JS
+        if self._Br_to_gridded_JS is None:
+            _ = self.m_ind_to_gridded_JS
+        return self._Br_to_gridded_JS

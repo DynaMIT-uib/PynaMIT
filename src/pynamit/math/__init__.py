@@ -17,8 +17,12 @@ from pynamit.math.linear_map import (
     LinearMap,
     as_linear_map,
     diagonal_linear_map,
+    vstack_linear_maps,
 )
-from pynamit.math._einsum_linear_map import einsum_linear_map
+from pynamit.math._einsum_linear_map import (
+    einsum_linear_map,
+    einsum_linear_map_from_matvec,
+)
 
 __all__ = [
     "JAX_AVAILABLE",
@@ -28,12 +32,14 @@ __all__ = [
     "block_until_ready",
     "diagonal_linear_map",
     "einsum_linear_map",
+    "einsum_linear_map_from_matvec",
     "get_array_module",
     "jit",
     "set_backend",
     "to_jax",
     "to_numpy",
     "use_jax",
+    "vstack_linear_maps",
     "vmap",
     "xp",
 ]

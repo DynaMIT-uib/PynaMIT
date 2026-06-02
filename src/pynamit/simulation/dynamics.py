@@ -744,7 +744,7 @@ class Dynamics(object):
             pinv_rtol=pinv_rtol,
         )
 
-    def set_wind(
+    def set_neutral_wind(
         self,
         u_theta,
         u_phi,
@@ -805,6 +805,10 @@ class Dynamics(object):
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
         )
+
+    def set_u(self, *args, **kwargs):
+        """Set neutral wind velocities using the historical API name."""
+        return self.set_neutral_wind(*args, **kwargs)
 
     def _wind_input_data(self, u_theta, u_phi):
         """Return wind input data with time before component."""

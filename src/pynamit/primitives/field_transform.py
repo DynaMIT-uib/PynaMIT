@@ -92,93 +92,126 @@ class FieldTransform(object):
         self._input_transform = None
 
     @property
-    def G(self):
-        """Evaluation matrix."""
-        if not hasattr(self, "_G"):
+    def scalar_coeffs_to_grid(self):
+        """Matrix mapping scalar coefficients to grid values."""
+        if not hasattr(self, "_scalar_coeffs_to_grid"):
             if self.basis.caching:
                 if not hasattr(self, "_cache"):
-                    self._G, self._cache = self.basis.evaluate_on_grid(
+                    self._scalar_coeffs_to_grid, self._cache = self.basis.evaluate_on_grid(
                         self.grid, cache_out=True
                     )
                 else:
-                    self._G = self.basis.evaluate_on_grid(
+                    self._scalar_coeffs_to_grid = self.basis.evaluate_on_grid(
                         self.grid, cache_in=self._cache
                     )
             else:
-                self._G = self.basis.get_scalar_evaluation_matrix(self.grid)
-        return self._G
+                self._scalar_coeffs_to_grid = self.basis.get_scalar_evaluation_matrix(
+                    self.grid
+                )
+        return self._scalar_coeffs_to_grid
 
     @property
-    def G_th(self):
+    def scalar_coeffs_to_gridded_theta_derivative(self):
         """Matrix evaluating the theta derivative."""
-        if not hasattr(self, "_G_th"):
-            if hasattr(self, "_G_grad"):
-                self._G_th = self._G_grad[0]
+        if not hasattr(self, "_scalar_coeffs_to_gridded_theta_derivative"):
+            if hasattr(self, "_scalar_coeffs_to_gridded_gradient"):
+                self._scalar_coeffs_to_gridded_theta_derivative = (
+                    self._scalar_coeffs_to_gridded_gradient[0]
+                )
             elif self.basis.caching:
                 if not hasattr(self, "_cache"):
-                    self._G_th, self._cache = self.basis.evaluate_on_grid(
+                    (
+                        self._scalar_coeffs_to_gridded_theta_derivative,
+                        self._cache,
+                    ) = self.basis.evaluate_on_grid(
                         self.grid, derivative="theta", cache_out=True
                     )
                 else:
-                    self._G_th, self._cache = self.basis.evaluate_on_grid(
+                    (
+                        self._scalar_coeffs_to_gridded_theta_derivative,
+                        self._cache,
+                    ) = self.basis.evaluate_on_grid(
                         self.grid,
                         derivative="theta",
                         cache_in=self._cache,
                         cache_out=True,
                     )
             else:
-                self._G_th = self.G_grad[0]
-        return self._G_th
+                self._scalar_coeffs_to_gridded_theta_derivative = (
+                    self.scalar_coeffs_to_gridded_gradient[0]
+                )
+        return self._scalar_coeffs_to_gridded_theta_derivative
 
     @property
-    def G_ph(self):
+    def scalar_coeffs_to_gridded_phi_derivative(self):
         """Matrix evaluating the phi derivative."""
-        if not hasattr(self, "_G_ph"):
-            if hasattr(self, "_G_grad"):
-                self._G_ph = self._G_grad[1]
+        if not hasattr(self, "_scalar_coeffs_to_gridded_phi_derivative"):
+            if hasattr(self, "_scalar_coeffs_to_gridded_gradient"):
+                self._scalar_coeffs_to_gridded_phi_derivative = (
+                    self._scalar_coeffs_to_gridded_gradient[1]
+                )
             elif self.basis.caching:
                 if not hasattr(self, "_cache"):
-                    self._G_ph, self._cache = self.basis.evaluate_on_grid(
+                    (
+                        self._scalar_coeffs_to_gridded_phi_derivative,
+                        self._cache,
+                    ) = self.basis.evaluate_on_grid(
                         self.grid, derivative="phi", cache_out=True
                     )
                 else:
-                    self._G_ph, self._cache = self.basis.evaluate_on_grid(
+                    (
+                        self._scalar_coeffs_to_gridded_phi_derivative,
+                        self._cache,
+                    ) = self.basis.evaluate_on_grid(
                         self.grid,
                         derivative="phi",
                         cache_in=self._cache,
                         cache_out=True,
                     )
             else:
-                self._G_ph = self.G_grad[1]
-        return self._G_ph
+                self._scalar_coeffs_to_gridded_phi_derivative = (
+                    self.scalar_coeffs_to_gridded_gradient[1]
+                )
+        return self._scalar_coeffs_to_gridded_phi_derivative
 
     @property
-    def G_grad(self):
+    def scalar_coeffs_to_gridded_gradient(self):
         """Matrix evaluating the horizontal gradient."""
-        if not hasattr(self, "_G_grad"):
-            self._G_grad = self.basis.get_surface_gradient_matrix(self.grid)
-        return self._G_grad
+        if not hasattr(self, "_scalar_coeffs_to_gridded_gradient"):
+            self._scalar_coeffs_to_gridded_gradient = (
+                self.basis.get_surface_gradient_matrix(self.grid)
+            )
+        return self._scalar_coeffs_to_gridded_gradient
 
     @property
-    def G_rxgrad(self):
+    def scalar_coeffs_to_gridded_rhat_cross_gradient(self):
         """Matrix evaluating r-hat x horizontal gradient."""
-        if not hasattr(self, "_G_rxgrad"):
-            self._G_rxgrad = self.basis.get_rhat_cross_gradient_matrix(self.grid)
-        return self._G_rxgrad
+        if not hasattr(self, "_scalar_coeffs_to_gridded_rhat_cross_gradient"):
+            self._scalar_coeffs_to_gridded_rhat_cross_gradient = (
+                self.basis.get_rhat_cross_gradient_matrix(self.grid)
+            )
+        return self._scalar_coeffs_to_gridded_rhat_cross_gradient
 
     @property
-    def G_helmholtz(self):
+    def helmholtz_coeffs_to_gridded_vector(self):
         """Matrix evaluating horizontal vector field expansions."""
-        if not hasattr(self, "_G_helmholtz"):
-            if hasattr(self, "_G_grad") or hasattr(self, "_G_rxgrad"):
-                xp = get_array_module(self.G_grad, self.G_rxgrad)
-                self._G_helmholtz = xp.stack(
-                    [-xp.asarray(self.G_grad), xp.asarray(self.G_rxgrad)],
+        if not hasattr(self, "_helmholtz_coeffs_to_gridded_vector"):
+            if hasattr(self, "_scalar_coeffs_to_gridded_gradient") or hasattr(
+                self,
+                "_scalar_coeffs_to_gridded_rhat_cross_gradient",
+            ):
+                gradient = self.scalar_coeffs_to_gridded_gradient
+                rotated_gradient = self.scalar_coeffs_to_gridded_rhat_cross_gradient
+                xp = get_array_module(gradient, rotated_gradient)
+                self._helmholtz_coeffs_to_gridded_vector = xp.stack(
+                    [-xp.asarray(gradient), xp.asarray(rotated_gradient)],
                     axis=2,
                 )
             else:
-                self._G_helmholtz = self.basis.get_helmholtz_synthesis_matrix(self.grid)
-        return self._G_helmholtz
+                self._helmholtz_coeffs_to_gridded_vector = (
+                    self.basis.get_helmholtz_synthesis_matrix(self.grid)
+                )
+        return self._helmholtz_coeffs_to_gridded_vector
 
     @property
     def L(self):
@@ -235,7 +268,7 @@ class FieldTransform(object):
         """Least squares problem for scalar fields."""
         if self._least_squares_problem is None:
             self._least_squares_problem = LeastSquaresProblem(
-                A=self.G,
+                A=self.scalar_coeffs_to_grid,
                 solution_shape=self.basis.index_length,
                 data_shapes=self.grid.size,
                 sqrt_weights=self.sqrt_weights,
@@ -249,7 +282,7 @@ class FieldTransform(object):
         """Least squares problem for horizontal vector fields."""
         if self._least_squares_problem_helmholtz is None:
             self._least_squares_problem_helmholtz = LeastSquaresProblem(
-                A=self.G_helmholtz,
+                A=self.helmholtz_coeffs_to_gridded_vector,
                 solution_shape=(2, self.basis.index_length),
                 data_shapes=(2, self.grid.size),
                 sqrt_weights=self.helmholtz_sqrt_weights,
@@ -278,7 +311,7 @@ class FieldTransform(object):
 
     def to_grid(self, coeffs, derivative=None):
         """Transform coefficients in this field space to grid values."""
-        coeff_array = self._coefficient_array(coeffs)
+        coeff_array = self._coefficient_array(coeffs, preserve_backend=True)
         if self.field_space.field_type == "tangential":
             return self._coefficients_to_grid(coeff_array, helmholtz=True)
         return self._coefficients_to_grid(
@@ -340,27 +373,75 @@ class FieldTransform(object):
             ]
         )
 
-    def _coefficient_array(self, coeffs):
+    def _coefficient_array(self, coeffs, *, preserve_backend=False):
         """Return validated coefficient values."""
         if isinstance(coeffs, CoefficientField):
             if coeffs.field_space != self.field_space:
                 raise ValueError("CoefficientField field_space does not match transform.")
             coeffs = coeffs.coeffs
-        return self.field_space.validate_coefficients(coeffs)
+        array = self.field_space.validate_coefficients(coeffs)
+        if preserve_backend and "jax" in type(coeffs).__module__:
+            return get_array_module(coeffs).asarray(coeffs).reshape(array.shape)
+        return array
+
+    def _cached_coefficients_to_grid_operator(
+        self,
+        cache_name,
+        matrix,
+        *,
+        input_shape,
+        output_shape,
+    ):
+        """Return a cached coefficient-to-grid ``LinearMap``."""
+        operator = getattr(self, cache_name, None)
+        if operator is None:
+            operator = as_linear_map(
+                matrix,
+                input_shape=input_shape,
+                output_shape=output_shape,
+            )
+            setattr(self, cache_name, operator)
+        return operator
 
     def _coefficients_to_grid(self, coeffs, derivative=None, helmholtz=False):
         """Transform basis coefficients to grid values."""
         if derivative == "theta":
-            return np.dot(self.G_th, coeffs)
+            matrix = self.scalar_coeffs_to_gridded_theta_derivative
+            operator = self._cached_coefficients_to_grid_operator(
+                "_scalar_coeffs_to_gridded_theta_derivative_operator",
+                matrix,
+                input_shape=(self.basis.index_length,),
+                output_shape=matrix.shape[:-1],
+            )
         elif derivative == "phi":
-            return np.dot(self.G_ph, coeffs)
+            matrix = self.scalar_coeffs_to_gridded_phi_derivative
+            operator = self._cached_coefficients_to_grid_operator(
+                "_scalar_coeffs_to_gridded_phi_derivative_operator",
+                matrix,
+                input_shape=(self.basis.index_length,),
+                output_shape=matrix.shape[:-1],
+            )
         elif helmholtz:
-            return np.tensordot(self.G_helmholtz, coeffs, 2)
+            matrix = self.helmholtz_coeffs_to_gridded_vector
+            operator = self._cached_coefficients_to_grid_operator(
+                "_helmholtz_coeffs_to_gridded_vector_operator",
+                matrix,
+                input_shape=(2, self.basis.index_length),
+                output_shape=matrix.shape[:2],
+            )
         else:
-            return np.dot(self.G, coeffs)
+            matrix = self.scalar_coeffs_to_grid
+            operator = self._cached_coefficients_to_grid_operator(
+                "_scalar_coeffs_to_grid_operator",
+                matrix,
+                input_shape=(self.basis.index_length,),
+                output_shape=matrix.shape[:-1],
+            )
 
-    def contract_G(self, operator):
-        """Return G contracted with a coefficient-space operator."""
+        return operator.matvec(coeffs).reshape(operator.output_shape)
+
+    def contract_scalar_coeffs_to_grid(self, operator):
+        """Contract the scalar-grid matrix with an operator."""
         if not isinstance(operator, LinearMap) and getattr(operator, "ndim", None) not in (
             None,
             1,
@@ -372,15 +453,15 @@ class FieldTransform(object):
         except ValueError as exc:
             raise ValueError("operator must be a vector, matrix, or LinearMap.") from exc
 
-        xp = get_array_module(self.G, *op.backend_context)
-        G = xp.asarray(self.G)
+        xp = get_array_module(self.scalar_coeffs_to_grid, *op.backend_context)
+        scalar_coeffs_to_grid = xp.asarray(self.scalar_coeffs_to_grid)
         if op.shape[0] == op.shape[1]:
             try:
                 diagonal = xp.asarray(op.diagonal()).reshape((1, -1))
-                return G * diagonal
+                return scalar_coeffs_to_grid * diagonal
             except ValueError:
                 pass
-        return G @ xp.asarray(op.dense())
+        return scalar_coeffs_to_grid @ xp.asarray(op.dense())
 
     def _normalize_value_batch(self, values, input_grid):
         """Return values with canonical time-first layout."""

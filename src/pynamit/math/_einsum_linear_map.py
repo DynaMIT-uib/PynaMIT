@@ -43,6 +43,43 @@ def _batched_einsum_string(einsum_string: str, operand_index: int) -> Optional[s
     return ",".join(operands) + "->" + rhs + batch_label
 
 
+def _derive_einsum_strings_from_matvec(
+    einsum_string_matvec: str,
+    num_component_tensors: int,
+    input_operand_index: int,
+) -> tuple[str, str]:
+    """Derive dense and adjoint einsum strings from a forward map."""
+    spec = einsum_string_matvec.replace(" ", "")
+    if "..." in spec or "->" not in spec:
+        raise ValueError("Derived einsum maps require an explicit non-ellipsis output.")
+
+    lhs, output_subscript = spec.split("->", maxsplit=1)
+    operand_subscripts = lhs.split(",")
+    if input_operand_index < 0:
+        input_operand_index += len(operand_subscripts)
+    if input_operand_index < 0 or input_operand_index >= len(operand_subscripts):
+        raise ValueError("input_operand_index is outside the einsum operands.")
+    if len(operand_subscripts) != num_component_tensors + 1:
+        raise ValueError(
+            "Forward einsum must contain all component tensors plus one input operand."
+        )
+
+    input_subscript = operand_subscripts[input_operand_index]
+    component_subscripts = tuple(
+        subscript
+        for index, subscript in enumerate(operand_subscripts)
+        if index != input_operand_index
+    )
+    if set(output_subscript).intersection(input_subscript):
+        raise ValueError("Input and output subscripts must use distinct labels.")
+
+    dense_subscript = ",".join(component_subscripts) + "->" + output_subscript + input_subscript
+    rmatvec_subscript = (
+        ",".join((output_subscript,) + component_subscripts) + "->" + input_subscript
+    )
+    return dense_subscript, rmatvec_subscript
+
+
 @dataclass
 class _EinsumMap:
     """Einsum implementation backing one ``LinearMap``."""
@@ -330,3 +367,28 @@ def einsum_linear_map(
         output_shape=tuple(output_shape),
         input_shape=tuple(input_shape),
     ).to_linear_map()
+
+
+def einsum_linear_map_from_matvec(
+    *,
+    component_tensors: Sequence[Any],
+    einsum_string_matvec: str,
+    output_shape: tuple[int, ...],
+    input_shape: tuple[int, ...],
+    input_operand_index: int = -1,
+) -> LinearMap:
+    """Return an einsum-backed map from one forward contraction."""
+    component_tensors = tuple(component_tensors)
+    einsum_string_dense, einsum_string_rmatvec = _derive_einsum_strings_from_matvec(
+        einsum_string_matvec,
+        len(component_tensors),
+        input_operand_index,
+    )
+    return einsum_linear_map(
+        component_tensors=component_tensors,
+        einsum_string_dense=einsum_string_dense,
+        einsum_string_matvec=einsum_string_matvec,
+        einsum_string_rmatvec=einsum_string_rmatvec,
+        output_shape=output_shape,
+        input_shape=input_shape,
+    )

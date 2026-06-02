@@ -207,7 +207,7 @@ for step in range(0, nstep):
         f"{np.max(np.sqrt(u_theta**2 + u_phi**2))})"
     )
 
-    dynamics.set_wind(
+    dynamics.set_neutral_wind(
         u_theta=u_theta,
         u_phi=u_phi,
         lat=u_lat,

@@ -64,6 +64,26 @@ def test_normal_pinv_does_not_use_direct_solve(monkeypatch):
     np.testing.assert_allclose(solution, expected)
 
 
+def test_normal_pinv_response_solver_reuses_factorization(monkeypatch):
+    """Reusable normal-pinv response solves cache dense factors."""
+    A = np.array([[2.0, 0.0], [0.0, 3.0], [1.0, -1.0]])
+    rhs_first = np.array([[1.0, 2.0], [3.0, 1.0], [0.5, -2.0]])
+    rhs_second = np.array([[0.0, 4.0], [2.5, -1.0], [1.5, 3.0]])
+    problem = LeastSquaresProblem(A=A, solution_shape=2, data_shapes=3)
+    solver = LeastSquaresSolver(solver="normal_pinv", tolerance=1e-13)
+    solve_response = solver.build_response_solver(problem)
+
+    def fail_dense_assembly():
+        raise AssertionError("response solver should reuse cached dense factors")
+
+    monkeypatch.setattr(problem, "assemble_dense_system_matrix", fail_dense_assembly)
+
+    A_H = A.T.conj()
+    normal_pinv = np.linalg.pinv(A_H @ A, rtol=solver.tolerance, hermitian=True)
+    np.testing.assert_allclose(solve_response(rhs_first), normal_pinv @ (A_H @ rhs_first))
+    np.testing.assert_allclose(solve_response(rhs_second), normal_pinv @ (A_H @ rhs_second))
+
+
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
 @pytest.mark.parametrize("solver_name", ["normal_solve", "normal_pinv"])
 def test_dense_solvers_preserve_jax_output_when_backend_enabled(solver_name):

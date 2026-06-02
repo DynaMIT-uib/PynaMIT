@@ -228,20 +228,24 @@ class PynamEye(object):
         self.m_ind_to_Jeq = -self.RI / mu0 * self.basis.boundary_potential_discontinuity
 
         # Calculate matrices to calculate current.
-        self.G_B_pol_to_JS = {}
-        self.G_B_tor_to_JS = {}
-        self.G_m_ind_to_JS = {}
-        self.G_m_imp_to_JS = {}
+        self.B_pol_to_gridded_JS = {}
+        self.B_tor_to_gridded_JS = {}
+        self.m_ind_to_gridded_JS = {}
+        self.m_imp_to_gridded_JS = {}
         for region in ["global", "north", "south"]:
-            self.G_B_pol_to_JS[region] = (
-                -self.evaluator[region].G_rxgrad
+            self.B_pol_to_gridded_JS[region] = (
+                -self.evaluator[region].scalar_coeffs_to_gridded_rhat_cross_gradient
                 * self.basis.boundary_potential_discontinuity
                 / mu0
             )
-            self.G_B_tor_to_JS[region] = -self.evaluator[region].G_grad / mu0
-            self.G_m_ind_to_JS[region] = self.G_B_pol_to_JS[region]
-            self.G_m_imp_to_JS[region] = self.G_B_tor_to_JS[region] + np.tensordot(
-                self.G_B_pol_to_JS[region], self.T_to_Ve, 1
+            self.B_tor_to_gridded_JS[region] = (
+                -self.evaluator[region].scalar_coeffs_to_gridded_gradient / mu0
+            )
+            self.m_ind_to_gridded_JS[region] = self.B_pol_to_gridded_JS[region]
+            self.m_imp_to_gridded_JS[region] = self.B_tor_to_gridded_JS[
+                region
+            ] + np.tensordot(
+                self.B_pol_to_gridded_JS[region], self.T_to_Ve, 1
             )
 
         self._define_defaults()
@@ -284,20 +288,28 @@ class PynamEye(object):
             self.bH_01 = self.b_evaluator.br
             self.bH_10 = -self.b_evaluator.br
 
-            self.G_B_pol_to_JS = (
-                -self.evaluator["num"].G_rxgrad
+            self.B_pol_to_gridded_JS = (
+                -self.evaluator["num"].scalar_coeffs_to_gridded_rhat_cross_gradient
                 * self.basis.boundary_potential_discontinuity
                 / mu0
             )
-            self.G_B_tor_to_JS = -self.evaluator["num"].G_grad / mu0
-            self.G_m_ind_to_JS = self.G_B_pol_to_JS
-            self.G_m_imp_to_JS = self.G_B_tor_to_JS + self.G_B_pol_to_JS.dot(self.T_to_Ve)
+            self.B_tor_to_gridded_JS = (
+                -self.evaluator["num"].scalar_coeffs_to_gridded_gradient / mu0
+            )
+            self.m_ind_to_gridded_JS = self.B_pol_to_gridded_JS
+            self.m_imp_to_gridded_JS = self.B_tor_to_gridded_JS + (
+                self.B_pol_to_gridded_JS.dot(self.T_to_Ve)
+            )
 
             self.B_parameters_calculated = True
 
         # Calculate electric field values on state_grid.
-        Js_ind, Je_ind = np.split(self.G_m_ind_to_JS.dot(self.m_ind), 2, axis=0)
-        Js_imp, Je_imp = np.split(self.G_m_imp_to_JS.dot(self.m_imp), 2, axis=0)
+        Js_ind, Je_ind = np.split(
+            self.m_ind_to_gridded_JS.dot(self.m_ind), 2, axis=0
+        )
+        Js_imp, Je_imp = np.split(
+            self.m_imp_to_gridded_JS.dot(self.m_imp), 2, axis=0
+        )
 
         Jth, Jph = Js_ind + Js_imp, Je_ind + Je_imp
 
@@ -598,8 +610,8 @@ class PynamEye(object):
         print("todo: is the scaling as expected?")
 
         # Calculate current.
-        JS_imp = self.G_m_imp_to_JS[region].dot(self.m_imp)
-        JS_ind = self.G_m_ind_to_JS[region].dot(self.m_ind)
+        JS_imp = self.m_imp_to_gridded_JS[region].dot(self.m_imp)
+        JS_ind = self.m_ind_to_gridded_JS[region].dot(self.m_ind)
         JS = np.split(JS_imp + JS_ind, 2)
 
         # Calculate Joule heating.

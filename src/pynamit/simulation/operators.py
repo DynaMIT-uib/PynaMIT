@@ -12,8 +12,12 @@ from typing import Any, Optional, TYPE_CHECKING
 
 import numpy as np
 
-from pynamit.math.backend import get_array_module
-from pynamit.math.linear_map import DenseBackend, LinearMap, as_linear_map
+from pynamit.math.linear_map import (
+    DenseBackend,
+    LinearMap,
+    as_linear_map,
+    diagonal_linear_map,
+)
 
 if TYPE_CHECKING:
     from pynamit.simulation.state import State
@@ -34,19 +38,27 @@ class StateOperators:
     @property
     def jr_to_m_imp(self) -> LinearMap:
         """Linear map from radial current to imposed potential."""
-        return as_linear_map(self._jr_to_m_imp_matrix)
+        if getattr(self.state, "_jr_to_m_imp_operator", None) is None:
+            self.state._jr_to_m_imp_operator = as_linear_map(
+                self._jr_to_m_imp_matrix,
+                input_shape=(self.state.basis.index_length,),
+                output_shape=(self.state.basis.index_length,),
+            )
+        return self.state._jr_to_m_imp_operator
 
     @property
     def E_direct_to_m_imp(self) -> Optional[LinearMap]:
         """Map direct E coefficients to imposed potential."""
-        matrix = self._E_direct_to_m_imp_matrix
-        if matrix is None:
-            return None
-        return as_linear_map(
-            matrix,
-            input_shape=(2, self.state.basis.index_length),
-            output_shape=(self.state.basis.index_length,),
-        )
+        if getattr(self.state, "_E_direct_to_m_imp_operator", None) is None:
+            matrix = self._E_direct_to_m_imp_matrix
+            if matrix is None:
+                return None
+            self.state._E_direct_to_m_imp_operator = as_linear_map(
+                matrix,
+                input_shape=(2, self.state.basis.index_length),
+                output_shape=(self.state.basis.index_length,),
+            )
+        return self.state._E_direct_to_m_imp_operator
 
     @property
     def _jr_to_m_imp_matrix(self) -> np.ndarray:
@@ -63,7 +75,7 @@ class StateOperators:
     @property
     def direct_E_to_total_E(self) -> LinearMap:
         """Map direct E coefficients to total model E coefficients."""
-        if self.state._direct_E_coeffs_to_total_E_coeffs_operator is None:
+        if getattr(self.state, "_direct_E_coeffs_to_total_E_coeffs_operator", None) is None:
             self.state._direct_E_coeffs_to_total_E_coeffs_operator = (
                 self._create_direct_E_to_total_E()
             )
@@ -72,7 +84,7 @@ class StateOperators:
     @property
     def direct_E_to_E_df(self) -> LinearMap:
         """Map direct E coefficients to total E_df forcing."""
-        if self.state._direct_E_coeffs_to_E_df_operator is None:
+        if getattr(self.state, "_direct_E_coeffs_to_E_df_operator", None) is None:
             self.state._direct_E_coeffs_to_E_df_operator = (
                 self.E_coeffs_to_E_df @ self.direct_E_to_total_E
             )
@@ -82,77 +94,24 @@ class StateOperators:
         """Construct direct-E to total-E map with m_imp feedback."""
         n = self.state.basis.index_length
         flat_E_size = 2 * n
-        E_direct_to_m_imp = None
-        m_imp_to_E = None
-
-        if self.state.connect_hemispheres and self.state._E_map_constraint is not None:
-            E_direct_to_m_imp = self.E_direct_to_m_imp
-            m_imp_to_E = self.state.m_imp_to_E_coeffs
-
-        backend_context = ()
-        if E_direct_to_m_imp is not None:
-            backend_context += E_direct_to_m_imp.backend_context
-        if m_imp_to_E is not None:
-            backend_context += m_imp_to_E.backend_context
-
-        dtype = np.result_type(
-            np.float64,
-            getattr(E_direct_to_m_imp, "dtype", np.float64),
-            getattr(m_imp_to_E, "dtype", np.float64),
-        )
-
-        def array_module_for(value: Any) -> Any:
-            return get_array_module(value, *backend_context)
-
-        def matmat(block: Any) -> Any:
-            array_module = array_module_for(block)
-            block = array_module.asarray(block).reshape(flat_E_size, -1)
-            total = block
-            if E_direct_to_m_imp is not None:
-                if m_imp_to_E is None:
-                    raise RuntimeError("m_imp_to_E_coeffs is not available.")
-                m_imp_block = E_direct_to_m_imp.matmat(block).reshape(n, -1)
-                total = total + m_imp_to_E.matmat(m_imp_block).reshape(
-                    flat_E_size, -1
-                )
-            return total
-
-        def rmatmat(block: Any) -> Any:
-            array_module = array_module_for(block)
-            block = array_module.asarray(block).reshape(flat_E_size, -1)
-            result = block
-            if E_direct_to_m_imp is not None:
-                if m_imp_to_E is None:
-                    raise RuntimeError("m_imp_to_E_coeffs is not available.")
-                m_imp_adjoint = m_imp_to_E.rmatmat(block).reshape(n, -1)
-                result = result + E_direct_to_m_imp.rmatmat(m_imp_adjoint).reshape(
-                    flat_E_size, -1
-                )
-            return result
-
-        def matvec(vec: Any) -> Any:
-            array_module = array_module_for(vec)
-            return matmat(array_module.asarray(vec).reshape(flat_E_size, 1)).reshape(
-                flat_E_size
-            )
-
-        def rmatvec(vec: Any) -> Any:
-            array_module = array_module_for(vec)
-            return rmatmat(array_module.asarray(vec).reshape(flat_E_size, 1)).reshape(
-                flat_E_size
-            )
-
-        return LinearMap(
-            shape=(flat_E_size, flat_E_size),
-            dtype=dtype,
-            _matvec=matvec,
-            _rmatvec=rmatvec,
-            _matmat=matmat,
-            _rmatmat=rmatmat,
-            _backend_context=backend_context,
-            output_shape=(2, n),
+        identity = diagonal_linear_map(
+            np.ones(flat_E_size),
             input_shape=(2, n),
+            output_shape=(2, n),
         )
+
+        if not self.state.connect_hemispheres or self.state._E_map_constraint is None:
+            return identity
+
+        E_direct_to_m_imp = self.E_direct_to_m_imp
+        if E_direct_to_m_imp is None:
+            return identity
+
+        m_imp_to_E = self.state.m_imp_to_E_coeffs
+        if m_imp_to_E is None:
+            raise RuntimeError("m_imp_to_E_coeffs is not available.")
+
+        return identity + (m_imp_to_E @ E_direct_to_m_imp)
 
     def E_df(self, *, include_Br: bool = True) -> dict[str, LinearMap]:
         """Return named input/state to total E_df operators."""

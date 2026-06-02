@@ -190,7 +190,7 @@ def run_pynamit(
         dynamics.set_jr(jr, lat=jr_lat, lon=jr_lon, reg_lambda=jr_lambda, time=time)
 
     if wind_inputs is not None:
-        dynamics.set_wind(
+        dynamics.set_neutral_wind(
             u_theta=u_theta,
             u_phi=u_phi,
             lat=u_lat,

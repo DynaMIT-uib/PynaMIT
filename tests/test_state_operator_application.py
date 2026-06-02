@@ -73,21 +73,23 @@ def test_u_coeffs_to_E_coeffs_is_linear_map_on_jax():
 
     previous_backend = use_jax()
     n = 3
-    G_helmholtz_pinv = np.arange(2 * n * 2 * 4, dtype=float).reshape(2, n, 2, 4) / 10.0
+    helmholtz_analysis = np.arange(2 * n * 2 * 4, dtype=float).reshape(2, n, 2, 4) / 10.0
     bu = np.arange(2 * 2 * 4, dtype=float).reshape(2, 2, 4) / 20.0
-    G_helmholtz = np.arange(2 * 4 * 2 * n, dtype=float).reshape(2, 4, 2, n) / 30.0
+    helmholtz_synthesis = np.arange(2 * 4 * 2 * n, dtype=float).reshape(2, 4, 2, n) / 30.0
     coeffs = np.arange(2 * n, dtype=float).reshape(2, n) / 40.0
 
-    G_u_to_uxB_grid = np.einsum("pqg,qgrs->pgrs", bu, G_helmholtz, optimize=True)
-    expected = np.tensordot(G_helmholtz_pinv, G_u_to_uxB_grid, axes=([2, 3], [0, 1]))
+    u_to_uxB_grid = np.einsum("pqg,qgrs->pgrs", bu, helmholtz_synthesis, optimize=True)
+    expected = np.tensordot(helmholtz_analysis, u_to_uxB_grid, axes=([2, 3], [0, 1]))
     expected = np.tensordot(expected, coeffs, axes=([2, 3], [0, 1]))
 
     state = object.__new__(State)
     state.basis = SimpleNamespace(index_length=n)
     state.geometry = SimpleNamespace(
-        G_helmholtz_pinv=jnp.asarray(G_helmholtz_pinv),
+        helmholtz_analysis_matrix=jnp.asarray(helmholtz_analysis),
         bu=jnp.asarray(bu),
-        field_transform=SimpleNamespace(G_helmholtz=jnp.asarray(G_helmholtz)),
+        field_transform=SimpleNamespace(
+            helmholtz_coeffs_to_gridded_vector=jnp.asarray(helmholtz_synthesis)
+        ),
     )
     state._u_coeffs_to_E_coeffs_cache = None
 
@@ -205,6 +207,31 @@ def test_steady_state_operator_preserves_jax_matrix():
     np.testing.assert_allclose(np.asarray(result), matrix @ coeffs)
 
 
+def test_m_imp_solve_uses_shaped_response_operators():
+    """m_imp response application should go through StateOperators."""
+    n = 3
+    jr_to_m_imp = np.arange(n * n, dtype=float).reshape(n, n) / 10.0
+    E_direct_to_m_imp = np.arange(n * 2 * n, dtype=float).reshape(n, 2, n) / 20.0
+    jr_coeffs = np.arange(n, dtype=float) / 30.0
+    E_direct_coeffs = np.arange(2 * n, dtype=float).reshape(2, n) / 40.0
+
+    state = object.__new__(State)
+    state.basis = SimpleNamespace(index_length=n)
+    state._jr_to_m_imp_matrix = jr_to_m_imp
+    state._E_direct_to_m_imp_matrix = E_direct_to_m_imp
+    state._ensure_m_imp_response_matrices = lambda: None
+    state.project_scalar_mean_free = lambda coeffs: coeffs
+    state.connect_hemispheres = True
+
+    expected = jr_to_m_imp @ jr_coeffs
+    expected += E_direct_to_m_imp.reshape(n, 2 * n) @ E_direct_coeffs.reshape(2 * n)
+
+    np.testing.assert_allclose(
+        state._solve_for_m_imp(jr_coeffs, E_direct_coeffs),
+        expected,
+    )
+
+
 def test_model_operator_accessors_match_runtime_operator_chain():
     """Dense accessors should expose the same E_df/rate operators."""
     n = 3
@@ -225,6 +252,7 @@ def test_model_operator_accessors_match_runtime_operator_chain():
             output_shape=(n,),
         ),
         E_df_to_d_m_ind_dt=scale,
+        Br_to_gridded_JS=None,
     )
     state._u_coeffs_to_E_coeffs_cache = einsum_linear_map(
         component_tensors=[u_to_E],
@@ -314,6 +342,7 @@ def test_model_dense_accessors_accept_explicit_jax_backend():
             output_shape=(n,),
         ),
         E_df_to_d_m_ind_dt=1.0,
+        Br_to_gridded_JS=None,
     )
     state._u_coeffs_to_E_coeffs_cache = einsum_linear_map(
         component_tensors=[np.ones((2, n, 2, n))],

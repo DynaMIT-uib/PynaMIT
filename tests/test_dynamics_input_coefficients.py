@@ -45,14 +45,14 @@ def test_set_Br_accepts_input_basis_coefficients(tmp_path):
     np.testing.assert_allclose(dataset.time.values, [2.0])
 
 
-def test_set_wind_accepts_helmholtz_input_basis_coefficients(tmp_path):
+def test_set_neutral_wind_accepts_helmholtz_input_basis_coefficients(tmp_path):
     """Wind Helmholtz coefficients are stored directly."""
     dynamics = _small_dynamics(tmp_path)
     n_coeffs = dynamics.input_field_spaces["u"].index_length
     cf_coeffs = np.arange(n_coeffs, dtype=float)
     df_coeffs = -np.arange(n_coeffs, dtype=float) - 1.0
 
-    dynamics.set_wind(cf_coeffs, df_coeffs, time=3.0, coefficients=True)
+    dynamics.set_neutral_wind(cf_coeffs, df_coeffs, time=3.0, coefficients=True)
 
     dataset = dynamics.input_timeseries.datasets["u"]
     np.testing.assert_allclose(
@@ -62,6 +62,23 @@ def test_set_wind_accepts_helmholtz_input_basis_coefficients(tmp_path):
     np.testing.assert_allclose(dataset.time.values, [3.0])
 
 
+def test_set_u_uses_neutral_wind_api_without_set_wind(tmp_path):
+    """Historical set_u delegates to set_neutral_wind."""
+    dynamics = _small_dynamics(tmp_path)
+    n_coeffs = dynamics.input_field_spaces["u"].index_length
+    cf_coeffs = np.arange(n_coeffs, dtype=float)
+    df_coeffs = -np.arange(n_coeffs, dtype=float) - 1.0
+
+    assert not hasattr(dynamics, "set_wind")
+    dynamics.set_u(cf_coeffs, df_coeffs, time=3.0, coefficients=True)
+
+    dataset = dynamics.input_timeseries.datasets["u"]
+    np.testing.assert_allclose(
+        dataset["SH_u"].isel(time=0).values,
+        np.concatenate([cf_coeffs, df_coeffs]),
+    )
+
+
 def test_state_update_uses_coefficient_field_for_wind(tmp_path):
     """State coefficient storage does not need grid expansion."""
     dynamics = _small_dynamics(tmp_path)
@@ -69,7 +86,7 @@ def test_state_update_uses_coefficient_field_for_wind(tmp_path):
     cf_coeffs = np.arange(n_coeffs, dtype=float)
     df_coeffs = -np.arange(n_coeffs, dtype=float) - 1.0
 
-    dynamics.set_wind(cf_coeffs, df_coeffs, time=3.0, coefficients=True)
+    dynamics.set_neutral_wind(cf_coeffs, df_coeffs, time=3.0, coefficients=True)
     dynamics.state.update(dynamics.input_timeseries, time=3.0)
 
     assert isinstance(dynamics.state.u, CoefficientField)
