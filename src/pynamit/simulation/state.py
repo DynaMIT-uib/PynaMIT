@@ -161,6 +161,8 @@ class State:
         self._E_noind_to_m_ind_steady_operator: Optional[LinearMap] = None
         self._jr_to_m_imp_matrix: Optional[np.ndarray] = None
         self._E_direct_to_m_imp_matrix: Optional[np.ndarray] = None
+        self._jr_to_m_imp_operator: Optional[LinearMap] = None
+        self._E_direct_to_m_imp_operator: Optional[LinearMap] = None
         self._direct_E_coeffs_to_total_E_coeffs_operator: Optional[LinearMap] = None
         self._direct_E_coeffs_to_E_df_operator: Optional[LinearMap] = None
         self._m_imp_problem: Optional[LeastSquaresProblem] = None
@@ -353,12 +355,9 @@ class State:
         logger.info("Building dense m_imp response matrices.")
         n = self.basis.index_length
         problem = self.m_imp_problem
-        preconditioner = None
-        if self.m_imp_solver.solver in ("lsmr", "cgls"):
-            preconditioner = self._get_m_imp_preconditioner()
         solve_response = self.m_imp_solver.build_response_solver(
             problem,
-            preconditioner=preconditioner,
+            preconditioner=self.m_imp_preconditioner,
         )
 
         jr_rhs = np.asarray(self.geometry.jr_coeffs_to_j_apex).reshape(
@@ -396,15 +395,15 @@ class State:
         self, jr_coeffs: Optional[np.ndarray], E_direct_coeffs: np.ndarray
     ) -> np.ndarray:
         """Solve for the imposed potential coefficients `m_imp`."""
-        self._ensure_m_imp_response_matrices()
         solution = xp.zeros(self.basis.index_length)
 
         if jr_coeffs is not None:
             solution += self.operators.jr_to_m_imp.matvec(xp.asarray(jr_coeffs))
 
-        E_direct_to_m_imp = self.operators.E_direct_to_m_imp
-        if E_direct_to_m_imp is not None:
-            solution += E_direct_to_m_imp.matvec(xp.asarray(E_direct_coeffs))
+        if self.connect_hemispheres:
+            E_direct_to_m_imp = self.operators.E_direct_to_m_imp
+            if E_direct_to_m_imp is not None:
+                solution += E_direct_to_m_imp.matvec(xp.asarray(E_direct_coeffs))
 
         return self.project_scalar_mean_free(solution)
 

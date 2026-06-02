@@ -38,19 +38,27 @@ class StateOperators:
     @property
     def jr_to_m_imp(self) -> LinearMap:
         """Linear map from radial current to imposed potential."""
-        return as_linear_map(self._jr_to_m_imp_matrix)
+        if getattr(self.state, "_jr_to_m_imp_operator", None) is None:
+            self.state._jr_to_m_imp_operator = as_linear_map(
+                self._jr_to_m_imp_matrix,
+                input_shape=(self.state.basis.index_length,),
+                output_shape=(self.state.basis.index_length,),
+            )
+        return self.state._jr_to_m_imp_operator
 
     @property
     def E_direct_to_m_imp(self) -> Optional[LinearMap]:
         """Map direct E coefficients to imposed potential."""
-        matrix = self._E_direct_to_m_imp_matrix
-        if matrix is None:
-            return None
-        return as_linear_map(
-            matrix,
-            input_shape=(2, self.state.basis.index_length),
-            output_shape=(self.state.basis.index_length,),
-        )
+        if getattr(self.state, "_E_direct_to_m_imp_operator", None) is None:
+            matrix = self._E_direct_to_m_imp_matrix
+            if matrix is None:
+                return None
+            self.state._E_direct_to_m_imp_operator = as_linear_map(
+                matrix,
+                input_shape=(2, self.state.basis.index_length),
+                output_shape=(self.state.basis.index_length,),
+            )
+        return self.state._E_direct_to_m_imp_operator
 
     @property
     def _jr_to_m_imp_matrix(self) -> np.ndarray:

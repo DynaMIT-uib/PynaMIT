@@ -221,6 +221,7 @@ def test_m_imp_solve_uses_shaped_response_operators():
     state._E_direct_to_m_imp_matrix = E_direct_to_m_imp
     state._ensure_m_imp_response_matrices = lambda: None
     state.project_scalar_mean_free = lambda coeffs: coeffs
+    state.connect_hemispheres = True
 
     expected = jr_to_m_imp @ jr_coeffs
     expected += E_direct_to_m_imp.reshape(n, 2 * n) @ E_direct_coeffs.reshape(2 * n)
