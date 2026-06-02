@@ -8,6 +8,8 @@ Attributes
 ----------
 FieldTransform : class
     Class for evaluating basis functions.
+BasisEvaluator : class
+    Historical basis-first wrapper around FieldTransform.
 CSBasis : class
     Class for cubed sphere projections.
 Dynamics : class
@@ -49,6 +51,7 @@ from .sphere import (
     normalize_horizontal_basis_kind,
 )
 from .primitives.field_transform import FieldTransform
+from .primitives.basis_evaluator import BasisEvaluator
 from .primitives.coefficient_field import CoefficientField
 from .primitives.field_evaluator import FieldEvaluator
 from .primitives.field_space import FieldSpace
@@ -63,6 +66,7 @@ from .external_inputs import set_input_source, get_input_source
 __all__ = [
     "Basis",
     "BasisView",
+    "BasisEvaluator",
     "FieldTransform",
     "CSBasis",
     "CoefficientField",

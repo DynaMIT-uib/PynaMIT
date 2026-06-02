@@ -3,6 +3,8 @@
 import numpy as np
 import pytest
 
+import pynamit
+from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_transform import FieldTransform
 from pynamit.primitives.field_space import FieldSpace
 from pynamit.primitives.timeseries import Timeseries
@@ -30,6 +32,28 @@ def test_field_transform_projects_scalar_grid_values():
     actual = transform.project(values, input_grid=grid, projection_basis=basis)
 
     np.testing.assert_allclose(actual[0], expected, atol=1e-10)
+
+
+def test_basis_evaluator_uses_field_transform_implementation():
+    """Historical BasisEvaluator name wraps FieldTransform."""
+    basis = SHBasis(3, 2, mean_free=True)
+    grid = _regular_grid()
+    evaluator = BasisEvaluator(basis, grid)
+
+    assert isinstance(evaluator, FieldTransform)
+    assert pynamit.BasisEvaluator is BasisEvaluator
+
+    coeffs = np.zeros(basis.index_length)
+    coeffs[1] = 1.0
+    np.testing.assert_allclose(
+        evaluator.basis_to_grid(coeffs),
+        evaluator.to_grid(coeffs),
+    )
+    np.testing.assert_allclose(
+        evaluator.grid_to_basis(evaluator.basis_to_grid(coeffs)),
+        coeffs,
+        atol=1e-10,
+    )
 
 
 def test_field_transform_projects_tangential_grid_values():
