@@ -96,7 +96,7 @@ hwm14Obj = pyhwm2014.HWM142D(
 
 u_theta, u_phi = (-hwm14Obj.Vwind.flatten(), hwm14Obj.Uwind.flatten())
 u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing="ij")
-dynamics.set_u(
+dynamics.set_wind(
     u_theta=u_theta,
     u_phi=u_phi,
     lat=u_lat,

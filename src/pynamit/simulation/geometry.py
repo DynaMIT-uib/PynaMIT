@@ -7,7 +7,7 @@ mappings.
 
 from __future__ import annotations
 import logging
-from typing import Optional, Any
+from typing import Any, Optional
 
 import numpy as np
 import xarray as xr
@@ -27,34 +27,18 @@ logger = logging.getLogger(__name__)
 
 def _compact_operator_array(operator):
     """Return diagonal vector when possible, else dense matrix."""
-    to_dense = getattr(operator, "to_dense", None)
-    if callable(to_dense):
-        dense = np.asarray(to_dense())
-    elif hasattr(operator, "toarray"):
-        dense = np.asarray(operator.toarray())
-    else:
-        dense = np.asarray(operator)
-
-    if dense.ndim == 1:
-        return dense.copy()
-    if dense.ndim == 2 and dense.shape[0] == dense.shape[1]:
-        diagonal = np.diag(dense)
-        if np.allclose(dense, np.diag(diagonal), rtol=0.0, atol=0.0):
-            return diagonal
-    return dense
+    op = as_linear_map(operator)
+    if op.shape[0] == op.shape[1]:
+        try:
+            return np.asarray(op.diagonal(backend="numpy")).copy()
+        except ValueError:
+            pass
+    return np.asarray(op.dense(backend="numpy"))
 
 
 def _diagonal_operator_values(operator):
     """Return diagonal values from a diagonal operator."""
-    dense = _compact_operator_array(operator)
-    if dense.ndim == 1:
-        return dense.copy()
-    if dense.ndim != 2 or dense.shape[0] != dense.shape[1]:
-        raise ValueError("Expected a square diagonal operator.")
-    diagonal = np.diag(dense)
-    if not np.allclose(dense, np.diag(diagonal), rtol=0.0, atol=0.0):
-        raise ValueError("Expected a diagonal operator.")
-    return diagonal.copy()
+    return np.asarray(as_linear_map(operator).diagonal(backend="numpy")).copy()
 
 
 def _extended_scalar_basis_for_potential(basis, settings):
@@ -65,18 +49,14 @@ def _extended_scalar_basis_for_potential(basis, settings):
     return basis
 
 
-def _dense_operator_array(operator, input_length, output_length):
+def _dense_operator_matrix(operator, input_length, output_length):
     """Return an explicit dense operator array."""
-    values = np.asarray(operator)
-    if values.ndim == 1:
-        if values.size != output_length or input_length != output_length:
-            raise ValueError("Diagonal operator length does not match requested shape.")
-        return np.diag(values)
-    if values.shape != (output_length, input_length):
-        raise ValueError(
-            f"Operator has shape {values.shape}, expected {(output_length, input_length)}."
-        )
-    return values
+    op = as_linear_map(
+        operator,
+        input_shape=(input_length,),
+        output_shape=(output_length,),
+    )
+    return np.asarray(op.dense(backend="numpy"))
 
 
 class Geometry:
@@ -173,7 +153,7 @@ class Geometry:
         self.radial_continuation_to_horizontal = (
             self._build_radial_continuation_to_horizontal()
         )
-        self.radial_boundary_potential_discontinuity = _dense_operator_array(
+        self.radial_boundary_potential_discontinuity = _dense_operator_matrix(
             self.radial_continuation_basis.boundary_potential_discontinuity,
             self.radial_continuation_basis.index_length,
             self.radial_continuation_basis.index_length,

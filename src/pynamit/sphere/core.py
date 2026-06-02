@@ -432,7 +432,7 @@ class RadialLaplaceContinuation(ABC):
         pass
 
 
-class BasisView(SurfaceOperators):
+class BasisView(SurfaceOperators, RadialLaplaceContinuation):
     """Coefficient-space view of another evaluable basis."""
 
     def __init__(
@@ -689,19 +689,6 @@ class BasisView(SurfaceOperators):
             self.parent_basis.internal_potential_continuation(start, end),
             "internal_potential_continuation",
         )
-
-    def get_external_potential_continuation_operator(self, start, end):
-        """Return viewed external-potential continuation operator."""
-        return as_linear_map(self.external_potential_continuation(start, end))
-
-    def get_internal_potential_continuation_operator(self, start, end):
-        """Return viewed internal-potential continuation operator."""
-        return as_linear_map(self.internal_potential_continuation(start, end))
-
-    def get_boundary_potential_discontinuity_operator(self):
-        """Return viewed boundary-potential discontinuity operator."""
-        self._require_radial_support()
-        return as_linear_map(self.boundary_potential_discontinuity)
 
     def scalar_fields_are_mean_free_by_construction(self):
         """Return whether scalar coefficients omit the mean term."""

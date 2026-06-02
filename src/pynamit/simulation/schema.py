@@ -40,7 +40,7 @@ OUTPUT_FIELD_TYPES = {
 class SimulationSchema:
     """Field-space schema for one simulation configuration.
 
-    ``FieldSpace`` mappings are the canonical persisted coefficient-space
+    ``FieldSpace`` mappings are canonical persisted coefficient-space
     metadata for inputs and outputs.
     """
 
@@ -57,7 +57,7 @@ class SimulationSchema:
 
 
 def _setting(settings: Any, name: str) -> Any:
-    """Return one setting value from an xarray settings dataset or object."""
+    """Return one setting from an xarray dataset or object."""
     attrs = getattr(settings, "attrs", None)
     if attrs is not None and name in attrs:
         return attrs[name]
@@ -93,7 +93,7 @@ def field_spaces_from_bases(
 
 
 def build_simulation_schema(settings: Any, horizontal_basis_kind: str) -> SimulationSchema:
-    """Build the canonical basis and storage schema for one ``Dynamics`` instance."""
+    """Build the basis and storage schema for one ``Dynamics``."""
     horizontal_basis_kind = normalize_horizontal_basis_kind(horizontal_basis_kind)
 
     sh_basis = SHBasis(_setting(settings, "Nmax"), _setting(settings, "Mmax"), mean_free=False)
@@ -134,7 +134,9 @@ def build_simulation_schema(settings: Any, horizontal_basis_kind: str) -> Simula
         interpolation_bases = {
             "jr": sh_basis_mean_free if bool(_setting(settings, "vector_jr")) else cs_basis,
             "Br": sh_basis_mean_free if bool(_setting(settings, "vector_Br")) else cs_basis,
-            "conductance": sh_basis if bool(_setting(settings, "vector_conductance")) else cs_basis,
+            "conductance": (
+                sh_basis if bool(_setting(settings, "vector_conductance")) else cs_basis
+            ),
             "u": sh_basis_mean_free if bool(_setting(settings, "vector_u")) else cs_basis,
         }
 

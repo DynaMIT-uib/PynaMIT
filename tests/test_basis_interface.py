@@ -2,8 +2,9 @@
 
 import importlib.util
 
-import pytest
 import numpy as np
+import pytest
+from scipy.sparse import csr_matrix
 
 import pynamit
 from pynamit.primitives.field_transform import (
@@ -12,7 +13,15 @@ from pynamit.primitives.field_transform import (
     resolve_sqrt_weights,
 )
 from pynamit.primitives.field_space import FieldSpace
-from pynamit.math import JAX_AVAILABLE, set_backend, to_jax, to_numpy, use_jax
+from pynamit.math import (
+    JAX_AVAILABLE,
+    as_linear_map,
+    diagonal_linear_map,
+    set_backend,
+    to_jax,
+    to_numpy,
+    use_jax,
+)
 from pynamit.math.tensor_operations import weighted_tensor_pinv
 from pynamit.sphere import (
     Basis,
@@ -387,7 +396,7 @@ def test_csbasis_multi_vector_interpolation_matches_per_field_calls():
 
 
 def test_field_transform_contract_g_matches_explicit_products():
-    """FieldTransform.contract_G contracts G with vectors/matrices."""
+    """contract_G contracts G with coefficient operators."""
     cs_basis = CSBasis(8)
     evaluator = FieldTransform(
         FieldSpace(cs_basis, field_type="scalar"),
@@ -400,8 +409,16 @@ def test_field_transform_contract_g_matches_explicit_products():
         evaluator.contract_G(vector),
         evaluator.G * vector.reshape((1, -1)),
     )
+    np.testing.assert_allclose(
+        evaluator.contract_G(diagonal_linear_map(vector)),
+        evaluator.G * vector.reshape((1, -1)),
+    )
     np.testing.assert_allclose(evaluator.contract_G(matrix), evaluator.G @ matrix)
-    with pytest.raises(ValueError, match="vector or matrix"):
+    np.testing.assert_allclose(
+        evaluator.contract_G(as_linear_map(csr_matrix(matrix))),
+        evaluator.G @ matrix,
+    )
+    with pytest.raises(ValueError, match="vector, matrix, or LinearMap"):
         evaluator.contract_G(np.zeros((1, 1, 1)))
 
 

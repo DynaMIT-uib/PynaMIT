@@ -41,7 +41,7 @@ def test_sh_schema_uses_mean_free_sh_inputs_and_outputs():
 
 
 def test_cs_schema_uses_full_length_storage_with_mean_free_intent():
-    """CS mode stores full grid coefficients while recording zero-mean intent."""
+    """CS mode stores full grid coefficients with zero-mean intent."""
     schema = build_simulation_schema(_settings(), "cs")
 
     assert schema.horizontal_basis is schema.cs_basis
@@ -57,7 +57,7 @@ def test_cs_schema_uses_full_length_storage_with_mean_free_intent():
 
 
 def test_schema_respects_vector_input_flags_for_sh_projection_basis():
-    """Projection bases stay independent from persisted storage bases."""
+    """Projection bases stay independent from storage bases."""
     schema = build_simulation_schema(
         _settings(vector_jr=0, vector_Br=0, vector_conductance=0, vector_u=0),
         "SH",
@@ -88,7 +88,7 @@ def test_field_spaces_from_bases_requires_matching_keys():
 
 
 def test_schema_mean_free_projection_is_operational_for_cs_state_space():
-    """FieldSpace metadata from the schema can project CS coefficients."""
+    """Schema FieldSpace metadata can project CS coefficients."""
     schema = build_simulation_schema(_settings(), "CS")
     field_space = schema.output_field_spaces["state"]
     coeffs = np.linspace(0.0, 1.0, field_space.index_length) + 5.0

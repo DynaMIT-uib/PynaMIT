@@ -114,6 +114,28 @@ def test_svd_solver_preserves_jax_output_when_backend_enabled():
 
 
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
+def test_least_squares_problem_follows_jax_operator_context_when_numpy_active():
+    """JAX-backed operator terms should drive matrix-free assembly."""
+    import jax.numpy as jnp
+
+    previous_backend = use_jax()
+    A = np.array([[2.0, 0.0], [0.0, 3.0], [1.0, -1.0]])
+    rhs = np.array([[1.0, 2.0], [3.0, 1.0], [0.5, -2.0]])
+
+    try:
+        set_backend("numpy")
+        problem = LeastSquaresProblem(A=jnp.asarray(A), solution_shape=2, data_shapes=3)
+        rhs_block, _, _ = problem.assemble_rhs_block(rhs)
+        system_block = problem.get_system_linear_map().matmat(np.eye(2))
+    finally:
+        set_backend(previous_backend)
+
+    assert "jax" in type(rhs_block).__module__
+    assert "jax" in type(system_block).__module__
+    np.testing.assert_allclose(np.asarray(system_block), A)
+
+
+@pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
 def test_normal_pinv_matches_numpy_hermitian_reference_when_jax_enabled():
     """JAX normal-pinv matches the hermitian reference."""
     A = np.array([[2.0, 0.0], [0.0, 3.0], [1.0, -1.0], [1.0, 2.0]])

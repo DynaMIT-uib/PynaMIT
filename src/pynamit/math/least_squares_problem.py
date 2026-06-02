@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 from functools import cached_property
 from typing import Any, List, Optional, Tuple, TypeAlias, Union
 
@@ -12,55 +11,24 @@ import scipy.sparse
 from scipy.sparse.linalg import LinearOperator
 
 from pynamit.math.backend import asarray, get_array_module
-from pynamit.math.linear_map import LinearMap, as_linear_map, diagonal_linear_map
-from pynamit.math.tensor_chain import TensorChain
+from pynamit.math.linear_map import LinearMap, as_linear_map
 
-OperatorInput: TypeAlias = Union[np.ndarray, LinearOperator, TensorChain, LinearMap]
+OperatorInput: TypeAlias = Union[
+    np.ndarray,
+    scipy.sparse.spmatrix,
+    LinearOperator,
+    LinearMap,
+]
 OperatorInputList: TypeAlias = Union[OperatorInput, List[OperatorInput]]
 NumericInputList: TypeAlias = Union[float, List[float]]
 
 
-@dataclass
-class OperatorTerm:
-    """A normalized operator term with shape metadata."""
-
-    linear_map: LinearMap
-    output_shape: Tuple[int, ...]
-    input_shape: Tuple[int, ...]
-    is_diagonal: bool = False
-    diag_data: Optional[Any] = None
-
-    @property
-    def num_rows(self) -> int:
-        """Number of rows in the operator."""
-        return self.linear_map.shape[0]
-
-    @property
-    def dtype(self) -> np.dtype:
-        """Data type of the operator."""
-        return self.linear_map.dtype
-
-    def apply(self, block: Any) -> Any:
-        """Apply this operator to a vector block."""
-        return self.linear_map.matmat(block)
-
-    def apply_adjoint(self, block: Any) -> Any:
-        """Apply this operator's adjoint to a vector block."""
-        return self.linear_map.rmatmat(block)
-
-    def dense_array(self, xp: Any = np) -> Any:
-        """Return a dense representation on ``xp``."""
-        if self.is_diagonal and self.diag_data is not None:
-            return xp.asarray(self.diag_data).reshape(-1)
-        return self.linear_map.materialize_dense(xp)
-
-    def to_dense(self) -> np.ndarray:
-        """Return a dense representation."""
-        return np.asarray(self.dense_array(np))
-
-    def normal_matrix_diag(self) -> np.ndarray:
-        """Compute ``diag(A* A)`` without requiring a dense matrix."""
-        return self.linear_map.normal_matrix_diag()
+def _diagonal_array(op: LinearMap, xp: Any = np) -> Optional[Any]:
+    """Return diagonal scale values when ``op`` is diagonal."""
+    try:
+        return op._diagonal_array(xp)
+    except ValueError:
+        return None
 
 
 class LeastSquaresProblem:
@@ -118,24 +86,19 @@ class LeastSquaresProblem:
 
     def _create_weight_operator(
         self, w_val: Any, shape: Tuple[int, ...]
-    ) -> Optional[OperatorTerm]:
+    ) -> Optional[LinearMap]:
         if w_val is None:
             return None
         flat_dim = math.prod(shape)
-        if not isinstance(w_val, (LinearMap, LinearOperator, TensorChain)) and not (
-            scipy.sparse.issparse(w_val)
+        if not isinstance(w_val, (LinearMap, LinearOperator)) and not scipy.sparse.issparse(
+            w_val
         ):
-            arr = np.ascontiguousarray(w_val)
-            is_diagonal = (arr.ndim == 1 and arr.size == flat_dim) or (arr.shape == shape)
-            if is_diagonal:
-                diag_data = arr.reshape(flat_dim)
-                return OperatorTerm(
-                    linear_map=diagonal_linear_map(diag_data),
-                    output_shape=shape,
-                    input_shape=shape,
-                    is_diagonal=True,
-                    diag_data=diag_data,
-                )
+            arr_shape = getattr(w_val, "shape", None)
+            if arr_shape is None:
+                arr_shape = np.shape(w_val)
+            if arr_shape is not None and tuple(arr_shape) == shape:
+                xp = get_array_module(w_val)
+                w_val = xp.asarray(w_val).reshape(flat_dim)
         return self._flatten_operator(w_val, output_shape=shape, input_shape=shape)
 
     @cached_property
@@ -160,11 +123,9 @@ class LeastSquaresProblem:
         return scaled_lambdas
 
     @cached_property
-    def data_operator(self) -> OperatorTerm:
+    def data_operator(self) -> LinearMap:
         """Assemble the data operator without regularization."""
-        linear_map = self._get_base_system_linear_map(include_regularization=False)
-        shape = (linear_map.shape[0],)
-        return OperatorTerm(linear_map, output_shape=shape, input_shape=self.solution_shape)
+        return self._get_base_system_linear_map(include_regularization=False)
 
     @cached_property
     def dense_system_matrix(self) -> np.ndarray:
@@ -188,14 +149,17 @@ class LeastSquaresProblem:
         """Assemble the dense system matrix using ``xp`` arrays."""
         all_rows = []
         for i, a_item in enumerate(self.A):
-            op = xp.asarray(a_item.dense_array(xp))
+            op = xp.asarray(a_item._dense_array(xp))
             w_item = self.sqrt_weights[i]
             if w_item:
-                w_op = xp.asarray(w_item.dense_array(xp))
-                op = w_op.reshape(-1, 1) * op if w_item.is_diagonal else w_op @ op
+                w_diag = _diagonal_array(w_item, xp)
+                if w_diag is not None:
+                    op = xp.asarray(w_diag).reshape(-1, 1) * op
+                else:
+                    op = xp.asarray(w_item._dense_array(xp)) @ op
             all_rows.append(op)
         for reg_weight, L_item in self._active_regularization_terms():
-            all_rows.append(reg_weight * xp.asarray(L_item.dense_array(xp)))
+            all_rows.append(reg_weight * xp.asarray(L_item._dense_array(xp)))
         dtype = self.A[0].dtype if self.A else np.float64
         if not all_rows:
             return xp.zeros((0, self.solution_size), dtype=dtype)
@@ -223,11 +187,13 @@ class LeastSquaresProblem:
 
         num_rhs = math.prod(rhs_shape) if rhs_shape else 1
         dtype = self.A[0].dtype if self.A else np.float64
-        xp = get_array_module(*(p[0] for p in valid_b))
+        active_regularization_terms = self._active_regularization_terms()
+        backend_context = self._operator_backend_context(active_regularization_terms)
+        xp = get_array_module(*(p[0] for p in valid_b), *backend_context)
 
         blocks = []
         for i, (b_col_block, _) in enumerate(processed):
-            num_a_rows = self.A[i].num_rows
+            num_a_rows = self.A[i].shape[0]
             if b_col_block is None:
                 blocks.append(xp.zeros((num_a_rows, num_rhs), dtype=dtype))
                 continue
@@ -236,17 +202,11 @@ class LeastSquaresProblem:
                 b_col_block = self._apply_weight(w_item, b_col_block)
             blocks.append(xp.asarray(b_col_block).reshape(num_a_rows, num_rhs))
 
-        for _, L_item in self._active_regularization_terms():
-            blocks.append(xp.zeros((L_item.num_rows, num_rhs), dtype=dtype))
+        for _, L_item in active_regularization_terms:
+            blocks.append(xp.zeros((L_item.shape[0], num_rhs), dtype=dtype))
 
         d_block = xp.vstack(blocks) if blocks else xp.zeros((0, num_rhs), dtype=dtype)
         return d_block, rhs_shape, num_rhs
-
-    def get_system_operator(self, include_regularization: bool = True) -> LinearOperator:
-        """Get a SciPy operator for the base least-squares system."""
-        return self.get_system_linear_map(
-            include_regularization=include_regularization
-        ).as_linear_operator()
 
     def get_system_linear_map(self, include_regularization: bool = True) -> LinearMap:
         """Get the base ``LinearMap`` system operator."""
@@ -254,35 +214,43 @@ class LeastSquaresProblem:
 
     def _build_system_linear_map(self, include_regularization: bool) -> LinearMap:
         num_features = self.solution_size
-        op_rows_data = sum(a.num_rows for a in self.A)
+        op_rows_data = sum(a.shape[0] for a in self.A)
         active_regularization_terms = (
             tuple(self._active_regularization_terms()) if include_regularization else ()
         )
-        op_rows_reg = sum(L_item.num_rows for _, L_item in active_regularization_terms)
+        backend_context = self._operator_backend_context(active_regularization_terms)
+        op_rows_reg = sum(L_item.shape[0] for _, L_item in active_regularization_terms)
         op_rows = op_rows_data + op_rows_reg
         dtype = self.A[0].dtype if self.A else np.float64
 
+        def array_module_for(value: Any) -> Any:
+            return get_array_module(value, *backend_context)
+
         def matmat(block: Any) -> Any:
-            block_arr = asarray(block).reshape(num_features, -1)
+            xp = array_module_for(block)
+            block_arr = xp.asarray(block).reshape(num_features, -1)
             return self._apply_system_block(block_arr, include_regularization)
 
         def rmatmat(block: Any) -> Any:
-            block_arr = asarray(block).reshape(op_rows, -1)
+            xp = array_module_for(block)
+            block_arr = xp.asarray(block).reshape(op_rows, -1)
             return self._apply_system_T_block(block_arr, include_regularization)
 
         def matvec(vec: Any) -> Any:
-            return matmat(asarray(vec).reshape(num_features, 1)).ravel()
+            xp = array_module_for(vec)
+            return matmat(xp.asarray(vec).reshape(num_features, 1)).ravel()
 
         def rmatvec(vec: Any) -> Any:
-            return rmatmat(asarray(vec).reshape(op_rows, 1)).ravel()
+            xp = array_module_for(vec)
+            return rmatmat(xp.asarray(vec).reshape(op_rows, 1)).ravel()
 
         def normal_matrix_diag() -> np.ndarray:
             diag = np.zeros(num_features, dtype=np.result_type(dtype, np.float64))
             for i, a_item in enumerate(self.A):
-                term_map = a_item.linear_map
+                term_map = a_item
                 w_item = self.sqrt_weights[i]
                 if w_item is not None:
-                    term_map = w_item.linear_map @ term_map
+                    term_map = w_item @ term_map
                 diag += term_map.normal_matrix_diag()
 
             if include_regularization:
@@ -298,6 +266,9 @@ class LeastSquaresProblem:
             _matmat=matmat,
             _rmatmat=rmatmat,
             _normal_matrix_diag=normal_matrix_diag,
+            _backend_context=backend_context,
+            output_shape=(op_rows,),
+            input_shape=self.solution_shape,
         )
 
     def _get_base_system_linear_map(self, include_regularization: bool) -> LinearMap:
@@ -307,7 +278,7 @@ class LeastSquaresProblem:
             )
         return self._system_linear_map_cache[include_regularization]
 
-    def _active_regularization_terms(self) -> tuple[tuple[float, OperatorTerm], ...]:
+    def _active_regularization_terms(self) -> tuple[tuple[float, LinearMap], ...]:
         lambdas = self.scaled_lambdas
         return tuple(
             (lambdas[i], L_item)
@@ -315,11 +286,25 @@ class LeastSquaresProblem:
             if i < len(lambdas) and L_item is not None and lambdas[i] > 1e-12
         )
 
-    def _apply_weight(self, item: Optional[OperatorTerm], block: Any) -> Any:
-        return block if item is None else item.apply(block)
+    def _operator_backend_context(
+        self,
+        regularization_terms: tuple[tuple[float, LinearMap], ...] = (),
+    ) -> tuple[Any, ...]:
+        context = ()
+        for item in self.A:
+            context += item.backend_context
+        for item in self.sqrt_weights:
+            if item is not None:
+                context += item.backend_context
+        for _, item in regularization_terms:
+            context += item.backend_context
+        return context
 
-    def _apply_weight_T(self, item: Optional[OperatorTerm], block: Any) -> Any:
-        return block if item is None else item.apply_adjoint(block)
+    def _apply_weight(self, item: Optional[LinearMap], block: Any) -> Any:
+        return block if item is None else item.matmat(block)
+
+    def _apply_weight_T(self, item: Optional[LinearMap], block: Any) -> Any:
+        return block if item is None else item.rmatmat(block)
 
     def _apply_system_block(self, block: Any, include_regularization: bool) -> Any:
         xp = get_array_module(block)
@@ -327,18 +312,18 @@ class LeastSquaresProblem:
         active_regularization_terms = (
             self._active_regularization_terms() if include_regularization else ()
         )
-        op_rows = sum(a.num_rows for a in self.A)
-        op_rows += sum(L_item.num_rows for _, L_item in active_regularization_terms)
+        op_rows = sum(a.shape[0] for a in self.A)
+        op_rows += sum(L_item.shape[0] for _, L_item in active_regularization_terms)
         if op_rows == 0:
             return xp.zeros((0, num_cols), dtype=block.dtype)
 
         output_blocks = []
         for i, a_item in enumerate(self.A):
-            res_block = a_item.apply(block)
-            output_blocks.append(self._apply_weight(self.sqrt_weights[i], res_block))
+            res_block = a_item.matmat(block)
+            output_blocks.append(xp.asarray(self._apply_weight(self.sqrt_weights[i], res_block)))
         for reg_weight, L_item in active_regularization_terms:
-            res_block = L_item.apply(block)
-            output_blocks.append(reg_weight * res_block)
+            res_block = L_item.matmat(block)
+            output_blocks.append(reg_weight * xp.asarray(res_block))
         return xp.vstack(output_blocks) if output_blocks else xp.zeros((op_rows, num_cols))
 
     def _apply_system_T_block(self, block: Any, include_regularization: bool) -> Any:
@@ -347,16 +332,16 @@ class LeastSquaresProblem:
         accum = xp.zeros((self.solution_size, num_cols), dtype=block.dtype)
         row = 0
         for i, a_item in enumerate(self.A):
-            part = block[row : row + a_item.num_rows, :]
+            part = block[row : row + a_item.shape[0], :]
             part = self._apply_weight_T(self.sqrt_weights[i], part)
-            accum = accum + a_item.apply_adjoint(part)
-            row += a_item.num_rows
+            accum = accum + xp.asarray(a_item.rmatmat(part))
+            row += a_item.shape[0]
 
         if include_regularization:
             for reg_weight, L_item in self._active_regularization_terms():
-                part = block[row : row + L_item.num_rows, :]
-                accum = accum + reg_weight * L_item.apply_adjoint(part)
-                row += L_item.num_rows
+                part = block[row : row + L_item.shape[0], :]
+                accum = accum + reg_weight * xp.asarray(L_item.rmatmat(part))
+                row += L_item.shape[0]
         return accum
 
     @staticmethod
@@ -392,19 +377,10 @@ class LeastSquaresProblem:
     def _flatten_operator(
         self,
         op: OperatorInput,
-        output_shape: Tuple[int, ...] = None,
-        input_shape: Tuple[int, ...] = None,
-    ) -> OperatorTerm:
-        if isinstance(op, TensorChain):
-            linear_map = as_linear_map(op)
-            return OperatorTerm(
-                linear_map=linear_map, output_shape=op.output_shape, input_shape=op.input_shape
-            )
-
-        linear_map = as_linear_map(op, input_shape=input_shape, output_shape=output_shape)
-        output_shape = output_shape if output_shape is not None else (linear_map.shape[0],)
-        input_shape = input_shape if input_shape is not None else (linear_map.shape[1],)
-        return OperatorTerm(linear_map, output_shape, input_shape)
+        output_shape: Optional[Tuple[int, ...]] = None,
+        input_shape: Optional[Tuple[int, ...]] = None,
+    ) -> LinearMap:
+        return as_linear_map(op, input_shape=input_shape, output_shape=output_shape)
 
     def _process_b_vector(
         self, b_val: Any, data_shape: Tuple[int, ...]

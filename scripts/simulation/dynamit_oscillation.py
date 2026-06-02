@@ -83,7 +83,7 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
     #     np.load("utheta.npy"),
     # )
     # u_lat, u_lon = np.meshgrid(u_lat, u_lon, indexing="ij")
-    # dynamics.set_u(
+    # dynamics.set_wind(
     #     u_theta=u_theta,
     #     u_phi=u_phi,
     #     lat=u_lat,

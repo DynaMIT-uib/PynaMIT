@@ -64,7 +64,7 @@ class Timeseries:
             )
 
     def _normalize_variables(self, variables):
-        """Return variable-name tuples after validating the schema shape."""
+        """Return variable-name tuples after schema validation."""
         normalized = {}
         for key, names in variables.items():
             if isinstance(names, dict):
@@ -78,7 +78,7 @@ class Timeseries:
         return normalized
 
     def _normalize_field_spaces(self, field_spaces):
-        """Return field spaces after validating schema keys and types."""
+        """Return field spaces after schema validation."""
         if set(field_spaces) != set(self.variables):
             raise ValueError("Timeseries field_spaces and variables must use the same keys.")
         normalized = {}
@@ -93,7 +93,7 @@ class Timeseries:
         return self.field_spaces[key]
 
     def get_data_var_name(self, key, var):
-        """Return the stored xarray variable name for one series variable."""
+        """Return the xarray variable name for one series variable."""
         return f"{self.get_storage_spec(key).kind}_{var}"
 
     def load_all(self, io):

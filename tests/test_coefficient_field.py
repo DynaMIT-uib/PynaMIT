@@ -9,7 +9,7 @@ from pynamit.sphere import CSBasis, SHBasis
 
 
 def test_coefficient_field_applies_scalar_mean_free_projection():
-    """CoefficientField applies FieldSpace's scalar mean-free semantics."""
+    """CoefficientField applies scalar mean-free semantics."""
     basis = CSBasis(4)
     field_space = FieldSpace(basis, field_type="scalar", mean_free=True)
     coeffs = np.linspace(0.0, 1.0, basis.index_length) + 2.0
@@ -44,7 +44,7 @@ def test_coefficient_field_preserves_tangential_shape():
 
 
 def test_coefficient_field_validates_coefficient_length():
-    """CoefficientField rejects coefficient vectors with the wrong length."""
+    """CoefficientField rejects wrong coefficient lengths."""
     basis = SHBasis(3, 2, mean_free=True)
     field_space = FieldSpace(basis, field_type="scalar")
 

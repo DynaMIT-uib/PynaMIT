@@ -63,7 +63,7 @@ def test_set_wind_accepts_helmholtz_input_basis_coefficients(tmp_path):
 
 
 def test_state_update_uses_coefficient_field_for_wind(tmp_path):
-    """State coefficient storage does not need the grid-aware expansion object."""
+    """State coefficient storage does not need grid expansion."""
     dynamics = _small_dynamics(tmp_path)
     n_coeffs = dynamics.input_field_spaces["u"].index_length
     cf_coeffs = np.arange(n_coeffs, dtype=float)

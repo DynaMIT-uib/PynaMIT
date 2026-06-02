@@ -13,17 +13,21 @@ from pynamit.math.backend import (
     vmap,
     xp,
 )
-from pynamit.math.linear_map import LinearMap, as_linear_map, diagonal_linear_map
-from pynamit.math.tensor_chain import TensorChain
+from pynamit.math.linear_map import (
+    LinearMap,
+    as_linear_map,
+    diagonal_linear_map,
+)
+from pynamit.math._einsum_linear_map import einsum_linear_map
 
 __all__ = [
     "JAX_AVAILABLE",
     "LinearMap",
-    "TensorChain",
     "as_linear_map",
     "asarray",
     "block_until_ready",
     "diagonal_linear_map",
+    "einsum_linear_map",
     "get_array_module",
     "jit",
     "set_backend",
