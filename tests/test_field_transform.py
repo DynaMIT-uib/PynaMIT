@@ -107,6 +107,34 @@ def test_field_transform_to_grid_preserves_jax_backend():
         set_backend(previous_backend)
 
 
+@pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
+def test_field_transform_to_grid_preserves_explicit_jax_coefficients():
+    """Explicit JAX coefficients reach the LinearMap apply path."""
+    import jax.numpy as jnp
+
+    previous_backend = use_jax()
+    try:
+        set_backend("numpy")
+        basis = CSBasis(4)
+        grid = Grid(
+            theta=np.asarray(basis.arr_theta),
+            phi=np.asarray(basis.arr_phi),
+            area_weights=np.asarray(basis.unit_area),
+        )
+        transform = FieldTransform(FieldSpace(basis, field_type="scalar"), grid)
+        coeffs = jnp.linspace(0.0, 1.0, basis.index_length)
+
+        values = transform.to_grid(coeffs)
+
+        assert "jax" in type(values).__module__
+        np.testing.assert_allclose(
+            to_numpy(values),
+            transform.scalar_coeffs_to_grid @ to_numpy(coeffs),
+        )
+    finally:
+        set_backend(previous_backend)
+
+
 def test_field_transform_applies_cs_mean_free_projection():
     """CS projection keeps full length and enforces zero mean."""
     basis = CSBasis(4)

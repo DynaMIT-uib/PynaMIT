@@ -311,7 +311,7 @@ class FieldTransform(object):
 
     def to_grid(self, coeffs, derivative=None):
         """Transform coefficients in this field space to grid values."""
-        coeff_array = self._coefficient_array(coeffs)
+        coeff_array = self._coefficient_array(coeffs, preserve_backend=True)
         if self.field_space.field_type == "tangential":
             return self._coefficients_to_grid(coeff_array, helmholtz=True)
         return self._coefficients_to_grid(
@@ -373,13 +373,16 @@ class FieldTransform(object):
             ]
         )
 
-    def _coefficient_array(self, coeffs):
+    def _coefficient_array(self, coeffs, *, preserve_backend=False):
         """Return validated coefficient values."""
         if isinstance(coeffs, CoefficientField):
             if coeffs.field_space != self.field_space:
                 raise ValueError("CoefficientField field_space does not match transform.")
             coeffs = coeffs.coeffs
-        return self.field_space.validate_coefficients(coeffs)
+        array = self.field_space.validate_coefficients(coeffs)
+        if preserve_backend and "jax" in type(coeffs).__module__:
+            return get_array_module(coeffs).asarray(coeffs).reshape(array.shape)
+        return array
 
     def _cached_coefficients_to_grid_operator(
         self,
