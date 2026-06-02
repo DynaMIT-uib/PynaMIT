@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 import pynamit
+from pynamit.math import JAX_AVAILABLE, set_backend, to_numpy, use_jax
 from pynamit.primitives.basis_evaluator import BasisEvaluator
 from pynamit.primitives.field_transform import FieldTransform
 from pynamit.primitives.field_space import FieldSpace
@@ -70,6 +71,40 @@ def test_field_transform_projects_tangential_grid_values():
     actual = transform.project(values, input_grid=grid, projection_basis=basis)
 
     np.testing.assert_allclose(actual[0], expected.reshape(-1), atol=1e-10)
+
+
+@pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
+def test_field_transform_to_grid_preserves_jax_backend():
+    """Coefficient-to-grid synthesis uses LinearMap backend handling."""
+    previous_backend = use_jax()
+    try:
+        set_backend("jax")
+        basis = CSBasis(4)
+        grid = Grid(theta=basis.arr_theta, phi=basis.arr_phi, area_weights=basis.unit_area)
+
+        scalar_transform = FieldTransform(FieldSpace(basis, field_type="scalar"), grid)
+        scalar_coeffs = np.linspace(0.0, 1.0, basis.index_length)
+        scalar_values = scalar_transform.to_grid(scalar_coeffs)
+        assert "jax" in type(scalar_values).__module__
+        np.testing.assert_allclose(
+            to_numpy(scalar_values),
+            to_numpy(scalar_transform.scalar_coeffs_to_grid) @ scalar_coeffs,
+        )
+
+        vector_transform = FieldTransform(FieldSpace(basis, field_type="tangential"), grid)
+        vector_coeffs = np.vstack([scalar_coeffs, scalar_coeffs[::-1]])
+        vector_values = vector_transform.to_grid(vector_coeffs)
+        assert "jax" in type(vector_values).__module__
+        np.testing.assert_allclose(
+            to_numpy(vector_values),
+            np.tensordot(
+                to_numpy(vector_transform.helmholtz_coeffs_to_gridded_vector),
+                vector_coeffs,
+                2,
+            ),
+        )
+    finally:
+        set_backend(previous_backend)
 
 
 def test_field_transform_applies_cs_mean_free_projection():

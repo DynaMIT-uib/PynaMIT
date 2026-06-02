@@ -381,16 +381,61 @@ class FieldTransform(object):
             coeffs = coeffs.coeffs
         return self.field_space.validate_coefficients(coeffs)
 
+    def _cached_coefficients_to_grid_operator(
+        self,
+        cache_name,
+        matrix,
+        *,
+        input_shape,
+        output_shape,
+    ):
+        """Return a cached coefficient-to-grid ``LinearMap``."""
+        operator = getattr(self, cache_name, None)
+        if operator is None:
+            operator = as_linear_map(
+                matrix,
+                input_shape=input_shape,
+                output_shape=output_shape,
+            )
+            setattr(self, cache_name, operator)
+        return operator
+
     def _coefficients_to_grid(self, coeffs, derivative=None, helmholtz=False):
         """Transform basis coefficients to grid values."""
         if derivative == "theta":
-            return np.dot(self.scalar_coeffs_to_gridded_theta_derivative, coeffs)
+            matrix = self.scalar_coeffs_to_gridded_theta_derivative
+            operator = self._cached_coefficients_to_grid_operator(
+                "_scalar_coeffs_to_gridded_theta_derivative_operator",
+                matrix,
+                input_shape=(self.basis.index_length,),
+                output_shape=matrix.shape[:-1],
+            )
         elif derivative == "phi":
-            return np.dot(self.scalar_coeffs_to_gridded_phi_derivative, coeffs)
+            matrix = self.scalar_coeffs_to_gridded_phi_derivative
+            operator = self._cached_coefficients_to_grid_operator(
+                "_scalar_coeffs_to_gridded_phi_derivative_operator",
+                matrix,
+                input_shape=(self.basis.index_length,),
+                output_shape=matrix.shape[:-1],
+            )
         elif helmholtz:
-            return np.tensordot(self.helmholtz_coeffs_to_gridded_vector, coeffs, 2)
+            matrix = self.helmholtz_coeffs_to_gridded_vector
+            operator = self._cached_coefficients_to_grid_operator(
+                "_helmholtz_coeffs_to_gridded_vector_operator",
+                matrix,
+                input_shape=(2, self.basis.index_length),
+                output_shape=matrix.shape[:2],
+            )
         else:
-            return np.dot(self.scalar_coeffs_to_grid, coeffs)
+            matrix = self.scalar_coeffs_to_grid
+            operator = self._cached_coefficients_to_grid_operator(
+                "_scalar_coeffs_to_grid_operator",
+                matrix,
+                input_shape=(self.basis.index_length,),
+                output_shape=matrix.shape[:-1],
+            )
+
+        return operator.matvec(coeffs).reshape(operator.output_shape)
 
     def contract_scalar_coeffs_to_grid(self, operator):
         """Contract the scalar-grid matrix with an operator."""
