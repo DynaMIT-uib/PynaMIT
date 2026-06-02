@@ -307,10 +307,16 @@ class LeastSquaresSolver:
             G = problem.get_system_linear_map()
             diag = G.normal_matrix_diag()
             inv_diag = np.divide(1.0, diag, out=np.ones_like(diag), where=diag != 0)
-            return diagonal_linear_map(inv_diag)
+            return diagonal_linear_map(
+                inv_diag,
+                input_shape=problem.solution_shape,
+                output_shape=problem.solution_shape,
+            )
         if p_type == "pinv":
             vt, _, s_inv_sq = self._get_pinv_components(problem, self.tolerance)
-            return self._build_spectral_preconditioner(size, vt, s_inv_sq)
+            return self._build_spectral_preconditioner(
+                size, vt, s_inv_sq, problem.solution_shape
+            )
         raise NotImplementedError(f"Preconditioner '{p_type}' not implemented for CGLS solver.")
 
     def _build_lsmr_preconditioner(self, problem: LeastSquaresProblem, p_type: str) -> LinearMap:
@@ -319,13 +325,19 @@ class LeastSquaresSolver:
             G = problem.get_system_linear_map()
             diag = G.normal_matrix_diag()
             sqrt_inv = np.sqrt(np.divide(1.0, diag, out=np.ones_like(diag), where=diag != 0))
-            return diagonal_linear_map(sqrt_inv)
+            return diagonal_linear_map(
+                sqrt_inv,
+                input_shape=problem.solution_shape,
+                output_shape=problem.solution_shape,
+            )
         if p_type == "pinv":
             vt, s_pinv, _ = self._get_pinv_components(problem, self.tolerance)
-            return self._build_spectral_preconditioner(size, vt, s_pinv)
+            return self._build_spectral_preconditioner(size, vt, s_pinv, problem.solution_shape)
         raise NotImplementedError(f"Preconditioner '{p_type}' not implemented for LSMR solver.")
 
-    def _build_spectral_preconditioner(self, size: int, vt: Any, weights: Any) -> LinearMap:
+    def _build_spectral_preconditioner(
+        self, size: int, vt: Any, weights: Any, solution_shape: Tuple[int, ...]
+    ) -> LinearMap:
         """Build a backend-aware spectral preconditioner."""
         xp = get_array_module(vt, weights)
         vt_arr = xp.asarray(vt)
@@ -358,6 +370,8 @@ class LeastSquaresSolver:
             _matmat=matmat,
             _rmatmat=rmatmat,
             _backend_context=(vt_arr, weights_arr),
+            output_shape=solution_shape,
+            input_shape=solution_shape,
         )
 
     def _get_pinv_components(

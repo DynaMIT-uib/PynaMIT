@@ -365,10 +365,10 @@ def get_jr_inputs(
 
 
 def get_wind_inputs(
-    date: Any, wind: bool, time: Optional[np.ndarray]
+    date: Any, use_wind: bool, time: Optional[np.ndarray]
 ) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Optional[np.ndarray]]]:
     """Return neutral wind components if requested."""
-    if not wind:
+    if not use_wind:
         return None
 
     source = get_input_source()

@@ -69,7 +69,7 @@ def test_fallback_currents(force_fallback):
 
 def test_fallback_wind(force_fallback):
     """Test that wind inputs are correctly loaded from fallback."""
-    result = get_wind_inputs(datetime.datetime.utcnow(), wind=True, time=None)
+    result = get_wind_inputs(datetime.datetime.utcnow(), use_wind=True, time=None)
     assert result is not None
     u_theta, u_phi, lat, lon, weights = result
     fallback = _load_fallback()
@@ -82,7 +82,7 @@ def test_fallback_wind(force_fallback):
 
 def test_wind_disabled(force_fallback):
     """Test that wind inputs are disabled when requested."""
-    assert get_wind_inputs(datetime.datetime.utcnow(), wind=False, time=None) is None
+    assert get_wind_inputs(datetime.datetime.utcnow(), use_wind=False, time=None) is None
 
 
 def test_fallback_roundtrip(tmp_path):

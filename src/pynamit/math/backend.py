@@ -76,9 +76,9 @@ def set_backend(backend: Union[str, bool, None]) -> str:
         normalized = backend.strip().lower()
         if normalized in {"jax"}:
             target = True
-        elif normalized in {"numpy", "np"}:
+        elif normalized == "numpy":
             target = False
-        elif normalized in {"auto", ""}:
+        elif normalized == "auto":
             target = use_jax()
         else:
             raise ValueError(f"Unknown backend '{backend}'. Expected 'numpy', 'jax', or 'auto'.")

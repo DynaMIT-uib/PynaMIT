@@ -249,7 +249,7 @@ def test_dynamics_restart_continues_to_match_direct_run(
         Ncs=8,
         mainfield_kind="dipole",
         ignore_PFAC=True,
-        wind=False,
+        use_wind=False,
         steady_state_initialization=False,
         plotsteps=1,
         artifact_storage=artifact_storage,

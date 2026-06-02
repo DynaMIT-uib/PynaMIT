@@ -4,6 +4,13 @@ import numpy as np
 import pytest
 from scipy.sparse import csr_matrix
 
+from pynamit.math import (
+    JAX_AVAILABLE,
+    einsum_linear_map,
+    get_array_module,
+    set_backend,
+    use_jax,
+)
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver
 from pynamit.math.linear_map import (
@@ -11,8 +18,6 @@ from pynamit.math.linear_map import (
     as_linear_map,
     diagonal_linear_map,
 )
-from pynamit.math.tensor_chain import TensorChain
-from pynamit.math import JAX_AVAILABLE, get_array_module, set_backend, use_jax
 
 
 def test_dense_linear_map_matches_matrix_operations():
@@ -28,7 +33,25 @@ def test_dense_linear_map_matches_matrix_operations():
     np.testing.assert_allclose(linear_map.matvec(x), matrix @ x)
     np.testing.assert_allclose(linear_map.rmatvec(y), matrix.T @ y)
     np.testing.assert_allclose(linear_map.matmat(block), matrix @ block)
-    np.testing.assert_allclose((linear_map @ as_linear_map(other)).to_dense(), matrix @ other)
+    np.testing.assert_allclose(
+        (linear_map @ as_linear_map(other)).dense(backend="numpy"), matrix @ other
+    )
+
+
+def test_linear_map_shape_metadata_is_validated_and_relabelable():
+    """LinearMap shape metadata is strict and can be relabeled."""
+    matrix = np.arange(12.0).reshape(3, 4)
+    linear_map = as_linear_map(matrix, input_shape=(2, 2), output_shape=(3,))
+    relabeled = as_linear_map(linear_map, input_shape=(4,), output_shape=(3,))
+
+    assert linear_map.input_shape == (2, 2)
+    assert linear_map.output_shape == (3,)
+    assert relabeled.input_shape == (4,)
+    assert relabeled.output_shape == (3,)
+    np.testing.assert_allclose(relabeled.dense(backend="numpy"), matrix)
+
+    with pytest.raises(ValueError, match="Input shape"):
+        as_linear_map(linear_map, input_shape=(5,))
 
 
 def test_diagonal_linear_map_matches_dense_diagonal():
@@ -38,7 +61,62 @@ def test_diagonal_linear_map_matches_dense_diagonal():
     x = np.arange(2.0)
 
     np.testing.assert_allclose(diag.matvec(x), expected @ x)
-    np.testing.assert_allclose(diag.to_dense(), expected)
+    np.testing.assert_allclose(diag.dense(backend="numpy"), expected)
+    np.testing.assert_allclose(diag.diagonal(backend="numpy"), [2.0, 3.0])
+
+
+def test_linear_map_diagonal_accessor_is_strict():
+    """Diagonal values are available only for diagonal operators."""
+    diagonal_matrix = as_linear_map(np.diag([2.0, 3.0]))
+    non_diagonal_matrix = as_linear_map(np.array([[2.0, 1.0], [0.0, 3.0]]))
+
+    np.testing.assert_allclose(
+        diagonal_matrix.diagonal(backend="numpy"),
+        [2.0, 3.0],
+    )
+    np.testing.assert_allclose(
+        (4.0 * diagonal_linear_map(np.array([2.0, 3.0]))).diagonal(backend="numpy"),
+        [8.0, 12.0],
+    )
+    with pytest.raises(ValueError, match="not diagonal"):
+        non_diagonal_matrix.diagonal(backend="numpy")
+
+
+def test_dense_linear_map_materializes_once_per_backend():
+    """Cached dense matrices keep fast operations in LinearMap."""
+    matrix = np.array([[1.0, 2.0], [3.0, 5.0]])
+    calls = 0
+
+    def fail_matvec(_):
+        raise AssertionError("cached map should use dense matvec")
+
+    def fail_rmatvec(_):
+        raise AssertionError("cached map should use dense rmatvec")
+
+    def dense_array(xp):
+        nonlocal calls
+        calls += 1
+        return xp.asarray(matrix)
+
+    linear_map = LinearMap(
+        shape=matrix.shape,
+        dtype=matrix.dtype,
+        _matvec=fail_matvec,
+        _rmatvec=fail_rmatvec,
+        _dense_array_func=dense_array,
+        output_shape=(2,),
+        input_shape=(2,),
+    )
+    linear_map.dense()
+
+    x = np.array([7.0, 11.0])
+    block = np.eye(2)
+
+    np.testing.assert_allclose(linear_map.matvec(x), matrix @ x)
+    np.testing.assert_allclose(linear_map.matmat(block), matrix)
+    np.testing.assert_allclose(linear_map.rmatvec(x), matrix.T @ x)
+    np.testing.assert_allclose(linear_map.rmatmat(block), matrix.T)
+    assert calls == 1
 
 
 def test_linear_map_dense_materializes_on_requested_backend():
@@ -61,7 +139,7 @@ def test_dense_linear_map_accepts_numpy_inputs_with_jax_backend():
         set_backend("jax")
         linear_map = as_linear_map(matrix)
 
-        np.testing.assert_allclose(linear_map.to_dense(), matrix)
+        np.testing.assert_allclose(linear_map.dense(backend="numpy"), matrix)
         np.testing.assert_allclose(linear_map.matvec(x), matrix @ x)
     finally:
         set_backend(previous_backend)
@@ -86,7 +164,7 @@ def test_dense_linear_map_preserves_jax_dense_source(monkeypatch):
     result = linear_map.matvec(x)
     with monkeypatch.context() as context:
         context.setattr(linear_map_module, "to_numpy", fail_asarray)
-        dense = linear_map.materialize_dense(jnp)
+        dense = linear_map.dense(backend="jax")
 
     assert "jax" in type(result).__module__
     assert "jax" in type(dense).__module__
@@ -113,7 +191,7 @@ def test_diagonal_linear_map_preserves_jax_dense_source(monkeypatch):
     result = linear_map.matvec(x)
     with monkeypatch.context() as context:
         context.setattr(linear_map_module, "to_numpy", fail_asarray)
-        dense = linear_map.materialize_dense(jnp)
+        dense = linear_map.dense(backend="jax")
 
     assert "jax" in type(result).__module__
     assert "jax" in type(dense).__module__
@@ -122,7 +200,7 @@ def test_diagonal_linear_map_preserves_jax_dense_source(monkeypatch):
 
 
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
-def test_linear_map_materialize_dense_uses_active_backend():
+def test_linear_map_dense_uses_active_backend():
     """Dense materialization can stay on the active backend."""
     previous_backend = use_jax()
     matrix = np.array([[1.0, 2.0], [3.0, 5.0], [7.0, 11.0]])
@@ -138,7 +216,7 @@ def test_linear_map_materialize_dense_uses_active_backend():
 
     try:
         set_backend("jax")
-        dense = matrix_free.materialize_dense()
+        dense = matrix_free.dense()
     finally:
         set_backend(previous_backend)
 
@@ -190,7 +268,7 @@ def test_sparse_linear_map_uses_sparse_normal_diagonal():
     linear_map = as_linear_map(csr_matrix(matrix))
 
     np.testing.assert_allclose(linear_map.normal_matrix_diag(), np.sum(matrix**2, axis=0))
-    np.testing.assert_allclose(linear_map.to_dense(), matrix)
+    np.testing.assert_allclose(linear_map.dense(backend="numpy"), matrix)
 
 
 def test_composed_linear_map_normal_diagonal_uses_matmat_path():
@@ -199,8 +277,8 @@ def test_composed_linear_map_normal_diagonal_uses_matmat_path():
     weights = np.array([2.0, -1.0, 0.25])
     base = as_linear_map(matrix)
 
-    def fail_to_dense():
-        raise AssertionError("normal_matrix_diag should not call to_dense")
+    def fail_dense_array(_):
+        raise AssertionError("normal_matrix_diag should not call dense")
 
     matrix_free = LinearMap(
         shape=base.shape,
@@ -209,7 +287,7 @@ def test_composed_linear_map_normal_diagonal_uses_matmat_path():
         _rmatvec=base.rmatvec,
         _matmat=base.matmat,
         _rmatmat=base.rmatmat,
-        _to_dense=fail_to_dense,
+        _dense_array_func=fail_dense_array,
     )
     composed = diagonal_linear_map(weights) @ matrix_free
     expected = np.sum((weights[:, None] * matrix) ** 2, axis=0)
@@ -217,10 +295,10 @@ def test_composed_linear_map_normal_diagonal_uses_matmat_path():
     np.testing.assert_allclose(composed.normal_matrix_diag(), expected)
 
 
-def test_tensor_chain_converts_to_linear_map():
-    """TensorChain can be converted to the LinearMap interface."""
+def test_einsum_linear_map_matches_matrix_operations():
+    """Einsum contractions can back the LinearMap interface."""
     matrix = np.array([[1.0, 2.0, -1.0], [0.0, 3.0, 4.0]])
-    chain = TensorChain(
+    linear_map = einsum_linear_map(
         component_tensors=[matrix],
         einsum_string_dense="ij->ij",
         einsum_string_matvec="ij,j->i",
@@ -228,19 +306,20 @@ def test_tensor_chain_converts_to_linear_map():
         output_shape=(2,),
         input_shape=(3,),
     )
-    linear_map = chain.to_linear_map()
     x = np.array([2.0, -1.0, 0.5])
 
     np.testing.assert_allclose(linear_map.matvec(x), matrix @ x)
-    np.testing.assert_allclose(linear_map.to_dense(), matrix)
+    np.testing.assert_allclose(linear_map.dense(backend="numpy"), matrix)
+    assert linear_map.output_shape == (2,)
+    assert linear_map.input_shape == (3,)
 
 
-def test_tensor_chain_batched_application_matches_dense():
-    """TensorChain batched application matches dense matrix products."""
+def test_einsum_linear_map_batched_application_matches_dense():
+    """Einsum-backed batched application matches dense products."""
     rng = np.random.default_rng(0)
     a = rng.normal(size=(5, 6))
     b = rng.normal(size=(6, 4))
-    chain = TensorChain(
+    linear_map = einsum_linear_map(
         component_tensors=[a, b],
         einsum_string_dense="ij,jk->ik",
         einsum_string_matvec="ij,jk,k->i",
@@ -248,24 +327,21 @@ def test_tensor_chain_batched_application_matches_dense():
         output_shape=(5,),
         input_shape=(4,),
     )
-    dense = chain.to_dense()
+    dense = linear_map.dense(backend="numpy")
     x_block = rng.normal(size=(4, 7))
     y_block = rng.normal(size=(5, 7))
 
-    np.testing.assert_allclose(chain.matmat(x_block), dense @ x_block)
-    np.testing.assert_allclose(chain.rmatmat(y_block), dense.T @ y_block)
-    np.testing.assert_allclose(chain.normal_matrix_diag(), np.sum(dense**2, axis=0))
-    np.testing.assert_allclose(
-        chain.to_linear_map().normal_matrix_diag(), np.sum(dense**2, axis=0)
-    )
+    np.testing.assert_allclose(linear_map.matmat(x_block), dense @ x_block)
+    np.testing.assert_allclose(linear_map.rmatmat(y_block), dense.T @ y_block)
+    np.testing.assert_allclose(linear_map.normal_matrix_diag(), np.sum(dense**2, axis=0))
 
 
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
-def test_tensor_chain_materialize_dense_uses_active_backend():
-    """TensorChain dense materialization can stay on JAX."""
+def test_einsum_linear_map_dense_materialization_uses_active_backend():
+    """Einsum-backed dense materialization can stay on JAX."""
     previous_backend = use_jax()
     matrix = np.array([[1.0, 2.0], [3.0, 5.0]])
-    chain = TensorChain(
+    linear_map = einsum_linear_map(
         component_tensors=[matrix],
         einsum_string_dense="ij->ij",
         einsum_string_matvec="ij,j->i",
@@ -276,7 +352,7 @@ def test_tensor_chain_materialize_dense_uses_active_backend():
 
     try:
         set_backend("jax")
-        dense = chain.materialize_dense()
+        dense = linear_map.dense()
     finally:
         set_backend(previous_backend)
 
@@ -285,11 +361,11 @@ def test_tensor_chain_materialize_dense_uses_active_backend():
 
 
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
-def test_tensor_chain_linear_map_dense_uses_active_backend():
-    """TensorChain LinearMap conversion preserves dense backend."""
+def test_einsum_linear_map_dense_uses_active_backend():
+    """Einsum-backed LinearMap preserves dense backend."""
     previous_backend = use_jax()
     matrix = np.array([[1.0, 2.0], [3.0, 5.0]])
-    chain = TensorChain(
+    linear_map = einsum_linear_map(
         component_tensors=[matrix],
         einsum_string_dense="ij->ij",
         einsum_string_matvec="ij,j->i",
@@ -300,7 +376,7 @@ def test_tensor_chain_linear_map_dense_uses_active_backend():
 
     try:
         set_backend("jax")
-        dense = chain.to_linear_map().dense()
+        dense = linear_map.dense()
     finally:
         set_backend(previous_backend)
 
@@ -309,12 +385,12 @@ def test_tensor_chain_linear_map_dense_uses_active_backend():
 
 
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
-def test_tensor_chain_dtype_does_not_materialize_jax_components(monkeypatch):
-    """TensorChain dtype should only inspect dtype metadata."""
+def test_einsum_linear_map_dtype_does_not_materialize_jax_components(monkeypatch):
+    """Einsum-backed dtype should only inspect dtype metadata."""
     import jax.numpy as jnp
-    import pynamit.math.tensor_chain as tensor_chain_module
+    import pynamit.math._einsum_linear_map as einsum_map_module
 
-    chain = TensorChain(
+    linear_map = einsum_linear_map(
         component_tensors=[jnp.asarray([[1.0, 2.0], [3.0, 5.0]])],
         einsum_string_dense="ij->ij",
         einsum_string_matvec="ij,j->i",
@@ -326,18 +402,17 @@ def test_tensor_chain_dtype_does_not_materialize_jax_components(monkeypatch):
     def fail_to_numpy(_):
         raise AssertionError("dtype should not materialize component arrays")
 
-    monkeypatch.setattr(tensor_chain_module, "to_numpy", fail_to_numpy)
+    monkeypatch.setattr(einsum_map_module, "to_numpy", fail_to_numpy)
 
-    assert np.dtype(chain.dtype) == np.dtype(float)
-    assert chain.to_linear_map().dtype == np.dtype(float)
+    assert linear_map.dtype == np.dtype(float)
 
 
-def test_tensor_chain_complex_adjoint_matches_dense():
-    """TensorChain adjoints match dense conjugate transpose products."""
+def test_einsum_linear_map_complex_adjoint_matches_dense():
+    """Einsum adjoints match dense conjugate transpose products."""
     rng = np.random.default_rng(1)
     a = rng.normal(size=(3, 4)) + 1j * rng.normal(size=(3, 4))
     b = rng.normal(size=(4, 2)) + 1j * rng.normal(size=(4, 2))
-    chain = TensorChain(
+    linear_map = einsum_linear_map(
         component_tensors=[a, b],
         einsum_string_dense="ij,jk->ik",
         einsum_string_matvec="ij,jk,k->i",
@@ -345,13 +420,15 @@ def test_tensor_chain_complex_adjoint_matches_dense():
         output_shape=(3,),
         input_shape=(2,),
     )
-    dense = chain.to_dense()
+    dense = linear_map.dense(backend="numpy")
     y = rng.normal(size=3) + 1j * rng.normal(size=3)
     y_block = rng.normal(size=(3, 5)) + 1j * rng.normal(size=(3, 5))
 
-    np.testing.assert_allclose(chain.rmatvec(y), dense.conj().T @ y)
-    np.testing.assert_allclose(chain.rmatmat(y_block), dense.conj().T @ y_block)
-    np.testing.assert_allclose(chain.normal_matrix_diag(), np.sum(np.abs(dense) ** 2, axis=0))
+    np.testing.assert_allclose(linear_map.rmatvec(y), dense.conj().T @ y)
+    np.testing.assert_allclose(linear_map.rmatmat(y_block), dense.conj().T @ y_block)
+    np.testing.assert_allclose(
+        linear_map.normal_matrix_diag(), np.sum(np.abs(dense) ** 2, axis=0)
+    )
 
 
 def test_least_squares_accepts_linear_map_and_sparse_inputs():

@@ -32,7 +32,7 @@ def test_multi_data():
         ignore_PFAC=False,
         connect_hemispheres=True,
         latitude_boundary=50,
-        wind=True,
+        use_wind=True,
         steady_state_initialization=True,
         vector_jr=True,
         vector_conductance=True,

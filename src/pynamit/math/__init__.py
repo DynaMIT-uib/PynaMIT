@@ -18,6 +18,7 @@ from pynamit.math.linear_map import (
     as_linear_map,
     diagonal_linear_map,
 )
+from pynamit.math._einsum_linear_map import einsum_linear_map
 
 __all__ = [
     "JAX_AVAILABLE",
@@ -26,6 +27,7 @@ __all__ = [
     "asarray",
     "block_until_ready",
     "diagonal_linear_map",
+    "einsum_linear_map",
     "get_array_module",
     "jit",
     "set_backend",

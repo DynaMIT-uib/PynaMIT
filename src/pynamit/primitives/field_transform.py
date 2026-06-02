@@ -7,6 +7,7 @@ field-space coefficients and grid values.
 import numpy as np
 
 from pynamit.math.backend import get_array_module
+from pynamit.math.linear_map import LinearMap, as_linear_map
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver, get_default_least_squares_solver
 from pynamit.primitives.coefficient_field import CoefficientField
@@ -359,13 +360,27 @@ class FieldTransform(object):
             return np.dot(self.G, coeffs)
 
     def contract_G(self, operator):
-        """Return G contracted with a coefficient vector or matrix."""
-        operator = np.asarray(operator)
-        if operator.ndim == 1:
-            return self.G * operator.reshape((1, -1))
-        if operator.ndim == 2:
-            return self.G @ operator
-        raise ValueError("operator must be a vector or matrix.")
+        """Return G contracted with a coefficient-space operator."""
+        if not isinstance(operator, LinearMap) and getattr(operator, "ndim", None) not in (
+            None,
+            1,
+            2,
+        ):
+            raise ValueError("operator must be a vector, matrix, or LinearMap.")
+        try:
+            op = as_linear_map(operator, output_shape=(self.basis.index_length,))
+        except ValueError as exc:
+            raise ValueError("operator must be a vector, matrix, or LinearMap.") from exc
+
+        xp = get_array_module(self.G, *op.backend_context)
+        G = xp.asarray(self.G)
+        if op.shape[0] == op.shape[1]:
+            try:
+                diagonal = xp.asarray(op.diagonal()).reshape((1, -1))
+                return G * diagonal
+            except ValueError:
+                pass
+        return G @ xp.asarray(op.dense())
 
     def _normalize_value_batch(self, values, input_grid):
         """Return values with canonical time-first layout."""

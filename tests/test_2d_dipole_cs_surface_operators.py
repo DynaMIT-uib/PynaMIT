@@ -23,7 +23,7 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
         mainfield_kind="dipole",
         ignore_PFAC=True,
         steady_state_initialization=False,
-        wind=False,
+        use_wind=False,
         run_directory=str(tmp_path / "run"),
         vector_jr=False,
         vector_conductance=False,
@@ -47,7 +47,7 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
     )
     np.testing.assert_allclose(field_transform.G_helmholtz, expected_helmholtz)
     np.testing.assert_allclose(
-        dynamics.state.geometry.surface_laplacian_operator.to_dense(),
+        dynamics.state.geometry.surface_laplacian_operator.dense(backend="numpy"),
         dynamics.horizontal_basis.get_surface_laplacian_matrix(
             dynamics.state.geometry.RI
         ),
@@ -57,7 +57,7 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
         @ dynamics.state.geometry.horizontal_to_radial_continuation
     )
     np.testing.assert_allclose(
-        dynamics.state.geometry.sheet_current_potential_operator.to_dense(),
+        dynamics.state.geometry.sheet_current_potential_operator.dense(backend="numpy"),
         expected_sheet_current_potential,
     )
 

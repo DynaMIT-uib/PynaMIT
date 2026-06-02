@@ -806,39 +806,6 @@ class Dynamics(object):
             pinv_rtol=pinv_rtol,
         )
 
-    def set_u(
-        self,
-        u_theta,
-        u_phi,
-        lat=None,
-        lon=None,
-        theta=None,
-        phi=None,
-        time=None,
-        sqrt_weights=None,
-        reg_lambda=None,
-        pinv_rtol=1e-15,
-        *,
-        coefficients=False,
-    ):
-        """Set neutral wind velocities.
-
-        This is an alias for :meth:`set_wind`.
-        """
-        self.set_wind(
-            u_theta,
-            u_phi,
-            lat=lat,
-            lon=lon,
-            theta=theta,
-            phi=phi,
-            time=time,
-            sqrt_weights=sqrt_weights,
-            reg_lambda=reg_lambda,
-            pinv_rtol=pinv_rtol,
-            coefficients=coefficients,
-        )
-
     def _wind_input_data(self, u_theta, u_phi):
         """Return wind input data with time before component."""
         input_data = {"u": np.array([np.atleast_2d(u_theta), np.atleast_2d(u_phi)])}

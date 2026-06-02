@@ -85,7 +85,7 @@ class StateOperators:
         E_direct_to_m_imp = None
         m_imp_to_E = None
 
-        if self.state.connect_hemispheres and self.state._E_map_constraint_chain is not None:
+        if self.state.connect_hemispheres and self.state._E_map_constraint is not None:
             E_direct_to_m_imp = self.E_direct_to_m_imp
             m_imp_to_E = self.state.m_imp_to_E_coeffs
 
@@ -150,6 +150,8 @@ class StateOperators:
             _matmat=matmat,
             _rmatmat=rmatmat,
             _backend_context=backend_context,
+            output_shape=(2, n),
+            input_shape=(2, n),
         )
 
     def E_df(self, *, include_Br: bool = True) -> dict[str, LinearMap]:
@@ -182,7 +184,7 @@ class StateOperators:
         }
 
     def E_df_dense(
-        self, *, include_Br: bool = True, backend: DenseBackend | Any = "active"
+        self, *, include_Br: bool = True, backend: DenseBackend | None = None
     ) -> dict[str, Any]:
         """Return E_df maps as dense arrays on the requested backend."""
         return {
@@ -191,7 +193,7 @@ class StateOperators:
         }
 
     def rates_dense(
-        self, *, include_Br: bool = True, backend: DenseBackend | Any = "active"
+        self, *, include_Br: bool = True, backend: DenseBackend | None = None
     ) -> dict[str, Any]:
         """Return d(m_ind)/dt maps as dense backend arrays."""
         return {
@@ -212,7 +214,7 @@ class StateOperators:
         *,
         df_only: bool = False,
         include_Br: bool = True,
-        backend: DenseBackend | Any = "active",
+        backend: DenseBackend | None = None,
     ) -> dict[str, Any]:
         """Return dense simulation model maps."""
         return {

@@ -19,7 +19,8 @@ def run_pynamit(
     ignore_PFAC=True,
     connect_hemispheres=False,
     latitude_boundary=50,
-    wind=False,
+    use_wind=False,
+    use_jr=True,
     steady_state_initialization=True,
     run_inductive=True,
     run_steady_state=True,
@@ -65,8 +66,10 @@ def run_pynamit(
         Whether to connect the hemispheres.
     latitude_boundary : float, optional
         The latitude boundary for the simulation.
-    wind : bool, optional
-        Whether to include wind in the simulation.
+    use_wind : bool, optional
+        Whether to include neutral-wind driving in the simulation.
+    use_jr : bool, optional
+        Whether to include radial-current driving in the simulation.
     steady_state_initialization : bool, optional
         Whether to initialize a new inductive run from steady state.
     run_inductive : bool, optional
@@ -164,11 +167,12 @@ def run_pynamit(
         date, conductance_lat, conductance_lon, time
     )
 
-    jr_lat = dynamics.state.geometry.grid.lat
-    jr_lon = dynamics.state.geometry.grid.lon
-    jr, jr_lat, jr_lon = get_jr_inputs(date, jr_lat, jr_lon, time)
+    if use_jr:
+        jr_lat = dynamics.state.geometry.grid.lat
+        jr_lon = dynamics.state.geometry.grid.lon
+        jr, jr_lat, jr_lon = get_jr_inputs(date, jr_lat, jr_lon, time)
 
-    wind_inputs = get_wind_inputs(date, wind=wind, time=time)
+    wind_inputs = get_wind_inputs(date, use_wind=use_wind, time=time)
 
     if wind_inputs is not None:
         u_theta, u_phi, u_lat, u_lon, weights = wind_inputs
@@ -182,10 +186,11 @@ def run_pynamit(
         time=time,
     )
 
-    dynamics.set_jr(jr, lat=jr_lat, lon=jr_lon, reg_lambda=jr_lambda, time=time)
+    if use_jr:
+        dynamics.set_jr(jr, lat=jr_lat, lon=jr_lon, reg_lambda=jr_lambda, time=time)
 
     if wind_inputs is not None:
-        dynamics.set_u(
+        dynamics.set_wind(
             u_theta=u_theta,
             u_phi=u_phi,
             lat=u_lat,

@@ -359,13 +359,13 @@ class CSBasis(GridBasis, SurfaceOperators):
             grid.phi,
         )
 
-    def _interpolate_tangential_operator(self, operator, grid):
+    def _interpolate_tangential_operator(self, tangential_operator, grid):
         """Interpolate native-grid tangential operators to ``grid``."""
-        operator = np.asarray(operator)
+        tangential_operator = np.asarray(tangential_operator)
         east, north, _ = self.interpolate_vector_components(
-            operator[1],
-            -operator[0],
-            np.zeros_like(operator[0]),
+            tangential_operator[1],
+            -tangential_operator[0],
+            np.zeros_like(tangential_operator[0]),
             self.arr_theta,
             self.arr_phi,
             grid.theta,
