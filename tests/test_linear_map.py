@@ -7,6 +7,7 @@ from scipy.sparse import csr_matrix
 from pynamit.math import (
     JAX_AVAILABLE,
     einsum_linear_map,
+    einsum_linear_map_from_matvec,
     get_array_module,
     set_backend,
     use_jax,
@@ -17,6 +18,7 @@ from pynamit.math.linear_map import (
     LinearMap,
     as_linear_map,
     diagonal_linear_map,
+    vstack_linear_maps,
 )
 
 
@@ -36,6 +38,55 @@ def test_dense_linear_map_matches_matrix_operations():
     np.testing.assert_allclose(
         (linear_map @ as_linear_map(other)).dense(backend="numpy"), matrix @ other
     )
+
+
+def test_linear_map_addition_matches_matrix_operations():
+    """Linear maps add through the same operator interface."""
+    left = np.array([[1.0, 2.0], [3.0, 5.0], [7.0, 11.0]])
+    right = np.array([[0.5, -1.0], [2.0, 0.25], [-3.0, 4.0]])
+    linear_map = as_linear_map(left) + as_linear_map(right)
+    x = np.array([0.25, -2.0])
+    y = np.array([1.0, -3.0, 2.0])
+    block = np.column_stack([x, x + 1.0])
+    expected = left + right
+
+    np.testing.assert_allclose(linear_map.matvec(x), expected @ x)
+    np.testing.assert_allclose(linear_map.rmatvec(y), expected.T @ y)
+    np.testing.assert_allclose(linear_map.matmat(block), expected @ block)
+    np.testing.assert_allclose(linear_map.dense(backend="numpy"), expected)
+    np.testing.assert_allclose(
+        linear_map.normal_matrix_diag(),
+        np.sum(expected**2, axis=0),
+    )
+
+
+def test_linear_map_addition_requires_matching_shape_metadata():
+    """Linear map addition rejects mismatched shaped domains."""
+    matrix = np.eye(4)
+    left = as_linear_map(matrix, input_shape=(2, 2), output_shape=(2, 2))
+    right = as_linear_map(matrix, input_shape=(4,), output_shape=(4,))
+
+    with pytest.raises(ValueError, match="Shape metadata mismatch"):
+        _ = left + right
+
+
+def test_vstack_linear_maps_matches_stacked_matrix_operations():
+    """Vertically stacked maps apply and adjoint as one map."""
+    top = np.array([[1.0, 2.0], [3.0, 5.0]])
+    bottom = np.array([[7.0, 11.0]])
+    stacked = vstack_linear_maps([as_linear_map(top), as_linear_map(bottom)])
+    expected = np.vstack([top, bottom])
+    x = np.array([0.25, -2.0])
+    y = np.array([1.0, -3.0, 2.0])
+    block = np.column_stack([x, x + 1.0])
+
+    np.testing.assert_allclose(stacked.matvec(x), expected @ x)
+    np.testing.assert_allclose(stacked.rmatvec(y), expected.T @ y)
+    np.testing.assert_allclose(stacked.matmat(block), expected @ block)
+    np.testing.assert_allclose(stacked.dense(backend="numpy"), expected)
+    np.testing.assert_allclose(stacked.normal_matrix_diag(), np.sum(expected**2, axis=0))
+    assert stacked.input_shape == (2,)
+    assert stacked.output_shape == (3,)
 
 
 def test_linear_map_shape_metadata_is_validated_and_relabelable():
@@ -107,7 +158,7 @@ def test_dense_linear_map_materializes_once_per_backend():
         output_shape=(2,),
         input_shape=(2,),
     )
-    linear_map.dense()
+    assert linear_map.cache_dense() is linear_map
 
     x = np.array([7.0, 11.0])
     block = np.eye(2)
@@ -334,6 +385,37 @@ def test_einsum_linear_map_batched_application_matches_dense():
     np.testing.assert_allclose(linear_map.matmat(x_block), dense @ x_block)
     np.testing.assert_allclose(linear_map.rmatmat(y_block), dense.T @ y_block)
     np.testing.assert_allclose(linear_map.normal_matrix_diag(), np.sum(dense**2, axis=0))
+
+
+def test_einsum_linear_map_from_matvec_derives_adjoint_and_dense():
+    """Forward-only einsum maps derive dense and adjoint forms."""
+    rng = np.random.default_rng(2)
+    a = rng.normal(size=(3, 4))
+    b = rng.normal(size=(4, 2))
+    linear_map = einsum_linear_map_from_matvec(
+        component_tensors=[a, b],
+        einsum_string_matvec="ij,jk,k->i",
+        output_shape=(3,),
+        input_shape=(2,),
+    )
+    dense = a @ b
+    x = rng.normal(size=2)
+    y = rng.normal(size=3)
+
+    np.testing.assert_allclose(linear_map.dense(backend="numpy"), dense)
+    np.testing.assert_allclose(linear_map.matvec(x), dense @ x)
+    np.testing.assert_allclose(linear_map.rmatvec(y), dense.T @ y)
+
+
+def test_einsum_linear_map_from_matvec_rejects_ambiguous_labels():
+    """Derived dense maps require separate input and output labels."""
+    with pytest.raises(ValueError, match="distinct labels"):
+        einsum_linear_map_from_matvec(
+            component_tensors=[np.ones(3)],
+            einsum_string_matvec="i,i->i",
+            output_shape=(3,),
+            input_shape=(3,),
+        )
 
 
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")

@@ -127,8 +127,14 @@ def test_surface_operator_builders_match_component_matrices():
     np.testing.assert_allclose(laplacian, cs_basis.laplacian())
 
     evaluator = FieldTransform(FieldSpace(cs_basis, field_type="scalar"), grid)
-    np.testing.assert_allclose(evaluator.G_th, G_theta)
-    np.testing.assert_allclose(evaluator.G_ph, G_phi)
+    np.testing.assert_allclose(
+        evaluator.scalar_coeffs_to_gridded_theta_derivative,
+        G_theta,
+    )
+    np.testing.assert_allclose(
+        evaluator.scalar_coeffs_to_gridded_phi_derivative,
+        G_phi,
+    )
 
 
 @pytest.mark.parametrize("basis_kind", ["CS", "SH"])
@@ -395,8 +401,8 @@ def test_csbasis_multi_vector_interpolation_matches_per_field_calls():
         np.testing.assert_allclose(multi[component_index], expected)
 
 
-def test_field_transform_contract_g_matches_explicit_products():
-    """contract_G contracts G with coefficient operators."""
+def test_field_transform_contract_scalar_coeffs_to_grid_matches_explicit_products():
+    """Scalar grid contraction matches explicit operators."""
     cs_basis = CSBasis(8)
     evaluator = FieldTransform(
         FieldSpace(cs_basis, field_type="scalar"),
@@ -406,20 +412,23 @@ def test_field_transform_contract_g_matches_explicit_products():
     matrix = np.diag(vector)
 
     np.testing.assert_allclose(
-        evaluator.contract_G(vector),
-        evaluator.G * vector.reshape((1, -1)),
+        evaluator.contract_scalar_coeffs_to_grid(vector),
+        evaluator.scalar_coeffs_to_grid * vector.reshape((1, -1)),
     )
     np.testing.assert_allclose(
-        evaluator.contract_G(diagonal_linear_map(vector)),
-        evaluator.G * vector.reshape((1, -1)),
+        evaluator.contract_scalar_coeffs_to_grid(diagonal_linear_map(vector)),
+        evaluator.scalar_coeffs_to_grid * vector.reshape((1, -1)),
     )
-    np.testing.assert_allclose(evaluator.contract_G(matrix), evaluator.G @ matrix)
     np.testing.assert_allclose(
-        evaluator.contract_G(as_linear_map(csr_matrix(matrix))),
-        evaluator.G @ matrix,
+        evaluator.contract_scalar_coeffs_to_grid(matrix),
+        evaluator.scalar_coeffs_to_grid @ matrix,
+    )
+    np.testing.assert_allclose(
+        evaluator.contract_scalar_coeffs_to_grid(as_linear_map(csr_matrix(matrix))),
+        evaluator.scalar_coeffs_to_grid @ matrix,
     )
     with pytest.raises(ValueError, match="vector, matrix, or LinearMap"):
-        evaluator.contract_G(np.zeros((1, 1, 1)))
+        evaluator.contract_scalar_coeffs_to_grid(np.zeros((1, 1, 1)))
 
 
 def test_grid_basis_regularization_requires_degree_metadata():

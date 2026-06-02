@@ -85,11 +85,27 @@ class LeastSquaresSolver:
             return self._build_lsmr_preconditioner(problem, p_type)
         return None
 
+    def build_response_solver(
+        self,
+        problem: LeastSquaresProblem,
+        preconditioner: PreconditionerInput = None,
+    ) -> Callable[[Union[np.ndarray, List[np.ndarray]]], Any]:
+        """Return a reusable solver for matching RHS response blocks."""
+        preconditioner_map = as_linear_map(preconditioner) if preconditioner is not None else None
+        self._validate_preconditioner_shape(problem, preconditioner_map)
+        if self.solver == "normal_pinv":
+            return self._build_normal_pinv_response_solver(problem)
+
+        def solve_response(rhs: Union[np.ndarray, List[np.ndarray]]) -> Any:
+            return self.solve(problem, rhs, preconditioner=preconditioner_map)
+
+        return solve_response
+
     def _solve_svd(
         self, problem: LeastSquaresProblem, rhs_block: np.ndarray, *args, **kwargs
     ) -> np.ndarray:
-        xp, G, rhs = self._dense_backend_arrays(problem, rhs_block)
-        u, s, vt = np.linalg.svd(to_numpy(G), full_matrices=False)
+        xp, system_matrix, rhs = self._dense_backend_arrays(problem, rhs_block)
+        u, s, vt = np.linalg.svd(to_numpy(system_matrix), full_matrices=False)
         rhs_np = to_numpy(rhs)
         cutoff = self.tolerance * (s[0] if s.size > 0 else 0)
         safe_s = np.where(s > cutoff, s, 1.0)
@@ -116,22 +132,50 @@ class LeastSquaresSolver:
         # NumPy/SciPy blocks.
         return block_until_ready(normal_pinv @ normal_rhs)
 
+    def _build_normal_pinv_response_solver(
+        self, problem: LeastSquaresProblem
+    ) -> Callable[[Union[np.ndarray, List[np.ndarray]]], Any]:
+        """Build a normal-pinv response solver with cached factors."""
+        system_matrix = problem.assemble_dense_system_matrix()
+        xp = get_array_module(system_matrix)
+        system_matrix_adjoint = system_matrix.T.conj()
+        normal_matrix = system_matrix_adjoint @ system_matrix
+        normal_pinv = block_after_jax_linalg(
+            xp.linalg.pinv(normal_matrix, rtol=self.tolerance, hermitian=True)
+        )
+
+        def solve_response(rhs: Union[np.ndarray, List[np.ndarray]]) -> Any:
+            rhs_block, rhs_shape, _ = problem.assemble_rhs_block(rhs)
+            if rhs_block is None:
+                dtype = problem.A[0].dtype if problem.A else np.float64
+                return xp.zeros(problem.solution_shape + rhs_shape, dtype=dtype)
+            solution_block = normal_pinv @ (system_matrix_adjoint @ rhs_block)
+            return block_until_ready(
+                solution_block.reshape(problem.solution_shape + rhs_shape)
+            )
+
+        return solve_response
+
     def _dense_backend_arrays(
         self, problem: LeastSquaresProblem, rhs_block: np.ndarray
     ) -> Tuple[Any, Any, Any]:
         """Return dense system and RHS on the active array backend."""
-        G = block_until_ready(problem.assemble_dense_system_matrix())
-        xp = get_array_module(G)
+        system_matrix = block_until_ready(problem.assemble_dense_system_matrix())
+        xp = get_array_module(system_matrix)
         rhs = block_until_ready(xp.asarray(rhs_block))
-        return xp, G, rhs
+        return xp, system_matrix, rhs
 
     def _dense_normal_equations(
         self, problem: LeastSquaresProblem, rhs_block: np.ndarray
     ) -> Tuple[Any, Any, Any]:
         """Return dense normal-equation matrix and right-hand side."""
-        xp, G, rhs = self._dense_backend_arrays(problem, rhs_block)
-        G_H = G.T.conj()
-        return xp, G_H @ G, G_H @ rhs
+        xp, system_matrix, rhs = self._dense_backend_arrays(problem, rhs_block)
+        system_matrix_adjoint = system_matrix.T.conj()
+        return (
+            xp,
+            system_matrix_adjoint @ system_matrix,
+            system_matrix_adjoint @ rhs,
+        )
 
     def _solve_lsmr(
         self,
@@ -145,19 +189,19 @@ class LeastSquaresSolver:
         if xp is not np:
             return self._solve_lsmr_jax(problem, rhs_block, num_rhs, M, **kwargs)
 
-        G = problem.get_system_linear_map()
-        op_to_solve = G
+        system_map = problem.get_system_linear_map()
+        op_to_solve = system_map
 
         def sol_transform(y_vec):
             return y_vec
 
         if M is not None:
-            op_to_solve = G @ M
+            op_to_solve = system_map @ M
 
             def sol_transform(y_vec):
                 return M.matvec(y_vec)
 
-        m, n = G.shape
+        m, n = system_map.shape
         max_iter = kwargs.pop(
             "maxiter", ITERATION_SAFETY_FACTOR * min(m, n) if m > 0 and n > 0 else n
         )
@@ -192,19 +236,19 @@ class LeastSquaresSolver:
         from pynamit.math.jax_lsmr import lsmr as jax_lsmr
 
         xp = get_array_module(rhs_block)
-        G = problem.get_system_linear_map()
-        op_to_solve = G
+        system_map = problem.get_system_linear_map()
+        op_to_solve = system_map
 
         def sol_transform(y_vec):
             return y_vec
 
         if M is not None:
-            op_to_solve = G @ M
+            op_to_solve = system_map @ M
 
             def sol_transform(y_vec):
                 return M.matvec(y_vec)
 
-        m, n = G.shape
+        m, n = system_map.shape
         max_iter = kwargs.pop(
             "maxiter", ITERATION_SAFETY_FACTOR * min(m, n) if m > 0 and n > 0 else n
         )
@@ -237,14 +281,17 @@ class LeastSquaresSolver:
         if xp is not np:
             return self._solve_cgls_jax(problem, rhs_block, num_rhs, M, **kwargs)
 
-        G = problem.get_system_linear_map()
+        system_map = problem.get_system_linear_map()
         normal_op = LinearOperator(
-            (G.shape[1], G.shape[1]),
-            matvec=lambda x: np.asarray(G.rmatvec(G.matvec(x))),
-            dtype=G.dtype,
+            (system_map.shape[1], system_map.shape[1]),
+            matvec=lambda x: np.asarray(system_map.rmatvec(system_map.matvec(x))),
+            dtype=system_map.dtype,
         )
         rhs_np = to_numpy(rhs_block)
-        cg_rhs = np.asarray(G.rmatmat(rhs_np)).reshape(problem.solution_size, num_rhs)
+        cg_rhs = np.asarray(system_map.rmatmat(rhs_np)).reshape(
+            problem.solution_size,
+            num_rhs,
+        )
 
         max_iter = kwargs.pop("maxiter", ITERATION_SAFETY_FACTOR * problem.solution_size)
         cg_kwargs = {
@@ -275,15 +322,15 @@ class LeastSquaresSolver:
         """Solve normal equations with JAX CG."""
         from jax.scipy.sparse.linalg import cg as jax_cg
 
-        G = problem.get_system_linear_map()
-        cg_rhs = G.rmatmat(rhs_block).reshape(problem.solution_size, num_rhs)
+        system_map = problem.get_system_linear_map()
+        cg_rhs = system_map.rmatmat(rhs_block).reshape(problem.solution_size, num_rhs)
         max_iter = kwargs.pop("maxiter", ITERATION_SAFETY_FACTOR * problem.solution_size)
         tolerance = kwargs.pop("tol", kwargs.pop("rtol", self.tolerance))
         cg_kwargs = {"tol": tolerance, "atol": kwargs.pop("atol", 0.0), "maxiter": max_iter}
         cg_kwargs.update(kwargs)
 
         def normal_matvec(x_vec):
-            return G.rmatvec(G.matvec(x_vec))
+            return system_map.rmatvec(system_map.matvec(x_vec))
 
         preconditioner = None if M is None else M.matvec
         columns = []
@@ -304,8 +351,8 @@ class LeastSquaresSolver:
     ) -> LinearMap:
         size = problem.solution_size
         if p_type == "jacobi":
-            G = problem.get_system_linear_map()
-            diag = G.normal_matrix_diag()
+            system_map = problem.get_system_linear_map()
+            diag = system_map.normal_matrix_diag()
             inv_diag = np.divide(1.0, diag, out=np.ones_like(diag), where=diag != 0)
             return diagonal_linear_map(
                 inv_diag,
@@ -322,8 +369,8 @@ class LeastSquaresSolver:
     def _build_lsmr_preconditioner(self, problem: LeastSquaresProblem, p_type: str) -> LinearMap:
         size = problem.solution_size
         if p_type == "jacobi":
-            G = problem.get_system_linear_map()
-            diag = G.normal_matrix_diag()
+            system_map = problem.get_system_linear_map()
+            diag = system_map.normal_matrix_diag()
             sqrt_inv = np.sqrt(np.divide(1.0, diag, out=np.ones_like(diag), where=diag != 0))
             return diagonal_linear_map(
                 sqrt_inv,

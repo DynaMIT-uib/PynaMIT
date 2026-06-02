@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field, replace
-from typing import Any, Callable, Literal, Optional, TypeAlias
+from typing import Any, Callable, Literal, Optional, Sequence, TypeAlias
 
 import numpy as np
 import scipy.sparse
@@ -184,6 +184,11 @@ class LinearMap:
         xp = _array_module_for_dense_backend(backend)
         return block_until_ready(self._dense_array(xp))
 
+    def cache_dense(self, *, backend: DenseBackend | None = None) -> "LinearMap":
+        """Materialize and cache this map, then return it."""
+        self.dense(backend=backend)
+        return self
+
     def diagonal(self, *, backend: DenseBackend | None = None) -> Any:
         """Return diagonal scale values for a diagonal map."""
         xp = _array_module_for_dense_backend(backend)
@@ -267,6 +272,67 @@ class LinearMap:
             output_shape=self.output_shape,
             input_shape=other_map.input_shape,
         )
+
+    def __add__(self, other: Any) -> "LinearMap":
+        """Add two linear maps with identical shaped domains."""
+        other_map = as_linear_map(other)
+        if self.shape != other_map.shape:
+            raise ValueError(f"Shape mismatch for addition: {self.shape} + {other_map.shape}")
+        if (
+            self.output_shape != other_map.output_shape
+            or self.input_shape != other_map.input_shape
+        ):
+            raise ValueError(
+                "Shape metadata mismatch for addition: "
+                f"{self.output_shape} <- {self.input_shape} and "
+                f"{other_map.output_shape} <- {other_map.input_shape}"
+            )
+
+        def matvec(x: Any) -> Any:
+            return self.matvec(x) + other_map.matvec(x)
+
+        def rmatvec(y: Any) -> Any:
+            return self.rmatvec(y) + other_map.rmatvec(y)
+
+        def matmat(x: Any) -> Any:
+            return self.matmat(x) + other_map.matmat(x)
+
+        def rmatmat(y: Any) -> Any:
+            return self.rmatmat(y) + other_map.rmatmat(y)
+
+        def dense_array(xp: Any) -> Any:
+            return xp.asarray(self._dense_array(xp)) + xp.asarray(
+                other_map._dense_array(xp)
+            )
+
+        dtype = np.promote_types(self.dtype, other_map.dtype)
+
+        def normal_matrix_diag() -> np.ndarray:
+            return _normal_matrix_diag_from_matmat(self.shape, dtype, matmat)
+
+        return LinearMap(
+            shape=self.shape,
+            dtype=dtype,
+            _matvec=matvec,
+            _rmatvec=rmatvec,
+            _matmat=matmat,
+            _rmatmat=rmatmat,
+            _dense_array_func=dense_array,
+            _normal_matrix_diag=normal_matrix_diag,
+            _backend_context=self._backend_context + other_map._backend_context,
+            output_shape=self.output_shape,
+            input_shape=self.input_shape,
+        )
+
+    def __radd__(self, other: Any) -> "LinearMap":
+        """Add two linear maps with identical shaped domains."""
+        if np.isscalar(other) and other == 0:
+            return self
+        return self.__add__(other)
+
+    def __sub__(self, other: Any) -> "LinearMap":
+        """Subtract another linear map."""
+        return self.__add__(-as_linear_map(other))
 
     def __mul__(self, other: Any) -> "LinearMap":
         """Scale this linear map."""
@@ -517,6 +583,127 @@ def diagonal_linear_map(
         _backend_context=(diag_array,),
         output_shape=out_shape,
         input_shape=in_shape,
+    )
+
+
+def vstack_linear_maps(
+    maps: Sequence[Any],
+    *,
+    input_shape: Optional[tuple[int, ...]] = None,
+) -> LinearMap:
+    """Return one map formed by vertically stacking row maps."""
+    row_maps = tuple(
+        as_linear_map(item, input_shape=input_shape)
+        if input_shape is not None
+        else as_linear_map(item)
+        for item in maps
+    )
+    if not row_maps:
+        if input_shape is None:
+            raise ValueError("input_shape is required when stacking no maps.")
+        input_shape = tuple(input_shape)
+        input_size = math.prod(input_shape)
+
+        def matvec(vec: Any) -> Any:
+            xp = get_array_module(vec)
+            return xp.zeros((0,), dtype=xp.asarray(vec).dtype)
+
+        def rmatvec(vec: Any) -> Any:
+            xp = get_array_module(vec)
+            return xp.zeros((input_size,), dtype=xp.asarray(vec).dtype)
+
+        def matmat(block: Any) -> Any:
+            xp = get_array_module(block)
+            block_arr = xp.asarray(block).reshape(input_size, -1)
+            return xp.zeros((0, block_arr.shape[1]), dtype=block_arr.dtype)
+
+        def rmatmat(block: Any) -> Any:
+            xp = get_array_module(block)
+            block_arr = xp.asarray(block).reshape(0, -1)
+            return xp.zeros((input_size, block_arr.shape[1]), dtype=block_arr.dtype)
+
+        def dense_array(xp: Any) -> Any:
+            return xp.zeros((0, input_size))
+
+        def normal_matrix_diag() -> np.ndarray:
+            return np.zeros(input_size)
+
+        return LinearMap(
+            shape=(0, input_size),
+            dtype=np.float64,
+            _matvec=matvec,
+            _rmatvec=rmatvec,
+            _matmat=matmat,
+            _rmatmat=rmatmat,
+            _dense_array_func=dense_array,
+            _normal_matrix_diag=normal_matrix_diag,
+            output_shape=(0,),
+            input_shape=input_shape,
+        )
+
+    first = row_maps[0]
+    input_size = first.shape[1]
+    common_input_shape = first.input_shape
+    for row_map in row_maps[1:]:
+        if row_map.shape[1] != input_size or row_map.input_shape != common_input_shape:
+            raise ValueError("Stacked maps must share one input shape.")
+
+    output_size = sum(row_map.shape[0] for row_map in row_maps)
+    dtype = np.result_type(*(row_map.dtype for row_map in row_maps))
+    backend_context = tuple(
+        operand for row_map in row_maps for operand in row_map.backend_context
+    )
+
+    def array_module_for(value: Any) -> Any:
+        return get_array_module(value, *backend_context)
+
+    def matmat(block: Any) -> Any:
+        xp = array_module_for(block)
+        block_arr = xp.asarray(block).reshape(input_size, -1)
+        return xp.vstack(
+            [xp.asarray(row_map.matmat(block_arr)) for row_map in row_maps]
+        )
+
+    def rmatmat(block: Any) -> Any:
+        xp = array_module_for(block)
+        block_arr = xp.asarray(block).reshape(output_size, -1)
+        accum = xp.zeros((input_size, block_arr.shape[1]), dtype=block_arr.dtype)
+        row = 0
+        for row_map in row_maps:
+            part = block_arr[row : row + row_map.shape[0], :]
+            accum = accum + xp.asarray(row_map.rmatmat(part))
+            row += row_map.shape[0]
+        return accum
+
+    def matvec(vec: Any) -> Any:
+        xp = array_module_for(vec)
+        return matmat(xp.asarray(vec).reshape(input_size, 1)).ravel()
+
+    def rmatvec(vec: Any) -> Any:
+        xp = array_module_for(vec)
+        return rmatmat(xp.asarray(vec).reshape(output_size, 1)).ravel()
+
+    def dense_array(xp: Any) -> Any:
+        return xp.vstack([xp.asarray(row_map._dense_array(xp)) for row_map in row_maps])
+
+    def normal_matrix_diag() -> np.ndarray:
+        diag = np.zeros(input_size, dtype=np.result_type(dtype, np.float64))
+        for row_map in row_maps:
+            diag += row_map.normal_matrix_diag()
+        return diag
+
+    return LinearMap(
+        shape=(output_size, input_size),
+        dtype=dtype,
+        _matvec=matvec,
+        _rmatvec=rmatvec,
+        _matmat=matmat,
+        _rmatmat=rmatmat,
+        _dense_array_func=dense_array,
+        _normal_matrix_diag=normal_matrix_diag,
+        _backend_context=backend_context,
+        output_shape=(output_size,),
+        input_shape=common_input_shape,
     )
 
 

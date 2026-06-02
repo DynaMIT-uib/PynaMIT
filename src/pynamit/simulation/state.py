@@ -8,20 +8,19 @@ for simulating ionospheric electrodynamics.
 from __future__ import annotations
 from functools import cached_property
 import logging
-from typing import Any, List, Optional, Tuple
+from typing import Any, Optional, Tuple
 
 import numpy as np
 from scipy.integrate import solve_ivp
 from scipy.linalg import expm
 
 from pynamit.primitives.coefficient_field import CoefficientField
-from pynamit.math import einsum_linear_map
+from pynamit.math import einsum_linear_map_from_matvec
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver, get_default_least_squares_solver
 from pynamit.math.linear_map import LinearMap, as_linear_map, diagonal_linear_map
 from pynamit.math.backend import (
     block_after_jax_linalg,
-    block_until_ready,
     get_array_module,
     to_jax,
     to_numpy,
@@ -125,18 +124,18 @@ class State:
 
     def _create_u_to_E_operator(self) -> LinearMap:
         """Operator mapping wind coefficients to E coefficients."""
-        G_helmholtz = xp.asarray(self.geometry.field_transform.G_helmholtz)
-        return einsum_linear_map(
+        helmholtz_synthesis = xp.asarray(
+            self.geometry.field_transform.helmholtz_coeffs_to_gridded_vector
+        )
+        return einsum_linear_map_from_matvec(
             component_tensors=[
-                xp.asarray(self.geometry.G_helmholtz_pinv),
+                xp.asarray(self.geometry.helmholtz_analysis_matrix),
                 xp.asarray(self.geometry.bu),
-                G_helmholtz,
+                helmholtz_synthesis,
             ],
-            einsum_string_dense="cmpg,pqg,qgrs->cmrs",
             einsum_string_matvec="cmpg,pqg,qgrs,rs->cm",
-            einsum_string_rmatvec="cm,cmpg,pqg,qgrs->rs",
             output_shape=(2, self.basis.index_length),
-            input_shape=G_helmholtz.shape[2:],
+            input_shape=helmholtz_synthesis.shape[2:],
         )
 
     @property
@@ -182,32 +181,40 @@ class State:
                 [xp.asarray(self.etaP.coeffs), xp.asarray(self.etaH.coeffs)], axis=0
             )
             if self.etaP.basis.coefficients_are_compatible_with(self.basis):
-                G_eta = xp.asarray(self.geometry.field_transform.G)
+                conductance_synthesis = xp.asarray(
+                    self.geometry.field_transform.scalar_coeffs_to_grid
+                )
             else:
-                G_eta = xp.asarray(self.geometry.field_transform_zero_added.G)
+                conductance_synthesis = xp.asarray(
+                    self.geometry.field_transform_zero_added.scalar_coeffs_to_grid
+                )
             b_stacked = xp.stack(
                 [xp.asarray(self.geometry.bP), xp.asarray(self.geometry.bH)], axis=0
             )
             self._M_total_on_grid = xp.einsum(
-                "sijk,kp,sp->ijk", b_stacked, G_eta, eta_stacked, optimize=True
+                "sijk,kp,sp->ijk",
+                b_stacked,
+                conductance_synthesis,
+                eta_stacked,
+                optimize=True,
             )
         return self._M_total_on_grid
 
-    def _create_E_coeffs_operator(self, G_X_to_JS: Optional[np.ndarray]) -> Optional[LinearMap]:
-        if G_X_to_JS is None:
+    def _create_E_coeffs_operator(
+        self, source_to_sheet_current: Optional[np.ndarray]
+    ) -> Optional[LinearMap]:
+        if source_to_sheet_current is None:
             return None
         tensors = [
-            xp.asarray(self.geometry.G_helmholtz_pinv),
+            xp.asarray(self.geometry.helmholtz_analysis_matrix),
             xp.asarray(self.M_total_on_grid),
-            xp.asarray(G_X_to_JS),
+            xp.asarray(source_to_sheet_current),
         ]
-        return einsum_linear_map(
+        return einsum_linear_map_from_matvec(
             component_tensors=tensors,
-            einsum_string_dense="cmpg,pqg,qgl->cml",
             einsum_string_matvec="cmpg,pqg,qgl,l->cm",
-            einsum_string_rmatvec="cm,cmpg,pqg,qgl->l",
             output_shape=(2, self.basis.index_length),
-            input_shape=G_X_to_JS.shape[2:],
+            input_shape=source_to_sheet_current.shape[2:],
         )
 
     @property
@@ -215,7 +222,7 @@ class State:
         """Linear map from m_ind coefficients to E coefficients."""
         if self._m_ind_to_E_coeffs_cache is None:
             self._m_ind_to_E_coeffs_cache = self._create_E_coeffs_operator(
-                self.geometry.G_m_ind_to_JS
+                self.geometry.m_ind_to_gridded_JS
             )
         return self._m_ind_to_E_coeffs_cache
 
@@ -224,7 +231,7 @@ class State:
         """Linear map from m_imp coefficients to E coefficients."""
         if self._m_imp_to_E_coeffs_cache is None:
             self._m_imp_to_E_coeffs_cache = self._create_E_coeffs_operator(
-                self.geometry.G_m_imp_to_JS
+                self.geometry.m_imp_to_gridded_JS
             )
         return self._m_imp_to_E_coeffs_cache
 
@@ -233,7 +240,7 @@ class State:
         """Linear map from Br coefficients to E coefficients."""
         if self._Br_to_E_coeffs_cache is None:
             self._Br_to_E_coeffs_cache = self._create_E_coeffs_operator(
-                getattr(self.geometry, "G_Br_to_JS", None)
+                self.geometry.Br_to_gridded_JS
             )
         return self._Br_to_E_coeffs_cache
 
@@ -241,8 +248,7 @@ class State:
         """Return an E-coefficient operator for repeated applies."""
         if op is None:
             return None
-        op.dense()
-        return op
+        return op.cache_dense()
 
     @property
     def _m_ind_to_E_coeffs_runtime(self) -> Optional[LinearMap]:
@@ -342,49 +348,18 @@ class State:
             self._m_imp_preconditioner_ready = True
         return self._m_imp_preconditioner
 
-    def _solve_m_imp_response(
-        self, problem: LeastSquaresProblem, rhs_entries: List[Optional[np.ndarray]]
-    ) -> np.ndarray:
-        """Solve one response block with a matching preconditioner."""
-        preconditioner = None
-        if self.m_imp_solver.solver in ("lsmr", "cgls"):
-            preconditioner = self._get_m_imp_preconditioner()
-        return self.m_imp_solver.solve(
-            problem=problem, rhs=rhs_entries, preconditioner=preconditioner
-        )
-
     def _build_m_imp_response_matrices(self) -> None:
         """Construct dense response matrices for the m_imp solve."""
         logger.info("Building dense m_imp response matrices.")
         n = self.basis.index_length
         problem = self.m_imp_problem
-
-        def solver_response(rhs_entries: List[Optional[np.ndarray]]) -> np.ndarray:
-            return self._solve_m_imp_response(problem, rhs_entries)
-
-        solve_response = solver_response
-
-        if self.m_imp_solver.solver == "normal_pinv":
-            system_matrix = problem.assemble_dense_system_matrix()
-            array_module = get_array_module(system_matrix)
-            system_matrix_H = system_matrix.T.conj()
-            normal_matrix = system_matrix_H @ system_matrix
-            normal_pinv = block_after_jax_linalg(
-                array_module.linalg.pinv(
-                    normal_matrix,
-                    rtol=self.m_imp_solver.tolerance,
-                    hermitian=True,
-                )
-            )
-
-            def cached_pinv_response(rhs_entries: List[Optional[np.ndarray]]) -> np.ndarray:
-                rhs_block, rhs_shape, _ = problem.assemble_rhs_block(rhs_entries)
-                # Finish the cached response application before the next
-                # RHS/operator block may be assembled with NumPy.
-                solution_block = block_until_ready(normal_pinv @ (system_matrix_H @ rhs_block))
-                return solution_block.reshape(problem.solution_shape + rhs_shape)
-
-            solve_response = cached_pinv_response
+        preconditioner = None
+        if self.m_imp_solver.solver in ("lsmr", "cgls"):
+            preconditioner = self._get_m_imp_preconditioner()
+        solve_response = self.m_imp_solver.build_response_solver(
+            problem,
+            preconditioner=preconditioner,
+        )
 
         jr_rhs = np.asarray(self.geometry.jr_coeffs_to_j_apex).reshape(
             problem.A[0].output_shape + (-1,)
@@ -425,12 +400,11 @@ class State:
         solution = xp.zeros(self.basis.index_length)
 
         if jr_coeffs is not None:
-            solution += self._jr_to_m_imp_matrix @ xp.asarray(jr_coeffs)
+            solution += self.operators.jr_to_m_imp.matvec(xp.asarray(jr_coeffs))
 
-        if self._E_direct_to_m_imp_matrix is not None:
-            solution += xp.tensordot(
-                self._E_direct_to_m_imp_matrix, xp.asarray(E_direct_coeffs), axes=([1, 2], [0, 1])
-            )
+        E_direct_to_m_imp = self.operators.E_direct_to_m_imp
+        if E_direct_to_m_imp is not None:
+            solution += E_direct_to_m_imp.matvec(xp.asarray(E_direct_coeffs))
 
         return self.project_scalar_mean_free(solution)
 
@@ -470,26 +444,19 @@ class State:
 
     # ----- State Calculation -----
 
-    def _apply_operator(self, op: Any, coeffs: Any, output_shape: Tuple[int, ...]) -> Any:
+    def _apply_operator(
+        self,
+        op: Optional[LinearMap],
+        coeffs: Any,
+        output_shape: Tuple[int, ...],
+    ) -> Any:
         if op is None or coeffs is None or (isinstance(coeffs, (int, float)) and coeffs == 0):
-            array_module = (
-                op.array_module(coeffs)
-                if isinstance(op, LinearMap)
-                else get_array_module(op, coeffs)
-            )
+            array_module = op.array_module(coeffs) if op is not None else get_array_module(coeffs)
             return array_module.zeros(output_shape)
 
-        if isinstance(op, LinearMap):
-            array_module = op.array_module(coeffs)
-            coeffs_arr = array_module.asarray(coeffs)
-            result = op.matvec(coeffs_arr.flatten()).reshape(output_shape)
-            return result
-
-        array_module = get_array_module(op, coeffs)
-        op_arr = array_module.asarray(op)
+        array_module = op.array_module(coeffs)
         coeffs_arr = array_module.asarray(coeffs)
-        res = array_module.tensordot(op_arr, coeffs_arr, axes=coeffs_arr.ndim)
-        return res.reshape(output_shape) if res.shape != output_shape else res
+        return op.matvec(coeffs_arr.reshape(-1)).reshape(output_shape)
 
     def _calculate_total_E_field(
         self, E_direct_coeffs: np.ndarray, jr_coeffs: Optional[np.ndarray]
@@ -564,80 +531,11 @@ class State:
         return StateOperators(self)
 
     def _create_m_ind_to_E_df_operator(self) -> LinearMap:
-        """Construct matrix-free m_ind -> E_df map."""
-        n = self.basis.index_length
+        """Construct the m_ind -> total E_df map."""
         m_ind_to_E = self.m_ind_to_E_coeffs
-        E_df_operator = self.geometry.helmholtz_divergence_free_potential_operator
         if m_ind_to_E is None:
             raise RuntimeError("m_ind_to_E_coeffs is not available.")
-        E_map_constraint = self._E_map_constraint
-        m_imp_to_E = (
-            self.m_imp_to_E_coeffs
-            if self.connect_hemispheres and E_map_constraint is not None
-            else None
-        )
-        backend_context = m_ind_to_E.backend_context + E_df_operator.backend_context
-        if m_imp_to_E is not None:
-            backend_context += m_imp_to_E.backend_context
-
-        def E_total_block(m_ind_block: Any) -> Any:
-            array_module = m_ind_to_E.array_module(m_ind_block)
-            m_ind_block = array_module.asarray(m_ind_block).reshape(n, -1)
-            E_direct = m_ind_to_E.matmat(m_ind_block).reshape(2, n, -1)
-            E_total = E_direct
-
-            if self.connect_hemispheres and E_map_constraint is not None:
-                self._ensure_m_imp_response_matrices()
-                if self._E_direct_to_m_imp_matrix is not None:
-                    if m_imp_to_E is None:
-                        raise RuntimeError("m_imp_to_E_coeffs is not available.")
-                    array_module = m_imp_to_E.array_module(
-                        E_direct, self._E_direct_to_m_imp_matrix
-                    )
-                    E_direct = array_module.asarray(E_direct)
-                    E_total = array_module.asarray(E_total)
-                    E_direct_to_m_imp = array_module.asarray(
-                        self._E_direct_to_m_imp_matrix
-                    )
-                    m_imp_block = array_module.tensordot(
-                        E_direct_to_m_imp,
-                        E_direct,
-                        axes=([1, 2], [0, 1]),
-                    )
-                    E_imp = m_imp_to_E.matmat(m_imp_block).reshape(2, n, -1)
-                    E_total = E_total + E_imp
-
-            return E_total.reshape(2 * n, -1)
-
-        def matmat(block: Any) -> Any:
-            return E_df_operator.matmat(E_total_block(block))
-
-        def rmatmat(block: Any) -> Any:
-            matrix = self.m_ind_to_E_df_matrix
-            array_module = get_array_module(matrix, block)
-            matrix = array_module.asarray(matrix)
-            block = array_module.asarray(block).reshape(n, -1)
-            return matrix.T.conj() @ block
-
-        def matvec(vec: Any) -> Any:
-            array_module = m_ind_to_E.array_module(vec)
-            return matmat(array_module.asarray(vec).reshape(n, 1)).reshape(n)
-
-        def rmatvec(vec: Any) -> Any:
-            array_module = m_ind_to_E.array_module(vec)
-            return rmatmat(array_module.asarray(vec).reshape(n, 1)).reshape(n)
-
-        return LinearMap(
-            shape=(n, n),
-            dtype=np.result_type(m_ind_to_E.dtype, E_df_operator.dtype),
-            _matvec=matvec,
-            _rmatvec=rmatvec,
-            _matmat=matmat,
-            _rmatmat=rmatmat,
-            _backend_context=backend_context,
-            output_shape=(n,),
-            input_shape=(n,),
-        )
+        return self.operators.direct_E_to_E_df @ m_ind_to_E
 
     def _build_m_ind_to_E_df_matrix(self) -> None:
         """Construct the dense matrix for the induction operator."""

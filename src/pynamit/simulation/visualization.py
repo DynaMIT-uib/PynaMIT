@@ -220,12 +220,14 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     # Calculate values to plot.
     Br = dynamics.state.get_Br(plt_state_evaluator)
     FAC = (
-        plt_state_evaluator.G.dot(dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr)
+        plt_state_evaluator.scalar_coeffs_to_grid.dot(
+            dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr
+        )
         / plt_b_evaluator.br
     )
     eq_current_function = dynamics.state.get_Jeq(plt_state_evaluator)
 
-    jr_mod = dynamics.horizontal_field_transform.G.dot(
+    jr_mod = dynamics.horizontal_field_transform.scalar_coeffs_to_grid.dot(
         dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr
     )
 

@@ -45,7 +45,10 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
     expected_helmholtz = dynamics.horizontal_basis.get_helmholtz_synthesis_matrix(
         dynamics.state.geometry.grid
     )
-    np.testing.assert_allclose(field_transform.G_helmholtz, expected_helmholtz)
+    np.testing.assert_allclose(
+        field_transform.helmholtz_coeffs_to_gridded_vector,
+        expected_helmholtz,
+    )
     np.testing.assert_allclose(
         dynamics.state.geometry.surface_laplacian_operator.dense(backend="numpy"),
         dynamics.horizontal_basis.get_surface_laplacian_matrix(
