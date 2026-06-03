@@ -10,7 +10,7 @@ import numpy as np
 import scipy.sparse
 from scipy.sparse.linalg import LinearOperator
 
-from pynamit.math.backend import asarray, get_array_module
+from pynamit.math.backend import asarray, block_after_jax_linalg, get_array_module
 from pynamit.math.linear_map import LinearMap, as_linear_map, vstack_linear_maps
 
 OperatorInput: TypeAlias = Union[
@@ -40,6 +40,9 @@ class LeastSquaresProblem:
         )
         self.solution_size = math.prod(self.solution_shape)
         self._system_linear_map_cache: dict[bool, LinearMap] = {}
+        self._dense_system_matrix_cache: dict[str, Any] = {}
+        self._dense_normal_equation_cache: dict[str, tuple[Any, Any, Any]] = {}
+        self._dense_normal_pinv_cache: dict[tuple[str, float], Any] = {}
 
         self._process_data_terms(A, data_shapes, sqrt_weights)
         self._process_regularization_terms(regularization_matrices, regularization_weights)
@@ -121,13 +124,52 @@ class LeastSquaresProblem:
     @cached_property
     def dense_system_matrix(self) -> np.ndarray:
         """Assemble the dense regularized system as NumPy."""
-        return np.asarray(self.get_system_linear_map().dense(backend="numpy"))
+        return np.asarray(self._dense_system_matrix("numpy"))
 
     def assemble_dense_system_matrix(self) -> Any:
         """Assemble the dense system on the active backend."""
-        if get_array_module() is np:
+        xp = get_array_module()
+        if xp is np:
             return self.dense_system_matrix
-        return self.get_system_linear_map().dense()
+        return self._dense_system_matrix(_backend_cache_key(xp))
+
+    def dense_normal_equations(self) -> tuple[Any, Any, Any, Any]:
+        """Return dense system, adjoint, and normal matrix on the active backend."""
+        system_matrix = self.assemble_dense_system_matrix()
+        xp = get_array_module(system_matrix)
+        key = _backend_cache_key(xp)
+        if key not in self._dense_normal_equation_cache:
+            system_adjoint = system_matrix.T.conj()
+            normal_matrix = system_adjoint @ system_matrix
+            self._dense_normal_equation_cache[key] = (
+                system_matrix,
+                system_adjoint,
+                normal_matrix,
+            )
+        else:
+            system_matrix, system_adjoint, normal_matrix = (
+                self._dense_normal_equation_cache[key]
+            )
+        return xp, system_matrix, system_adjoint, normal_matrix
+
+    def dense_normal_pinv(self, tolerance: float) -> Any:
+        """Return cached pseudo-inverse of the dense normal matrix."""
+        xp, _, _, normal_matrix = self.dense_normal_equations()
+        key = (_backend_cache_key(xp), float(tolerance))
+        if key not in self._dense_normal_pinv_cache:
+            self._dense_normal_pinv_cache[key] = block_after_jax_linalg(
+                xp.linalg.pinv(normal_matrix, rtol=tolerance, hermitian=True)
+            )
+        return self._dense_normal_pinv_cache[key]
+
+    def _dense_system_matrix(self, backend_key: str) -> Any:
+        """Return cached dense system matrix for one backend key."""
+        if backend_key not in self._dense_system_matrix_cache:
+            backend = "numpy" if backend_key == "numpy" else None
+            self._dense_system_matrix_cache[backend_key] = self.get_system_linear_map().dense(
+                backend=backend
+            )
+        return self._dense_system_matrix_cache[backend_key]
 
     @cached_property
     def svd(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -257,3 +299,8 @@ class LeastSquaresProblem:
         num_rhs = b.size // flat_data_size
         rhs_shape = (num_rhs,) if num_rhs > 1 else ()
         return b.reshape(flat_data_size, num_rhs), rhs_shape
+
+
+def _backend_cache_key(xp: Any) -> str:
+    """Return a stable cache key for one array backend."""
+    return getattr(xp, "__name__", repr(xp))

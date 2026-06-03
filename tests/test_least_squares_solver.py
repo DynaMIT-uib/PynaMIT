@@ -84,6 +84,34 @@ def test_normal_pinv_response_solver_reuses_factorization(monkeypatch):
     np.testing.assert_allclose(solve_response(rhs_second), normal_pinv @ (A_H @ rhs_second))
 
 
+def test_normal_pinv_solve_reuses_cached_pseudo_inverse(monkeypatch):
+    """Repeated dense normal-pinv solves reuse the cached n^3 factor."""
+    A = np.array([[2.0, 0.0], [0.0, 3.0], [1.0, -1.0]])
+    rhs_first = np.array([[1.0, 2.0], [3.0, 1.0], [0.5, -2.0]])
+    rhs_second = np.array([[0.0, 4.0], [2.5, -1.0], [1.5, 3.0]])
+    problem = LeastSquaresProblem(A=A, solution_shape=2, data_shapes=3)
+    solver = LeastSquaresSolver(solver="normal_pinv", tolerance=1e-13)
+    calls = 0
+    original_pinv = np.linalg.pinv
+
+    def counted_pinv(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original_pinv(*args, **kwargs)
+
+    monkeypatch.setattr(np.linalg, "pinv", counted_pinv)
+
+    first = solver.solve(problem, rhs_first)
+    second = solver.solve(problem, rhs_second)
+
+    A_H = A.T.conj()
+    normal_pinv = original_pinv(A_H @ A, rtol=solver.tolerance, hermitian=True)
+    np.testing.assert_allclose(first, normal_pinv @ (A_H @ rhs_first))
+    np.testing.assert_allclose(second, normal_pinv @ (A_H @ rhs_second))
+    assert len(problem._dense_normal_pinv_cache) == 1
+    assert calls == (0 if use_jax() else 1)
+
+
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
 @pytest.mark.parametrize("solver_name", ["normal_solve", "normal_pinv"])
 def test_dense_solvers_preserve_jax_output_when_backend_enabled(solver_name):
@@ -186,6 +214,25 @@ def test_iterative_solver_solves_block_rhs_with_base_preconditioner(solver_name)
 
     assert preconditioner.shape == (2, 2)
     solution = solver.solve(problem, rhs, preconditioner=preconditioner, maxiter=200)
+
+    expected = np.linalg.lstsq(A, rhs, rcond=None)[0]
+    np.testing.assert_allclose(solution, expected, rtol=1e-10, atol=1e-10)
+
+
+@pytest.mark.parametrize("solver_name", ["lsmr", "cgls"])
+def test_iterative_solvers_do_not_materialize_dense_system(monkeypatch, solver_name):
+    """Iterative solves stay matrix-free unless a dense preconditioner is requested."""
+    A = np.array([[2.0, 0.0], [0.0, 3.0], [1.0, -1.0], [1.0, 2.0]])
+    rhs = np.array([[1.0, 2.0], [3.0, 1.0], [0.5, -2.0], [1.5, 0.0]])
+    problem = LeastSquaresProblem(A=A, solution_shape=2, data_shapes=4)
+    solver = LeastSquaresSolver(solver=solver_name, tolerance=1e-12)
+
+    def fail_dense_assembly():
+        raise AssertionError("iterative solvers should not assemble dense systems")
+
+    monkeypatch.setattr(problem, "assemble_dense_system_matrix", fail_dense_assembly)
+
+    solution = solver.solve(problem, rhs, maxiter=200)
 
     expected = np.linalg.lstsq(A, rhs, rcond=None)[0]
     np.testing.assert_allclose(solution, expected, rtol=1e-10, atol=1e-10)

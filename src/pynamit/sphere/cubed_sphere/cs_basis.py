@@ -12,6 +12,7 @@ from scipy.special import binom
 from scipy.sparse import coo_matrix
 from scipy.interpolate import griddata
 
+from pynamit.math import as_linear_map
 from pynamit.math.backend import get_array_module, to_numpy
 from pynamit.sphere.core import GridBasis, SurfaceOperators
 
@@ -120,6 +121,7 @@ class CSBasis(GridBasis, SurfaceOperators):
         self.kind = "CS"
         self._derivative_bundle = None
         self._laplacian_cache = {}
+        self._laplacian_sparse_cache = {}
 
         if N is not None:
             if not isinstance(N, (int, np.integer)):
@@ -404,10 +406,10 @@ class CSBasis(GridBasis, SurfaceOperators):
             axis=2,
         )
 
-    def laplacian(self, r=1.0):
-        """Return the discrete scalar Laplacian matrix."""
+    def _sparse_laplacian_matrix(self, r=1.0):
+        """Return the cached sparse discrete scalar Laplacian."""
         key = float(r)
-        if key not in self._laplacian_cache:
+        if key not in self._laplacian_sparse_cache:
             bundle = self._get_derivative_bundle()
             term_theta = (
                 bundle["inv_sin_theta"]
@@ -416,8 +418,23 @@ class CSBasis(GridBasis, SurfaceOperators):
                 @ bundle["theta"]
             )
             term_phi = bundle["inv_sin2_theta"] @ bundle["phi_unscaled"] @ bundle["phi_unscaled"]
-            self._laplacian_cache[key] = ((term_theta + term_phi) / (r**2)).toarray()
+            self._laplacian_sparse_cache[key] = ((term_theta + term_phi) / (r**2)).tocsr()
+        return self._laplacian_sparse_cache[key]
+
+    def laplacian(self, r=1.0):
+        """Return the discrete scalar Laplacian matrix."""
+        key = float(r)
+        if key not in self._laplacian_cache:
+            self._laplacian_cache[key] = self._sparse_laplacian_matrix(r).toarray()
         return get_array_module().asarray(self._laplacian_cache[key])
+
+    def get_surface_laplacian_operator(self, r=1.0):
+        """Return the native sparse scalar Laplacian operator."""
+        return as_linear_map(
+            self._sparse_laplacian_matrix(r),
+            input_shape=(self.index_length,),
+            output_shape=(self.index_length,),
+        )
 
     def get_gridpoints(self, N, flat=False):
         """Generate grid-line indices for a given resolution.
