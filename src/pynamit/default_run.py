@@ -39,6 +39,7 @@ def run_pynamit(
     artifact_storage="auto",
     horizontal_basis_kind="SH",
     area_weighted_least_squares=False,
+    project_conductance=True,
 ):
     """Run a default PynaMIT simulation with the given parameters.
 
@@ -111,6 +112,11 @@ def run_pynamit(
     area_weighted_least_squares : bool, optional
         Use surface-area weights for least-squares projections when no
         explicit ``sqrt_weights`` are supplied.
+    project_conductance : bool, optional
+        If True, project conductance/resistance inputs into the
+        conductance storage basis. If False, require conductance inputs
+        on the state/model grid and store resistance values directly on
+        that grid.
 
     Returns
     -------
@@ -150,6 +156,7 @@ def run_pynamit(
         vector_u=vector_u,
         horizontal_basis_kind=horizontal_basis_kind,
         area_weighted_least_squares=area_weighted_least_squares,
+        project_conductance=project_conductance,
         save_steady_states=run_steady_state,
         integrator=integrator,
         least_squares_solver=least_squares_solver,

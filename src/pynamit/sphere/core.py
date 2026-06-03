@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 import numpy as np
 import scipy.sparse as sp
 
-from pynamit.math import as_linear_map
+from pynamit.math import LinearMap, as_linear_map
 from pynamit.math.backend import get_array_module
 
 
@@ -34,6 +34,65 @@ def _coefficient_matrix(value, size, name):
             raise ValueError(f"{name} has shape {array.shape}, expected {(size, size)}.")
         return array
     raise ValueError(f"{name} must be a 1-D diagonal or 2-D square operator.")
+
+
+def _helmholtz_component_operator(size, component):
+    """Return a structured selector for one Helmholtz potential."""
+    component = int(component)
+    if component not in (0, 1):
+        raise ValueError("Helmholtz component must be 0 or 1.")
+    size = int(size)
+
+    def matvec(vec):
+        xp = get_array_module(vec)
+        values = xp.asarray(vec).reshape(2, size)
+        return values[component]
+
+    def rmatvec(vec):
+        xp = get_array_module(vec)
+        values = xp.asarray(vec).reshape(size)
+        zeros = xp.zeros_like(values)
+        parts = [values, zeros] if component == 0 else [zeros, values]
+        return xp.stack(parts, axis=0).reshape(2 * size)
+
+    def matmat(block):
+        xp = get_array_module(block)
+        values = xp.asarray(block)
+        if values.ndim == 1:
+            return matvec(values)
+        return values.reshape(2, size, -1)[component].reshape(size, -1)
+
+    def rmatmat(block):
+        xp = get_array_module(block)
+        values = xp.asarray(block).reshape(size, -1)
+        zeros = xp.zeros_like(values)
+        parts = [values, zeros] if component == 0 else [zeros, values]
+        return xp.stack(parts, axis=0).reshape(2 * size, -1)
+
+    def dense_array(xp):
+        identity = xp.eye(size)
+        zeros = xp.zeros_like(identity)
+        parts = [identity, zeros] if component == 0 else [zeros, identity]
+        return xp.concatenate(parts, axis=1)
+
+    def normal_matrix_diag():
+        diagonal = np.zeros(2 * size)
+        start = component * size
+        diagonal[start : start + size] = 1.0
+        return diagonal
+
+    return LinearMap(
+        shape=(size, 2 * size),
+        dtype=np.float64,
+        _matvec=matvec,
+        _rmatvec=rmatvec,
+        _matmat=matmat,
+        _rmatmat=rmatmat,
+        _dense_array_func=dense_array,
+        _normal_matrix_diag=normal_matrix_diag,
+        input_shape=(2, size),
+        output_shape=(size,),
+    )
 
 
 def basis_kind(basis):
@@ -329,11 +388,7 @@ class SurfaceOperators(Basis):
 
     def get_helmholtz_curl_free_potential_operator(self):
         """Return the Helmholtz-to-curl-free-potential operator."""
-        return as_linear_map(
-            self.get_helmholtz_curl_free_potential_matrix(),
-            input_shape=(2, self.index_length),
-            output_shape=(self.index_length,),
-        )
+        return _helmholtz_component_operator(self.index_length, 0)
 
     def get_helmholtz_divergence_free_potential_matrix(self):
         """Return the Helmholtz-to-divergence-free-potential matrix."""
@@ -343,11 +398,7 @@ class SurfaceOperators(Basis):
 
     def get_helmholtz_divergence_free_potential_operator(self):
         """Return the Helmholtz-to-div-free-potential operator."""
-        return as_linear_map(
-            self.get_helmholtz_divergence_free_potential_matrix(),
-            input_shape=(2, self.index_length),
-            output_shape=(self.index_length,),
-        )
+        return _helmholtz_component_operator(self.index_length, 1)
 
     def get_surface_laplacian_matrix(self, r=1.0):
         """Return the scalar surface-Laplacian coefficient matrix."""
@@ -371,10 +422,8 @@ class SurfaceOperators(Basis):
 
     def get_helmholtz_surface_divergence_operator(self, r=1.0):
         """Return the Helmholtz-to-surface-divergence operator."""
-        return as_linear_map(
-            self.get_helmholtz_surface_divergence_matrix(r),
-            input_shape=(2, self.index_length),
-            output_shape=(self.index_length,),
+        return -self.get_surface_laplacian_operator(r) @ _helmholtz_component_operator(
+            self.index_length, 0
         )
 
     def get_helmholtz_radial_curl_matrix(self, r=1.0):
@@ -391,10 +440,8 @@ class SurfaceOperators(Basis):
 
     def get_helmholtz_radial_curl_operator(self, r=1.0):
         """Return the Helmholtz-coefficient to radial-curl operator."""
-        return as_linear_map(
-            self.get_helmholtz_radial_curl_matrix(r),
-            input_shape=(2, self.index_length),
-            output_shape=(self.index_length,),
+        return self.get_surface_laplacian_operator(r) @ _helmholtz_component_operator(
+            self.index_length, 1
         )
 
 

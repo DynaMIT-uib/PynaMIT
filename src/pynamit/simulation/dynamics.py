@@ -11,7 +11,7 @@ from pynamit.math.constants import RE
 from pynamit.math.least_squares_solver import get_default_least_squares_solver
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.primitives.field_transform import FieldTransform
-from pynamit.sphere import Grid
+from pynamit.sphere import Grid, is_grid_basis
 from pynamit.primitives.io import IO
 from pynamit.simulation.data import SimulationData
 from pynamit.simulation.mainfield import Mainfield
@@ -70,6 +70,7 @@ class Dynamics(object):
         backend="auto",
         horizontal_basis_kind="SH",
         area_weighted_least_squares=False,
+        project_conductance=True,
     ):
         """Initialize the Dynamics class.
 
@@ -144,6 +145,12 @@ class Dynamics(object):
             no explicit ``sqrt_weights`` are supplied. Cubed-sphere
             grids use their native cell areas; ordinary spherical grids
             use ``sin(theta)``.
+        project_conductance : bool, optional
+            If True, project conductance/resistance inputs into the
+            configured conductance storage basis. If False, store
+            resistance values directly on the model grid; the supplied
+            conductance grid must match the state geometry grid and
+            conductance regularization/weights are not used.
         """
         self.backend = set_backend(backend)
         horizontal_basis_kind = normalize_horizontal_basis_kind(horizontal_basis_kind)
@@ -170,6 +177,7 @@ class Dynamics(object):
                 "vector_u": int(vector_u),
                 "horizontal_basis_kind": horizontal_basis_kind,
                 "area_weighted_least_squares": int(area_weighted_least_squares),
+                "project_conductance": int(project_conductance),
                 "t0": t0,
                 "save_steady_states": int(save_steady_states),
                 "integrator": integrator,
@@ -637,6 +645,7 @@ class Dynamics(object):
         pinv_rtol=1e-15,
         *,
         coefficients=False,
+        project=None,
     ):
         """Set Pedersen and Hall resistance inputs.
 
@@ -664,11 +673,30 @@ class Dynamics(object):
             If True, ``Pedersen`` and ``Hall`` are already in the input
             storage basis and are stored directly without interpolation
             or projection.
+        project : bool, optional
+            Override ``self.settings.project_conductance`` for this
+            call. If False, ``Pedersen`` and ``Hall`` must be grid
+            values on the state/model grid and are stored directly in
+            the grid conductance basis.
         """
         input_data = {"etaP": np.atleast_2d(Pedersen), "etaH": np.atleast_2d(Hall)}
 
         if coefficients:
             self._add_input_coefficients("conductance", input_data, time)
+            return
+
+        if not self._should_project_conductance(project):
+            self._add_native_grid_input(
+                "conductance",
+                input_data,
+                lat=lat,
+                lon=lon,
+                theta=theta,
+                phi=phi,
+                time=time,
+                sqrt_weights=sqrt_weights,
+                reg_lambda=reg_lambda,
+            )
             return
 
         self._project_and_add_input(
@@ -696,6 +724,8 @@ class Dynamics(object):
         sqrt_weights=None,
         reg_lambda=None,
         pinv_rtol=1e-15,
+        *,
+        project=None,
     ):
         """Set Hall and Pedersen conductance values.
 
@@ -717,6 +747,11 @@ class Dynamics(object):
             Regularization parameter.
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
+        project : bool, optional
+            Override ``self.settings.project_conductance`` for this
+            call. If False, the conductance grid must match the
+            state/model grid and the converted resistance values are
+            stored directly without projection.
         """
         Hall = np.atleast_2d(Hall)
         Pedersen = np.atleast_2d(Pedersen)
@@ -742,6 +777,7 @@ class Dynamics(object):
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
+            project=project,
         )
 
     def set_neutral_wind(
@@ -856,6 +892,75 @@ class Dynamics(object):
             self.input_timeseries.add_entry(
                 key,
                 {var: projected_data[var][time_index] for var in projected_data},
+                input_time[time_index],
+            )
+
+        self.data.save_input_dataset(key)
+
+    def _should_project_conductance(self, project):
+        """Return the effective conductance projection setting."""
+        if project is None:
+            return bool(self.settings.project_conductance)
+        return bool(project)
+
+    def _add_native_grid_input(
+        self,
+        key,
+        input_data,
+        *,
+        lat=None,
+        lon=None,
+        theta=None,
+        phi=None,
+        time=None,
+        sqrt_weights=None,
+        reg_lambda=None,
+    ):
+        """Store grid-basis input values after model-grid validation."""
+        if sqrt_weights is not None:
+            raise ValueError("sqrt_weights are not supported when conductance projection is off.")
+        if reg_lambda is not None:
+            raise ValueError("reg_lambda is not supported when conductance projection is off.")
+
+        storage_basis = self.input_field_spaces[key].basis
+        if not is_grid_basis(storage_basis):
+            raise ValueError(
+                "Direct grid conductance storage requires Dynamics(project_conductance=False)."
+            )
+
+        input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
+        model_grid = self.state.geometry.grid
+        if not input_grid.same_as(model_grid):
+            raise ValueError(
+                "Direct grid conductance storage requires the input grid to match "
+                "the state/model grid."
+            )
+
+        if hasattr(storage_basis, "arr_theta") and hasattr(storage_basis, "arr_phi"):
+            storage_grid = Grid(theta=storage_basis.arr_theta, phi=storage_basis.arr_phi)
+            if not storage_grid.same_as(model_grid):
+                raise ValueError(
+                    "Conductance storage basis grid does not match the state/model grid."
+                )
+
+        transform = self.input_transforms[key]
+        direct_data = {
+            var: transform._normalize_value_batch(values, input_grid)
+            for var, values in input_data.items()
+        }
+        input_time = self.adapt_input_time(time, direct_data)
+
+        for var, values in direct_data.items():
+            if values.shape[0] != input_time.size:
+                raise ValueError(
+                    f"{key}.{var} has {values.shape[0]} grid time slices, "
+                    f"but {input_time.size} time values were supplied."
+                )
+
+        for time_index in range(input_time.size):
+            self.input_timeseries.add_entry(
+                key,
+                {var: direct_data[var][time_index] for var in direct_data},
                 input_time[time_index],
             )
 

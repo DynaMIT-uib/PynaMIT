@@ -14,9 +14,6 @@ from pynamit.primitives.coefficient_field import CoefficientField
 from pynamit.primitives.field_space import FieldSpace
 from pynamit.sphere.core import SurfaceOperators, is_grid_basis
 
-FLOAT_ERROR_MARGIN = 1e-6
-
-
 def grid_sqrt_area_weights(grid):
     """Return default sqrt area weights for a spherical grid."""
     if hasattr(grid, "area_weights"):
@@ -573,23 +570,10 @@ class FieldTransform(object):
         if sqrt_weights is not None or transform.explicit_sqrt_weights:
             return False
         return (
-            input_grid.theta.shape == transform.grid.theta.shape
-            and input_grid.phi.shape == transform.grid.phi.shape
+            input_grid.same_as(transform.grid)
             and transform.reg_lambda == reg_lambda
             and transform.pinv_rtol == pinv_rtol
             and transform.area_weighted == self.area_weighted
-            and np.allclose(
-                input_grid.theta,
-                transform.grid.theta,
-                rtol=0.0,
-                atol=FLOAT_ERROR_MARGIN,
-            )
-            and np.allclose(
-                input_grid.phi,
-                transform.grid.phi,
-                rtol=0.0,
-                atol=FLOAT_ERROR_MARGIN,
-            )
         )
 
     def _interpolate_to_grid(self, values, input_grid):

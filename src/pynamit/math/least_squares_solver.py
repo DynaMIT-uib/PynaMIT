@@ -104,9 +104,9 @@ class LeastSquaresSolver:
     def _solve_svd(
         self, problem: LeastSquaresProblem, rhs_block: np.ndarray, *args, **kwargs
     ) -> np.ndarray:
-        xp, system_matrix, rhs = self._dense_backend_arrays(problem, rhs_block)
-        u, s, vt = np.linalg.svd(to_numpy(system_matrix), full_matrices=False)
-        rhs_np = to_numpy(rhs)
+        xp = get_array_module(rhs_block)
+        u, s, vt = problem.svd
+        rhs_np = to_numpy(rhs_block)
         cutoff = self.tolerance * (s[0] if s.size > 0 else 0)
         safe_s = np.where(s > cutoff, s, 1.0)
         s_inv = np.where(s > cutoff, 1.0 / safe_s, np.zeros_like(s))
@@ -125,9 +125,8 @@ class LeastSquaresSolver:
     ) -> np.ndarray:
         """Solve through the pseudo-inverse of the normal equations."""
         xp, normal_matrix, normal_rhs = self._dense_normal_equations(problem, rhs_block)
-        normal_pinv = block_after_jax_linalg(
-            xp.linalg.pinv(normal_matrix, rtol=self.tolerance, hermitian=True)
-        )
+        del normal_matrix
+        normal_pinv = problem.dense_normal_pinv(self.tolerance)
         # Finish this dependent backend matmul before callers assemble
         # NumPy/SciPy blocks.
         return block_until_ready(normal_pinv @ normal_rhs)
@@ -136,13 +135,8 @@ class LeastSquaresSolver:
         self, problem: LeastSquaresProblem
     ) -> Callable[[Union[np.ndarray, List[np.ndarray]]], Any]:
         """Build a normal-pinv response solver with cached factors."""
-        system_matrix = problem.assemble_dense_system_matrix()
-        xp = get_array_module(system_matrix)
-        system_matrix_adjoint = system_matrix.T.conj()
-        normal_matrix = system_matrix_adjoint @ system_matrix
-        normal_pinv = block_after_jax_linalg(
-            xp.linalg.pinv(normal_matrix, rtol=self.tolerance, hermitian=True)
-        )
+        xp, _, system_matrix_adjoint, _ = problem.dense_normal_equations()
+        normal_pinv = problem.dense_normal_pinv(self.tolerance)
 
         def solve_response(rhs: Union[np.ndarray, List[np.ndarray]]) -> Any:
             rhs_block, rhs_shape, _ = problem.assemble_rhs_block(rhs)
@@ -156,26 +150,13 @@ class LeastSquaresSolver:
 
         return solve_response
 
-    def _dense_backend_arrays(
-        self, problem: LeastSquaresProblem, rhs_block: np.ndarray
-    ) -> Tuple[Any, Any, Any]:
-        """Return dense system and RHS on the active array backend."""
-        system_matrix = block_until_ready(problem.assemble_dense_system_matrix())
-        xp = get_array_module(system_matrix)
-        rhs = block_until_ready(xp.asarray(rhs_block))
-        return xp, system_matrix, rhs
-
     def _dense_normal_equations(
         self, problem: LeastSquaresProblem, rhs_block: np.ndarray
     ) -> Tuple[Any, Any, Any]:
         """Return dense normal-equation matrix and right-hand side."""
-        xp, system_matrix, rhs = self._dense_backend_arrays(problem, rhs_block)
-        system_matrix_adjoint = system_matrix.T.conj()
-        return (
-            xp,
-            system_matrix_adjoint @ system_matrix,
-            system_matrix_adjoint @ rhs,
-        )
+        xp, _, system_matrix_adjoint, normal_matrix = problem.dense_normal_equations()
+        rhs = block_until_ready(xp.asarray(rhs_block))
+        return xp, normal_matrix, system_matrix_adjoint @ rhs
 
     def _solve_lsmr(
         self,

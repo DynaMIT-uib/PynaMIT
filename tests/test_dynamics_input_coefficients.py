@@ -111,6 +111,63 @@ def test_set_resistance_accepts_input_basis_coefficients(tmp_path):
     np.testing.assert_allclose(dataset.time.values, [5.0])
 
 
+def test_set_resistance_can_store_native_grid_values_without_projection(tmp_path):
+    """No-projection conductance stores CS grid values."""
+    dynamics = _small_dynamics(tmp_path, project_conductance=False)
+    grid = dynamics.state.geometry.grid
+    etaP = np.linspace(0.1, 0.3, grid.size)
+    etaH = np.linspace(-0.2, 0.2, grid.size)
+
+    dynamics.set_resistance(etaP, etaH, lat=grid.lat, lon=grid.lon, time=6.0)
+
+    dataset = dynamics.input_timeseries.datasets["conductance"]
+    np.testing.assert_allclose(dataset["CS_etaP"].isel(time=0).values, etaP)
+    np.testing.assert_allclose(dataset["CS_etaH"].isel(time=0).values, etaH)
+    np.testing.assert_allclose(dataset.time.values, [6.0])
+
+    dynamics.state.update(dynamics.input_timeseries, time=6.0)
+    np.testing.assert_allclose(dynamics.state.etaP.coeffs, etaP)
+    np.testing.assert_allclose(dynamics.state.etaH.coeffs, etaH)
+    np.testing.assert_allclose(
+        dynamics.state._conductance_synthesis_matrix(),
+        np.eye(grid.size),
+        atol=1e-12,
+    )
+
+
+def test_set_resistance_without_projection_requires_matching_grid(tmp_path):
+    """Direct grid conductance rejects non-model grids."""
+    dynamics = _small_dynamics(tmp_path, project_conductance=False)
+    grid = dynamics.state.geometry.grid
+    etaP = np.ones(grid.size)
+    etaH = np.zeros(grid.size)
+
+    with np.testing.assert_raises_regex(ValueError, "input grid to match"):
+        dynamics.set_resistance(
+            etaP,
+            etaH,
+            lat=grid.lat + np.linspace(0.0, 1e-3, grid.size),
+            lon=grid.lon,
+        )
+
+
+def test_set_resistance_without_projection_rejects_projection_options(tmp_path):
+    """Direct grid conductance rejects projection controls."""
+    dynamics = _small_dynamics(tmp_path, project_conductance=False)
+    grid = dynamics.state.geometry.grid
+    etaP = np.ones(grid.size)
+    etaH = np.zeros(grid.size)
+
+    with np.testing.assert_raises_regex(ValueError, "reg_lambda"):
+        dynamics.set_resistance(
+            etaP,
+            etaH,
+            lat=grid.lat,
+            lon=grid.lon,
+            reg_lambda=1e-3,
+        )
+
+
 def test_set_conductance_delegates_resistance_conversion(tmp_path, monkeypatch):
     """Conductance inputs are converted once before delegation."""
     dynamics = _small_dynamics(tmp_path)

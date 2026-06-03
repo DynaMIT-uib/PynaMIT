@@ -28,11 +28,8 @@ logger = logging.getLogger(__name__)
 def _compact_operator_array(operator):
     """Return diagonal vector when possible, else dense matrix."""
     op = as_linear_map(operator)
-    if op.shape[0] == op.shape[1]:
-        try:
-            return np.asarray(op.diagonal(backend="numpy")).copy()
-        except ValueError:
-            pass
+    if getattr(op, "_diagonal_array_func", None) is not None:
+        return np.asarray(op.diagonal(backend="numpy")).copy()
     return np.asarray(op.dense(backend="numpy"))
 
 
@@ -124,23 +121,19 @@ class Geometry:
         self.surface_laplacian_operator = self.basis.get_surface_laplacian_operator(
             self.RI
         )
-        self.helmholtz_curl_free_potential = (
-            self.basis.get_helmholtz_curl_free_potential_matrix()
-        )
+        self._helmholtz_curl_free_potential = None
         self.helmholtz_curl_free_potential_operator = (
             self.basis.get_helmholtz_curl_free_potential_operator()
         )
-        self.helmholtz_divergence_free_potential = (
-            self.basis.get_helmholtz_divergence_free_potential_matrix()
-        )
+        self._helmholtz_divergence_free_potential = None
         self.helmholtz_divergence_free_potential_operator = (
             self.basis.get_helmholtz_divergence_free_potential_operator()
         )
         self.m_imp_to_jr_operator = self.RI / mu0 * self.surface_laplacian_operator
         self.m_ind_to_Br_operator = -(self.RI**2) * self.surface_laplacian_operator
-        self.m_imp_to_jr = _compact_operator_array(self.m_imp_to_jr_operator)
+        self._m_imp_to_jr = None
         self.E_df_to_d_m_ind_dt = 1.0 / self.RI
-        self.m_ind_to_Br = _compact_operator_array(self.m_ind_to_Br_operator)
+        self._m_ind_to_Br = None
         if self.radial_continuation_basis is None:
             raise NotImplementedError(
                 f"{type(self.basis).__name__} requires a radial Laplace continuation "
@@ -172,6 +165,38 @@ class Geometry:
         )
 
         self._helmholtz_analysis_matrix = None
+
+    @property
+    def helmholtz_curl_free_potential(self) -> np.ndarray:
+        """Compatibility matrix selecting the curl-free Helmholtz potential."""
+        if self._helmholtz_curl_free_potential is None:
+            self._helmholtz_curl_free_potential = (
+                self.helmholtz_curl_free_potential_operator.dense()
+            ).reshape((self.basis.index_length, 2, self.basis.index_length))
+        return self._helmholtz_curl_free_potential
+
+    @property
+    def helmholtz_divergence_free_potential(self) -> np.ndarray:
+        """Compatibility matrix selecting the divergence-free Helmholtz potential."""
+        if self._helmholtz_divergence_free_potential is None:
+            self._helmholtz_divergence_free_potential = (
+                self.helmholtz_divergence_free_potential_operator.dense()
+            ).reshape((self.basis.index_length, 2, self.basis.index_length))
+        return self._helmholtz_divergence_free_potential
+
+    @property
+    def m_imp_to_jr(self) -> np.ndarray:
+        """Compatibility array mapping imposed potential to radial current."""
+        if self._m_imp_to_jr is None:
+            self._m_imp_to_jr = _compact_operator_array(self.m_imp_to_jr_operator)
+        return self._m_imp_to_jr
+
+    @property
+    def m_ind_to_Br(self) -> np.ndarray:
+        """Compatibility array mapping induced potential to radial magnetic field."""
+        if self._m_ind_to_Br is None:
+            self._m_ind_to_Br = _compact_operator_array(self.m_ind_to_Br_operator)
+        return self._m_ind_to_Br
 
     def tangential_to_helmholtz(self, vec: np.ndarray) -> np.ndarray:
         """Convert tangential vector field to Helmholtz coeffs."""
