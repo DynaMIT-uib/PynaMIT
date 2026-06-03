@@ -182,14 +182,7 @@ class State:
             eta_stacked = xp.stack(
                 [xp.asarray(self.etaP.coeffs), xp.asarray(self.etaH.coeffs)], axis=0
             )
-            if self.etaP.basis.coefficients_are_compatible_with(self.basis):
-                conductance_synthesis = xp.asarray(
-                    self.geometry.field_transform.scalar_coeffs_to_grid
-                )
-            else:
-                conductance_synthesis = xp.asarray(
-                    self.geometry.field_transform_zero_added.scalar_coeffs_to_grid
-                )
+            conductance_synthesis = xp.asarray(self._conductance_synthesis_matrix())
             b_stacked = xp.stack(
                 [xp.asarray(self.geometry.bP), xp.asarray(self.geometry.bH)], axis=0
             )
@@ -201,6 +194,24 @@ class State:
                 optimize=True,
             )
         return self._M_total_on_grid
+
+    def _conductance_synthesis_matrix(self):
+        """Return stored-conductance synthesis to the model grid."""
+        basis = self.etaP.basis
+        if basis.coefficients_are_compatible_with(self.basis):
+            return self.geometry.field_transform.scalar_coeffs_to_grid
+
+        zero_added_basis = self.geometry.field_transform_zero_added.basis
+        if basis.coefficients_are_compatible_with(zero_added_basis):
+            return self.geometry.field_transform_zero_added.scalar_coeffs_to_grid
+
+        get_matrix = getattr(basis, "get_scalar_evaluation_matrix", None)
+        if callable(get_matrix):
+            return get_matrix(self.geometry.grid)
+
+        raise ValueError(
+            "Conductance storage basis cannot be evaluated on the state/model grid."
+        )
 
     def _create_E_coeffs_operator(
         self, source_to_sheet_current: Optional[np.ndarray]

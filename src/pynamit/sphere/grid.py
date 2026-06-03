@@ -4,6 +4,8 @@ This module contains the Grid class for representing two-dimensional
 coordinate grids.
 """
 
+import hashlib
+
 import numpy as np
 
 
@@ -86,8 +88,45 @@ class Grid(object):
         self.phi = self.phi.flatten()
 
         self.size = self.lon.size
+        self._hash = None
 
         if area_weights is not None:
             self.area_weights = np.asarray(area_weights, dtype=float).flatten()
             if self.area_weights.shape != (self.size,):
                 raise ValueError("area_weights must match the flattened grid size.")
+
+    @staticmethod
+    def _hash_coordinate(digest, values):
+        """Hash one coordinate array at float32 precision."""
+        array = np.ascontiguousarray(np.asarray(values, dtype="<f4").reshape(-1))
+        digest.update(np.asarray(array.shape, dtype="<i8").tobytes())
+        digest.update(array.tobytes())
+
+    @property
+    def hash(self):
+        """Deterministic hash for the flattened grid coordinates.
+
+        Coordinates are quantized to float32 before hashing so grids
+        that differ only by insignificant double-precision noise compare
+        as equal.
+        """
+        if self._hash is None:
+            digest = hashlib.blake2b(digest_size=16)
+            self._hash_coordinate(digest, self.theta)
+            self._hash_coordinate(digest, self.phi)
+            self._hash = digest.hexdigest()
+        return self._hash
+
+    def same_as(self, other):
+        """Return whether another grid has the same coordinates."""
+        if self is other:
+            return True
+        if not isinstance(other, Grid):
+            return False
+        return self.hash == other.hash
+
+    def __eq__(self, other):
+        """Compare grids by their coordinate hashes."""
+        if not isinstance(other, Grid):
+            return NotImplemented
+        return self.same_as(other)

@@ -91,6 +91,20 @@ def test_basis_capability_designators_are_explicit():
     assert not hasattr(cs_basis, "sheet_current_potential")
 
 
+def test_grid_hash_matches_equivalent_coordinates():
+    """Grid equality uses robust coordinate hashes."""
+    lat = np.array([60.0, 61.0, 62.0])
+    lon = np.array([10.0, 11.0, 12.0])
+    first = Grid(lat=lat, lon=lon)
+    second = Grid(theta=90.0 - lat + 1e-10, phi=lon - 1e-10)
+    different = Grid(lat=lat, lon=lon + np.array([0.0, 0.0, 1e-3]))
+
+    assert first.hash == second.hash
+    assert first.same_as(second)
+    assert first == second
+    assert not first.same_as(different)
+
+
 def test_basis_coefficient_compatibility_uses_coefficient_space():
     """Compatibility depends on coefficient layout."""
     sh_basis = SHBasis(3, 2)

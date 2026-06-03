@@ -68,6 +68,16 @@ def test_schema_respects_vector_input_flags_for_sh_projection_basis():
     assert all(basis is schema.cs_basis for basis in schema.interpolation_bases.values())
 
 
+def test_sh_schema_can_store_conductance_on_grid_without_projection():
+    """No-projection conductance keeps SH state storage."""
+    schema = build_simulation_schema(_settings(project_conductance=0), "SH")
+
+    assert schema.horizontal_basis is schema.sh_basis_mean_free
+    assert schema.input_field_spaces["conductance"].basis is schema.cs_basis
+    assert schema.interpolation_bases["conductance"] is schema.cs_basis
+    assert not schema.input_field_spaces["conductance"].mean_free
+
+
 def test_field_spaces_from_bases_rejects_invalid_field_type():
     """Field spaces reject invalid field type metadata."""
     schema = build_simulation_schema(_settings(), "SH")
