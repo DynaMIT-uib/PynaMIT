@@ -15,8 +15,8 @@ a = pynamit.PynamEye(path, steady_state=True)
 for plot_num, simulation_time in enumerate([0, 480]):
     a.set_time(simulation_time, steady_state=True)
 
-    phin = a.evaluator["north"].to_grid(a.m_Phi)
-    phis = a.evaluator["south"].to_grid(a.m_Phi)
+    phin = a.transforms["north"].synthesize_scalar(a.m_Phi)
+    phis = a.transforms["south"].synthesize_scalar(a.m_Phi)
     print(
         datetime.datetime.now(),
         "CPCP in the North is {:.1f} kV".format((phin.max() - phin.min()) * 1e-3),

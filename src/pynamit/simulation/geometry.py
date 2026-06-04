@@ -1,8 +1,8 @@
 """Geometry module.
 
-This module contains the Geometry class, which encapsulates the spatial
-grid, field transforms, magnetic field properties, and interhemispheric
-mappings.
+This module contains the Geometry class, which encapsulates spatial
+grids, spherical transforms, magnetic field properties, and
+interhemispheric mappings.
 """
 
 from __future__ import annotations
@@ -16,11 +16,10 @@ from pynamit.math.constants import mu0
 from pynamit.math import as_linear_map
 from pynamit.math.backend import block_until_ready, get_array_module, to_jax, to_numpy, use_jax
 from pynamit.sphere import Grid
-from pynamit.primitives.field_transform import FieldTransform, resolve_sqrt_weights
-from pynamit.primitives.field_space import FieldSpace
+from pynamit.primitives.spherical_transform import SphericalTransform, resolve_sqrt_weights
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.math.tensor_operations import weighted_tensor_pinv
-from pynamit.sphere import Basis, CSBasis, is_sh_basis
+from pynamit.sphere import CSBasis, SphericalBasis, is_sh_basis
 
 logger = logging.getLogger(__name__)
 
@@ -67,12 +66,12 @@ class Geometry:
 
     def __init__(
         self,
-        basis: Basis,
+        basis: SphericalBasis,
         cs_basis: CSBasis,
         mainfield: Any,
         settings: Any,
         PFAC_matrix: Optional[xr.DataArray] = None,
-        radial_continuation_basis: Optional[Basis] = None,
+        radial_continuation_basis: Optional[SphericalBasis] = None,
     ) -> None:
         """Initialize the geometric context."""
         self.basis = basis
@@ -168,7 +167,7 @@ class Geometry:
 
     @property
     def helmholtz_curl_free_potential(self) -> np.ndarray:
-        """Compatibility matrix selecting the curl-free Helmholtz potential."""
+        """Return the curl-free Helmholtz-potential selector."""
         if self._helmholtz_curl_free_potential is None:
             self._helmholtz_curl_free_potential = (
                 self.helmholtz_curl_free_potential_operator.dense()
@@ -177,7 +176,7 @@ class Geometry:
 
     @property
     def helmholtz_divergence_free_potential(self) -> np.ndarray:
-        """Compatibility matrix selecting the divergence-free Helmholtz potential."""
+        """Return the divergence-free Helmholtz-potential selector."""
         if self._helmholtz_divergence_free_potential is None:
             self._helmholtz_divergence_free_potential = (
                 self.helmholtz_divergence_free_potential_operator.dense()
@@ -186,14 +185,14 @@ class Geometry:
 
     @property
     def m_imp_to_jr(self) -> np.ndarray:
-        """Compatibility array mapping imposed potential to radial current."""
+        """Return the imposed-potential to radial-current array."""
         if self._m_imp_to_jr is None:
             self._m_imp_to_jr = _compact_operator_array(self.m_imp_to_jr_operator)
         return self._m_imp_to_jr
 
     @property
     def m_ind_to_Br(self) -> np.ndarray:
-        """Compatibility array mapping induced potential to radial magnetic field."""
+        """Return the induced-potential to radial-field array."""
         if self._m_ind_to_Br is None:
             self._m_ind_to_Br = _compact_operator_array(self.m_ind_to_Br_operator)
         return self._m_ind_to_Br
@@ -209,57 +208,48 @@ class Geometry:
         """Matrix mapping gridded vectors to Helmholtz coefficients."""
         if self._helmholtz_analysis_matrix is None:
             self._helmholtz_analysis_matrix = weighted_tensor_pinv(
-                self.field_transform.helmholtz_coeffs_to_gridded_vector,
+                self.spherical_transform.helmholtz_coeffs_to_gridded_vector,
                 sqrt_weights=self.grid_sqrt_weights(vector=True),
                 n_leading_flattened=2,
             )
         return self._helmholtz_analysis_matrix
 
     def _init_evaluators(self, cs_basis: CSBasis) -> None:
-        """Set up grid, field transforms, and field evaluators."""
+        """Set up grid, spherical transforms, and field evaluators."""
         self.grid = Grid(
             theta=cs_basis.arr_theta,
             phi=cs_basis.arr_phi,
             area_weights=cs_basis.unit_area,
         )
-        self.field_transform = FieldTransform(
-            FieldSpace.from_basis(self.basis, field_type="scalar"),
-            self.grid,
-            area_weighted=self.area_weighted_least_squares,
+        self.spherical_transform = SphericalTransform(
+            self.basis, self.grid, area_weighted=self.area_weighted_least_squares
         )
-        self.field_transform_zero_added = FieldTransform(
-            FieldSpace.from_basis(
-                _extended_scalar_basis_for_potential(self.basis, self.settings),
-                field_type="scalar",
-            ),
+        self.spherical_transform_zero_added = SphericalTransform(
+            _extended_scalar_basis_for_potential(self.basis, self.settings),
             self.grid,
             area_weighted=self.area_weighted_least_squares,
         )
         if self.radial_continuation_basis is None:
-            self.radial_continuation_evaluator = None
+            self.radial_continuation_transform = None
         elif self.radial_continuation_basis is self.basis:
-            self.radial_continuation_evaluator = self.field_transform
+            self.radial_continuation_transform = self.spherical_transform
         else:
-            self.radial_continuation_evaluator = FieldTransform(
-                FieldSpace.from_basis(
-                    self.radial_continuation_basis, field_type="scalar"
-                ),
+            self.radial_continuation_transform = SphericalTransform(
+                self.radial_continuation_basis,
                 self.grid,
                 area_weighted=self.area_weighted_least_squares,
             )
         self.b_evaluator = FieldEvaluator(self.mainfield, self.grid, self.RI)
 
         # Optional evaluators for the conjugate hemisphere
-        self.cp_grid = self.cp_field_transform = self.cp_b_evaluator = None
+        self.cp_grid = self.cp_spherical_transform = self.cp_b_evaluator = None
         if self.connect_hemispheres:
             cp_theta, cp_phi = self.mainfield.conjugate_coordinates(
                 self.RI, self.grid.theta, self.grid.phi
             )
             self.cp_grid = Grid(theta=cp_theta, phi=cp_phi)
-            self.cp_field_transform = FieldTransform(
-                FieldSpace.from_basis(self.basis, field_type="scalar"),
-                self.cp_grid,
-                area_weighted=self.area_weighted_least_squares,
+            self.cp_spherical_transform = SphericalTransform(
+                self.basis, self.cp_grid, area_weighted=self.area_weighted_least_squares
             )
             self.cp_b_evaluator = FieldEvaluator(self.mainfield, self.cp_grid, self.RI)
 
@@ -283,8 +273,8 @@ class Geometry:
         """
         if self.radial_continuation_basis.coefficients_are_compatible_with(self.basis):
             return np.eye(self.basis.index_length)
-        radial_to_grid = self.radial_continuation_evaluator.scalar_coeffs_to_grid
-        horizontal_to_grid = self.field_transform.scalar_coeffs_to_grid
+        radial_to_grid = self.radial_continuation_transform.scalar_coeffs_to_grid
+        horizontal_to_grid = self.spherical_transform.scalar_coeffs_to_grid
         grid_to_radial = weighted_tensor_pinv(
             radial_to_grid,
             sqrt_weights=self.grid_sqrt_weights(),
@@ -296,8 +286,8 @@ class Geometry:
         """Project radial coefficients to horizontal space."""
         if self.radial_continuation_basis.coefficients_are_compatible_with(self.basis):
             return np.eye(self.basis.index_length)
-        horizontal_to_grid = self.field_transform.scalar_coeffs_to_grid
-        radial_to_grid = self.radial_continuation_evaluator.scalar_coeffs_to_grid
+        horizontal_to_grid = self.spherical_transform.scalar_coeffs_to_grid
+        radial_to_grid = self.radial_continuation_transform.scalar_coeffs_to_grid
         grid_to_horizontal = weighted_tensor_pinv(
             horizontal_to_grid,
             sqrt_weights=self.grid_sqrt_weights(),
@@ -308,7 +298,7 @@ class Geometry:
     def _build_radial_potential_to_sheet_current(self) -> np.ndarray:
         """Return radial potential to sheet current on grid."""
         return (1.0 / self.RI) * np.tensordot(
-            self.radial_continuation_evaluator.scalar_coeffs_to_gridded_rhat_cross_gradient,
+            self.radial_continuation_transform.scalar_coeffs_to_gridded_rhat_cross_gradient,
             (-self.RI / mu0) * self.radial_boundary_potential_discontinuity,
             axes=([2], [0]),
         )
@@ -335,7 +325,7 @@ class Geometry:
 
         self.jr_coeffs_to_j_apex = np.asarray(
             self.b_evaluator.radial_to_apex.reshape((-1, 1))
-            * self.field_transform.scalar_coeffs_to_grid
+            * self.spherical_transform.scalar_coeffs_to_grid
         ).copy()
         self.E_coeffs_to_E_apex_ll_diff = None
 
@@ -343,7 +333,7 @@ class Geometry:
             # Modify jr constraint for interhemispheric connection
             jr_coeffs_to_j_apex_cp = np.asarray(
                 self.cp_b_evaluator.radial_to_apex.reshape((-1, 1))
-                * self.cp_field_transform.scalar_coeffs_to_grid
+                * self.cp_spherical_transform.scalar_coeffs_to_grid
             )
             self.jr_coeffs_to_j_apex = self.jr_coeffs_to_j_apex - (
                 self.ll_mask.reshape((-1, 1)) * jr_coeffs_to_j_apex_cp
@@ -353,13 +343,13 @@ class Geometry:
             E_coeffs_to_E_apex = np.einsum(
                 "ijk,jklm->iklm",
                 self.b_evaluator.horizontal_to_apex,
-                np.asarray(self.field_transform.helmholtz_coeffs_to_gridded_vector),
+                np.asarray(self.spherical_transform.helmholtz_coeffs_to_gridded_vector),
                 optimize=True,
             )
             E_coeffs_to_E_apex_cp = np.einsum(
                 "ijk,jklm->iklm",
                 self.cp_b_evaluator.horizontal_to_apex,
-                np.asarray(self.cp_field_transform.helmholtz_coeffs_to_gridded_vector),
+                np.asarray(self.cp_spherical_transform.helmholtz_coeffs_to_gridded_vector),
                 optimize=True,
             )
             self.E_coeffs_to_E_apex_ll_diff = np.ascontiguousarray(
@@ -440,12 +430,11 @@ class Geometry:
             mapped_grid = Grid(theta=theta_mapped, phi=phi_mapped)
             rk_b_evaluator = FieldEvaluator(self.mainfield, self.grid, rk)
             mapped_b_evaluator = FieldEvaluator(self.mainfield, mapped_grid, self.RI)
-            mapped_field_transform = FieldTransform(
-                FieldSpace.from_basis(self.basis, field_type="scalar"),
-                mapped_grid,
+            mapped_spherical_transform = SphericalTransform(
+                self.basis, mapped_grid
             )
 
-            m_imp_to_jr_grid = mapped_field_transform.contract_scalar_coeffs_to_grid(
+            m_imp_to_jr_grid = mapped_spherical_transform.contract_scalar_coeffs_to_grid(
                 m_imp_to_jr_coeffs
             )
             jr_to_JS_rk = np.array(
@@ -514,7 +503,7 @@ class Geometry:
                 # Keep this on JAX. The result is consumed by JAX next,
                 # so a NumPy/OpenBLAS handoff would only add risk.
                 toroidal_to_gridded_JS = (
-                    -to_jax(self.field_transform.scalar_coeffs_to_gridded_gradient)
+                    -to_jax(self.spherical_transform.scalar_coeffs_to_gridded_gradient)
                     / mu0
                 )
                 xp = get_array_module(toroidal_to_gridded_JS)
@@ -529,7 +518,7 @@ class Geometry:
                 )
             else:
                 toroidal_to_gridded_JS = (
-                    -to_numpy(self.field_transform.scalar_coeffs_to_gridded_gradient)
+                    -to_numpy(self.spherical_transform.scalar_coeffs_to_gridded_gradient)
                     / mu0
                 )
                 self._m_imp_to_gridded_JS = toroidal_to_gridded_JS + np.tensordot(

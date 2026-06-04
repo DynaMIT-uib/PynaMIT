@@ -1,4 +1,4 @@
-"""Basis interface utilities."""
+"""Spherical representation and basis interface utilities."""
 
 from abc import ABC, abstractmethod
 
@@ -130,29 +130,24 @@ def normalize_horizontal_basis_kind(kind):
     return normalized
 
 
-class Basis(ABC):
-    """Abstract metadata interface for basis representations.
+class SphericalRepresentation(ABC):
+    """Abstract metadata interface for spherical representations.
 
-    Concrete basis classes may expose these fields as regular instance
-    attributes. Class-level placeholders satisfy the abstract contract,
-    while ``validate_metadata`` checks initialized instances.
+    A representation defines a finite set of coordinates or coefficients
+    used to store spherical data. Bases add function reconstruction and
+    operator capabilities on top of this shared metadata.
     """
-
-    supports_surface_potential_operators = False
-    supports_radial_potential_operators = False
 
     required_attributes = (
         "kind",
         "index_names",
         "index_length",
         "index_arrays",
-        "minimum_phi_sampling",
-        "caching",
     )
 
     @property
     def signature(self):
-        """Return a stable cache signature for this basis instance."""
+        """Return a stable cache signature for this representation."""
         parts = [type(self).__module__, type(self).__qualname__, self.kind]
         for name in ("Nmax", "Mmax", "Nmin", "mean_free", "backend", "is_normalized", "N"):
             if hasattr(self, name):
@@ -163,14 +158,13 @@ class Basis(ABC):
     def coefficient_space_signature(self):
         """Return a signature for coefficient-space compatibility.
 
-        This deliberately describes the coefficient layout and scaling,
-        not incidental implementation choices such as evaluation caches
-        or the Legendre backend used by an SH basis.
+        This describes coefficient layout and scaling, not incidental
+        implementation choices.
         """
         return (
             type(self).__module__,
             type(self).__qualname__,
-            basis_kind(self),
+            self.kind,
             tuple(self.index_names),
             self.index_length,
         )
@@ -178,33 +172,54 @@ class Basis(ABC):
     def coefficients_are_compatible_with(self, other):
         """Return whether coefficient vectors share operators."""
         return (
-            isinstance(other, Basis)
+            isinstance(other, SphericalRepresentation)
             and self.coefficient_space_signature == other.coefficient_space_signature
         )
 
     @property
     @abstractmethod
     def kind(self):
-        """Short identifier for the basis."""
+        """Short identifier for the representation."""
         pass
 
     @property
     @abstractmethod
     def index_names(self):
-        """Names of indices used in the basis."""
+        """Names of indices used in the representation."""
         pass
 
     @property
     @abstractmethod
     def index_length(self):
-        """Total number of basis functions."""
+        """Total number of stored scalar values."""
         pass
 
     @property
     @abstractmethod
     def index_arrays(self):
-        """Arrays of indices used in the basis."""
+        """Arrays of indices used in the representation."""
         pass
+
+    def validate_metadata(self) -> None:
+        """Validate initialized representation metadata."""
+        missing = [name for name in self.required_attributes if getattr(self, name, None) is None]
+        if missing:
+            joined = ", ".join(missing)
+            raise ValueError(
+                f"{type(self).__name__} is missing representation metadata: {joined}."
+            )
+
+
+class SphericalBasis(SphericalRepresentation):
+    """Abstract metadata interface for spherical bases."""
+
+    supports_surface_potential_operators = False
+    supports_radial_potential_operators = False
+
+    required_attributes = SphericalRepresentation.required_attributes + (
+        "minimum_phi_sampling",
+        "caching",
+    )
 
     @property
     @abstractmethod
@@ -218,15 +233,8 @@ class Basis(ABC):
         """Whether basis evaluations can be cached."""
         pass
 
-    def validate_metadata(self) -> None:
-        """Validate that required basis metadata is initialized."""
-        missing = [name for name in self.required_attributes if getattr(self, name, None) is None]
-        if missing:
-            joined = ", ".join(missing)
-            raise ValueError(f"{type(self).__name__} is missing basis metadata: {joined}.")
 
-
-class GridBasis(Basis):
+class GridBasis(SphericalBasis):
     """Basis whose coefficients are values on a native grid."""
 
     def __init__(self):
@@ -293,7 +301,7 @@ class GridBasis(Basis):
         self._caching = bool(value)
 
 
-class SurfaceOperators(Basis):
+class SurfaceOperators(SphericalBasis):
     """Basis with scalar and vector operators on a spherical surface.
 
     The shared tangential Helmholtz convention is

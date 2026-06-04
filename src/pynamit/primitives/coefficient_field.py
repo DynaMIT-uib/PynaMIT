@@ -33,13 +33,13 @@ class CoefficientField:
 
     @property
     def kind(self):
-        """Return the underlying basis family identifier."""
+        """Return the underlying representation family identifier."""
         return self.field_space.kind
 
     @property
-    def basis(self):
-        """Return the storage basis for this coefficient field."""
-        return self.field_space.basis
+    def representation(self):
+        """Return the storage representation."""
+        return self.field_space.representation
 
     @property
     def field_type(self):

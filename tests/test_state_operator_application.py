@@ -87,7 +87,7 @@ def test_u_coeffs_to_E_coeffs_is_linear_map_on_jax():
     state.geometry = SimpleNamespace(
         helmholtz_analysis_matrix=jnp.asarray(helmholtz_analysis),
         bu=jnp.asarray(bu),
-        field_transform=SimpleNamespace(
+        spherical_transform=SimpleNamespace(
             helmholtz_coeffs_to_gridded_vector=jnp.asarray(helmholtz_synthesis)
         ),
     )

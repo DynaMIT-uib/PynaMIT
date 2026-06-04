@@ -87,7 +87,7 @@ def field_spaces_from_bases(
 
     field_spaces = {}
     for key, basis in bases.items():
-        field_spaces[key] = FieldSpace.from_basis(
+        field_spaces[key] = FieldSpace.from_representation(
             basis,
             field_type=field_types[key],
             mean_free=(

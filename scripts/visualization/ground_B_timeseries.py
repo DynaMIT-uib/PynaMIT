@@ -53,9 +53,8 @@ m_ind_to_Jeq = -RI / mu0 * sh_basis.Ve_to_delta_V
 
 
 ground_grid = pynamit.Grid(lat=glat, lon=glon)
-ground_evaluator = pynamit.FieldTransform(
-    pynamit.FieldSpace.from_basis(sh_basis, field_type="scalar"),
-    ground_grid,
+ground_evaluator = pynamit.SphericalTransform(
+    sh_basis, ground_grid
 )
 
 m_ind_to_Bh_ground = -(sh_basis.n + 1) * (RE / RI) ** sh_basis.n

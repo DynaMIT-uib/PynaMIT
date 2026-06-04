@@ -27,11 +27,11 @@ def test_sh_schema_uses_mean_free_sh_inputs_and_outputs():
 
     assert schema.horizontal_basis is schema.sh_basis_mean_free
     assert schema.radial_continuation_basis is schema.horizontal_basis
-    assert schema.input_field_spaces["jr"].basis is schema.sh_basis_mean_free
-    assert schema.input_field_spaces["Br"].basis is schema.sh_basis_mean_free
-    assert schema.input_field_spaces["u"].basis is schema.sh_basis_mean_free
-    assert schema.input_field_spaces["conductance"].basis is schema.sh_basis
-    assert schema.output_field_spaces["state"].basis is schema.horizontal_basis
+    assert schema.input_field_spaces["jr"].representation is schema.sh_basis_mean_free
+    assert schema.input_field_spaces["Br"].representation is schema.sh_basis_mean_free
+    assert schema.input_field_spaces["u"].representation is schema.sh_basis_mean_free
+    assert schema.input_field_spaces["conductance"].representation is schema.sh_basis
+    assert schema.output_field_spaces["state"].representation is schema.horizontal_basis
 
     assert schema.input_field_spaces["jr"].mean_free
     assert schema.input_field_spaces["Br"].mean_free
@@ -46,8 +46,14 @@ def test_cs_schema_uses_full_length_storage_with_mean_free_intent():
 
     assert schema.horizontal_basis is schema.cs_basis
     assert schema.radial_continuation_basis is schema.sh_basis_mean_free
-    assert all(space.basis is schema.cs_basis for space in schema.input_field_spaces.values())
-    assert all(space.basis is schema.cs_basis for space in schema.output_field_spaces.values())
+    assert all(
+        space.representation is schema.cs_basis
+        for space in schema.input_field_spaces.values()
+    )
+    assert all(
+        space.representation is schema.cs_basis
+        for space in schema.output_field_spaces.values()
+    )
     assert all(basis is schema.cs_basis for basis in schema.interpolation_bases.values())
 
     state_space = schema.output_field_spaces["state"]
@@ -63,8 +69,8 @@ def test_schema_respects_vector_input_flags_for_sh_projection_basis():
         "SH",
     )
 
-    assert schema.input_field_spaces["jr"].basis is schema.sh_basis_mean_free
-    assert schema.input_field_spaces["conductance"].basis is schema.sh_basis
+    assert schema.input_field_spaces["jr"].representation is schema.sh_basis_mean_free
+    assert schema.input_field_spaces["conductance"].representation is schema.sh_basis
     assert all(basis is schema.cs_basis for basis in schema.interpolation_bases.values())
 
 
@@ -73,7 +79,7 @@ def test_sh_schema_can_store_conductance_on_grid_without_projection():
     schema = build_simulation_schema(_settings(project_conductance=0), "SH")
 
     assert schema.horizontal_basis is schema.sh_basis_mean_free
-    assert schema.input_field_spaces["conductance"].basis is schema.cs_basis
+    assert schema.input_field_spaces["conductance"].representation is schema.cs_basis
     assert schema.interpolation_bases["conductance"] is schema.cs_basis
     assert not schema.input_field_spaces["conductance"].mean_free
 

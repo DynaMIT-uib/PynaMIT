@@ -8,7 +8,7 @@ import h5py as h5
 import cartopy.crs as ccrs
 
 from pynamit.sphere import Grid
-from pynamit.primitives.field_transform import FieldTransform
+from pynamit.primitives.spherical_transform import SphericalTransform
 from pynamit.primitives.coefficient_field import CoefficientField
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.primitives.io import IO
@@ -24,7 +24,7 @@ def _evaluate_scalar_coeffs_to_grid(coeffs, field_space, plot_evaluator, target_
     if coeffs is None:
         return np.full(target_shape, np.nan)
     field = CoefficientField(field_space, coeffs=coeffs)
-    return plot_evaluator.to_grid(field).reshape(target_shape)
+    return plot_evaluator.synthesize_scalar(field).reshape(target_shape)
 
 
 def _evaluate_tangential_coeffs_to_grid_components(
@@ -34,7 +34,7 @@ def _evaluate_tangential_coeffs_to_grid_components(
     if coeffs is None:
         return np.full(target_shape, np.nan), np.full(target_shape, np.nan)
     field = CoefficientField(field_space, coeffs=coeffs.reshape((2, -1)))
-    field_grid_components = plot_evaluator.to_grid(field)
+    field_grid_components = plot_evaluator.synthesize_helmholtz(field)
     field_t_2d = field_grid_components[0].reshape(target_shape)
     field_p_2d = field_grid_components[1].reshape(target_shape)
     return field_t_2d, field_p_2d
@@ -247,8 +247,8 @@ def plot_input_vs_interpolated(
             if timeseries_entry:
                 field_space = input_timeseries.get_storage_spec(pynamit_ts_key)
                 if pynamit_ts_key not in plot_evaluators:
-                    plot_evaluators[pynamit_ts_key] = FieldTransform(
-                        field_space,
+                    plot_evaluators[pynamit_ts_key] = SphericalTransform(
+                        field_space.representation,
                         Grid(lat=current_lat_coords_pass1, lon=current_lon_coords_pass1),
                     )
                 current_plot_evaluator = plot_evaluators[pynamit_ts_key]

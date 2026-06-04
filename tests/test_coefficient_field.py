@@ -5,7 +5,7 @@ import pytest
 
 from pynamit.primitives.coefficient_field import CoefficientField
 from pynamit.primitives.field_space import FieldSpace
-from pynamit.sphere import CSBasis, SHBasis
+from pynamit.sphere import CSBasis, Grid, SHBasis
 
 
 def test_coefficient_field_applies_scalar_mean_free_projection():
@@ -17,7 +17,7 @@ def test_coefficient_field_applies_scalar_mean_free_projection():
     field = CoefficientField(field_space, coeffs)
 
     assert field.field_space is field_space
-    assert field.basis is basis
+    assert field.representation is basis
     assert field.mean_free
     np.testing.assert_allclose(basis.scalar_mean(field.coeffs), 0.0, atol=1e-12)
     assert field.coeffs.shape == coeffs.shape
@@ -50,3 +50,14 @@ def test_coefficient_field_validates_coefficient_length():
 
     with pytest.raises(ValueError, match="CoefficientField.coeffs"):
         CoefficientField(field_space, np.zeros(basis.index_length + 1))
+
+
+def test_field_space_accepts_grid_representation():
+    """Grid samples define a field space without becoming a basis."""
+    grid = Grid(theta=[30.0, 60.0], phi=[0.0, 90.0])
+    field_space = FieldSpace.from_representation(grid)
+    field = CoefficientField(field_space, [1.0, 2.0])
+
+    assert field.representation is grid
+    assert field_space.index_names == ("point",)
+    assert field_space.index_length == grid.size

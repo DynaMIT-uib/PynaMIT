@@ -7,12 +7,11 @@ import pytest
 from scipy.sparse import csr_matrix
 
 import pynamit
-from pynamit.primitives.field_transform import (
-    FieldTransform,
+from pynamit.primitives.spherical_transform import (
+    SphericalTransform,
     grid_sqrt_area_weights,
     resolve_sqrt_weights,
 )
-from pynamit.primitives.field_space import FieldSpace
 from pynamit.math import (
     JAX_AVAILABLE,
     as_linear_map,
@@ -24,7 +23,7 @@ from pynamit.math import (
 )
 from pynamit.math.tensor_operations import weighted_tensor_pinv
 from pynamit.sphere import (
-    Basis,
+    SphericalBasis,
     BasisView,
     CSBasis,
     Grid,
@@ -32,24 +31,29 @@ from pynamit.sphere import (
     RadialLaplaceContinuation,
     SHBasis,
     SurfaceOperators,
+    SphericalRepresentation,
     is_grid_basis,
 )
 
 
 def test_public_sphere_package_is_canonical():
-    """Basis types are available from the public sphere package."""
+    """Spherical basis types are available from the public package."""
     from pynamit.sphere.cubed_sphere.cs_basis import CSBasis as ConcreteCSBasis
-    from pynamit.sphere.core import Basis as CoreBasis
+    from pynamit.sphere.core import SphericalBasis as CoreBasis
     from pynamit.sphere.spherical_harmonics.sh_basis import SHBasis as ConcreteSHBasis
 
     assert CSBasis is ConcreteCSBasis
     assert SHBasis is ConcreteSHBasis
-    assert Basis is CoreBasis
+    assert SphericalBasis is CoreBasis
     assert pynamit.CSBasis is CSBasis
     assert pynamit.SHBasis is SHBasis
+    assert pynamit.SphericalBasis is SphericalBasis
+    assert pynamit.SphericalRepresentation is SphericalRepresentation
     assert pynamit.BasisView is BasisView
     assert importlib.util.find_spec("pynamit.basis") is None
     assert importlib.util.find_spec("pynamit.primitives.basis") is None
+    assert importlib.util.find_spec("pynamit.primitives.field_transform") is None
+    assert importlib.util.find_spec("pynamit.primitives.spherical_transform") is not None
     assert importlib.util.find_spec("pynamit.cubed_sphere") is None
     assert importlib.util.find_spec("pynamit.spherical_harmonics") is None
     assert importlib.util.find_spec("pynamit.primitives.grid") is None
@@ -61,9 +65,9 @@ def test_concrete_bases_implement_basis_interface():
     sh_basis = SHBasis(3, 3)
     cs_basis = CSBasis(4)
 
-    assert isinstance(sh_basis, Basis)
+    assert isinstance(sh_basis, SphericalBasis)
     assert isinstance(sh_basis, SurfaceOperators)
-    assert isinstance(cs_basis, Basis)
+    assert isinstance(cs_basis, SphericalBasis)
     assert isinstance(cs_basis, GridBasis)
     assert isinstance(cs_basis, SurfaceOperators)
     assert is_grid_basis(cs_basis)
@@ -72,6 +76,15 @@ def test_concrete_bases_implement_basis_interface():
     assert cs_basis.index_length == cs_basis.arr_theta.size
     sh_basis.validate_metadata()
     cs_basis.validate_metadata()
+
+
+def test_grid_and_bases_are_spherical_representations():
+    """Grids and bases share the spherical representation root."""
+    grid = Grid(theta=np.array([90.0]), phi=np.array([0.0]))
+
+    assert isinstance(grid, SphericalRepresentation)
+    assert isinstance(SHBasis(1, 1), SphericalRepresentation)
+    assert not isinstance(grid, SphericalBasis)
 
 
 def test_basis_capability_designators_are_explicit():
@@ -102,7 +115,9 @@ def test_grid_hash_matches_equivalent_coordinates():
     assert first.hash == second.hash
     assert first.same_as(second)
     assert first == second
+    assert first.coefficients_are_compatible_with(second)
     assert not first.same_as(different)
+    assert not first.coefficients_are_compatible_with(different)
 
 
 def test_basis_coefficient_compatibility_uses_coefficient_space():
@@ -121,7 +136,7 @@ def test_basis_coefficient_compatibility_uses_coefficient_space():
 def test_surface_operator_builders_match_component_matrices():
     """Surface operators assemble the expected component matrices."""
     cs_basis = CSBasis(8)
-    grid = type("GridLike", (), {"theta": cs_basis.arr_theta, "phi": cs_basis.arr_phi})()
+    grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
 
     G = cs_basis.get_scalar_evaluation_matrix(grid)
     G_theta = cs_basis.evaluate_on_grid(grid, derivative="theta")
@@ -140,7 +155,7 @@ def test_surface_operator_builders_match_component_matrices():
     np.testing.assert_allclose(laplacian_matrix, laplacian)
     np.testing.assert_allclose(laplacian, cs_basis.laplacian())
 
-    evaluator = FieldTransform(FieldSpace(cs_basis, field_type="scalar"), grid)
+    evaluator = SphericalTransform(cs_basis, grid)
     np.testing.assert_allclose(
         evaluator.scalar_coeffs_to_gridded_theta_derivative,
         G_theta,
@@ -415,11 +430,11 @@ def test_csbasis_multi_vector_interpolation_matches_per_field_calls():
         np.testing.assert_allclose(multi[component_index], expected)
 
 
-def test_field_transform_contract_scalar_coeffs_to_grid_matches_explicit_products():
+def test_spherical_transform_contract_scalar_coeffs_to_grid_matches_explicit_products():
     """Scalar grid contraction matches explicit operators."""
     cs_basis = CSBasis(8)
-    evaluator = FieldTransform(
-        FieldSpace(cs_basis, field_type="scalar"),
+    evaluator = SphericalTransform(
+        cs_basis,
         Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi),
     )
     vector = np.linspace(1.0, 2.0, cs_basis.index_length)
@@ -448,8 +463,8 @@ def test_field_transform_contract_scalar_coeffs_to_grid_matches_explicit_product
 def test_grid_basis_regularization_requires_degree_metadata():
     """Degree-weighted regularization declares basis support."""
     cs_basis = CSBasis(8)
-    evaluator = FieldTransform(
-        FieldSpace(cs_basis, field_type="scalar"),
+    evaluator = SphericalTransform(
+        cs_basis,
         Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi),
         reg_lambda=1.0,
     )
@@ -493,11 +508,10 @@ def test_area_weight_option_and_explicit_weights_override():
     )
     explicit = np.linspace(1.0, 2.0, grid.size)
 
-    field_space = FieldSpace(cs_basis, field_type="scalar")
-    unweighted = FieldTransform(field_space, grid, area_weighted=False)
-    weighted = FieldTransform(field_space, grid, area_weighted=True)
-    overridden = FieldTransform(
-        field_space,
+    unweighted = SphericalTransform(cs_basis, grid, area_weighted=False)
+    weighted = SphericalTransform(cs_basis, grid, area_weighted=True)
+    overridden = SphericalTransform(
+        cs_basis,
         grid,
         sqrt_weights=explicit,
         area_weighted=True,
@@ -807,7 +821,7 @@ def test_shbasis_rejects_inconsistent_mean_free_options():
 def test_incomplete_basis_subclass_is_rejected():
     """Subclasses must declare the required metadata fields."""
 
-    class IncompleteBasis(Basis):
+    class IncompleteBasis(SphericalBasis):
         kind = "incomplete"
 
     with pytest.raises(TypeError):
