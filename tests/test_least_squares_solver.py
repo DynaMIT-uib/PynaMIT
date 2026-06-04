@@ -221,7 +221,7 @@ def test_iterative_solver_solves_block_rhs_with_base_preconditioner(solver_name)
 
 @pytest.mark.parametrize("solver_name", ["lsmr", "cgls"])
 def test_iterative_solvers_do_not_materialize_dense_system(monkeypatch, solver_name):
-    """Iterative solves stay matrix-free unless a dense preconditioner is requested."""
+    """Iterative solves stay matrix-free without dense preconditioner."""
     A = np.array([[2.0, 0.0], [0.0, 3.0], [1.0, -1.0], [1.0, 2.0]])
     rhs = np.array([[1.0, 2.0], [3.0, 1.0], [0.5, -2.0], [1.5, 0.0]])
     problem = LeastSquaresProblem(A=A, solution_shape=2, data_shapes=4)

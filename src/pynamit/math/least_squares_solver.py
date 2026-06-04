@@ -153,7 +153,7 @@ class LeastSquaresSolver:
     def _dense_normal_equations(
         self, problem: LeastSquaresProblem, rhs_block: np.ndarray
     ) -> Tuple[Any, Any, Any]:
-        """Return dense normal-equation matrix and right-hand side."""
+        """Return dense normal-equation matrix and RHS."""
         xp, _, system_matrix_adjoint, normal_matrix = problem.dense_normal_equations()
         rhs = block_until_ready(xp.asarray(rhs_block))
         return xp, normal_matrix, system_matrix_adjoint @ rhs
