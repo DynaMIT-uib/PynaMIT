@@ -211,6 +211,36 @@ class FieldTransform(object):
         return self._helmholtz_coeffs_to_gridded_vector
 
     @property
+    def G(self):
+        """Alias for the scalar coefficient-to-grid matrix."""
+        return self.scalar_coeffs_to_grid
+
+    @property
+    def G_th(self):
+        """Historical alias for the gridded theta-derivative matrix."""
+        return self.scalar_coeffs_to_gridded_theta_derivative
+
+    @property
+    def G_ph(self):
+        """Historical alias for the gridded phi-derivative matrix."""
+        return self.scalar_coeffs_to_gridded_phi_derivative
+
+    @property
+    def G_grad(self):
+        """Historical alias for the gridded surface-gradient matrix."""
+        return self.scalar_coeffs_to_gridded_gradient
+
+    @property
+    def G_rxgrad(self):
+        """Alias for the gridded r-hat-cross-gradient matrix."""
+        return self.scalar_coeffs_to_gridded_rhat_cross_gradient
+
+    @property
+    def G_helmholtz(self):
+        """Historical alias for the Helmholtz synthesis tensor."""
+        return self.helmholtz_coeffs_to_gridded_vector
+
+    @property
     def L(self):
         """Degree-weighted regularization matrix for scalar fields."""
         if not hasattr(self, "_L"):

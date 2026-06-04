@@ -56,6 +56,34 @@ def test_basis_evaluator_uses_field_transform_implementation():
         atol=1e-10,
     )
 
+    aliases = {
+        "G": "scalar_coeffs_to_grid",
+        "G_th": "scalar_coeffs_to_gridded_theta_derivative",
+        "G_ph": "scalar_coeffs_to_gridded_phi_derivative",
+        "G_grad": "scalar_coeffs_to_gridded_gradient",
+        "G_rxgrad": "scalar_coeffs_to_gridded_rhat_cross_gradient",
+        "G_helmholtz": "helmholtz_coeffs_to_gridded_vector",
+    }
+    for historical_name, descriptive_name in aliases.items():
+        assert getattr(evaluator, historical_name) is getattr(evaluator, descriptive_name)
+
+    np.testing.assert_allclose(
+        evaluator.G_grad,
+        np.stack([evaluator.G_th, evaluator.G_ph]),
+    )
+    np.testing.assert_allclose(
+        evaluator.G_rxgrad,
+        np.stack([-evaluator.G_ph, evaluator.G_th]),
+    )
+    np.testing.assert_allclose(
+        evaluator.G_helmholtz[:, :, 0, :],
+        -evaluator.G_grad,
+    )
+    np.testing.assert_allclose(
+        evaluator.G_helmholtz[:, :, 1, :],
+        evaluator.G_rxgrad,
+    )
+
 
 def test_field_transform_projects_tangential_grid_values():
     """Tangential projection recovers Helmholtz coefficients."""
