@@ -1,10 +1,11 @@
 """Spherical surface basis interfaces and implementations."""
 
 from pynamit.sphere.core import (
-    Basis,
     BasisView,
     GridBasis,
     RadialLaplaceContinuation,
+    SphericalBasis,
+    SphericalRepresentation,
     SurfaceOperators,
     basis_kind,
     is_basis_kind,
@@ -18,13 +19,14 @@ from pynamit.sphere.grid import Grid
 from pynamit.sphere.spherical_harmonics.sh_basis import SHBasis
 
 __all__ = [
-    "Basis",
     "BasisView",
     "CSBasis",
     "Grid",
     "GridBasis",
     "RadialLaplaceContinuation",
     "SHBasis",
+    "SphericalBasis",
+    "SphericalRepresentation",
     "SurfaceOperators",
     "basis_kind",
     "is_basis_kind",

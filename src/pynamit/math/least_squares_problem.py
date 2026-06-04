@@ -134,7 +134,7 @@ class LeastSquaresProblem:
         return self._dense_system_matrix(_backend_cache_key(xp))
 
     def dense_normal_equations(self) -> tuple[Any, Any, Any, Any]:
-        """Return dense system, adjoint, and normal matrix on the active backend."""
+        """Return dense system, adjoint, and normal matrix."""
         system_matrix = self.assemble_dense_system_matrix()
         xp = get_array_module(system_matrix)
         key = _backend_cache_key(xp)

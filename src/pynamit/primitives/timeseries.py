@@ -113,19 +113,19 @@ class Timeseries:
         dataset = io.load_dataset(key)
 
         if dataset is not None:
-            storage_basis = self.get_storage_spec(key).basis
+            storage_representation = self.get_storage_spec(key).representation
             basis_multiindex = pd.MultiIndex.from_arrays(
                 [
-                    dataset[storage_basis.index_names[i]].values
-                    for i in range(len(storage_basis.index_names))
+                    dataset[storage_representation.index_names[i]].values
+                    for i in range(len(storage_representation.index_names))
                 ],
-                names=storage_basis.index_names,
+                names=storage_representation.index_names,
             )
             coords = xr.Coordinates.from_pandas_multiindex(basis_multiindex, dim="i").merge(
                 {"time": dataset.time.values}
             )
             self.datasets[key] = dataset.drop_vars(
-                storage_basis.index_names
+                storage_representation.index_names
             ).assign_coords(coords)
             self._pending_start[key] = int(self.datasets[key].sizes.get("time", 0))
             self._full_save_required[key] = False

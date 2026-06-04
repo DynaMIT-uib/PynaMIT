@@ -51,7 +51,7 @@ dynamics = pynamit.Dynamics(
     t0=str(date),
     integrator="exponential",
 )
-state_field_space = pynamit.FieldSpace.from_basis(
+state_field_space = pynamit.FieldSpace.from_representation(
     dynamics.state.basis, field_type="scalar"
 )
 conductance_field_space = dynamics.input_field_spaces["conductance"]
@@ -80,8 +80,8 @@ theta = np.rad2deg(np.arctan2(np.sqrt(x_c**2 + y_c**2), z_c))
 phi = np.rad2deg(np.arctan2(y_c, x_c))
 
 Br_grid = pynamit.Grid(theta=theta.flatten(), phi=phi.flatten())
-Br_field_transform = pynamit.FieldTransform(
-    state_field_space,
+Br_spherical_transform = pynamit.SphericalTransform(
+    state_field_space.representation,
     Br_grid,
     sqrt_weights=np.sqrt(np.sin(np.deg2rad(theta.flatten()))),
     reg_lambda=BR_LAMBDA,
@@ -123,22 +123,22 @@ for step in range(0, nstep):
 
     Br_field = pynamit.CoefficientField(
         state_field_space,
-        Br_field_transform.to_coefficients(delta_Br.flatten()),
+        Br_spherical_transform.analyze_scalar(delta_Br.flatten()),
     )
 
     plt_lat, plt_lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)
     plt_lat, plt_lon = np.meshgrid(plt_lat, plt_lon)
     plt_grid = pynamit.Grid(lat=plt_lat, lon=plt_lon)
-    plt_evaluator = pynamit.FieldTransform(state_field_space, plt_grid)
-    conductance_plt_evaluator = pynamit.FieldTransform(
-        conductance_field_space, plt_grid
+    plt_evaluator = pynamit.SphericalTransform(state_field_space.representation, plt_grid)
+    conductance_plt_evaluator = pynamit.SphericalTransform(
+        conductance_field_space.representation, plt_grid
     )
 
     if PLOT_BR:
         pynamit.globalplot(
             plt_lon,
             plt_lat,
-            plt_evaluator.to_grid(Br_field).reshape(plt_lon.shape),
+            plt_evaluator.synthesize_scalar(Br_field).reshape(plt_lon.shape),
             cmap=plt.cm.bwr,
             extend="both",
             title="Br at 1.5 RI",
@@ -152,14 +152,16 @@ for step in range(0, nstep):
     #    pynamit.globalplot(
     #        plt_lon,
     #        plt_lat,
-    #        plt_evaluator.to_grid(Br_field).reshape(plt_lon.shape),
+    #        plt_evaluator.synthesize_scalar(Br_field).reshape(
+    #            plt_lon.shape
+    #        ),
     #        cmap=plt.cm.bwr,
     #        extend="both",
     #        title="Br at 1.0 RI",
     #    )
 
     dynamics.set_Br(
-        dynamics.state.geometry.field_transform.to_grid(Br_field),
+        dynamics.state.geometry.spherical_transform.synthesize_scalar(Br_field),
         theta=dynamics.state.geometry.grid.theta,
         phi=dynamics.state.geometry.grid.phi,
         time=dt * step,
@@ -325,8 +327,8 @@ for step in range(0, nstep):
         pynamit.globalplot(
             plt_lon,
             plt_lat,
-            pynamit.FieldTransform(dynamics.state.jr.field_space, plt_grid)
-            .to_grid(dynamics.state.jr)
+            pynamit.SphericalTransform(dynamics.state.jr.representation, plt_grid)
+            .synthesize_scalar(dynamics.state.jr)
             .reshape(plt_lon.shape),
             cmap=plt.cm.bwr,
             extend="both",
@@ -337,7 +339,9 @@ for step in range(0, nstep):
         pynamit.globalplot(
             plt_lon,
             plt_lat,
-            conductance_plt_evaluator.to_grid(dynamics.state.etaP).reshape(plt_lon.shape),
+            conductance_plt_evaluator.synthesize_scalar(dynamics.state.etaP).reshape(
+                plt_lon.shape
+            ),
             cmap=plt.cm.viridis,
             extend="both",
             title="etaP",
@@ -346,7 +350,9 @@ for step in range(0, nstep):
         pynamit.globalplot(
             plt_lon,
             plt_lat,
-            conductance_plt_evaluator.to_grid(dynamics.state.etaH).reshape(plt_lon.shape),
+            conductance_plt_evaluator.synthesize_scalar(dynamics.state.etaH).reshape(
+                plt_lon.shape
+            ),
             cmap=plt.cm.viridis,
             extend="both",
             title="etaH",
@@ -479,11 +485,11 @@ for step in range(0, nstep):
         lat, lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)
         lat, lon = np.meshgrid(lat, lon)
         plt_grid = pynamit.Grid(lat=lat, lon=lon)
-        plt_evaluator = pynamit.FieldTransform(dynamics.state.jr.field_space, plt_grid)
+        plt_evaluator = pynamit.SphericalTransform(dynamics.state.jr.representation, plt_grid)
         b_evaluator = pynamit.FieldEvaluator(dynamics.mainfield, plt_grid, RI)
 
         dynamics.set_state_variables("jr")
-        jr_interpolated = plt_evaluator.to_grid(dynamics.state.jr)
+        jr_interpolated = plt_evaluator.synthesize_scalar(dynamics.state.jr)
 
         # jr interpolated:
         contours_interpolated = {}

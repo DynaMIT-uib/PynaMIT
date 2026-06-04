@@ -27,7 +27,7 @@ from pynamit.math.backend import (
     use_jax,
     xp,
 )
-from pynamit.sphere import Basis, CSBasis
+from pynamit.sphere import CSBasis, SphericalBasis
 from pynamit.simulation.geometry import Geometry
 from pynamit.simulation.operators import StateOperators
 
@@ -46,12 +46,12 @@ class State:
 
     def __init__(
         self,
-        basis: Basis,
+        basis: SphericalBasis,
         mainfield: Any,
         cs_basis: CSBasis,
         settings: Any,
         PFAC_matrix: Optional[np.ndarray] = None,
-        radial_continuation_basis: Optional[Basis] = None,
+        radial_continuation_basis: Optional[SphericalBasis] = None,
     ) -> None:
         """Initialize the State object."""
         self.basis = basis
@@ -125,7 +125,7 @@ class State:
     def _create_u_to_E_operator(self) -> LinearMap:
         """Operator mapping wind coefficients to E coefficients."""
         helmholtz_synthesis = xp.asarray(
-            self.geometry.field_transform.helmholtz_coeffs_to_gridded_vector
+            self.geometry.spherical_transform.helmholtz_coeffs_to_gridded_vector
         )
         return einsum_linear_map_from_matvec(
             component_tensors=[
@@ -197,13 +197,13 @@ class State:
 
     def _conductance_synthesis_matrix(self):
         """Return stored-conductance synthesis to the model grid."""
-        basis = self.etaP.basis
+        basis = self.etaP.representation
         if basis.coefficients_are_compatible_with(self.basis):
-            return self.geometry.field_transform.scalar_coeffs_to_grid
+            return self.geometry.spherical_transform.scalar_coeffs_to_grid
 
-        zero_added_basis = self.geometry.field_transform_zero_added.basis
+        zero_added_basis = self.geometry.spherical_transform_zero_added.source
         if basis.coefficients_are_compatible_with(zero_added_basis):
-            return self.geometry.field_transform_zero_added.scalar_coeffs_to_grid
+            return self.geometry.spherical_transform_zero_added.scalar_coeffs_to_grid
 
         get_matrix = getattr(basis, "get_scalar_evaluation_matrix", None)
         if callable(get_matrix):

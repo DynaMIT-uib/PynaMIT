@@ -171,24 +171,49 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
 
         sh_basis = pynamit.SHBasis(Nmax, Mmax, nmin)
         field_space = pynamit.FieldSpace(sh_basis, field_type=field_type)
-        input_field_transform = pynamit.FieldTransform(
-            field_space,
+        input_spherical_transform = pynamit.SphericalTransform(
+            sh_basis,
             input_grid,
             sqrt_weights=input_weights,
             reg_lambda=reg_lambda,
             pinv_rtol=rtol,
         )
-        output_field_transform = pynamit.FieldTransform(
-            field_space,
+        output_spherical_transform = pynamit.SphericalTransform(
+            sh_basis,
             output_grid,
             sqrt_weights=output_weights,
             reg_lambda=reg_lambda,
             pinv_rtol=rtol,
         )
+        analyze_input = (
+            input_spherical_transform.analyze_helmholtz
+            if field_type == "tangential"
+            else input_spherical_transform.analyze_scalar
+        )
+        analyze_output = (
+            output_spherical_transform.analyze_helmholtz
+            if field_type == "tangential"
+            else output_spherical_transform.analyze_scalar
+        )
+        synthesize_input = (
+            input_spherical_transform.synthesize_helmholtz
+            if field_type == "tangential"
+            else input_spherical_transform.synthesize_scalar
+        )
+        synthesize_output = (
+            output_spherical_transform.synthesize_helmholtz
+            if field_type == "tangential"
+            else output_spherical_transform.synthesize_scalar
+        )
+        regularization_term = (
+            input_spherical_transform.helmholtz_regularization_term
+            if field_type == "tangential"
+            else input_spherical_transform.scalar_regularization_term
+        )
 
         input_sh = pynamit.CoefficientField(
             field_space,
-            input_field_transform.to_coefficients(input_grid_values),
+            analyze_input(input_grid_values),
         )
 
         print(
@@ -199,11 +224,9 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
             reg_lambda_values.append(reg_lambda)
             # sh_norms.append(np.linalg.norm(input_sh.coeffs))
             sh_norms.append(
-                np.linalg.norm(
-                    input_field_transform.regularization_term(input_sh.coeffs)
-                )
+                np.linalg.norm(regularization_term(input_sh.coeffs))
             )
-            input_sh_on_input_grid = input_field_transform.to_grid(input_sh)
+            input_sh_on_input_grid = synthesize_input(input_sh)
             sh_resiudal_norms.append(
                 np.linalg.norm(input_sh_on_input_grid - input_grid_values)
                 / np.linalg.norm(input_grid_values)
@@ -211,7 +234,7 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
 
         if GRID_COMPARISON:
             cs_interpolated_output = interpolated_data
-            sh_interpolated_output = output_field_transform.to_grid(input_sh)
+            sh_interpolated_output = synthesize_output(input_sh)
             relative_grid_errors.append(
                 np.linalg.norm(cs_interpolated_output - sh_interpolated_output)
                 / np.linalg.norm(cs_interpolated_output)
@@ -221,7 +244,7 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
         if SH_COMPARISON:
             cs_interpolated_output_sh = pynamit.CoefficientField(
                 field_space,
-                output_field_transform.to_coefficients(interpolated_data),
+                analyze_output(interpolated_data),
             )
             relative_coeff_errors.append(
                 np.linalg.norm(cs_interpolated_output_sh.coeffs - input_sh.coeffs)

@@ -98,7 +98,7 @@ def test_cs_horizontal_basis_runs_with_cs_outputs(tmp_path):
     assert "CS_m_imp" in state
     assert state["CS_m_ind"].shape[-1] == dynamics.state.basis.index_length
     assert dynamics.horizontal_basis is dynamics.state.basis
-    assert dynamics.horizontal_field_transform is dynamics.state.geometry.field_transform
+    assert dynamics.horizontal_spherical_transform is dynamics.state.geometry.spherical_transform
 
 
 def test_cs_horizontal_basis_runs_with_pfac(tmp_path):
@@ -181,7 +181,7 @@ def test_cs_horizontal_basis_supports_connected_hemispheres(tmp_path):
 
     geometry = dynamics.state.geometry
 
-    assert geometry.cp_field_transform.helmholtz_coeffs_to_gridded_vector.shape == (
+    assert geometry.cp_spherical_transform.helmholtz_coeffs_to_gridded_vector.shape == (
         2,
         geometry.cp_grid.size,
         2,
@@ -192,7 +192,7 @@ def test_cs_horizontal_basis_supports_connected_hemispheres(tmp_path):
         dynamics.horizontal_basis.index_length,
     )
     assert np.all(
-        np.isfinite(geometry.cp_field_transform.helmholtz_coeffs_to_gridded_vector)
+        np.isfinite(geometry.cp_spherical_transform.helmholtz_coeffs_to_gridded_vector)
     )
     assert np.all(np.isfinite(geometry.E_coeffs_to_E_apex_ll_diff))
 
@@ -249,15 +249,15 @@ def test_cs_to_radial_continuation_projection_matches_grid_least_squares(tmp_pat
 
     geometry = dynamics.state.geometry
     expected = tensor_pinv(
-        geometry.radial_continuation_evaluator.scalar_coeffs_to_grid,
+        geometry.radial_continuation_transform.scalar_coeffs_to_grid,
         n_leading_flattened=1,
-    ) @ geometry.field_transform.scalar_coeffs_to_grid
+    ) @ geometry.spherical_transform.scalar_coeffs_to_grid
 
     np.testing.assert_allclose(geometry.horizontal_to_radial_continuation, expected)
 
     rng = np.random.default_rng(20260520)
     radial_coeffs = rng.standard_normal(dynamics.radial_continuation_basis.index_length)
-    cs_coeffs = geometry.radial_continuation_evaluator.scalar_coeffs_to_grid @ radial_coeffs
+    cs_coeffs = geometry.radial_continuation_transform.scalar_coeffs_to_grid @ radial_coeffs
 
     np.testing.assert_allclose(
         geometry.horizontal_to_radial_continuation @ cs_coeffs,
@@ -281,10 +281,10 @@ def test_cs_to_radial_continuation_supports_area_weighted_projection(tmp_path):
 
     geometry = dynamics.state.geometry
     expected = weighted_tensor_pinv(
-        geometry.radial_continuation_evaluator.scalar_coeffs_to_grid,
+        geometry.radial_continuation_transform.scalar_coeffs_to_grid,
         sqrt_weights=np.sqrt(geometry.cs_basis.unit_area),
         n_leading_flattened=1,
-    ) @ geometry.field_transform.scalar_coeffs_to_grid
+    ) @ geometry.spherical_transform.scalar_coeffs_to_grid
 
     np.testing.assert_allclose(geometry.horizontal_to_radial_continuation, expected)
 

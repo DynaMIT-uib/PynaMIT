@@ -8,8 +8,10 @@ import hashlib
 
 import numpy as np
 
+from pynamit.sphere.core import SphericalRepresentation
 
-class Grid(object):
+
+class Grid(SphericalRepresentation):
     """Class for representing two-dimensional coordinate grids.
 
     Attributes
@@ -62,20 +64,20 @@ class Grid(object):
         `phi` must be provided.
         """
         if lat is not None:
-            self.lat = lat
+            self.lat = np.asarray(lat)
             self.theta = 90 - self.lat
         elif theta is not None:
-            self.theta = theta
+            self.theta = np.asarray(theta)
             self.lat = 90 - self.theta
         else:
             raise ValueError("Latitude or theta must be provided to initialize the grid.")
 
         if lon is not None:
-            self.lon = lon
-            self.phi = lon
+            self.lon = np.asarray(lon)
+            self.phi = self.lon
         elif phi is not None:
-            self.phi = phi
-            self.lon = phi
+            self.phi = np.asarray(phi)
+            self.lon = self.phi
         else:
             raise ValueError("Longitude or phi must be provided to initialize the grid.")
 
@@ -94,6 +96,38 @@ class Grid(object):
             self.area_weights = np.asarray(area_weights, dtype=float).flatten()
             if self.area_weights.shape != (self.size,):
                 raise ValueError("area_weights must match the flattened grid size.")
+
+        self.validate_metadata()
+
+    @property
+    def kind(self):
+        """Short identifier for grid representations."""
+        return "GRID"
+
+    @property
+    def index_names(self):
+        """Names of grid-value indices."""
+        return ("point",)
+
+    @property
+    def index_length(self):
+        """Number of scalar grid values."""
+        return self.size
+
+    @property
+    def index_arrays(self):
+        """Point indices for scalar grid values."""
+        return (np.arange(self.size),)
+
+    @property
+    def signature(self):
+        """Return a stable signature for this grid."""
+        return (type(self).__module__, type(self).__qualname__, self.hash)
+
+    @property
+    def coefficient_space_signature(self):
+        """Return the grid-value compatibility signature."""
+        return self.signature
 
     @staticmethod
     def _hash_coordinate(digest, values):

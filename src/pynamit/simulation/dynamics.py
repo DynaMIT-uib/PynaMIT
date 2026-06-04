@@ -10,7 +10,7 @@ from pynamit.sphere import normalize_horizontal_basis_kind
 from pynamit.math.constants import RE
 from pynamit.math.least_squares_solver import get_default_least_squares_solver
 from pynamit.primitives.field_evaluator import FieldEvaluator
-from pynamit.primitives.field_transform import FieldTransform
+from pynamit.primitives.spherical_transform import SphericalTransform
 from pynamit.sphere import Grid, is_grid_basis
 from pynamit.primitives.io import IO
 from pynamit.simulation.data import SimulationData
@@ -221,10 +221,10 @@ class Dynamics(object):
             area_weights=self.cs_basis.unit_area,
         )
         self.input_transforms = {
-            key: FieldTransform(
-                self.input_field_spaces[key],
+            key: SphericalTransform(
+                self.input_field_spaces[key].representation,
                 input_grid,
-                grid_basis=self.cs_basis,
+                interpolation_basis=self.cs_basis,
                 area_weighted=bool(self.settings.area_weighted_least_squares),
             )
             for key in self.input_vars
@@ -247,7 +247,7 @@ class Dynamics(object):
             PFAC_matrix=self.data.pfac_matrix,
             radial_continuation_basis=self.radial_continuation_basis,
         )
-        self.horizontal_field_transform = self.state.geometry.field_transform
+        self.horizontal_spherical_transform = self.state.geometry.spherical_transform
 
         if "state" in self.output_timeseries.datasets.keys():
             self.current_time = np.max(self.output_timeseries.datasets["state"].time.values)
@@ -870,10 +870,16 @@ class Dynamics(object):
         input_time = self.adapt_input_time(time, input_data)
         input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
         transform = self.input_transforms[key]
+        field_space = self.input_field_spaces[key]
+        project = (
+            transform.project_helmholtz
+            if field_space.field_type == "tangential"
+            else transform.project_scalar
+        )
 
         projected_data = {}
         for var, values in input_data.items():
-            projected_values = transform.project(
+            projected_values = project(
                 values,
                 input_grid=input_grid,
                 projection_basis=self.interpolation_bases[key],
@@ -922,8 +928,8 @@ class Dynamics(object):
         if reg_lambda is not None:
             raise ValueError("reg_lambda is not supported when conductance projection is off.")
 
-        storage_basis = self.input_field_spaces[key].basis
-        if not is_grid_basis(storage_basis):
+        storage_representation = self.input_field_spaces[key].representation
+        if not is_grid_basis(storage_representation):
             raise ValueError(
                 "Direct grid conductance storage requires Dynamics(project_conductance=False)."
             )
@@ -936,16 +942,26 @@ class Dynamics(object):
                 "the state/model grid."
             )
 
-        if hasattr(storage_basis, "arr_theta") and hasattr(storage_basis, "arr_phi"):
-            storage_grid = Grid(theta=storage_basis.arr_theta, phi=storage_basis.arr_phi)
+        if hasattr(storage_representation, "arr_theta") and hasattr(
+            storage_representation, "arr_phi"
+        ):
+            storage_grid = Grid(
+                theta=storage_representation.arr_theta,
+                phi=storage_representation.arr_phi,
+            )
             if not storage_grid.same_as(model_grid):
                 raise ValueError(
                     "Conductance storage basis grid does not match the state/model grid."
                 )
 
         transform = self.input_transforms[key]
+        normalize = (
+            transform.normalize_helmholtz_value_batch
+            if self.input_field_spaces[key].field_type == "tangential"
+            else transform.normalize_scalar_value_batch
+        )
         direct_data = {
-            var: transform._normalize_value_batch(values, input_grid)
+            var: normalize(values, input_grid)
             for var, values in input_data.items()
         }
         input_time = self.adapt_input_time(time, direct_data)

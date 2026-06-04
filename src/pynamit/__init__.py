@@ -6,10 +6,10 @@ utilities.
 
 Attributes
 ----------
-FieldTransform : class
-    Class for evaluating basis functions.
+SphericalTransform : class
+    Class for transforming between spherical representations.
 BasisEvaluator : class
-    Historical basis-first wrapper around FieldTransform.
+    Historical alias for SphericalTransform.
 CSBasis : class
     Class for cubed sphere projections.
 Dynamics : class
@@ -35,13 +35,14 @@ globalplot : function
 """
 
 from .sphere import (
-    Basis,
     BasisView,
     CSBasis,
     Grid,
     GridBasis,
     RadialLaplaceContinuation,
     SHBasis,
+    SphericalBasis,
+    SphericalRepresentation,
     SurfaceOperators,
     basis_kind,
     is_basis_kind,
@@ -50,7 +51,7 @@ from .sphere import (
     is_sh_basis,
     normalize_horizontal_basis_kind,
 )
-from .primitives.field_transform import FieldTransform
+from .primitives.spherical_transform import SphericalTransform
 from .primitives.basis_evaluator import BasisEvaluator
 from .primitives.coefficient_field import CoefficientField
 from .primitives.field_evaluator import FieldEvaluator
@@ -64,10 +65,8 @@ from .math import set_backend, use_jax
 from .external_inputs import set_input_source, get_input_source
 
 __all__ = [
-    "Basis",
     "BasisView",
     "BasisEvaluator",
-    "FieldTransform",
     "CSBasis",
     "CoefficientField",
     "Dynamics",
@@ -79,6 +78,9 @@ __all__ = [
     "Mainfield",
     "PynamEye",
     "SHBasis",
+    "SphericalBasis",
+    "SphericalRepresentation",
+    "SphericalTransform",
     "SurfaceOperators",
     "basis_kind",
     "debugplot",
