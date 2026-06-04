@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from pynamit.primitives.field_space import FieldSpace
-from pynamit.sphere import CSBasis, SHBasis, normalize_horizontal_basis_kind
+from pynamit.sphere import CSBasis, SHBasis, SolidHarmonics, normalize_horizontal_basis_kind
 
 
 INPUT_VARIABLES = {
@@ -48,7 +48,7 @@ class SimulationSchema:
     sh_basis: Any
     sh_basis_mean_free: Any
     horizontal_basis: Any
-    radial_continuation_basis: Any
+    solid_harmonics: SolidHarmonics
     input_vars: dict[str, tuple[str, ...]]
     output_vars: dict[str, tuple[str, ...]]
     input_field_spaces: dict[str, FieldSpace]
@@ -107,11 +107,7 @@ def build_simulation_schema(settings: Any, horizontal_basis_kind: str) -> Simula
     sh_basis_mean_free = sh_basis.with_mean_free(True)
     cs_basis = CSBasis(_setting(settings, "Ncs"))
     horizontal_basis = cs_basis if horizontal_basis_kind == "CS" else sh_basis_mean_free
-    radial_continuation_basis = (
-        horizontal_basis
-        if horizontal_basis.supports_radial_potential_operators
-        else sh_basis_mean_free
-    )
+    solid_harmonics = SolidHarmonics(sh_basis_mean_free)
 
     input_vars = _copy_variable_schema(INPUT_VARIABLES)
     output_vars = _copy_variable_schema(OUTPUT_VARIABLES)
@@ -170,7 +166,7 @@ def build_simulation_schema(settings: Any, horizontal_basis_kind: str) -> Simula
         sh_basis=sh_basis,
         sh_basis_mean_free=sh_basis_mean_free,
         horizontal_basis=horizontal_basis,
-        radial_continuation_basis=radial_continuation_basis,
+        solid_harmonics=solid_harmonics,
         input_vars=input_vars,
         output_vars=output_vars,
         input_field_spaces=input_field_spaces,

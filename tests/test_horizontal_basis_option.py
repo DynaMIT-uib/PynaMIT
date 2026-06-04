@@ -21,7 +21,7 @@ def test_default_horizontal_basis_is_sh(tmp_path):
     )
 
     assert dynamics.settings.attrs["horizontal_basis_kind"] == "SH"
-    assert dynamics.horizontal_basis is dynamics.radial_continuation_basis
+    assert dynamics.horizontal_basis is dynamics.solid_harmonics.basis
 
 
 def test_horizontal_basis_kind_is_persisted(tmp_path):
@@ -38,8 +38,7 @@ def test_horizontal_basis_kind_is_persisted(tmp_path):
 
     assert dynamics.settings.attrs["horizontal_basis_kind"] == "CS"
     assert dynamics.horizontal_basis is dynamics.state.basis
-    assert dynamics.radial_continuation_basis is not dynamics.horizontal_basis
-    assert dynamics.radial_continuation_basis.supports_radial_potential_operators
+    assert dynamics.solid_harmonics.basis is not dynamics.horizontal_basis
     assert dynamics.input_field_spaces["jr"].mean_free
     assert dynamics.input_field_spaces["Br"].mean_free
     assert dynamics.input_field_spaces["u"].mean_free
@@ -124,7 +123,7 @@ def test_cs_horizontal_basis_runs_with_pfac(tmp_path):
     pfac = geometry.T_to_Ve.values
 
     assert dynamics.horizontal_basis is dynamics.state.basis
-    assert dynamics.radial_continuation_basis is not dynamics.horizontal_basis
+    assert dynamics.solid_harmonics.basis is not dynamics.horizontal_basis
     assert pfac.shape == (
         dynamics.horizontal_basis.index_length,
         dynamics.horizontal_basis.index_length,
@@ -134,8 +133,8 @@ def test_cs_horizontal_basis_runs_with_pfac(tmp_path):
     assert np.all(np.isfinite(geometry.m_imp_to_gridded_JS))
 
 
-def test_cs_horizontal_basis_supports_rm_radial_continuation(tmp_path):
-    """CS horizontal basis can use SH continuation for RM terms."""
+def test_cs_horizontal_basis_supports_rm_solid_harmonics(tmp_path):
+    """CS horizontal basis can use solid harmonics for RM terms."""
     dynamics = Dynamics(
         run_directory=str(tmp_path / "run"),
         Nmax=2,
@@ -235,8 +234,8 @@ def test_cs_horizontal_basis_combines_pfac_rm_and_connected_terms(tmp_path):
     assert np.all(np.isfinite(geometry.Br_to_gridded_JS))
 
 
-def test_cs_to_radial_continuation_projection_matches_grid_least_squares(tmp_path):
-    """CS-to-SH continuation uses the standard grid LS projection."""
+def test_cs_to_solid_harmonic_projection_matches_grid_least_squares(tmp_path):
+    """CS-to-SH projection uses the standard grid LS projection."""
     dynamics = Dynamics(
         run_directory=str(tmp_path / "run"),
         Nmax=2,
@@ -249,25 +248,25 @@ def test_cs_to_radial_continuation_projection_matches_grid_least_squares(tmp_pat
 
     geometry = dynamics.state.geometry
     expected = tensor_pinv(
-        geometry.radial_continuation_transform.scalar_coeffs_to_grid,
+        geometry.solid_harmonic_transform.scalar_coeffs_to_grid,
         n_leading_flattened=1,
     ) @ geometry.spherical_transform.scalar_coeffs_to_grid
 
-    np.testing.assert_allclose(geometry.horizontal_to_radial_continuation, expected)
+    np.testing.assert_allclose(geometry.horizontal_to_solid_harmonic, expected)
 
     rng = np.random.default_rng(20260520)
-    radial_coeffs = rng.standard_normal(dynamics.radial_continuation_basis.index_length)
-    cs_coeffs = geometry.radial_continuation_transform.scalar_coeffs_to_grid @ radial_coeffs
+    radial_coeffs = rng.standard_normal(dynamics.solid_harmonics.basis.index_length)
+    cs_coeffs = geometry.solid_harmonic_transform.scalar_coeffs_to_grid @ radial_coeffs
 
     np.testing.assert_allclose(
-        geometry.horizontal_to_radial_continuation @ cs_coeffs,
+        geometry.horizontal_to_solid_harmonic @ cs_coeffs,
         radial_coeffs,
         atol=1e-10,
     )
 
 
-def test_cs_to_radial_continuation_supports_area_weighted_projection(tmp_path):
-    """CS-to-SH continuation can use CS cell-area weighting."""
+def test_cs_to_solid_harmonic_supports_area_weighted_projection(tmp_path):
+    """CS-to-SH projection can use CS cell-area weighting."""
     dynamics = Dynamics(
         run_directory=str(tmp_path / "run"),
         Nmax=2,
@@ -281,12 +280,12 @@ def test_cs_to_radial_continuation_supports_area_weighted_projection(tmp_path):
 
     geometry = dynamics.state.geometry
     expected = weighted_tensor_pinv(
-        geometry.radial_continuation_transform.scalar_coeffs_to_grid,
+        geometry.solid_harmonic_transform.scalar_coeffs_to_grid,
         sqrt_weights=np.sqrt(geometry.cs_basis.unit_area),
         n_leading_flattened=1,
     ) @ geometry.spherical_transform.scalar_coeffs_to_grid
 
-    np.testing.assert_allclose(geometry.horizontal_to_radial_continuation, expected)
+    np.testing.assert_allclose(geometry.horizontal_to_solid_harmonic, expected)
 
 
 def test_invalid_horizontal_basis_kind_is_rejected(tmp_path):

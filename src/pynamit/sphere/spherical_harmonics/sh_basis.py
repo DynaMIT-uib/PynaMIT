@@ -7,7 +7,7 @@ from packaging import version
 import scipy
 
 from pynamit.math.backend import get_array_module, to_numpy
-from pynamit.sphere.core import BasisView, RadialLaplaceContinuation, SurfaceOperators
+from pynamit.sphere.core import BasisView, SurfaceOperators
 from pynamit.sphere.spherical_harmonics.helpers import (
     SHIndices,
     schmidt_quasi_normalization_factors,
@@ -44,7 +44,7 @@ def _double_factorial(n):
     return result
 
 
-class SHBasis(RadialLaplaceContinuation, SurfaceOperators):
+class SHBasis(SurfaceOperators):
     """
     Class for representing spherical harmonic bases.
 
@@ -60,9 +60,6 @@ class SHBasis(RadialLaplaceContinuation, SurfaceOperators):
         'internal' backend. It automatically selects the best available
         scipy function.
     """
-
-    supports_surface_potential_operators = True
-    supports_radial_potential_operators = True
 
     def __init__(
         self,
@@ -484,18 +481,3 @@ class SHBasis(RadialLaplaceContinuation, SurfaceOperators):
     def laplacian(self, r=1.0):
         """Factor to apply the spherical harmonic Laplacian operator."""
         return get_array_module().asarray(-self.n * (self.n + 1) / r**2)
-
-    def external_potential_continuation(self, start, end):
-        """Continue external-potential coefficients."""
-        return get_array_module().asarray((start / end) ** (1 - self.n))
-
-    def internal_potential_continuation(self, start, end):
-        """Continue internal-potential coefficients."""
-        return get_array_module().asarray((start / end) ** (self.n + 2))
-
-    @property
-    def boundary_potential_discontinuity(self):
-        """Scale coefficients to the boundary discontinuity."""
-        if not hasattr(self, "_boundary_potential_discontinuity"):
-            self._boundary_potential_discontinuity = 2 * self.n + 1
-        return get_array_module().asarray(self._boundary_potential_discontinuity)

@@ -1,9 +1,8 @@
-"""Spherical surface basis interfaces and implementations."""
+"""Spherical representations, bases, transforms, and radial operations."""
 
 from pynamit.sphere.core import (
     BasisView,
     GridBasis,
-    RadialLaplaceContinuation,
     SphericalBasis,
     SphericalRepresentation,
     SurfaceOperators,
@@ -17,16 +16,19 @@ from pynamit.sphere.core import (
 from pynamit.sphere.cubed_sphere.cs_basis import CSBasis
 from pynamit.sphere.grid import Grid
 from pynamit.sphere.spherical_harmonics.sh_basis import SHBasis
+from pynamit.sphere.spherical_harmonics.solid_harmonics import SolidHarmonics
+from pynamit.sphere.spherical_transform import SphericalTransform
 
 __all__ = [
     "BasisView",
     "CSBasis",
     "Grid",
     "GridBasis",
-    "RadialLaplaceContinuation",
     "SHBasis",
+    "SolidHarmonics",
     "SphericalBasis",
     "SphericalRepresentation",
+    "SphericalTransform",
     "SurfaceOperators",
     "basis_kind",
     "is_basis_kind",

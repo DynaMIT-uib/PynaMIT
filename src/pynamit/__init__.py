@@ -26,6 +26,8 @@ PynamEye : class
     Class for visualization.
 SHBasis : class
     Class for spherical harmonics basis functions.
+SolidHarmonics : class
+    Radial solid-harmonic operations wrapping an SHBasis.
 FieldSpace : class
     Class for describing field coefficient spaces.
 debugplot : function
@@ -39,10 +41,11 @@ from .sphere import (
     CSBasis,
     Grid,
     GridBasis,
-    RadialLaplaceContinuation,
     SHBasis,
+    SolidHarmonics,
     SphericalBasis,
     SphericalRepresentation,
+    SphericalTransform,
     SurfaceOperators,
     basis_kind,
     is_basis_kind,
@@ -51,7 +54,6 @@ from .sphere import (
     is_sh_basis,
     normalize_horizontal_basis_kind,
 )
-from .primitives.spherical_transform import SphericalTransform
 from .primitives.basis_evaluator import BasisEvaluator
 from .primitives.coefficient_field import CoefficientField
 from .primitives.field_evaluator import FieldEvaluator
@@ -74,10 +76,10 @@ __all__ = [
     "FieldSpace",
     "Grid",
     "GridBasis",
-    "RadialLaplaceContinuation",
     "Mainfield",
     "PynamEye",
     "SHBasis",
+    "SolidHarmonics",
     "SphericalBasis",
     "SphericalRepresentation",
     "SphericalTransform",

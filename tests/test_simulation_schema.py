@@ -26,7 +26,7 @@ def test_sh_schema_uses_mean_free_sh_inputs_and_outputs():
     schema = build_simulation_schema(_settings(), "SH")
 
     assert schema.horizontal_basis is schema.sh_basis_mean_free
-    assert schema.radial_continuation_basis is schema.horizontal_basis
+    assert schema.solid_harmonics.basis is schema.horizontal_basis
     assert schema.input_field_spaces["jr"].representation is schema.sh_basis_mean_free
     assert schema.input_field_spaces["Br"].representation is schema.sh_basis_mean_free
     assert schema.input_field_spaces["u"].representation is schema.sh_basis_mean_free
@@ -45,7 +45,7 @@ def test_cs_schema_uses_full_length_storage_with_mean_free_intent():
     schema = build_simulation_schema(_settings(), "cs")
 
     assert schema.horizontal_basis is schema.cs_basis
-    assert schema.radial_continuation_basis is schema.sh_basis_mean_free
+    assert schema.solid_harmonics.basis is schema.sh_basis_mean_free
     assert all(
         space.representation is schema.cs_basis
         for space in schema.input_field_spaces.values()

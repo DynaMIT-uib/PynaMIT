@@ -6,7 +6,7 @@ import pytest
 import pynamit
 from pynamit.math import JAX_AVAILABLE, set_backend, to_numpy, use_jax
 from pynamit.primitives.basis_evaluator import BasisEvaluator
-from pynamit.primitives.spherical_transform import SphericalTransform
+from pynamit.sphere.spherical_transform import SphericalTransform
 from pynamit.primitives.field_space import FieldSpace
 from pynamit.primitives.timeseries import Timeseries
 from pynamit.sphere import CSBasis, Grid, SHBasis

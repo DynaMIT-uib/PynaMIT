@@ -34,9 +34,9 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
     )
 
     assert isinstance(dynamics.horizontal_basis, CSBasis)
-    assert isinstance(dynamics.radial_continuation_basis.root_basis, SHBasis)
+    assert isinstance(dynamics.solid_harmonics.basis.root_basis, SHBasis)
     assert dynamics.horizontal_basis is dynamics.state.basis
-    assert dynamics.radial_continuation_basis is not dynamics.horizontal_basis
+    assert dynamics.solid_harmonics.basis is not dynamics.horizontal_basis
     assert dynamics.horizontal_spherical_transform is dynamics.state.geometry.spherical_transform
     assert (
         dynamics.state.geometry.spherical_transform_zero_added.source
@@ -58,13 +58,15 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
             dynamics.state.geometry.RI
         ),
     )
-    expected_sheet_current_potential = (
-        np.diag(dynamics.radial_continuation_basis.boundary_potential_discontinuity)
-        @ dynamics.state.geometry.horizontal_to_radial_continuation
+    expected_boundary_potential_jump_factor = (
+        np.diag(dynamics.solid_harmonics.poloidal_to_boundary_potential_jump_factor)
+        @ dynamics.state.geometry.horizontal_to_solid_harmonic
     )
     np.testing.assert_allclose(
-        dynamics.state.geometry.sheet_current_potential_operator.dense(backend="numpy"),
-        expected_sheet_current_potential,
+        dynamics.state.geometry.horizontal_to_boundary_potential_jump_factor_operator.dense(
+            backend="numpy"
+        ),
+        expected_boundary_potential_jump_factor,
     )
 
     state = dynamics.output_timeseries.datasets["state"]

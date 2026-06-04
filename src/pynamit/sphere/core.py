@@ -213,9 +213,6 @@ class SphericalRepresentation(ABC):
 class SphericalBasis(SphericalRepresentation):
     """Abstract metadata interface for spherical bases."""
 
-    supports_surface_potential_operators = False
-    supports_radial_potential_operators = False
-
     required_attributes = SphericalRepresentation.required_attributes + (
         "minimum_phi_sampling",
         "caching",
@@ -310,8 +307,6 @@ class SurfaceOperators(SphericalBasis):
     With this convention, ``div_s(F) = -laplacian(phi)`` and the radial
     component of ``curl(F)`` is ``laplacian(psi)``.
     """
-
-    supports_surface_potential_operators = True
 
     @abstractmethod
     def evaluate_on_grid(self, grid, derivative=None, cache_in=None, cache_out=False):
@@ -453,41 +448,7 @@ class SurfaceOperators(SphericalBasis):
         )
 
 
-class RadialLaplaceContinuation(ABC):
-    """Interface for bases with a radial Laplace continuation."""
-
-    supports_radial_potential_operators = True
-
-    def get_external_potential_continuation_operator(self, start, end):
-        """Return the external-potential continuation operator."""
-        return as_linear_map(self.external_potential_continuation(start, end))
-
-    def get_internal_potential_continuation_operator(self, start, end):
-        """Return the internal-potential continuation operator."""
-        return as_linear_map(self.internal_potential_continuation(start, end))
-
-    def get_boundary_potential_discontinuity_operator(self):
-        """Return the boundary-potential discontinuity operator."""
-        return as_linear_map(self.boundary_potential_discontinuity)
-
-    @abstractmethod
-    def external_potential_continuation(self, start, end):
-        """Return external-potential continuation."""
-        pass
-
-    @abstractmethod
-    def internal_potential_continuation(self, start, end):
-        """Return internal-potential continuation."""
-        pass
-
-    @property
-    @abstractmethod
-    def boundary_potential_discontinuity(self):
-        """Return the regular/irregular potential discontinuity."""
-        pass
-
-
-class BasisView(SurfaceOperators, RadialLaplaceContinuation):
+class BasisView(SurfaceOperators):
     """Coefficient-space view of another evaluable basis."""
 
     def __init__(
@@ -520,12 +481,6 @@ class BasisView(SurfaceOperators, RadialLaplaceContinuation):
         )
         self.minimum_phi_sampling = parent_basis.minimum_phi_sampling
         self.caching = parent_basis.caching
-        self.supports_surface_potential_operators = bool(
-            parent_basis.supports_surface_potential_operators
-        )
-        self.supports_radial_potential_operators = bool(
-            parent_basis.supports_radial_potential_operators
-        )
 
         for name, values in zip(self.index_names, self.index_arrays):
             if isinstance(name, str) and name.isidentifier() and not hasattr(self, name):
@@ -696,13 +651,6 @@ class BasisView(SurfaceOperators, RadialLaplaceContinuation):
             return array[indices][:, indices]
         raise ValueError(f"{operator_name} must be a 1-D or square 2-D coefficient operator.")
 
-    def _require_radial_support(self):
-        """Raise if the parent basis has no radial continuation."""
-        if not self.supports_radial_potential_operators:
-            raise NotImplementedError(
-                f"{type(self.parent_basis).__name__} does not support radial potential operators."
-            )
-
     def evaluate_on_grid(self, grid, derivative=None, cache_in=None, cache_out=False):
         """Evaluate the viewed basis functions on ``grid``."""
         result = self.parent_basis.evaluate_on_grid(
@@ -719,31 +667,6 @@ class BasisView(SurfaceOperators, RadialLaplaceContinuation):
     def laplacian(self, r=1.0):
         """Return the viewed scalar surface Laplacian operator."""
         return self._slice_coefficient_operator(self.parent_basis.laplacian(r), "laplacian")
-
-    @property
-    def boundary_potential_discontinuity(self):
-        """Return the viewed boundary-potential discontinuity."""
-        self._require_radial_support()
-        return self._slice_coefficient_operator(
-            self.parent_basis.boundary_potential_discontinuity,
-            "boundary_potential_discontinuity",
-        )
-
-    def external_potential_continuation(self, start, end):
-        """Return the viewed external-potential continuation."""
-        self._require_radial_support()
-        return self._slice_coefficient_operator(
-            self.parent_basis.external_potential_continuation(start, end),
-            "external_potential_continuation",
-        )
-
-    def internal_potential_continuation(self, start, end):
-        """Return the viewed internal-potential continuation."""
-        self._require_radial_support()
-        return self._slice_coefficient_operator(
-            self.parent_basis.internal_potential_continuation(start, end),
-            "internal_potential_continuation",
-        )
 
     def scalar_fields_are_mean_free_by_construction(self):
         """Return whether scalar coefficients omit the mean term."""

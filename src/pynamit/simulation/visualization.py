@@ -12,7 +12,7 @@ import polplot
 from scipy.interpolate import griddata
 from polplot import Polarplot
 from pynamit.sphere import Grid
-from pynamit.primitives.spherical_transform import SphericalTransform
+from pynamit.sphere.spherical_transform import SphericalTransform
 from pynamit.primitives.field_evaluator import FieldEvaluator
 
 

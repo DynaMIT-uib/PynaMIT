@@ -94,9 +94,6 @@ class CSBasis(GridBasis, SurfaceOperators):
         DOI: 10.1093/gji/ggx125
     """
 
-    supports_surface_potential_operators = True
-    supports_radial_potential_operators = False
-
     def __init__(self, N=None):
         """Initialize the cubed sphere basis.
 

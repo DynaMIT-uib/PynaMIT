@@ -27,7 +27,7 @@ from pynamit.math.backend import (
     use_jax,
     xp,
 )
-from pynamit.sphere import CSBasis, SphericalBasis
+from pynamit.sphere import CSBasis, SolidHarmonics, SurfaceOperators
 from pynamit.simulation.geometry import Geometry
 from pynamit.simulation.operators import StateOperators
 
@@ -46,12 +46,12 @@ class State:
 
     def __init__(
         self,
-        basis: SphericalBasis,
+        basis: SurfaceOperators,
         mainfield: Any,
         cs_basis: CSBasis,
         settings: Any,
         PFAC_matrix: Optional[np.ndarray] = None,
-        radial_continuation_basis: Optional[SphericalBasis] = None,
+        solid_harmonics: Optional[SolidHarmonics] = None,
     ) -> None:
         """Initialize the State object."""
         self.basis = basis
@@ -64,7 +64,7 @@ class State:
             mainfield,
             settings,
             PFAC_matrix,
-            radial_continuation_basis=radial_continuation_basis,
+            solid_harmonics=solid_harmonics,
         )
 
         # Operator for mapping velocity field `u` to E-field

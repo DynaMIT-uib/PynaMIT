@@ -10,7 +10,7 @@ from pynamit.sphere import normalize_horizontal_basis_kind
 from pynamit.math.constants import RE
 from pynamit.math.least_squares_solver import get_default_least_squares_solver
 from pynamit.primitives.field_evaluator import FieldEvaluator
-from pynamit.primitives.spherical_transform import SphericalTransform
+from pynamit.sphere.spherical_transform import SphericalTransform
 from pynamit.sphere import Grid, is_grid_basis
 from pynamit.primitives.io import IO
 from pynamit.simulation.data import SimulationData
@@ -203,7 +203,7 @@ class Dynamics(object):
         self.sh_basis = self.schema.sh_basis
         self.sh_basis_mean_free = self.schema.sh_basis_mean_free
         self.horizontal_basis = self.schema.horizontal_basis
-        self.radial_continuation_basis = self.schema.radial_continuation_basis
+        self.solid_harmonics = self.schema.solid_harmonics
 
         self.input_vars = self.schema.input_vars
         self.input_field_spaces = self.schema.input_field_spaces
@@ -245,7 +245,7 @@ class Dynamics(object):
             self.cs_basis,
             self.settings,
             PFAC_matrix=self.data.pfac_matrix,
-            radial_continuation_basis=self.radial_continuation_basis,
+            solid_harmonics=self.solid_harmonics,
         )
         self.horizontal_spherical_transform = self.state.geometry.spherical_transform
 
