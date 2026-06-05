@@ -4,7 +4,11 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from pynamit.simulation.schema import build_simulation_schema, field_spaces_from_bases
+from pynamit.simulation.schema import (
+    build_simulation_schema,
+    field_spaces_from_bases,
+    normalize_horizontal_basis_kind,
+)
 
 
 def _settings(**attrs):
@@ -19,6 +23,14 @@ def _settings(**attrs):
     }
     defaults.update(attrs)
     return xr.Dataset(attrs=defaults)
+
+
+def test_horizontal_basis_kind_is_simulation_policy():
+    """Normalize horizontal basis choices within simulation policy."""
+    assert normalize_horizontal_basis_kind(" sh ") == "SH"
+    assert normalize_horizontal_basis_kind("cs") == "CS"
+    with pytest.raises(ValueError, match="horizontal_basis_kind"):
+        normalize_horizontal_basis_kind("grid")
 
 
 def test_sh_schema_uses_mean_free_sh_inputs_and_outputs():

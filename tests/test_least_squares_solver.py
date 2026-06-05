@@ -5,7 +5,7 @@ import pytest
 
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver
-from pynamit.math import JAX_AVAILABLE, set_backend, use_jax
+from pynamit.math import JAX_AVAILABLE, as_linear_map, set_backend, use_jax
 
 
 def test_normal_pinv_solves_block_rhs():
@@ -290,3 +290,31 @@ def test_solver_aliases_are_not_accepted(solver_name):
     """Solver modes use explicit public names."""
     with pytest.raises(ValueError):
         LeastSquaresSolver(solver=solver_name)
+
+
+@pytest.mark.parametrize("weight", [-1.0, np.inf, np.nan, np.array([1.0, 2.0])])
+def test_regularization_weights_must_be_finite_non_negative_scalars(weight):
+    """Invalid regularization weights fail before system assembly."""
+    with pytest.raises(ValueError, match="finite non-negative scalar"):
+        LeastSquaresProblem(
+            A=np.eye(2),
+            solution_shape=2,
+            data_shapes=2,
+            regularization_matrices=np.eye(2),
+            regularization_weights=weight,
+        )
+
+
+@pytest.mark.parametrize("solver_name", ["normal_solve", "normal_pinv", "svd"])
+@pytest.mark.parametrize("entrypoint", ["solve", "build_response_solver"])
+def test_dense_solvers_reject_explicit_preconditioners(solver_name, entrypoint):
+    """Dense solvers reject explicitly supplied preconditioners."""
+    problem = LeastSquaresProblem(A=np.eye(2), solution_shape=2, data_shapes=2)
+    solver = LeastSquaresSolver(solver=solver_name)
+    preconditioner = as_linear_map(np.eye(2))
+
+    with pytest.raises(ValueError, match="does not accept a preconditioner"):
+        if entrypoint == "solve":
+            solver.solve(problem, np.ones(2), preconditioner=preconditioner)
+        else:
+            solver.build_response_solver(problem, preconditioner=preconditioner)

@@ -11,7 +11,6 @@ from pynamit.sphere.core import (
     is_cs_basis,
     is_grid_basis,
     is_sh_basis,
-    normalize_horizontal_basis_kind,
 )
 from pynamit.sphere.cubed_sphere.cs_basis import CSBasis
 from pynamit.sphere.grid import Grid
@@ -35,5 +34,4 @@ __all__ = [
     "is_cs_basis",
     "is_grid_basis",
     "is_sh_basis",
-    "normalize_horizontal_basis_kind",
 ]

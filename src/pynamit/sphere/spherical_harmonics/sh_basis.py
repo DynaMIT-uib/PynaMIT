@@ -150,7 +150,6 @@ class SHBasis(SurfaceOperators):
         self.index_names = ["n", "m"]
         self.index_length = len(self.cnm.index_pairs) + len(self.snm.index_pairs)
         self.index_arrays = [self.n, self.m]
-        self.minimum_phi_sampling = 2 * Mmax + 1
         self.caching = True
         self.validate_metadata()
 
@@ -200,15 +199,6 @@ class SHBasis(SurfaceOperators):
     @index_arrays.setter
     def index_arrays(self, value):
         self._index_arrays = value
-
-    @property
-    def minimum_phi_sampling(self):
-        """Minimum required sampling in phi direction."""
-        return self._minimum_phi_sampling
-
-    @minimum_phi_sampling.setter
-    def minimum_phi_sampling(self, value):
-        self._minimum_phi_sampling = value
 
     @property
     def caching(self):

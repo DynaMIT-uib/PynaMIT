@@ -6,10 +6,10 @@ coupling.
 
 import numpy as np
 import xarray as xr
-from pynamit.sphere import normalize_horizontal_basis_kind
 from pynamit.math.constants import RE
 from pynamit.math.least_squares_solver import get_default_least_squares_solver
 from pynamit.primitives.field_evaluator import FieldEvaluator
+from pynamit.simulation.schema import normalize_horizontal_basis_kind
 from pynamit.sphere.spherical_transform import SphericalTransform
 from pynamit.sphere import Grid, is_grid_basis
 from pynamit.primitives.io import IO

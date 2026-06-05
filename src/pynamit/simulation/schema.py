@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from pynamit.primitives.field_space import FieldSpace
-from pynamit.sphere import CSBasis, SHBasis, SolidHarmonics, normalize_horizontal_basis_kind
+from pynamit.sphere import CSBasis, SHBasis, SolidHarmonics
 
 
 INPUT_VARIABLES = {
@@ -57,6 +57,14 @@ class SimulationSchema:
 
 
 _MISSING = object()
+
+
+def normalize_horizontal_basis_kind(kind: str) -> str:
+    """Normalize a simulation horizontal-basis kind."""
+    normalized = str(kind).strip().upper()
+    if normalized not in {"SH", "CS"}:
+        raise ValueError("horizontal_basis_kind must be one of ['CS', 'SH'].")
+    return normalized
 
 
 def _setting(settings: Any, name: str, default: Any = _MISSING) -> Any:

@@ -52,7 +52,6 @@ from .sphere import (
     is_cs_basis,
     is_grid_basis,
     is_sh_basis,
-    normalize_horizontal_basis_kind,
 )
 from .primitives.basis_evaluator import BasisEvaluator
 from .primitives.coefficient_field import CoefficientField
@@ -91,7 +90,6 @@ __all__ = [
     "is_cs_basis",
     "is_grid_basis",
     "is_sh_basis",
-    "normalize_horizontal_basis_kind",
     "plot_input_vs_interpolated",
     "set_backend",
     "use_jax",

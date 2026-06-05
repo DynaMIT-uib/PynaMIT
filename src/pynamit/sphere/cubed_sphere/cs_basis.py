@@ -150,7 +150,6 @@ class CSBasis(GridBasis, SurfaceOperators):
             self.index_length = self.arr_theta.size
             self.index_arrays = [self.arr_theta, self.arr_phi]
 
-            self.minimum_phi_sampling = 1
             self.caching = False
             self.validate_metadata()
 

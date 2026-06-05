@@ -122,14 +122,6 @@ def is_grid_basis(basis):
     return isinstance(basis, GridBasis) or is_basis_kind(basis, "CS", "GRID")
 
 
-def normalize_horizontal_basis_kind(kind):
-    """Normalize a user supplied horizontal-basis kind."""
-    normalized = str(kind).strip().upper()
-    if normalized not in {"SH", "CS"}:
-        raise ValueError("horizontal_basis_kind must be one of ['CS', 'SH'].")
-    return normalized
-
-
 class SphericalRepresentation(ABC):
     """Abstract metadata interface for spherical representations.
 
@@ -213,16 +205,7 @@ class SphericalRepresentation(ABC):
 class SphericalBasis(SphericalRepresentation):
     """Abstract metadata interface for spherical bases."""
 
-    required_attributes = SphericalRepresentation.required_attributes + (
-        "minimum_phi_sampling",
-        "caching",
-    )
-
-    @property
-    @abstractmethod
-    def minimum_phi_sampling(self):
-        """Minimum required sampling in phi direction."""
-        pass
+    required_attributes = SphericalRepresentation.required_attributes + ("caching",)
 
     @property
     @abstractmethod
@@ -240,7 +223,6 @@ class GridBasis(SphericalBasis):
         self._index_names = None
         self._index_length = None
         self._index_arrays = None
-        self._minimum_phi_sampling = 1
         self._caching = False
 
     @property
@@ -278,15 +260,6 @@ class GridBasis(SphericalBasis):
     @index_arrays.setter
     def index_arrays(self, value):
         self._index_arrays = value
-
-    @property
-    def minimum_phi_sampling(self):
-        """Minimum required sampling in phi direction."""
-        return self._minimum_phi_sampling
-
-    @minimum_phi_sampling.setter
-    def minimum_phi_sampling(self, value):
-        self._minimum_phi_sampling = value
 
     @property
     def caching(self):
@@ -479,7 +452,6 @@ class BasisView(SurfaceOperators):
         self.index_arrays = self._slice_index_arrays(
             parent_basis, self._parent_coefficient_indices
         )
-        self.minimum_phi_sampling = parent_basis.minimum_phi_sampling
         self.caching = parent_basis.caching
 
         for name, values in zip(self.index_names, self.index_arrays):
@@ -603,15 +575,6 @@ class BasisView(SurfaceOperators):
     @index_arrays.setter
     def index_arrays(self, value):
         self._index_arrays = value
-
-    @property
-    def minimum_phi_sampling(self):
-        """Minimum required sampling in phi direction."""
-        return self._minimum_phi_sampling
-
-    @minimum_phi_sampling.setter
-    def minimum_phi_sampling(self, value):
-        self._minimum_phi_sampling = value
 
     @property
     def caching(self):

@@ -57,13 +57,12 @@ class LeastSquaresSolver:
         **kwargs,
     ) -> Any:
         """Solve least-squares problem for given right-hand side(s)."""
+        preconditioner_map = self._prepare_preconditioner(problem, preconditioner)
         rhs_block, rhs_shape, num_rhs = problem.assemble_rhs_block(rhs)
         if rhs_block is None:
             dtype = problem.A[0].dtype if problem.A else np.float64
             return get_array_module().zeros(problem.solution_shape + rhs_shape, dtype=dtype)
 
-        preconditioner_map = as_linear_map(preconditioner) if preconditioner is not None else None
-        self._validate_preconditioner_shape(problem, preconditioner_map)
         solver_func = self._solve_methods[self.solver]
         solution_block = solver_func(problem, rhs_block, num_rhs, preconditioner_map, **kwargs)
         return solution_block.reshape(problem.solution_shape + rhs_shape)
@@ -91,8 +90,7 @@ class LeastSquaresSolver:
         preconditioner: PreconditionerInput = None,
     ) -> Callable[[Union[np.ndarray, List[np.ndarray]]], Any]:
         """Return a reusable solver for matching RHS response blocks."""
-        preconditioner_map = as_linear_map(preconditioner) if preconditioner is not None else None
-        self._validate_preconditioner_shape(problem, preconditioner_map)
+        preconditioner_map = self._prepare_preconditioner(problem, preconditioner)
         if self.solver == "normal_pinv":
             return self._build_normal_pinv_response_solver(problem)
 
@@ -303,12 +301,19 @@ class LeastSquaresSolver:
             columns.append(sol)
         return get_array_module(rhs_block).stack(columns, axis=1)
 
-    def _validate_preconditioner_shape(self, problem: LeastSquaresProblem, M: Optional[LinearMap]):
-        if M is None:
-            return
+    def _prepare_preconditioner(
+        self, problem: LeastSquaresProblem, preconditioner: PreconditionerInput
+    ) -> Optional[LinearMap]:
+        """Return a validated preconditioner for an iterative solver."""
+        if preconditioner is None:
+            return None
+        if self.solver not in {"lsmr", "cgls"}:
+            raise ValueError(f"Solver '{self.solver}' does not accept a preconditioner.")
+        M = as_linear_map(preconditioner)
         expected_shape = (problem.solution_size, problem.solution_size)
         if M.shape != expected_shape:
             raise ValueError(f"Preconditioner shape {M.shape} != expected {expected_shape}")
+        return M
 
     def _build_normal_eq_preconditioner(
         self, problem: LeastSquaresProblem, p_type: str

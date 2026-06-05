@@ -51,6 +51,9 @@ def test_public_sphere_package_is_canonical():
     assert pynamit.SphericalBasis is SphericalBasis
     assert pynamit.SphericalRepresentation is SphericalRepresentation
     assert pynamit.BasisView is BasisView
+    assert not hasattr(pynamit, "normalize_horizontal_basis_kind")
+    sphere_package = importlib.import_module("pynamit.sphere")
+    assert not hasattr(sphere_package, "normalize_horizontal_basis_kind")
     assert importlib.util.find_spec("pynamit.basis") is None
     assert importlib.util.find_spec("pynamit.primitives.basis") is None
     assert importlib.util.find_spec("pynamit.primitives.field_transform") is None
@@ -860,7 +863,6 @@ def test_surface_operator_subclass_must_implement_evaluate_on_grid():
         index_names = ["i"]
         index_length = 1
         index_arrays = [[0]]
-        minimum_phi_sampling = 1
         caching = False
 
     with pytest.raises(TypeError):
