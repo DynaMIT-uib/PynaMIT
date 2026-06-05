@@ -8,6 +8,7 @@ import pytest
 from pynamit.external_inputs import (
     _load_fallback,
     _expand_time_series,
+    _select_fallback_entry,
     get_conductance_inputs,
     get_jr_inputs,
     get_wind_inputs,
@@ -43,6 +44,20 @@ def test_fallback_conductance(force_fallback):
     assert pedersen.shape == (entry["pedersen"].size,)
     np.testing.assert_allclose(out_lat, entry["lat"])
     np.testing.assert_allclose(out_lon, entry["lon"])
+
+
+def test_fallback_grid_selection_uses_grid_hash(monkeypatch):
+    """Fallback grid matching uses coordinate hashes."""
+    lat = np.array([60.0, 61.0, 62.0])
+    lon = np.array([10.0, 11.0, 12.0])
+    entry = {"lat": lat + 1e-10, "lon": lon - 1e-10}
+
+    def fail_allclose(*args, **kwargs):
+        raise AssertionError("Fallback grid matching should use coordinate hashes")
+
+    monkeypatch.setattr("pynamit.external_inputs.np.allclose", fail_allclose)
+
+    assert _select_fallback_entry({"grid": entry}, lat, lon, "test") is entry
 
 
 def test_fallback_multi_time_scaling(force_fallback):

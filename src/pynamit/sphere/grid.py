@@ -136,6 +136,14 @@ class Grid(SphericalRepresentation):
         digest.update(np.asarray(array.shape, dtype="<i8").tobytes())
         digest.update(array.tobytes())
 
+    @classmethod
+    def coordinate_hash(cls, theta, phi):
+        """Return a hash for flattened spherical coordinates."""
+        digest = hashlib.blake2b(digest_size=16)
+        cls._hash_coordinate(digest, theta)
+        cls._hash_coordinate(digest, phi)
+        return digest.hexdigest()
+
     @property
     def hash(self):
         """Deterministic hash for the flattened grid coordinates.
@@ -145,10 +153,7 @@ class Grid(SphericalRepresentation):
         as equal.
         """
         if self._hash is None:
-            digest = hashlib.blake2b(digest_size=16)
-            self._hash_coordinate(digest, self.theta)
-            self._hash_coordinate(digest, self.phi)
-            self._hash = digest.hexdigest()
+            self._hash = self.coordinate_hash(self.theta, self.phi)
         return self._hash
 
     def same_as(self, other):

@@ -44,7 +44,7 @@ class SphericalTransform:
     This class owns both synthesis (coefficients to grid values) and
     analysis (grid values to coefficients) for scalar and tangential
     Helmholtz fields. It also handles batched projection from external
-    input grids when an interpolation basis is supplied.
+    input grids when a grid-remap basis is supplied.
     """
 
     def __init__(
@@ -52,7 +52,7 @@ class SphericalTransform:
         source,
         target,
         *,
-        interpolation_basis=None,
+        grid_remap_basis=None,
         sqrt_weights=None,
         reg_lambda=None,
         pinv_rtol=1e-15,
@@ -66,7 +66,7 @@ class SphericalTransform:
         source.validate_metadata()
         self.source = source
         self.target = target
-        self.interpolation_basis = interpolation_basis
+        self.grid_remap_basis = grid_remap_basis
         self.explicit_sqrt_weights = sqrt_weights is not None
         self.area_weighted = bool(area_weighted)
         self.sqrt_weights = resolve_sqrt_weights(
@@ -346,7 +346,7 @@ class SphericalTransform:
 
     def analyze_scalar(self, grid_values, solver_type=None):
         """Analyze scalar grid values into source coefficients."""
-        if is_grid_basis(self.source):
+        if self._analysis_is_identity():
             return grid_values
         return self._solve_least_squares(
             self.scalar_least_squares_problem, grid_values, solver_type
@@ -354,7 +354,7 @@ class SphericalTransform:
 
     def analyze_helmholtz(self, grid_values, solver_type=None):
         """Analyze grid values into Helmholtz coefficients."""
-        if is_grid_basis(self.source):
+        if self._analysis_is_identity():
             return grid_values
         return self._solve_least_squares(
             self.helmholtz_least_squares_problem, grid_values, solver_type
@@ -430,41 +430,62 @@ class SphericalTransform:
         direct_projection = self._basis_can_project_directly(projection_basis)
         analyze = "analyze_helmholtz" if helmholtz else "analyze_scalar"
 
-        coeff_rows = []
         if direct_projection:
             self._validate_direct_projection_basis(projection_basis)
-            input_transform = self._get_input_transform(
+            analysis_transform = self._get_input_transform(
                 projection_basis,
                 input_grid,
                 sqrt_weights=sqrt_weights,
                 reg_lambda=reg_lambda,
                 pinv_rtol=pinv_rtol,
             )
-            for time_index in range(value_batch.shape[0]):
-                coeff_rows.append(
-                    getattr(input_transform, analyze)(value_batch[time_index])
-                )
+            grid_values = value_batch
         else:
-            grid_values = self._interpolate_batch_to_grid(
-                value_batch, input_grid, helmholtz=helmholtz
-            )
-            coeffs = getattr(self, analyze)(grid_values)
-            return self._analysis_coefficients_to_rows(
-                coeffs,
-                batch_size=value_batch.shape[0],
-                helmholtz=helmholtz,
+            analysis_transform = self
+            grid_values = (
+                value_batch
+                if input_grid.same_as(self.target)
+                else self._remap_batch_to_grid(
+                    value_batch, input_grid, helmholtz=helmholtz
+                )
             )
 
-        return np.asarray([np.asarray(row).reshape(-1) for row in coeff_rows])
+        coeffs = getattr(analysis_transform, analyze)(grid_values)
+        return self._analysis_coefficients_to_rows(
+            coeffs,
+            batch_size=value_batch.shape[0],
+            helmholtz=helmholtz,
+        )
 
     def _analysis_coefficients_to_rows(self, coeffs, *, batch_size, helmholtz):
         """Return analysis coefficients in time-row layout."""
         array = np.asarray(coeffs)
-        if is_grid_basis(self.source):
+        if self._analysis_is_identity():
             return array.reshape(batch_size, -1)
         if batch_size == 1:
             return array.reshape(1, -1)
         return np.moveaxis(array, -1, 0).reshape(batch_size, -1)
+
+    def _analysis_is_identity(self):
+        """Return whether target values are source coefficients."""
+        if not is_grid_basis(self.source):
+            return False
+        if self.source.index_length != self.target.size:
+            return False
+
+        is_native_grid = getattr(self.source, "_is_native_grid", None)
+        if callable(is_native_grid):
+            return bool(is_native_grid(self.target))
+
+        native_grid = getattr(self.source, "native_grid", None)
+        if native_grid is not None:
+            return self.target.same_as(native_grid)
+
+        if hasattr(self.source, "theta") and hasattr(self.source, "phi"):
+            source_grid = Grid(theta=self.source.theta, phi=self.source.phi)
+            return self.target.same_as(source_grid)
+
+        return False
 
     def _coefficient_array(self, coeffs, *, helmholtz=False, preserve_backend=False):
         """Return validated coefficient values."""
@@ -637,66 +658,58 @@ class SphericalTransform:
             and transform.area_weighted == self.area_weighted
         )
 
-    def _interpolate_to_grid(self, values, input_grid, *, helmholtz):
-        """Interpolate one field slice to this transform's grid."""
-        if self.interpolation_basis is None:
-            raise ValueError("interpolation_basis is required for grid interpolation.")
-
-        if not helmholtz:
-            return self.interpolation_basis.interpolate_scalar(
-                values,
-                input_grid.theta,
-                input_grid.phi,
-                self.interpolation_basis.arr_theta,
-                self.interpolation_basis.arr_phi,
+    def _grid_remap_operator(self, method_name, input_grid, *, input_shape, output_shape):
+        """Return the required grid-remap operator."""
+        if self.grid_remap_basis is None:
+            raise ValueError("grid_remap_basis is required for grid remapping.")
+        remap_operator = getattr(self.grid_remap_basis, method_name, None)
+        if not callable(remap_operator):
+            raise TypeError(
+                "Grid-to-grid projection requires grid_remap_basis to provide "
+                f"{method_name}()."
             )
-
-        interpolated_east, interpolated_north, _ = (
-            self.interpolation_basis.interpolate_vector_components(
-                values[1],
-                -values[0],
-                np.zeros_like(values[0]),
-                input_grid.theta,
-                input_grid.phi,
-                self.interpolation_basis.arr_theta,
-                self.interpolation_basis.arr_phi,
+        operator = remap_operator(input_grid, self.target)
+        try:
+            return as_linear_map(
+                operator,
+                input_shape=input_shape,
+                output_shape=output_shape,
             )
+        except (TypeError, ValueError) as exc:
+            raise TypeError(
+                f"{type(self.grid_remap_basis).__name__}.{method_name}() "
+                "must return an operator convertible to LinearMap."
+            ) from exc
+
+    def _scalar_batch_remap_to_grid(self, value_batch, input_grid):
+        """Apply the scalar grid remap to field rows."""
+        operator = self._grid_remap_operator(
+            "scalar_grid_remap_operator",
+            input_grid,
+            input_shape=(input_grid.size,),
+            output_shape=(self.target.size,),
         )
-        return np.vstack((-interpolated_north, interpolated_east))
+        interpolated = operator.matmat(np.asarray(value_batch).T)
+        return np.asarray(interpolated).reshape(self.target.size, -1).T
 
-    def _interpolate_batch_to_grid(self, value_batch, input_grid, *, helmholtz):
-        """Interpolate field slices to this transform's grid."""
-        if self.interpolation_basis is None:
-            raise ValueError("interpolation_basis is required for grid interpolation.")
-
-        if not helmholtz:
-            interpolated = self.interpolation_basis.interpolate_scalar(
-                np.asarray(value_batch).T,
-                input_grid.theta,
-                input_grid.phi,
-                self.interpolation_basis.arr_theta,
-                self.interpolation_basis.arr_phi,
-            )
-            return np.asarray(interpolated).reshape(self.target.size, -1).T
-
+    def _helmholtz_batch_remap_to_grid(self, value_batch, input_grid):
+        """Apply the tangential grid remap to field rows."""
         values = np.asarray(value_batch)
-        input_east = values[:, 1, :].T
-        input_north = -values[:, 0, :].T
-        interpolated_east, interpolated_north, _ = (
-            self.interpolation_basis.interpolate_vector_components(
-                input_east,
-                input_north,
-                np.zeros_like(input_east),
-                input_grid.theta,
-                input_grid.phi,
-                self.interpolation_basis.arr_theta,
-                self.interpolation_basis.arr_phi,
-            )
+        operator = self._grid_remap_operator(
+            "tangential_grid_remap_operator",
+            input_grid,
+            input_shape=(2, input_grid.size),
+            output_shape=(2, self.target.size),
         )
-        return np.stack(
-            [
-                -np.asarray(interpolated_north).T,
-                np.asarray(interpolated_east).T,
-            ],
-            axis=1,
+        interpolated = operator.matmat(values.reshape(values.shape[0], -1).T)
+        return np.moveaxis(
+            np.asarray(interpolated).reshape(2, self.target.size, -1),
+            -1,
+            0,
         )
+
+    def _remap_batch_to_grid(self, value_batch, input_grid, *, helmholtz):
+        """Apply grid remap operators to field slices."""
+        if not helmholtz:
+            return self._scalar_batch_remap_to_grid(value_batch, input_grid)
+        return self._helmholtz_batch_remap_to_grid(value_batch, input_grid)

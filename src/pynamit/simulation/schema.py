@@ -53,7 +53,7 @@ class SimulationSchema:
     output_vars: dict[str, tuple[str, ...]]
     input_field_spaces: dict[str, FieldSpace]
     output_field_spaces: dict[str, FieldSpace]
-    interpolation_bases: dict[str, Any]
+    input_projection_bases: dict[str, Any]
 
 
 _MISSING = object()
@@ -135,7 +135,7 @@ def build_simulation_schema(settings: Any, horizontal_basis_kind: str) -> Simula
             "conductance": False,
             "u": True,
         }
-        interpolation_bases = dict(input_bases)
+        input_projection_bases = dict(input_bases)
     else:
         input_bases = {
             "jr": sh_basis_mean_free,
@@ -144,7 +144,7 @@ def build_simulation_schema(settings: Any, horizontal_basis_kind: str) -> Simula
             "u": sh_basis_mean_free,
         }
         input_mean_free = None
-        interpolation_bases = {
+        input_projection_bases = {
             "jr": sh_basis_mean_free if bool(_setting(settings, "vector_jr")) else cs_basis,
             "Br": sh_basis_mean_free if bool(_setting(settings, "vector_Br")) else cs_basis,
             "conductance": (
@@ -179,5 +179,5 @@ def build_simulation_schema(settings: Any, horizontal_basis_kind: str) -> Simula
         output_vars=output_vars,
         input_field_spaces=input_field_spaces,
         output_field_spaces=output_field_spaces,
-        interpolation_bases=interpolation_bases,
+        input_projection_bases=input_projection_bases,
     )

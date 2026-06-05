@@ -13,7 +13,7 @@ import numpy as np
 import xarray as xr
 
 from pynamit.math.constants import mu0
-from pynamit.math import as_linear_map
+from pynamit.math import as_linear_map, diagonal_linear_map
 from pynamit.math.backend import block_until_ready, get_array_module, to_jax, to_numpy, use_jax
 from pynamit.sphere import Grid, SolidHarmonics, SurfaceOperators
 from pynamit.sphere.spherical_transform import SphericalTransform, resolve_sqrt_weights
@@ -43,16 +43,6 @@ def _extended_scalar_basis_for_potential(basis, settings):
     if is_sh_basis(basis):
         return basis.get_extended_basis()
     return basis
-
-
-def _dense_operator_matrix(operator, input_length, output_length):
-    """Return an explicit dense operator array."""
-    op = as_linear_map(
-        operator,
-        input_shape=(input_length,),
-        output_shape=(output_length,),
-    )
-    return np.asarray(op.dense(backend="numpy"))
 
 
 class Geometry:
@@ -137,23 +127,37 @@ class Geometry:
                 f"{type(self.basis).__name__} requires solid harmonics for sheet-current coupling."
             )
 
-        self.horizontal_to_solid_harmonic = self._build_horizontal_to_solid_harmonic()
-        self.solid_harmonic_to_horizontal = self._build_solid_harmonic_to_horizontal()
-        self.poloidal_to_boundary_potential_jump_factor = _dense_operator_matrix(
-            self.solid_harmonics.poloidal_to_boundary_potential_jump_factor,
-            self.solid_harmonics.basis.index_length,
-            self.solid_harmonics.basis.index_length,
+        self.horizontal_to_solid_harmonic_operator = (
+            self._build_horizontal_to_solid_harmonic_operator()
+        )
+        self.horizontal_to_solid_harmonic = np.asarray(
+            self.horizontal_to_solid_harmonic_operator.dense(backend="numpy")
+        )
+        self.solid_harmonic_to_horizontal_operator = (
+            self._build_solid_harmonic_to_horizontal_operator()
+        )
+        self.solid_harmonic_to_horizontal = np.asarray(
+            self.solid_harmonic_to_horizontal_operator.dense(backend="numpy")
+        )
+        self.poloidal_to_boundary_potential_jump_factor_operator = diagonal_linear_map(
+            self.solid_harmonics.poloidal_to_boundary_potential_jump_factor
+        )
+        self.poloidal_to_boundary_potential_jump_factor = np.asarray(
+            self.poloidal_to_boundary_potential_jump_factor_operator.dense(
+                backend="numpy"
+            )
         )
         self.solid_harmonic_poloidal_to_gridded_sheet_current = (
             self._build_solid_harmonic_poloidal_to_gridded_sheet_current()
         )
-        self.horizontal_to_boundary_potential_jump_factor = (
-            self._build_horizontal_to_boundary_potential_jump_factor()
+        self.horizontal_to_boundary_potential_jump_factor_operator = (
+            self.poloidal_to_boundary_potential_jump_factor_operator
+            @ self.horizontal_to_solid_harmonic_operator
         )
-        self.horizontal_to_boundary_potential_jump_factor_operator = as_linear_map(
-            self.horizontal_to_boundary_potential_jump_factor,
-            input_shape=(self.basis.index_length,),
-            output_shape=(self.solid_harmonics.basis.index_length,),
+        self.horizontal_to_boundary_potential_jump_factor = np.asarray(
+            self.horizontal_to_boundary_potential_jump_factor_operator.dense(
+                backend="numpy"
+            )
         )
         self.horizontal_potential_to_gridded_JS = np.tensordot(
             self.solid_harmonic_poloidal_to_gridded_sheet_current,
@@ -194,6 +198,15 @@ class Geometry:
         if self._m_ind_to_Br is None:
             self._m_ind_to_Br = _compact_operator_array(self.m_ind_to_Br_operator)
         return self._m_ind_to_Br
+
+    @property
+    def jr_coeffs_to_j_apex(self) -> np.ndarray:
+        """Return the explicit radial-current to apex-current matrix."""
+        if self._jr_coeffs_to_j_apex is None:
+            self._jr_coeffs_to_j_apex = np.asarray(
+                self.jr_coeffs_to_j_apex_operator.dense(backend="numpy")
+            ).copy()
+        return self._jr_coeffs_to_j_apex
 
     def tangential_to_helmholtz(self, vec: np.ndarray) -> np.ndarray:
         """Convert tangential vector field to Helmholtz coeffs."""
@@ -259,7 +272,7 @@ class Geometry:
             vector=vector,
         )
 
-    def _build_horizontal_to_solid_harmonic(self) -> np.ndarray:
+    def _build_horizontal_to_solid_harmonic_operator(self):
         """Project horizontal coefficients into the SH radial space.
 
         The horizontal basis owns surface operators. ``SolidHarmonics``
@@ -269,7 +282,7 @@ class Geometry:
         coefficients; for the SH path it is the identity.
         """
         if self.solid_harmonics.basis.coefficients_are_compatible_with(self.basis):
-            return np.eye(self.basis.index_length)
+            return diagonal_linear_map(np.ones(self.basis.index_length))
         solid_to_grid = self.solid_harmonic_transform.scalar_coeffs_to_grid
         horizontal_to_grid = self.spherical_transform.scalar_coeffs_to_grid
         grid_to_solid = weighted_tensor_pinv(
@@ -277,12 +290,16 @@ class Geometry:
             sqrt_weights=self.grid_sqrt_weights(),
             n_leading_flattened=1,
         )
-        return np.asarray(grid_to_solid @ horizontal_to_grid)
+        return as_linear_map(
+            np.asarray(grid_to_solid @ horizontal_to_grid),
+            input_shape=(self.basis.index_length,),
+            output_shape=(self.solid_harmonics.basis.index_length,),
+        )
 
-    def _build_solid_harmonic_to_horizontal(self) -> np.ndarray:
+    def _build_solid_harmonic_to_horizontal_operator(self):
         """Project solid-harmonic coefficients to horizontal space."""
         if self.solid_harmonics.basis.coefficients_are_compatible_with(self.basis):
-            return np.eye(self.basis.index_length)
+            return diagonal_linear_map(np.ones(self.basis.index_length))
         horizontal_to_grid = self.spherical_transform.scalar_coeffs_to_grid
         solid_to_grid = self.solid_harmonic_transform.scalar_coeffs_to_grid
         grid_to_horizontal = weighted_tensor_pinv(
@@ -290,19 +307,22 @@ class Geometry:
             sqrt_weights=self.grid_sqrt_weights(),
             n_leading_flattened=1,
         )
-        return np.asarray(grid_to_horizontal @ solid_to_grid)
+        return as_linear_map(
+            np.asarray(grid_to_horizontal @ solid_to_grid),
+            input_shape=(self.solid_harmonics.basis.index_length,),
+            output_shape=(self.basis.index_length,),
+        )
 
     def _build_solid_harmonic_poloidal_to_gridded_sheet_current(self) -> np.ndarray:
         """Map solid-harmonic poloidal coefficients to sheet current."""
-        return (1.0 / self.RI) * np.tensordot(
-            self.solid_harmonic_transform.scalar_coeffs_to_gridded_rhat_cross_gradient,
-            (-self.RI / mu0) * self.poloidal_to_boundary_potential_jump_factor,
-            axes=([2], [0]),
+        jump_factor = np.asarray(
+            self.solid_harmonics.poloidal_to_boundary_potential_jump_factor
+        ).reshape(1, 1, -1)
+        return (
+            -self.solid_harmonic_transform.scalar_coeffs_to_gridded_rhat_cross_gradient
+            * jump_factor
+            / mu0
         )
-
-    def _build_horizontal_to_boundary_potential_jump_factor(self) -> np.ndarray:
-        """Map horizontal poloidal coefficients to normalized jump."""
-        return self.poloidal_to_boundary_potential_jump_factor @ self.horizontal_to_solid_harmonic
 
     def _init_constraint_mappings(self) -> None:
         """Initialize geometric operators related to constraints."""
@@ -317,20 +337,21 @@ class Geometry:
         else:
             self.ll_mask = np.zeros(self.grid.size, dtype=bool)
 
-        self.jr_coeffs_to_j_apex = np.asarray(
-            self.b_evaluator.radial_to_apex.reshape((-1, 1))
-            * self.spherical_transform.scalar_coeffs_to_grid
-        ).copy()
+        self._jr_coeffs_to_j_apex = None
+        self.jr_coeffs_to_j_apex_operator = (
+            self._build_jr_coeffs_to_j_apex_operator()
+        )
         self.E_coeffs_to_E_apex_ll_diff = None
 
         if self.connect_hemispheres:
             # Modify jr constraint for interhemispheric connection
-            jr_coeffs_to_j_apex_cp = np.asarray(
-                self.cp_b_evaluator.radial_to_apex.reshape((-1, 1))
-                * self.cp_spherical_transform.scalar_coeffs_to_grid
+            cp_operator = self._build_jr_coeffs_to_j_apex_operator(
+                transform=self.cp_spherical_transform,
+                evaluator=self.cp_b_evaluator,
+                output_scale=self.ll_mask,
             )
-            self.jr_coeffs_to_j_apex = self.jr_coeffs_to_j_apex - (
-                self.ll_mask.reshape((-1, 1)) * jr_coeffs_to_j_apex_cp
+            self.jr_coeffs_to_j_apex_operator = (
+                self.jr_coeffs_to_j_apex_operator - cp_operator
             )
 
             # Create E-field mapping difference operator for constraint
@@ -349,6 +370,26 @@ class Geometry:
             self.E_coeffs_to_E_apex_ll_diff = np.ascontiguousarray(
                 (E_coeffs_to_E_apex - E_coeffs_to_E_apex_cp)[:, self.ll_mask]
             )
+
+    def _build_jr_coeffs_to_j_apex_operator(
+        self,
+        *,
+        transform=None,
+        evaluator=None,
+        output_scale=None,
+    ):
+        """Return radial-current coefficients mapped to apex current."""
+        transform = self.spherical_transform if transform is None else transform
+        evaluator = self.b_evaluator if evaluator is None else evaluator
+        scale = np.asarray(evaluator.radial_to_apex)
+        if output_scale is not None:
+            scale = scale * np.asarray(output_scale)
+        scale_operator = diagonal_linear_map(
+            scale.reshape(-1),
+            input_shape=(transform.target.size,),
+            output_shape=(transform.target.size,),
+        )
+        return scale_operator @ transform.scalar_coeffs_to_grid_operator
 
     @property
     def bP(self) -> np.ndarray:

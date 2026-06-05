@@ -39,48 +39,25 @@ class StateOperators:
     def jr_to_m_imp(self) -> LinearMap:
         """Linear map from radial current to imposed potential."""
         if getattr(self.state, "_jr_to_m_imp_operator", None) is None:
-            matrix = getattr(self.state, "_jr_to_m_imp_matrix", None)
-            if matrix is None:
-                if self.state._use_lazy_m_imp_response_operators():
-                    self.state._jr_to_m_imp_operator = (
-                        self.state._create_jr_to_m_imp_response_operator()
-                    )
-                    return self.state._jr_to_m_imp_operator
-                self.state._ensure_m_imp_response_matrices()
-                matrix = self.state._jr_to_m_imp_matrix
-            if matrix is not None:
-                self.state._jr_to_m_imp_operator = as_linear_map(
-                    matrix,
-                    input_shape=(self.state.basis.index_length,),
-                    output_shape=(self.state.basis.index_length,),
-                )
-            else:
-                raise RuntimeError("jr_to_m_imp response matrix was not built.")
+            self.state._jr_to_m_imp_operator = as_linear_map(
+                self._jr_to_m_imp_matrix,
+                input_shape=(self.state.basis.index_length,),
+                output_shape=(self.state.basis.index_length,),
+            )
         return self.state._jr_to_m_imp_operator
 
     @property
     def E_direct_to_m_imp(self) -> Optional[LinearMap]:
         """Map direct E coefficients to imposed potential."""
         if getattr(self.state, "_E_direct_to_m_imp_operator", None) is None:
-            matrix = getattr(self.state, "_E_direct_to_m_imp_matrix", None)
+            matrix = self._E_direct_to_m_imp_matrix
             if matrix is None:
-                if not self.state.connect_hemispheres:
-                    return None
-                if self.state._use_lazy_m_imp_response_operators():
-                    self.state._E_direct_to_m_imp_operator = (
-                        self.state._create_E_direct_to_m_imp_response_operator()
-                    )
-                    return self.state._E_direct_to_m_imp_operator
-                self.state._ensure_m_imp_response_matrices()
-                matrix = self.state._E_direct_to_m_imp_matrix
-            if matrix is not None:
-                self.state._E_direct_to_m_imp_operator = as_linear_map(
-                    matrix,
-                    input_shape=(2, self.state.basis.index_length),
-                    output_shape=(self.state.basis.index_length,),
-                )
-            else:
                 return None
+            self.state._E_direct_to_m_imp_operator = as_linear_map(
+                matrix,
+                input_shape=(2, self.state.basis.index_length),
+                output_shape=(self.state.basis.index_length,),
+            )
         return self.state._E_direct_to_m_imp_operator
 
     @property

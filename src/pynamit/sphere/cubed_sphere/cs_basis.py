@@ -4,6 +4,7 @@ This module contains the CSBasis class for representing the cubed sphere
 basis.
 """
 
+from collections import OrderedDict
 import numpy as np
 from pynamit.sphere.cubed_sphere import diffutils
 from pynamit.sphere.cubed_sphere import arrayutils
@@ -12,9 +13,10 @@ from scipy.special import binom
 import scipy.sparse as sp
 from scipy.sparse import coo_matrix
 from scipy.interpolate import griddata
+from scipy.spatial import Delaunay
 
 from pynamit.math import as_linear_map
-from pynamit.math.backend import get_array_module, to_numpy
+from pynamit.math.backend import get_array_module, to_numpy, use_jax
 from pynamit.sphere.core import GridBasis, SurfaceEvaluator, SurfaceOperators
 
 d2r = np.pi / 180
@@ -91,9 +93,15 @@ class _CSSurfaceEvaluator(SurfaceEvaluator):
                     output_shape=(self.basis.index_length,),
                 )
             else:
-                self._operator_cache[key] = super().scalar_evaluation_operator(
-                    derivative=derivative
-                )
+                if derivative is None:
+                    self._operator_cache[key] = self.basis.scalar_grid_remap_operator(
+                        self.basis.native_grid,
+                        self.grid,
+                    )
+                else:
+                    self._operator_cache[key] = super().scalar_evaluation_operator(
+                        derivative=derivative
+                    )
         return self._operator_cache[key]
 
     def surface_gradient_operator(self):
@@ -109,7 +117,18 @@ class _CSSurfaceEvaluator(SurfaceEvaluator):
                     output_shape=(2, self.basis.index_length),
                 )
             else:
-                self._operator_cache[key] = super().surface_gradient_operator()
+                bundle = self.basis._get_derivative_bundle()
+                matrix = sp.vstack([bundle["theta"], bundle["phi"]], format="csr")
+                native_operator = as_linear_map(
+                    matrix,
+                    input_shape=(self.basis.index_length,),
+                    output_shape=(2, self.basis.index_length),
+                )
+                remap_operator = self.basis.tangential_grid_remap_operator(
+                    self.basis.native_grid,
+                    self.grid,
+                )
+                self._operator_cache[key] = remap_operator @ native_operator
         return self._operator_cache[key]
 
     def rhat_cross_gradient_operator(self):
@@ -125,7 +144,18 @@ class _CSSurfaceEvaluator(SurfaceEvaluator):
                     output_shape=(2, self.basis.index_length),
                 )
             else:
-                self._operator_cache[key] = super().rhat_cross_gradient_operator()
+                bundle = self.basis._get_derivative_bundle()
+                matrix = sp.vstack([-bundle["phi"], bundle["theta"]], format="csr")
+                native_operator = as_linear_map(
+                    matrix,
+                    input_shape=(self.basis.index_length,),
+                    output_shape=(2, self.basis.index_length),
+                )
+                remap_operator = self.basis.tangential_grid_remap_operator(
+                    self.basis.native_grid,
+                    self.grid,
+                )
+                self._operator_cache[key] = remap_operator @ native_operator
         return self._operator_cache[key]
 
     def helmholtz_synthesis_operator(self):
@@ -146,7 +176,23 @@ class _CSSurfaceEvaluator(SurfaceEvaluator):
                     output_shape=(2, self.basis.index_length),
                 )
             else:
-                self._operator_cache[key] = super().helmholtz_synthesis_operator()
+                bundle = self.basis._get_derivative_bundle()
+                theta = bundle["theta"]
+                phi = bundle["phi"]
+                matrix = sp.bmat(
+                    [[-theta, -phi], [-phi, theta]],
+                    format="csr",
+                )
+                native_operator = as_linear_map(
+                    matrix,
+                    input_shape=(2, self.basis.index_length),
+                    output_shape=(2, self.basis.index_length),
+                )
+                remap_operator = self.basis.tangential_grid_remap_operator(
+                    self.basis.native_grid,
+                    self.grid,
+                )
+                self._operator_cache[key] = remap_operator @ native_operator
         return self._operator_cache[key]
 
 
@@ -224,6 +270,9 @@ class CSBasis(GridBasis, SurfaceOperators):
         DOI: 10.1093/gji/ggx125
     """
 
+    _shared_remap_matrix_cache = OrderedDict()
+    _shared_remap_matrix_cache_size = 8
+
     def __init__(self, N=None):
         """Initialize the cubed sphere basis.
 
@@ -249,6 +298,7 @@ class CSBasis(GridBasis, SurfaceOperators):
         self._derivative_bundle = None
         self._laplacian_cache = {}
         self._laplacian_sparse_cache = {}
+        self._remap_operator_cache = {}
 
         if N is not None:
             if not isinstance(N, (int, np.integer)):
@@ -286,6 +336,21 @@ class CSBasis(GridBasis, SurfaceOperators):
     def coefficient_space_signature(self):
         """Return a signature for CS coefficient compatibility."""
         return ("CS", int(self.N))
+
+    @property
+    def native_grid(self):
+        """Return the native CS cell centers as a ``Grid``."""
+        if not hasattr(self, "_native_grid"):
+            if not hasattr(self, "arr_theta") or not hasattr(self, "arr_phi"):
+                raise ValueError("CSBasis native_grid requires an initialized grid.")
+            from pynamit.sphere.grid import Grid
+
+            self._native_grid = Grid(
+                theta=self.arr_theta,
+                phi=self.arr_phi,
+                area_weights=self.unit_area,
+            )
+        return self._native_grid
 
     def evaluator_for_grid(self, grid):
         """Return a grid-bound CS evaluator."""
@@ -372,16 +437,288 @@ class CSBasis(GridBasis, SurfaceOperators):
         """Return whether ``grid`` matches this basis' native points."""
         if grid is self:
             return True
+        same_as = getattr(grid, "same_as", None)
+        if callable(same_as):
+            return bool(same_as(self.native_grid))
         if not hasattr(grid, "theta") or not hasattr(grid, "phi"):
             return False
-        theta = to_numpy(grid.theta)
-        phi = to_numpy(grid.phi)
+        from pynamit.sphere.grid import Grid
+
+        grid_hash = Grid.coordinate_hash(to_numpy(grid.theta), to_numpy(grid.phi))
+        return grid_hash == self.native_grid.hash
+
+    @staticmethod
+    def _grid_theta_phi(grid):
+        """Return flattened theta/phi coordinates."""
         return (
-            theta.shape == self.arr_theta.shape
-            and phi.shape == self.arr_phi.shape
-            and np.allclose(theta, self.arr_theta, rtol=0.0, atol=1e-9)
-            and np.allclose(phi, self.arr_phi, rtol=0.0, atol=1e-9)
+            np.asarray(to_numpy(grid.theta), dtype=float).reshape(-1),
+            np.asarray(to_numpy(grid.phi), dtype=float).reshape(-1),
         )
+
+    @staticmethod
+    def _grid_signature(grid):
+        """Return a cache key for a grid."""
+        signature = getattr(grid, "signature", None)
+        if signature is None:
+            raise TypeError("CS grid remapping requires Grid objects with signatures.")
+        return signature
+
+    @classmethod
+    def _cached_remap_matrix(cls, key, build):
+        """Return a bounded shared remap matrix cache entry."""
+        cache = cls._shared_remap_matrix_cache
+        if key in cache:
+            cache.move_to_end(key)
+            return cache[key]
+
+        matrix = build()
+        cache[key] = matrix
+        if len(cache) > cls._shared_remap_matrix_cache_size:
+            cache.popitem(last=False)
+        return matrix
+
+    def _remap_matrix_key(self, kind, source_grid, target_grid):
+        """Return a shared remap-matrix cache key."""
+        return (
+            type(self).__module__,
+            type(self).__qualname__,
+            kind,
+            self._grid_signature(source_grid),
+            self._grid_signature(target_grid),
+        )
+
+    @staticmethod
+    def _linear_interpolation_weights(source_points, target_points):
+        """Return Delaunay vertices and barycentric weights."""
+        if source_points.shape[0] < 3:
+            raise ValueError("At least three source points are required.")
+        triangulation = Delaunay(source_points)
+        simplex = triangulation.find_simplex(target_points)
+        if np.any(simplex < 0):
+            raise ValueError("Target points lie outside the source interpolation hull.")
+
+        transform = triangulation.transform[simplex]
+        delta = target_points - transform[:, 2]
+        first_weights = np.einsum("nij,nj->ni", transform[:, :2], delta)
+        weights = np.column_stack(
+            [first_weights, 1.0 - np.sum(first_weights, axis=1)]
+        )
+        return triangulation.simplices[simplex], weights
+
+    def _block_interpolation_weights(self, theta, phi, theta_target, phi_target):
+        """Return per-block interpolation weights."""
+        xi_target, eta_target, block_target = self.geo2cube(
+            phi_target, 90 - theta_target
+        )
+        xi_target = xi_target.reshape(-1)
+        eta_target = eta_target.reshape(-1)
+        block_target = block_target.reshape(-1)
+
+        th, ph = np.deg2rad(theta), np.deg2rad(phi)
+        r = np.vstack((np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th)))
+        blocks = []
+
+        for block_index in range(6):
+            target_index = np.flatnonzero(block_target == block_index)
+            if target_index.size == 0:
+                continue
+
+            _, th0, ph0 = self.cube2spherical(0, 0, block_index, deg=False)
+            r0 = np.array(
+                [np.sin(th0) * np.cos(ph0), np.sin(th0) * np.sin(ph0), np.cos(th0)]
+            ).reshape((-1, 1))
+            source_mask = np.sum(r0 * r, axis=0) > 0
+            source_index = np.flatnonzero(source_mask)
+
+            xi_source, eta_source, _ = self.geo2cube(
+                phi, 90 - theta, block=block_index
+            )
+            source_points = np.column_stack(
+                [xi_source[source_mask], eta_source[source_mask]]
+            )
+            target_points = np.column_stack(
+                [xi_target[target_index], eta_target[target_index]]
+            )
+            vertices, weights = self._linear_interpolation_weights(
+                source_points,
+                target_points,
+            )
+            blocks.append((block_index, target_index, source_index[vertices], weights))
+
+        return blocks
+
+    def _build_scalar_grid_remap_matrix(self, source_grid, target_grid):
+        """Build a sparse scalar grid remap."""
+        theta, phi = self._grid_theta_phi(source_grid)
+        theta_target, phi_target = self._grid_theta_phi(target_grid)
+        blocks = self._block_interpolation_weights(
+            theta,
+            phi,
+            theta_target,
+            phi_target,
+        )
+
+        rows = []
+        cols = []
+        data = []
+        for _, target_index, source_vertices, weights in blocks:
+            rows.append(np.repeat(target_index, 3))
+            cols.append(source_vertices.reshape(-1))
+            data.append(weights.reshape(-1))
+
+        if rows:
+            row = np.concatenate(rows)
+            col = np.concatenate(cols)
+            values = np.concatenate(data)
+        else:
+            row = col = np.array([], dtype=int)
+            values = np.array([], dtype=float)
+        return sp.coo_matrix(
+            (values, (row, col)),
+            shape=(theta_target.size, theta.size),
+        ).tocsr()
+
+    def _build_tangential_grid_remap_matrix(self, source_grid, target_grid):
+        """Build a sparse tangential grid remap."""
+        theta, phi = self._grid_theta_phi(source_grid)
+        theta_target, phi_target = self._grid_theta_phi(target_grid)
+        blocks = self._block_interpolation_weights(
+            theta,
+            phi,
+            theta_target,
+            phi_target,
+        )
+
+        xi_source, eta_source, block_source = self.geo2cube(phi, 90 - theta)
+        source_ps = self.get_Ps(xi_source, eta_source, r=1, block=block_source)
+        source_q = self.get_Q(90 - theta, r=1, inverse=True)
+        source_transform = np.einsum("nij,njk->nik", source_ps, source_q)
+
+        xi_target, eta_target, block_target = self.geo2cube(
+            phi_target,
+            90 - theta_target,
+        )
+        _, theta_out, _ = self.cube2spherical(
+            xi_target,
+            eta_target,
+            block_target,
+            deg=True,
+        )
+        target_q = self.get_Q(90 - theta_out, r=1, inverse=False)
+        target_ps_inv = self.get_Ps(
+            xi_target,
+            eta_target,
+            r=1,
+            block=block_target,
+            inverse=True,
+        )
+        target_transform = np.einsum("nij,njk->nik", target_q, target_ps_inv)
+
+        n_source = theta.size
+        n_target = theta_target.size
+        out_components = np.arange(2)
+        rows = []
+        cols = []
+        data = []
+
+        for block_index, target_index, source_vertices, weights in blocks:
+            qij = self.get_Qij(xi_source, eta_source, block_source, block_index)
+            source_to_block = np.einsum(
+                "nij,njk->nik",
+                qij,
+                source_transform,
+            )
+            source_coeff = source_to_block[source_vertices]
+            source_coeff = np.stack(
+                [-source_coeff[..., 1], source_coeff[..., 0]],
+                axis=-1,
+            )
+            target_coeff = target_transform[target_index]
+            target_coeff = np.stack(
+                [-target_coeff[:, 1, :], target_coeff[:, 0, :]],
+                axis=1,
+            )
+
+            coefficients = weights[:, :, None, None] * np.einsum(
+                "tob,tvbi->tvoi",
+                target_coeff,
+                source_coeff,
+            )
+            row = target_index[:, None, None, None] + (
+                out_components[None, None, :, None] * n_target
+            )
+            col = source_vertices[:, :, None, None] + (
+                out_components[None, None, None, :] * n_source
+            )
+            rows.append(np.broadcast_to(row, coefficients.shape).reshape(-1))
+            cols.append(np.broadcast_to(col, coefficients.shape).reshape(-1))
+            data.append(coefficients.reshape(-1))
+
+        if rows:
+            row = np.concatenate(rows)
+            col = np.concatenate(cols)
+            values = np.concatenate(data)
+        else:
+            row = col = np.array([], dtype=int)
+            values = np.array([], dtype=float)
+        return sp.coo_matrix(
+            (values, (row, col)),
+            shape=(2 * n_target, 2 * n_source),
+        ).tocsr()
+
+    def scalar_grid_remap_operator(self, source_grid, target_grid):
+        """Return a cached scalar grid-remap operator."""
+        matrix_key = self._remap_matrix_key(
+            "scalar_grid_remap_matrix",
+            source_grid,
+            target_grid,
+        )
+        key = (
+            "scalar_grid_remap",
+            matrix_key,
+            bool(use_jax()),
+        )
+        if key not in self._remap_operator_cache:
+            matrix = self._cached_remap_matrix(
+                matrix_key,
+                lambda: self._build_scalar_grid_remap_matrix(
+                    source_grid,
+                    target_grid,
+                ),
+            )
+            self._remap_operator_cache[key] = as_linear_map(
+                matrix,
+                input_shape=(source_grid.size,),
+                output_shape=(target_grid.size,),
+            )
+        return self._remap_operator_cache[key]
+
+    def tangential_grid_remap_operator(self, source_grid, target_grid):
+        """Return a cached tangential grid-remap operator."""
+        matrix_key = self._remap_matrix_key(
+            "tangential_grid_remap_matrix",
+            source_grid,
+            target_grid,
+        )
+        key = (
+            "tangential_grid_remap",
+            matrix_key,
+            bool(use_jax()),
+        )
+        if key not in self._remap_operator_cache:
+            matrix = self._cached_remap_matrix(
+                matrix_key,
+                lambda: self._build_tangential_grid_remap_matrix(
+                    source_grid,
+                    target_grid,
+                ),
+            )
+            self._remap_operator_cache[key] = as_linear_map(
+                matrix,
+                input_shape=(2, source_grid.size),
+                output_shape=(2, target_grid.size),
+            )
+        return self._remap_operator_cache[key]
 
     @staticmethod
     def _safe_sin_theta(theta_deg):

@@ -238,6 +238,39 @@ def test_iterative_solvers_do_not_materialize_dense_system(monkeypatch, solver_n
     np.testing.assert_allclose(solution, expected, rtol=1e-10, atol=1e-10)
 
 
+@pytest.mark.parametrize("solver_name", ["lsmr", "cgls"])
+def test_iterative_jacobi_preconditioner_does_not_materialize_dense_system(
+    monkeypatch, solver_name
+):
+    """Jacobi-preconditioned iterative solves stay matrix-free."""
+    A = np.array([[2.0, 0.0], [0.0, 3.0], [1.0, -1.0], [1.0, 2.0]])
+    rhs = np.array([[1.0, 2.0], [3.0, 1.0], [0.5, -2.0], [1.5, 0.0]])
+    problem = LeastSquaresProblem(A=A, solution_shape=2, data_shapes=4)
+    solver = LeastSquaresSolver(
+        solver=solver_name,
+        tolerance=1e-12,
+        preconditioner="jacobi",
+    )
+
+    def fail_dense_assembly():
+        raise AssertionError(
+            "jacobi-preconditioned iterative solvers should not assemble dense systems"
+        )
+
+    monkeypatch.setattr(problem, "assemble_dense_system_matrix", fail_dense_assembly)
+
+    preconditioner = solver.build_preconditioner(problem)
+    solution = solver.solve(
+        problem,
+        rhs,
+        preconditioner=preconditioner,
+        maxiter=200,
+    )
+
+    expected = np.linalg.lstsq(A, rhs, rcond=None)[0]
+    np.testing.assert_allclose(solution, expected, rtol=1e-10, atol=1e-10)
+
+
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
 @pytest.mark.parametrize("solver_name", ["cgls", "lsmr"])
 @pytest.mark.parametrize("preconditioner_type", [None, "jacobi", "pinv"])

@@ -213,7 +213,7 @@ class Dynamics(object):
         self.output_field_spaces = self.schema.output_field_spaces
         self.output_timeseries = self.data.output_timeseries
 
-        self.interpolation_bases = self.schema.interpolation_bases
+        self.input_projection_bases = self.schema.input_projection_bases
 
         input_grid = Grid(
             theta=self.cs_basis.arr_theta,
@@ -224,7 +224,7 @@ class Dynamics(object):
             key: SphericalTransform(
                 self.input_field_spaces[key].representation,
                 input_grid,
-                interpolation_basis=self.cs_basis,
+                grid_remap_basis=self.cs_basis,
                 area_weighted=bool(self.settings.area_weighted_least_squares),
             )
             for key in self.input_vars
@@ -893,7 +893,7 @@ class Dynamics(object):
                 projected_values = project(
                     values,
                     input_grid=input_grid,
-                    projection_basis=self.interpolation_bases[key],
+                    projection_basis=self.input_projection_bases[key],
                     sqrt_weights=sqrt_weights,
                     reg_lambda=reg_lambda,
                     pinv_rtol=pinv_rtol,
@@ -943,7 +943,7 @@ class Dynamics(object):
         projected = transform.project_scalar(
             combined,
             input_grid=input_grid,
-            projection_basis=self.interpolation_bases[key],
+            projection_basis=self.input_projection_bases[key],
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,

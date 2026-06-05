@@ -127,6 +127,28 @@ def test_grid_hash_matches_equivalent_coordinates():
     assert not first.coefficients_are_compatible_with(different)
 
 
+def test_csbasis_native_grid_comparison_uses_grid_hash(monkeypatch):
+    """Native CS Grid matching delegates to Grid.same_as."""
+    cs_basis = CSBasis(4)
+    grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
+
+    def fail_allclose(*args, **kwargs):
+        raise AssertionError("Grid-native comparison should use coordinate hashes")
+
+    monkeypatch.setattr(
+        "pynamit.sphere.cubed_sphere.cs_basis.np.allclose",
+        fail_allclose,
+    )
+
+    assert cs_basis._is_native_grid(grid)
+    grid_like = type(
+        "GridLike",
+        (),
+        {"theta": cs_basis.arr_theta + 1e-10, "phi": cs_basis.arr_phi - 1e-10},
+    )()
+    assert cs_basis._is_native_grid(grid_like)
+
+
 def test_basis_coefficient_compatibility_uses_coefficient_space():
     """Compatibility depends on coefficient layout."""
     sh_basis = SHBasis(3, 2)

@@ -232,6 +232,40 @@ def test_m_imp_solve_uses_shaped_response_operators():
     )
 
 
+def test_m_imp_problem_uses_jr_apex_operator_without_dense_property():
+    """The jr constraint should use Geometry's LinearMap directly."""
+    n = 3
+    jr_to_apex = np.arange(n * n, dtype=float).reshape(n, n) / 10.0
+    m_imp_to_jr = np.diag(np.array([2.0, 3.0, 5.0]))
+
+    class GeometryStub:
+        jr_coeffs_to_j_apex_operator = as_linear_map(
+            jr_to_apex,
+            input_shape=(n,),
+            output_shape=(n,),
+        )
+        m_imp_to_jr_operator = as_linear_map(m_imp_to_jr)
+
+        @property
+        def jr_coeffs_to_j_apex(self):
+            raise AssertionError("m_imp_problem should use the LinearMap operator")
+
+    state = object.__new__(State)
+    state.basis = SimpleNamespace(index_length=n)
+    state.geometry = GeometryStub()
+    state._m_imp_problem = None
+    state._E_map_constraint_cache = None
+    state.connect_hemispheres = False
+    state.m_imp_regularization_lambda = 0.0
+
+    problem = state.m_imp_problem
+
+    np.testing.assert_allclose(
+        problem.get_system_linear_map().dense(backend="numpy"),
+        jr_to_apex @ m_imp_to_jr,
+    )
+
+
 def test_model_operator_accessors_match_runtime_operator_chain():
     """Dense accessors should expose the same E_df/rate operators."""
     n = 3
