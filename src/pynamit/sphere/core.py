@@ -205,13 +205,7 @@ class SphericalRepresentation(ABC):
 class SphericalBasis(SphericalRepresentation):
     """Abstract metadata interface for spherical bases."""
 
-    required_attributes = SphericalRepresentation.required_attributes + ("caching",)
-
-    @property
-    @abstractmethod
-    def caching(self):
-        """Whether basis evaluations can be cached."""
-        pass
+    required_attributes = SphericalRepresentation.required_attributes
 
 
 class GridBasis(SphericalBasis):
@@ -223,7 +217,6 @@ class GridBasis(SphericalBasis):
         self._index_names = None
         self._index_length = None
         self._index_arrays = None
-        self._caching = False
 
     @property
     def kind(self):
@@ -261,14 +254,74 @@ class GridBasis(SphericalBasis):
     def index_arrays(self, value):
         self._index_arrays = value
 
-    @property
-    def caching(self):
-        """Whether basis evaluations can be cached."""
-        return self._caching
 
-    @caching.setter
-    def caching(self, value):
-        self._caching = bool(value)
+class SurfaceEvaluator:
+    """Grid-bound evaluator for surface operators."""
+
+    def __init__(self, basis, grid):
+        """Bind ``basis`` evaluations to one ``grid``."""
+        self.basis = basis
+        self.grid = grid
+
+    def evaluate(self, derivative=None):
+        """Evaluate scalar basis functions or derivatives."""
+        return self.basis.evaluate_on_grid(self.grid, derivative=derivative)
+
+    def scalar_evaluation_matrix(self):
+        """Return the scalar coefficient-to-grid matrix."""
+        return _backend_array(
+            self.evaluate(),
+            getattr(self.grid, "theta", None),
+            getattr(self.grid, "phi", None),
+        )
+
+    def scalar_evaluation_operator(self, derivative=None):
+        """Return the scalar coefficient-to-grid operator."""
+        matrix = self.evaluate(derivative=derivative)
+        return as_linear_map(
+            matrix,
+            input_shape=(self.basis.index_length,),
+            output_shape=matrix.shape[:-1],
+        )
+
+    def surface_gradient_matrix(self):
+        """Return ``[d_theta, sin(theta)^-1 d_phi]`` on the grid."""
+        return self.basis.get_surface_gradient_matrix(self.grid)
+
+    def surface_gradient_operator(self):
+        """Return the scalar-to-vector surface-gradient operator."""
+        matrix = self.surface_gradient_matrix()
+        return as_linear_map(
+            matrix,
+            input_shape=(self.basis.index_length,),
+            output_shape=matrix.shape[:-1],
+        )
+
+    def rhat_cross_gradient_matrix(self):
+        """Return the tangential ``rhat x grad`` operator."""
+        return self.basis.get_rhat_cross_gradient_matrix(self.grid)
+
+    def rhat_cross_gradient_operator(self):
+        """Return the scalar-to-vector ``rhat x grad`` operator."""
+        matrix = self.rhat_cross_gradient_matrix()
+        return as_linear_map(
+            matrix,
+            input_shape=(self.basis.index_length,),
+            output_shape=matrix.shape[:-1],
+        )
+
+    def helmholtz_synthesis_matrix(self):
+        """Return the Helmholtz synthesis tensor on the grid."""
+        return self.basis.get_helmholtz_synthesis_matrix(self.grid)
+
+    def helmholtz_synthesis_operator(self):
+        """Return the Helmholtz-potential-to-vector operator."""
+        matrix = self.helmholtz_synthesis_matrix()
+        return as_linear_map(
+            matrix,
+            input_shape=(2, self.basis.index_length),
+            output_shape=matrix.shape[:2],
+        )
 
 
 class SurfaceOperators(SphericalBasis):
@@ -281,8 +334,12 @@ class SurfaceOperators(SphericalBasis):
     component of ``curl(F)`` is ``laplacian(psi)``.
     """
 
+    def evaluator_for_grid(self, grid):
+        """Return an evaluator bound to ``grid``."""
+        return SurfaceEvaluator(self, grid)
+
     @abstractmethod
-    def evaluate_on_grid(self, grid, derivative=None, cache_in=None, cache_out=False):
+    def evaluate_on_grid(self, grid, derivative=None):
         """Evaluate basis functions or derivatives on ``grid``."""
         pass
 
@@ -452,8 +509,6 @@ class BasisView(SurfaceOperators):
         self.index_arrays = self._slice_index_arrays(
             parent_basis, self._parent_coefficient_indices
         )
-        self.caching = parent_basis.caching
-
         for name, values in zip(self.index_names, self.index_arrays):
             if isinstance(name, str) and name.isidentifier() and not hasattr(self, name):
                 setattr(self, name, values)
@@ -576,15 +631,6 @@ class BasisView(SurfaceOperators):
     def index_arrays(self, value):
         self._index_arrays = value
 
-    @property
-    def caching(self):
-        """Whether basis evaluations can be cached."""
-        return self._caching
-
-    @caching.setter
-    def caching(self, value):
-        self._caching = bool(value)
-
     def _slice_coefficient_operator(self, values, operator_name):
         """Slice a parent coefficient-space operator to this view."""
         indices = self._parent_coefficient_indices
@@ -614,17 +660,12 @@ class BasisView(SurfaceOperators):
             return array[indices][:, indices]
         raise ValueError(f"{operator_name} must be a 1-D or square 2-D coefficient operator.")
 
-    def evaluate_on_grid(self, grid, derivative=None, cache_in=None, cache_out=False):
+    def evaluate_on_grid(self, grid, derivative=None):
         """Evaluate the viewed basis functions on ``grid``."""
         result = self.parent_basis.evaluate_on_grid(
             grid,
             derivative=derivative,
-            cache_in=cache_in,
-            cache_out=cache_out,
         )
-        if cache_out:
-            matrix, cache = result
-            return matrix[:, self._parent_coefficient_indices], cache
         return result[:, self._parent_coefficient_indices]
 
     def laplacian(self, r=1.0):

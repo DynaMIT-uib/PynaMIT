@@ -100,6 +100,158 @@ def test_spherical_transform_projects_tangential_grid_values():
     np.testing.assert_allclose(actual[0], expected.reshape(-1), atol=1e-10)
 
 
+def test_spherical_transform_least_squares_use_operator_properties():
+    """Least-squares setup should not force dense attributes."""
+    basis = SHBasis(3, 2, mean_free=True)
+    grid = _regular_grid()
+    transform = SphericalTransform(basis, grid)
+
+    scalar_problem = transform.scalar_least_squares_problem
+    helmholtz_problem = transform.helmholtz_least_squares_problem
+
+    assert scalar_problem.A[0] is transform.scalar_coeffs_to_grid_operator
+    assert helmholtz_problem.A[0] is transform.helmholtz_coeffs_to_gridded_vector_operator
+    assert not hasattr(transform, "_scalar_coeffs_to_grid")
+    assert not hasattr(transform, "_helmholtz_coeffs_to_gridded_vector")
+
+
+def test_native_cs_transform_synthesizes_from_sparse_operator_paths(monkeypatch):
+    """Native CS synthesis can apply sparse operators."""
+    basis = CSBasis(4)
+    grid = Grid(theta=basis.arr_theta, phi=basis.arr_phi, area_weights=basis.unit_area)
+    transform = SphericalTransform(basis, grid)
+    bundle = basis._get_derivative_bundle()
+    theta = bundle["theta"].toarray()
+    phi = bundle["phi"].toarray()
+
+    scalar_coeffs = np.linspace(0.0, 1.0, basis.index_length)
+    vector_coeffs = np.vstack([scalar_coeffs, scalar_coeffs[::-1]])
+    expected_helmholtz = np.stack(
+        [
+            -theta @ vector_coeffs[0] - phi @ vector_coeffs[1],
+            -phi @ vector_coeffs[0] + theta @ vector_coeffs[1],
+        ]
+    )
+
+    def fail_evaluate_on_grid(*args, **kwargs):
+        raise AssertionError("native CS synthesis should use operator paths")
+
+    monkeypatch.setattr(basis, "evaluate_on_grid", fail_evaluate_on_grid)
+
+    np.testing.assert_allclose(transform.synthesize_scalar(scalar_coeffs), scalar_coeffs)
+    np.testing.assert_allclose(
+        transform.synthesize_scalar(scalar_coeffs, derivative="theta"),
+        theta @ scalar_coeffs,
+    )
+    np.testing.assert_allclose(
+        transform.synthesize_scalar(scalar_coeffs, derivative="phi"),
+        phi @ scalar_coeffs,
+    )
+    np.testing.assert_allclose(
+        transform.synthesize_helmholtz(vector_coeffs),
+        expected_helmholtz,
+    )
+    assert not hasattr(transform, "_scalar_coeffs_to_grid")
+    assert not hasattr(transform, "_helmholtz_coeffs_to_gridded_vector")
+
+
+def test_spherical_transform_batches_scalar_grid_interpolation(monkeypatch):
+    """Scalar projection batches interpolation rows."""
+    basis = SHBasis(3, 2, mean_free=True)
+    interpolation_basis = CSBasis(8)
+    target_grid = Grid(
+        theta=interpolation_basis.arr_theta,
+        phi=interpolation_basis.arr_phi,
+        area_weights=interpolation_basis.unit_area,
+    )
+    input_grid = _regular_grid()
+    values = np.vstack(
+        [
+            np.sin(np.deg2rad(input_grid.theta)),
+            np.cos(np.deg2rad(input_grid.phi)),
+        ]
+    )
+    transform = SphericalTransform(
+        basis,
+        target_grid,
+        interpolation_basis=interpolation_basis,
+    )
+    calls = 0
+    original = interpolation_basis.interpolate_scalar
+
+    def counted_interpolate_scalar(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        interpolation_basis,
+        "interpolate_scalar",
+        counted_interpolate_scalar,
+    )
+
+    projected = transform.project_scalar(
+        values,
+        input_grid=input_grid,
+        projection_basis=interpolation_basis,
+    )
+
+    assert calls == 1
+    assert projected.shape == (2, basis.index_length)
+
+
+def test_spherical_transform_batches_helmholtz_grid_interpolation(monkeypatch):
+    """Helmholtz projection batches vector interpolation rows."""
+    basis = SHBasis(3, 2, mean_free=True)
+    interpolation_basis = CSBasis(8)
+    target_grid = Grid(
+        theta=interpolation_basis.arr_theta,
+        phi=interpolation_basis.arr_phi,
+        area_weights=interpolation_basis.unit_area,
+    )
+    input_grid = _regular_grid()
+    theta_values = np.vstack(
+        [
+            np.sin(np.deg2rad(input_grid.theta)),
+            np.cos(np.deg2rad(input_grid.theta)),
+        ]
+    )
+    phi_values = np.vstack(
+        [
+            np.cos(np.deg2rad(input_grid.phi)),
+            np.sin(np.deg2rad(input_grid.phi)),
+        ]
+    )
+    values = np.stack([theta_values, phi_values], axis=1)
+    transform = SphericalTransform(
+        basis,
+        target_grid,
+        interpolation_basis=interpolation_basis,
+    )
+    calls = 0
+    original = interpolation_basis.interpolate_vector_components
+
+    def counted_interpolate_vector_components(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        interpolation_basis,
+        "interpolate_vector_components",
+        counted_interpolate_vector_components,
+    )
+
+    projected = transform.project_helmholtz(
+        values,
+        input_grid=input_grid,
+        projection_basis=interpolation_basis,
+    )
+
+    assert calls == 1
+    assert projected.shape == (2, 2 * basis.index_length)
+
+
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
 def test_spherical_transform_synthesis_preserves_jax_backend():
     """Coefficient-to-grid synthesis uses LinearMap backend handling."""

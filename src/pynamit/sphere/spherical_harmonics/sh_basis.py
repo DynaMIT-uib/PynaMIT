@@ -7,7 +7,7 @@ from packaging import version
 import scipy
 
 from pynamit.math.backend import get_array_module, to_numpy
-from pynamit.sphere.core import BasisView, SurfaceOperators
+from pynamit.sphere.core import BasisView, SurfaceEvaluator, SurfaceOperators
 from pynamit.sphere.spherical_harmonics.helpers import (
     SHIndices,
     schmidt_quasi_normalization_factors,
@@ -29,6 +29,43 @@ else:
     # Define assoc_legendre_p_all as None so the name exists for type
     # hinting/clarity.
     assoc_legendre_p_all = None
+
+
+class _SHSurfaceEvaluator(SurfaceEvaluator):
+    """Grid-bound SH evaluator with cached Legendre intermediates."""
+
+    def __init__(self, basis, grid):
+        """Bind one SH basis to one grid."""
+        super().__init__(basis, grid)
+        self._legendre_cache = {}
+
+    def evaluate(self, derivative=None):
+        """Evaluate SH basis functions or derivatives."""
+        return self.basis._evaluate_on_grid(
+            self.grid,
+            derivative=derivative,
+            legendre_cache=self._legendre_cache,
+        )
+
+    def surface_gradient_matrix(self):
+        """Return cached SH surface-gradient matrices."""
+        theta_matrix = self.evaluate(derivative="theta")
+        phi_matrix = self.evaluate(derivative="phi")
+        xp = get_array_module(theta_matrix, phi_matrix)
+        return xp.stack([xp.asarray(theta_matrix), xp.asarray(phi_matrix)])
+
+    def rhat_cross_gradient_matrix(self):
+        """Return cached SH ``rhat x grad`` matrices."""
+        gradient = self.surface_gradient_matrix()
+        xp = get_array_module(gradient)
+        return xp.stack([-gradient[1], gradient[0]])
+
+    def helmholtz_synthesis_matrix(self):
+        """Return cached SH Helmholtz synthesis matrices."""
+        gradient = self.surface_gradient_matrix()
+        xp = get_array_module(gradient)
+        rotated_gradient = xp.stack([-gradient[1], gradient[0]])
+        return xp.stack([-gradient, rotated_gradient], axis=2)
 
 
 def _double_factorial(n):
@@ -150,7 +187,6 @@ class SHBasis(SurfaceOperators):
         self.index_names = ["n", "m"]
         self.index_length = len(self.cnm.index_pairs) + len(self.snm.index_pairs)
         self.index_arrays = [self.n, self.m]
-        self.caching = True
         self.validate_metadata()
 
     @property
@@ -200,14 +236,9 @@ class SHBasis(SurfaceOperators):
     def index_arrays(self, value):
         self._index_arrays = value
 
-    @property
-    def caching(self):
-        """Whether basis evaluations can be cached."""
-        return self._caching
-
-    @caching.setter
-    def caching(self, value):
-        self._caching = bool(value)
+    def evaluator_for_grid(self, grid):
+        """Return a grid-bound SH evaluator."""
+        return _SHSurfaceEvaluator(self, grid)
 
     def scalar_fields_are_mean_free_by_construction(self):
         """Return whether scalar coefficients omit the monopole."""
@@ -351,14 +382,18 @@ class SHBasis(SurfaceOperators):
         dP_scaled = dP_std * self.scipy_scaling_factors if compute_derivative else None
         return P_scaled, dP_scaled
 
-    def evaluate_on_grid(self, grid, derivative=None, cache_in=None, cache_out=False):
+    def evaluate_on_grid(self, grid, derivative=None):
+        """Evaluate scalar basis or surface derivatives on ``grid``."""
+        return self._evaluate_on_grid(grid, derivative=derivative)
+
+    def _evaluate_on_grid(self, grid, derivative=None, legendre_cache=None):
         """Evaluate scalar basis or surface derivatives on ``grid``."""
         xp = get_array_module(grid.phi, grid.theta)
         phi = np.deg2rad(to_numpy(grid.phi))
         theta = np.deg2rad(to_numpy(grid.theta))
-        cached_P, cached_dP = (
-            cache_in if isinstance(cache_in, tuple) else (cache_in, None)
-        )
+        cache = legendre_cache
+        cached_P = None if cache is None else cache.get("P_unnormalized")
+        cached_dP = None if cache is None else cache.get("dP_unnormalized")
         sin_theta_values = np.sin(theta)
         needs_legendre_derivative = derivative == "theta" or (
             derivative == "phi" and np.any(np.abs(sin_theta_values) <= 1e-12)
@@ -385,6 +420,11 @@ class SHBasis(SurfaceOperators):
                 P_unnormalized, dP_unnormalized = self._get_legendre_scipy(
                     theta, compute_derivative=needs_legendre_derivative
                 )
+
+        if cache is not None:
+            cache["P_unnormalized"] = P_unnormalized
+            if dP_unnormalized is not None:
+                cache["dP_unnormalized"] = dP_unnormalized
 
         P = P_unnormalized * self.schmidt_factors
         dP = dP_unnormalized * self.schmidt_factors if dP_unnormalized is not None else None
@@ -417,15 +457,7 @@ class SHBasis(SurfaceOperators):
         else:
             raise ValueError(f'Invalid derivative "{derivative}".')
 
-        matrix = xp.asarray(np.hstack((Gc, Gs)))
-        if cache_out:
-            cache = (
-                (P_unnormalized, dP_unnormalized)
-                if dP_unnormalized is not None
-                else P_unnormalized
-            )
-            return matrix, cache
-        return matrix
+        return xp.asarray(np.hstack((Gc, Gs)))
 
     def legendre(self, theta):
         """Compute un-normalized Legendre functions."""

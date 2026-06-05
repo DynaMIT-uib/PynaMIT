@@ -163,6 +163,7 @@ class State:
         self._E_direct_to_m_imp_matrix: Optional[np.ndarray] = None
         self._jr_to_m_imp_operator: Optional[LinearMap] = None
         self._E_direct_to_m_imp_operator: Optional[LinearMap] = None
+        self._m_imp_response_solver = None
         self._direct_E_coeffs_to_total_E_coeffs_operator: Optional[LinearMap] = None
         self._direct_E_coeffs_to_E_df_operator: Optional[LinearMap] = None
         self._m_imp_problem: Optional[LeastSquaresProblem] = None
@@ -360,6 +361,117 @@ class State:
             )
             self._m_imp_preconditioner_ready = True
         return self._m_imp_preconditioner
+
+    def _get_m_imp_response_solver(self):
+        """Return a cached m_imp response solver."""
+        if self._m_imp_response_solver is None:
+            self._m_imp_response_solver = self.m_imp_solver.build_response_solver(
+                self.m_imp_problem,
+                preconditioner=self.m_imp_preconditioner,
+            )
+        return self._m_imp_response_solver
+
+    def _use_lazy_m_imp_response_operators(self) -> bool:
+        """Return whether m_imp responses should solve per apply."""
+        return self.m_imp_solver.solver in ("lsmr", "cgls")
+
+    def _create_m_imp_response_operator(
+        self,
+        *,
+        term_index: int,
+        rhs_operator: LinearMap,
+        input_shape: tuple[int, ...],
+    ) -> LinearMap:
+        """Create a lazy response map from one RHS source to m_imp."""
+        problem = self.m_imp_problem
+        output_size = self.basis.index_length
+        output_shape = (output_size,)
+        input_size = int(np.prod(input_shape))
+        rhs_operator = as_linear_map(
+            rhs_operator,
+            input_shape=input_shape,
+            output_shape=problem.A[term_index].output_shape,
+        )
+
+        def solve_rhs_block(rhs_block):
+            rhs_entries = [None] * problem.num_data_terms
+            rhs_entries[term_index] = rhs_block
+            return self._get_m_imp_response_solver()(rhs_entries)
+
+        def matmat(block):
+            xp = get_array_module(block, *rhs_operator.backend_context)
+            block_arr = xp.asarray(block).reshape(input_size, -1)
+            rhs_block = rhs_operator.matmat(block_arr).reshape(
+                rhs_operator.output_shape + (-1,)
+            )
+            solution = solve_rhs_block(rhs_block)
+            return xp.asarray(solution).reshape(output_size, -1)
+
+        def matvec(vec):
+            xp = get_array_module(vec, *rhs_operator.backend_context)
+            return matmat(xp.asarray(vec).reshape(input_size, 1)).reshape(output_size)
+
+        dense_cache = {}
+
+        def dense_array(xp):
+            key = getattr(xp, "__name__", repr(xp))
+            if key not in dense_cache:
+                dense_cache[key] = xp.asarray(matmat(xp.eye(input_size)))
+            return dense_cache[key]
+
+        def rmatmat(block):
+            xp = get_array_module(block, *rhs_operator.backend_context)
+            block_arr = xp.asarray(block).reshape(output_size, -1)
+            adjoint = xp.swapaxes(xp.conjugate(dense_array(xp)), -2, -1)
+            return adjoint @ block_arr
+
+        def rmatvec(vec):
+            xp = get_array_module(vec, *rhs_operator.backend_context)
+            return rmatmat(xp.asarray(vec).reshape(output_size, 1)).reshape(input_size)
+
+        return LinearMap(
+            shape=(output_size, input_size),
+            dtype=rhs_operator.dtype,
+            _matvec=matvec,
+            _rmatvec=rmatvec,
+            _matmat=matmat,
+            _rmatmat=rmatmat,
+            _dense_array_func=dense_array,
+            _backend_context=rhs_operator.backend_context,
+            output_shape=output_shape,
+            input_shape=input_shape,
+        )
+
+    def _create_jr_to_m_imp_response_operator(self) -> LinearMap:
+        """Create a lazy radial-current response."""
+        rhs_operator = as_linear_map(
+            self.geometry.jr_coeffs_to_j_apex,
+            input_shape=(self.basis.index_length,),
+            output_shape=self.m_imp_problem.A[0].output_shape,
+        )
+        return self._create_m_imp_response_operator(
+            term_index=0,
+            rhs_operator=rhs_operator,
+            input_shape=(self.basis.index_length,),
+        )
+
+    def _create_E_direct_to_m_imp_response_operator(self) -> Optional[LinearMap]:
+        """Create a lazy direct-E to imposed-potential response."""
+        if not self.connect_hemispheres or self._E_map_constraint is None:
+            return None
+        if self.m_imp_problem.num_data_terms < 2:
+            return None
+        n = self.basis.index_length
+        rhs_operator = as_linear_map(
+            -self.ih_constraint_scaling * self.geometry.E_coeffs_to_E_apex_ll_diff,
+            input_shape=(2, n),
+            output_shape=self.m_imp_problem.A[1].output_shape,
+        )
+        return self._create_m_imp_response_operator(
+            term_index=1,
+            rhs_operator=rhs_operator,
+            input_shape=(2, n),
+        )
 
     def _build_m_imp_response_matrices(self) -> None:
         """Construct dense response matrices for the m_imp solve."""

@@ -322,6 +322,26 @@ def test_sparse_linear_map_uses_sparse_normal_diagonal():
     np.testing.assert_allclose(linear_map.dense(backend="numpy"), matrix)
 
 
+@pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
+def test_sparse_linear_map_preserves_explicit_jax_inputs_when_numpy_active():
+    """Sparse maps follow explicit JAX operands."""
+    import jax.numpy as jnp
+
+    previous_backend = use_jax()
+    matrix = np.array([[2.0, 0.0], [0.0, 3.0], [1.0, -1.0]])
+    x = np.array([0.25, -2.0])
+
+    try:
+        set_backend("numpy")
+        linear_map = as_linear_map(csr_matrix(matrix))
+        result = linear_map.matvec(jnp.asarray(x))
+    finally:
+        set_backend(previous_backend)
+
+    assert "jax" in type(result).__module__
+    np.testing.assert_allclose(np.asarray(result), matrix @ x)
+
+
 def test_composed_linear_map_normal_diagonal_uses_matmat_path():
     """Composed maps do not densify for normal diagonals."""
     matrix = np.array([[1.0, 2.0], [3.0, -1.0], [0.5, 4.0]])

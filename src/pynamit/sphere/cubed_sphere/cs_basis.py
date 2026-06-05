@@ -9,15 +9,145 @@ from pynamit.sphere.cubed_sphere import diffutils
 from pynamit.sphere.cubed_sphere import arrayutils
 import os
 from scipy.special import binom
+import scipy.sparse as sp
 from scipy.sparse import coo_matrix
 from scipy.interpolate import griddata
 
 from pynamit.math import as_linear_map
 from pynamit.math.backend import get_array_module, to_numpy
-from pynamit.sphere.core import GridBasis, SurfaceOperators
+from pynamit.sphere.core import GridBasis, SurfaceEvaluator, SurfaceOperators
 
 d2r = np.pi / 180
 datapath = os.path.dirname(os.path.abspath(__file__)) + "/data/"
+
+
+class _CSSurfaceEvaluator(SurfaceEvaluator):
+    """Grid-bound CS evaluator with cached matrices."""
+
+    def __init__(self, basis, grid):
+        """Bind one CS basis to one grid."""
+        super().__init__(basis, grid)
+        self._matrix_cache = {}
+        self._operator_cache = {}
+
+    def evaluate(self, derivative=None):
+        """Evaluate and cache CS scalar or derivative matrices."""
+        key = ("evaluate", derivative)
+        if key not in self._matrix_cache:
+            self._matrix_cache[key] = self.basis.evaluate_on_grid(
+                self.grid,
+                derivative=derivative,
+            )
+        return self._matrix_cache[key]
+
+    def surface_gradient_matrix(self):
+        """Return cached CS surface-gradient matrices."""
+        key = "surface_gradient"
+        if key not in self._matrix_cache:
+            self._matrix_cache[key] = self.basis.get_surface_gradient_matrix(self.grid)
+        return self._matrix_cache[key]
+
+    def rhat_cross_gradient_matrix(self):
+        """Return cached CS ``rhat x grad`` matrices."""
+        key = "rhat_cross_gradient"
+        if key not in self._matrix_cache:
+            if self.basis._is_native_grid(self.grid):
+                gradient = self.surface_gradient_matrix()
+                xp = get_array_module(gradient)
+                self._matrix_cache[key] = xp.stack([-gradient[1], gradient[0]])
+            else:
+                self._matrix_cache[key] = self.basis.get_rhat_cross_gradient_matrix(
+                    self.grid
+                )
+        return self._matrix_cache[key]
+
+    def helmholtz_synthesis_matrix(self):
+        """Return cached CS Helmholtz synthesis matrices."""
+        key = "helmholtz_synthesis"
+        if key not in self._matrix_cache:
+            gradient = self.surface_gradient_matrix()
+            rhat_cross_gradient = self.rhat_cross_gradient_matrix()
+            xp = get_array_module(gradient, rhat_cross_gradient)
+            self._matrix_cache[key] = xp.stack(
+                [-xp.asarray(gradient), xp.asarray(rhat_cross_gradient)],
+                axis=2,
+            )
+        return self._matrix_cache[key]
+
+    def scalar_evaluation_operator(self, derivative=None):
+        """Return cached CS scalar or derivative operators."""
+        key = ("scalar_evaluation", derivative)
+        if key not in self._operator_cache:
+            if self.basis._is_native_grid(self.grid):
+                if derivative is None:
+                    matrix = sp.eye(self.basis.index_length, format="csr")
+                elif derivative in {"theta", "phi"}:
+                    matrix = self.basis._get_derivative_bundle()[derivative]
+                else:
+                    raise ValueError(f'Invalid derivative "{derivative}".')
+                self._operator_cache[key] = as_linear_map(
+                    matrix,
+                    input_shape=(self.basis.index_length,),
+                    output_shape=(self.basis.index_length,),
+                )
+            else:
+                self._operator_cache[key] = super().scalar_evaluation_operator(
+                    derivative=derivative
+                )
+        return self._operator_cache[key]
+
+    def surface_gradient_operator(self):
+        """Return cached CS surface-gradient operator."""
+        key = "surface_gradient"
+        if key not in self._operator_cache:
+            if self.basis._is_native_grid(self.grid):
+                bundle = self.basis._get_derivative_bundle()
+                matrix = sp.vstack([bundle["theta"], bundle["phi"]], format="csr")
+                self._operator_cache[key] = as_linear_map(
+                    matrix,
+                    input_shape=(self.basis.index_length,),
+                    output_shape=(2, self.basis.index_length),
+                )
+            else:
+                self._operator_cache[key] = super().surface_gradient_operator()
+        return self._operator_cache[key]
+
+    def rhat_cross_gradient_operator(self):
+        """Return cached CS ``rhat x grad`` operator."""
+        key = "rhat_cross_gradient"
+        if key not in self._operator_cache:
+            if self.basis._is_native_grid(self.grid):
+                bundle = self.basis._get_derivative_bundle()
+                matrix = sp.vstack([-bundle["phi"], bundle["theta"]], format="csr")
+                self._operator_cache[key] = as_linear_map(
+                    matrix,
+                    input_shape=(self.basis.index_length,),
+                    output_shape=(2, self.basis.index_length),
+                )
+            else:
+                self._operator_cache[key] = super().rhat_cross_gradient_operator()
+        return self._operator_cache[key]
+
+    def helmholtz_synthesis_operator(self):
+        """Return cached CS Helmholtz synthesis operator."""
+        key = "helmholtz_synthesis"
+        if key not in self._operator_cache:
+            if self.basis._is_native_grid(self.grid):
+                bundle = self.basis._get_derivative_bundle()
+                theta = bundle["theta"]
+                phi = bundle["phi"]
+                matrix = sp.bmat(
+                    [[-theta, -phi], [-phi, theta]],
+                    format="csr",
+                )
+                self._operator_cache[key] = as_linear_map(
+                    matrix,
+                    input_shape=(2, self.basis.index_length),
+                    output_shape=(2, self.basis.index_length),
+                )
+            else:
+                self._operator_cache[key] = super().helmholtz_synthesis_operator()
+        return self._operator_cache[key]
 
 
 class CSBasis(GridBasis, SurfaceOperators):
@@ -150,13 +280,16 @@ class CSBasis(GridBasis, SurfaceOperators):
             self.index_length = self.arr_theta.size
             self.index_arrays = [self.arr_theta, self.arr_phi]
 
-            self.caching = False
             self.validate_metadata()
 
     @property
     def coefficient_space_signature(self):
         """Return a signature for CS coefficient compatibility."""
         return ("CS", int(self.N))
+
+    def evaluator_for_grid(self, grid):
+        """Return a grid-bound CS evaluator."""
+        return _CSSurfaceEvaluator(self, grid)
 
     @staticmethod
     def _spherical_triangle_area(a, b, c):
@@ -309,9 +442,8 @@ class CSBasis(GridBasis, SurfaceOperators):
             }
         return self._derivative_bundle
 
-    def evaluate_on_grid(self, grid, derivative=None, cache_in=None, cache_out=False):
+    def evaluate_on_grid(self, grid, derivative=None):
         """Evaluate CS nodal basis or derivatives."""
-        del cache_in
         import scipy.sparse as sp
 
         xp = get_array_module(getattr(grid, "theta", None), getattr(grid, "phi", None))
@@ -334,10 +466,7 @@ class CSBasis(GridBasis, SurfaceOperators):
         else:
             raise ValueError(f'Invalid derivative "{derivative}".')
 
-        matrix = xp.asarray(matrix)
-        if cache_out:
-            return matrix, None
-        return matrix
+        return xp.asarray(matrix)
 
     def _grid_to_cs_indices(self, grid):
         """Return CS face and cell-center indices."""
@@ -1548,9 +1677,7 @@ class CSBasis(GridBasis, SurfaceOperators):
         u_vec_sph = np.stack([u_east_values, u_north_values, u_r_values], axis=1)
         u_vec = np.einsum("nij,nj...->ni...", Ps_normalized, u_vec_sph)
 
-        interpolated_u1 = np.empty((block.size,) + value_shape, dtype=np.float64)
-        interpolated_u2 = np.empty((block.size,) + value_shape, dtype=np.float64)
-        interpolated_u3 = np.empty((block.size,) + value_shape, dtype=np.float64)
+        interpolated_u = np.empty((block.size, 3) + value_shape, dtype=np.float64)
 
         # Loop over blocks and interpolate on each block.
         for i in range(6):
@@ -1568,32 +1695,19 @@ class CSBasis(GridBasis, SurfaceOperators):
 
             xi_, eta_, _ = self.geo2cube(phi, 90 - theta, block=i)
 
-            interpolated_u1[block == i] = griddata(
+            interpolated_u[block == i] = griddata(
                 np.vstack((xi_[mask], eta_[mask])).T,
-                u_vec_i[mask, 0],
-                np.vstack((xi[block == i], eta[block == i])).T,
-                **kwargs,
-            )
-            interpolated_u2[block == i] = griddata(
-                np.vstack((xi_[mask], eta_[mask])).T,
-                u_vec_i[mask, 1],
-                np.vstack((xi[block == i], eta[block == i])).T,
-                **kwargs,
-            )
-            interpolated_u3[block == i] = griddata(
-                np.vstack((xi_[mask], eta_[mask])).T,
-                u_vec_i[mask, 2],
+                u_vec_i[mask],
                 np.vstack((xi[block == i], eta[block == i])).T,
                 **kwargs,
             )
 
         # Convert back to spherical.
         _, theta_out, _ = self.cube2spherical(xi, eta, block, deg=True)
-        u = np.stack([interpolated_u1, interpolated_u2, interpolated_u3], axis=1)
         Q = self.get_Q(90 - theta_out, r=1, inverse=False)
         Ps_inv = self.get_Ps(xi, eta, r=1, block=block, inverse=True)
         Ps_normalized_inv = np.einsum("nij, njk -> nik", Q, Ps_inv)
-        interpolated = np.einsum("nij,nj...->ni...", Ps_normalized_inv, u)
+        interpolated = np.einsum("nij,nj...->ni...", Ps_normalized_inv, interpolated_u)
         u_east_int = interpolated[:, 0].reshape(target_shape + value_shape)
         u_north_int = interpolated[:, 1].reshape(target_shape + value_shape)
         u_r_int = interpolated[:, 2].reshape(target_shape + value_shape)

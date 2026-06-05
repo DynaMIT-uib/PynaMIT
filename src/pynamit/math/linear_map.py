@@ -750,18 +750,42 @@ def _linear_map_from_scipy_sparse(
     shape = tuple(int(dim) for dim in sparse.shape)
     out_shape, in_shape = _map_shapes(shape, input_shape, output_shape)
     dtype = sparse.dtype
+    dense_cache: dict[str, Any] = {}
+    adjoint_dense_cache: dict[str, Any] = {}
+
+    def cached_dense(matrix: scipy.sparse.spmatrix, xp: Any, cache: dict[str, Any]) -> Any:
+        key = getattr(xp, "__name__", repr(xp))
+        if key not in cache:
+            cache[key] = xp.asarray(matrix.toarray())
+        return cache[key]
 
     def matvec(vec: Any) -> np.ndarray:
-        return sparse @ np.asarray(vec).reshape(shape[1])
+        xp = _runtime_array_module(vec)
+        vec_arr = xp.asarray(vec).reshape(shape[1])
+        if xp is np:
+            return sparse @ vec_arr
+        return cached_dense(sparse, xp, dense_cache) @ vec_arr
 
     def rmatvec(vec: Any) -> np.ndarray:
-        return adjoint @ np.asarray(vec).reshape(shape[0])
+        xp = _runtime_array_module(vec)
+        vec_arr = xp.asarray(vec).reshape(shape[0])
+        if xp is np:
+            return adjoint @ vec_arr
+        return cached_dense(adjoint, xp, adjoint_dense_cache) @ vec_arr
 
     def matmat(block: Any) -> np.ndarray:
-        return sparse @ np.asarray(block).reshape(shape[1], -1)
+        xp = _runtime_array_module(block)
+        block_arr = xp.asarray(block).reshape(shape[1], -1)
+        if xp is np:
+            return sparse @ block_arr
+        return cached_dense(sparse, xp, dense_cache) @ block_arr
 
     def rmatmat(block: Any) -> np.ndarray:
-        return adjoint @ np.asarray(block).reshape(shape[0], -1)
+        xp = _runtime_array_module(block)
+        block_arr = xp.asarray(block).reshape(shape[0], -1)
+        if xp is np:
+            return adjoint @ block_arr
+        return cached_dense(adjoint, xp, adjoint_dense_cache) @ block_arr
 
     def dense_array(xp: Any) -> Any:
         return xp.asarray(sparse.toarray())

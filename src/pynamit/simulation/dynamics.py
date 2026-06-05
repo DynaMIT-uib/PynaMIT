@@ -871,28 +871,39 @@ class Dynamics(object):
         input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
         transform = self.input_transforms[key]
         field_space = self.input_field_spaces[key]
-        project = (
-            transform.project_helmholtz
-            if field_space.field_type == "tangential"
-            else transform.project_scalar
-        )
-
-        projected_data = {}
-        for var, values in input_data.items():
-            projected_values = project(
-                values,
+        if field_space.field_type == "scalar" and len(input_data) > 1:
+            projected_data = self._project_scalar_input_variables(
+                key,
+                input_data,
                 input_grid=input_grid,
-                projection_basis=self.interpolation_bases[key],
+                input_time=input_time,
                 sqrt_weights=sqrt_weights,
                 reg_lambda=reg_lambda,
                 pinv_rtol=pinv_rtol,
             )
-            if projected_values.shape[0] != input_time.size:
-                raise ValueError(
-                    f"{key}.{var} has {projected_values.shape[0]} projected time "
-                    f"slices, but {input_time.size} time values were supplied."
+        else:
+            projected_data = {}
+            project = (
+                transform.project_helmholtz
+                if field_space.field_type == "tangential"
+                else transform.project_scalar
+            )
+
+            for var, values in input_data.items():
+                projected_values = project(
+                    values,
+                    input_grid=input_grid,
+                    projection_basis=self.interpolation_bases[key],
+                    sqrt_weights=sqrt_weights,
+                    reg_lambda=reg_lambda,
+                    pinv_rtol=pinv_rtol,
                 )
-            projected_data[var] = projected_values
+                if projected_values.shape[0] != input_time.size:
+                    raise ValueError(
+                        f"{key}.{var} has {projected_values.shape[0]} projected time "
+                        f"slices, but {input_time.size} time values were supplied."
+                    )
+                projected_data[var] = projected_values
 
         for time_index in range(input_time.size):
             self.input_timeseries.add_entry(
@@ -902,6 +913,45 @@ class Dynamics(object):
             )
 
         self.data.save_input_dataset(key)
+
+    def _project_scalar_input_variables(
+        self,
+        key,
+        input_data,
+        *,
+        input_grid,
+        input_time,
+        sqrt_weights=None,
+        reg_lambda=None,
+        pinv_rtol=1e-15,
+    ):
+        """Project scalar input variables in one batched transform."""
+        transform = self.input_transforms[key]
+        normalized = {
+            var: transform.normalize_scalar_value_batch(values, input_grid)
+            for var, values in input_data.items()
+        }
+        for var, values in normalized.items():
+            if values.shape[0] != input_time.size:
+                raise ValueError(
+                    f"{key}.{var} has {values.shape[0]} projected time "
+                    f"slices, but {input_time.size} time values were supplied."
+                )
+
+        variables = tuple(normalized)
+        combined = np.concatenate([normalized[var] for var in variables], axis=0)
+        projected = transform.project_scalar(
+            combined,
+            input_grid=input_grid,
+            projection_basis=self.interpolation_bases[key],
+            sqrt_weights=sqrt_weights,
+            reg_lambda=reg_lambda,
+            pinv_rtol=pinv_rtol,
+        )
+        return {
+            var: projected[index * input_time.size : (index + 1) * input_time.size]
+            for index, var in enumerate(variables)
+        }
 
     def _should_project_conductance(self, project):
         """Return the effective conductance projection setting."""
