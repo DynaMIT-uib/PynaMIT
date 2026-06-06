@@ -27,7 +27,7 @@ from pynamit.math.backend import (
     use_jax,
     xp,
 )
-from pynamit.sphere import CSBasis, SphericalBasis
+from pynamit.sphere import CSBasis, SolidHarmonics, SurfaceOperators
 from pynamit.simulation.geometry import Geometry
 from pynamit.simulation.operators import StateOperators
 
@@ -46,12 +46,12 @@ class State:
 
     def __init__(
         self,
-        basis: SphericalBasis,
+        basis: SurfaceOperators,
         mainfield: Any,
         cs_basis: CSBasis,
         settings: Any,
         PFAC_matrix: Optional[np.ndarray] = None,
-        radial_continuation_basis: Optional[SphericalBasis] = None,
+        solid_harmonics: Optional[SolidHarmonics] = None,
     ) -> None:
         """Initialize the State object."""
         self.basis = basis
@@ -64,7 +64,7 @@ class State:
             mainfield,
             settings,
             PFAC_matrix,
-            radial_continuation_basis=radial_continuation_basis,
+            solid_harmonics=solid_harmonics,
         )
 
         # Operator for mapping velocity field `u` to E-field
@@ -295,13 +295,8 @@ class State:
         """Linear map enforcing the E-field low-latitude constraint."""
         if self._E_map_constraint_cache is None:
             inner_map = self.m_imp_to_E_coeffs
-            outer_tensor = self.geometry.E_coeffs_to_E_apex_ll_diff
-            if inner_map is not None and outer_tensor is not None:
-                outer_map = as_linear_map(
-                    outer_tensor,
-                    input_shape=inner_map.output_shape,
-                    output_shape=(2, int(np.sum(self.geometry.ll_mask))),
-                )
+            outer_map = self.geometry.E_coeffs_to_E_apex_ll_diff_operator
+            if inner_map is not None and outer_map is not None:
                 self._E_map_constraint_cache = outer_map @ inner_map
         return self._E_map_constraint_cache
 
@@ -315,18 +310,19 @@ class State:
 
             # Radial current (jr) must match imposed field.
             op_jr = (
-                as_linear_map(self.geometry.jr_coeffs_to_j_apex)
+                self.geometry.jr_coeffs_to_j_apex_operator
                 @ self.geometry.m_imp_to_jr_operator
             )
             operators.append(op_jr)
-            data_shapes.append(self.geometry.jr_coeffs_to_j_apex.shape[:-1])
+            data_shapes.append(op_jr.output_shape)
 
             # E-field must map at low latitudes.
-            E_map_constraint = self._E_map_constraint
-            if self.connect_hemispheres and E_map_constraint is not None:
-                op_E = self.ih_constraint_scaling * E_map_constraint
-                operators.append(op_E)
-                data_shapes.append(op_E.output_shape)
+            if self.connect_hemispheres:
+                E_map_constraint = self._E_map_constraint
+                if E_map_constraint is not None:
+                    op_E = self.ih_constraint_scaling * E_map_constraint
+                    operators.append(op_E)
+                    data_shapes.append(op_E.output_shape)
 
             # Add Tikhonov regularization if lambda is set.
             reg_ops, reg_weights = [], []

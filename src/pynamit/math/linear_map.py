@@ -66,6 +66,7 @@ class LinearMap:
         default=None, repr=False
     )
     _backend_context: tuple[Any, ...] = field(default=(), repr=False)
+    _is_noop: bool = field(default=False, repr=False)
     output_shape: Optional[tuple[int, ...]] = None
     input_shape: Optional[tuple[int, ...]] = None
     _dense_cache: dict[str, Any] = field(
@@ -236,6 +237,21 @@ class LinearMap:
             raise ValueError(
                 f"Dimension mismatch for composition: {self.shape} @ {other_map.shape}"
             )
+        if self._is_noop:
+            return as_linear_map(
+                other_map,
+                input_shape=other_map.input_shape,
+                output_shape=self.output_shape,
+            )
+        if other_map._is_noop:
+            return as_linear_map(
+                self,
+                input_shape=other_map.input_shape,
+                output_shape=self.output_shape,
+            )
+
+        self_is_diagonal = self._diagonal_array_func is not None
+        other_is_diagonal = other_map._diagonal_array_func is not None
 
         def matvec(x: Any) -> Any:
             return self.matvec(other_map.matvec(x))
@@ -250,11 +266,29 @@ class LinearMap:
             return other_map.rmatmat(self.rmatmat(y))
 
         def dense_array(xp: Any) -> Any:
+            if self_is_diagonal and other_is_diagonal:
+                diagonal = self._diagonal_array(xp) * other_map._diagonal_array(xp)
+                return xp.diag(diagonal)
+            if self_is_diagonal:
+                diagonal = self._diagonal_array(xp).reshape(-1, 1)
+                return diagonal * other_map._dense_array(xp)
+            if other_is_diagonal:
+                diagonal = other_map._diagonal_array(xp).reshape(1, -1)
+                return self._dense_array(xp) * diagonal
             return xp.asarray(self.matmat(other_map._dense_array(xp)))
 
         dtype = np.promote_types(self.dtype, other_map.dtype)
 
+        diagonal_array = None
+        if self_is_diagonal and other_is_diagonal:
+
+            def diagonal_array(xp: Any) -> Any:
+                return self._diagonal_array(xp) * other_map._diagonal_array(xp)
+
         def normal_matrix_diag() -> np.ndarray:
+            if other_is_diagonal:
+                diagonal = np.asarray(other_map.diagonal(backend="numpy"))
+                return np.abs(diagonal) ** 2 * self.normal_matrix_diag()
             return _normal_matrix_diag_from_matmat(
                 (self.shape[0], other_map.shape[1]), dtype, matmat
             )
@@ -267,6 +301,7 @@ class LinearMap:
             _matmat=matmat,
             _rmatmat=rmatmat,
             _dense_array_func=dense_array,
+            _diagonal_array_func=diagonal_array,
             _normal_matrix_diag=normal_matrix_diag,
             _backend_context=self._backend_context + other_map._backend_context,
             output_shape=self.output_shape,
@@ -586,6 +621,76 @@ def diagonal_linear_map(
     )
 
 
+def identity_linear_map(
+    shape: int | tuple[int, ...],
+    *,
+    dtype: Any = np.float64,
+) -> LinearMap:
+    """Return an identity map without storing an explicit diagonal."""
+    value_shape = (int(shape),) if isinstance(shape, (int, np.integer)) else tuple(shape)
+    size = int(math.prod(value_shape))
+    dtype = np.dtype(dtype)
+
+    def matvec(vec: Any) -> Any:
+        xp = get_array_module(vec)
+        return xp.asarray(vec).reshape(size)
+
+    def matmat(block: Any) -> Any:
+        xp = get_array_module(block)
+        return xp.asarray(block).reshape(size, -1)
+
+    def dense_array(xp: Any) -> Any:
+        return xp.eye(size, dtype=dtype)
+
+    def diagonal_array(xp: Any) -> Any:
+        return xp.ones(size, dtype=dtype)
+
+    def normal_matrix_diag() -> np.ndarray:
+        return np.ones(size, dtype=dtype)
+
+    return LinearMap(
+        shape=(size, size),
+        dtype=dtype,
+        _matvec=matvec,
+        _rmatvec=matvec,
+        _matmat=matmat,
+        _rmatmat=matmat,
+        _dense_array_func=dense_array,
+        _diagonal_array_func=diagonal_array,
+        _normal_matrix_diag=normal_matrix_diag,
+        _is_noop=True,
+        output_shape=value_shape,
+        input_shape=value_shape,
+    )
+
+
+def is_noop_linear_map(
+    value: Any,
+    *,
+    input_shape: Optional[tuple[int, ...]] = None,
+    output_shape: Optional[tuple[int, ...]] = None,
+) -> bool:
+    """Return whether ``value`` is an explicit diagonal identity map."""
+    try:
+        linear_map = as_linear_map(
+            value,
+            input_shape=input_shape,
+            output_shape=output_shape,
+        )
+    except (TypeError, ValueError):
+        return False
+    if linear_map.shape[0] != linear_map.shape[1]:
+        return False
+    if linear_map.input_shape != linear_map.output_shape:
+        return False
+    if getattr(linear_map, "_is_noop", False):
+        return True
+    if getattr(linear_map, "_diagonal_array_func", None) is None:
+        return False
+    diagonal = np.asarray(linear_map.diagonal(backend="numpy"))
+    return bool(np.array_equal(diagonal, np.ones_like(diagonal)))
+
+
 def vstack_linear_maps(
     maps: Sequence[Any],
     *,
@@ -750,18 +855,42 @@ def _linear_map_from_scipy_sparse(
     shape = tuple(int(dim) for dim in sparse.shape)
     out_shape, in_shape = _map_shapes(shape, input_shape, output_shape)
     dtype = sparse.dtype
+    dense_cache: dict[str, Any] = {}
+    adjoint_dense_cache: dict[str, Any] = {}
+
+    def cached_dense(matrix: scipy.sparse.spmatrix, xp: Any, cache: dict[str, Any]) -> Any:
+        key = getattr(xp, "__name__", repr(xp))
+        if key not in cache:
+            cache[key] = xp.asarray(matrix.toarray())
+        return cache[key]
 
     def matvec(vec: Any) -> np.ndarray:
-        return sparse @ np.asarray(vec).reshape(shape[1])
+        xp = _runtime_array_module(vec)
+        vec_arr = xp.asarray(vec).reshape(shape[1])
+        if xp is np:
+            return sparse @ vec_arr
+        return cached_dense(sparse, xp, dense_cache) @ vec_arr
 
     def rmatvec(vec: Any) -> np.ndarray:
-        return adjoint @ np.asarray(vec).reshape(shape[0])
+        xp = _runtime_array_module(vec)
+        vec_arr = xp.asarray(vec).reshape(shape[0])
+        if xp is np:
+            return adjoint @ vec_arr
+        return cached_dense(adjoint, xp, adjoint_dense_cache) @ vec_arr
 
     def matmat(block: Any) -> np.ndarray:
-        return sparse @ np.asarray(block).reshape(shape[1], -1)
+        xp = _runtime_array_module(block)
+        block_arr = xp.asarray(block).reshape(shape[1], -1)
+        if xp is np:
+            return sparse @ block_arr
+        return cached_dense(sparse, xp, dense_cache) @ block_arr
 
     def rmatmat(block: Any) -> np.ndarray:
-        return adjoint @ np.asarray(block).reshape(shape[0], -1)
+        xp = _runtime_array_module(block)
+        block_arr = xp.asarray(block).reshape(shape[0], -1)
+        if xp is np:
+            return adjoint @ block_arr
+        return cached_dense(adjoint, xp, adjoint_dense_cache) @ block_arr
 
     def dense_array(xp: Any) -> Any:
         return xp.asarray(sparse.toarray())

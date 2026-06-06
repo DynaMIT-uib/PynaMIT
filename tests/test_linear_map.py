@@ -18,6 +18,8 @@ from pynamit.math.linear_map import (
     LinearMap,
     as_linear_map,
     diagonal_linear_map,
+    identity_linear_map,
+    is_noop_linear_map,
     vstack_linear_maps,
 )
 
@@ -114,6 +116,62 @@ def test_diagonal_linear_map_matches_dense_diagonal():
     np.testing.assert_allclose(diag.matvec(x), expected @ x)
     np.testing.assert_allclose(diag.dense(backend="numpy"), expected)
     np.testing.assert_allclose(diag.diagonal(backend="numpy"), [2.0, 3.0])
+
+
+def test_identity_linear_map_is_noop_without_dense_materialization():
+    """Identity maps apply without storing an explicit dense matrix."""
+    identity = identity_linear_map((2, 2))
+    vector = np.arange(4.0)
+    block = np.column_stack([vector, vector + 1.0])
+
+    assert is_noop_linear_map(identity)
+    np.testing.assert_allclose(identity.matvec(vector), vector)
+    np.testing.assert_allclose(identity.rmatvec(vector), vector)
+    np.testing.assert_allclose(identity.matmat(block), block)
+    assert identity._dense_cache == {}
+    np.testing.assert_allclose(identity.dense(backend="numpy"), np.eye(4))
+
+
+def test_identity_linear_map_composition_is_elided():
+    """Composing with identity returns the other map directly."""
+    matrix = as_linear_map(np.array([[1.0, 2.0], [3.0, 5.0]]))
+    identity = identity_linear_map((2,))
+
+    assert identity @ matrix is matrix
+    assert matrix @ identity is matrix
+
+
+def test_diagonal_composition_avoids_dense_diagonal_materialization():
+    """Dense composite materialization scales rows/columns directly."""
+    matrix = np.array([[1.0, 2.0], [3.0, 5.0]])
+    matrix_map = as_linear_map(matrix)
+    left = diagonal_linear_map(np.array([7.0, 11.0]))
+    right = diagonal_linear_map(np.array([2.0, 3.0]))
+
+    def fail_dense(_xp):
+        raise AssertionError("diagonal dense materialization should not be used")
+
+    object.__setattr__(left, "_dense_array_func", fail_dense)
+    object.__setattr__(right, "_dense_array_func", fail_dense)
+
+    np.testing.assert_allclose(
+        (left @ matrix_map).dense(backend="numpy"),
+        left.diagonal(backend="numpy").reshape(-1, 1) * matrix,
+    )
+    np.testing.assert_allclose(
+        (matrix_map @ right).dense(backend="numpy"),
+        matrix * right.diagonal(backend="numpy").reshape(1, -1),
+    )
+
+
+def test_diagonal_composition_preserves_diagonal_metadata():
+    """Composed diagonal maps remain diagonal maps."""
+    left = diagonal_linear_map(np.array([2.0, 3.0]))
+    right = diagonal_linear_map(np.array([5.0, 7.0]))
+    composed = left @ right
+
+    np.testing.assert_allclose(composed.diagonal(backend="numpy"), [10.0, 21.0])
+    np.testing.assert_allclose(composed.normal_matrix_diag(), [100.0, 441.0])
 
 
 def test_linear_map_diagonal_accessor_is_strict():
@@ -320,6 +378,26 @@ def test_sparse_linear_map_uses_sparse_normal_diagonal():
 
     np.testing.assert_allclose(linear_map.normal_matrix_diag(), np.sum(matrix**2, axis=0))
     np.testing.assert_allclose(linear_map.dense(backend="numpy"), matrix)
+
+
+@pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
+def test_sparse_linear_map_preserves_explicit_jax_inputs_when_numpy_active():
+    """Sparse maps follow explicit JAX operands."""
+    import jax.numpy as jnp
+
+    previous_backend = use_jax()
+    matrix = np.array([[2.0, 0.0], [0.0, 3.0], [1.0, -1.0]])
+    x = np.array([0.25, -2.0])
+
+    try:
+        set_backend("numpy")
+        linear_map = as_linear_map(csr_matrix(matrix))
+        result = linear_map.matvec(jnp.asarray(x))
+    finally:
+        set_backend(previous_backend)
+
+    assert "jax" in type(result).__module__
+    np.testing.assert_allclose(np.asarray(result), matrix @ x)
 
 
 def test_composed_linear_map_normal_diagonal_uses_matmat_path():

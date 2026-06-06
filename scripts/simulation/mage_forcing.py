@@ -146,7 +146,7 @@ for step in range(0, nstep):
     # Shift from 1.5 RI to 1.0 RI.
     # This is now done inside state, assuming that Br is at RM.
     # Br_field.coeffs = Br_field.coeffs
-    # * dynamics.state.basis.radial_shift_Ve(1.5, 1)
+    # * dynamics.solid_harmonics.regular_reference_shift(1.5, 1)
 
     # if PLOT_BR:
     #    pynamit.globalplot(

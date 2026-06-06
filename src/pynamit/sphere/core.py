@@ -117,19 +117,6 @@ def is_cs_basis(basis):
     return is_basis_kind(basis, "CS")
 
 
-def is_grid_basis(basis):
-    """Return whether ``basis`` stores values directly on a grid."""
-    return isinstance(basis, GridBasis) or is_basis_kind(basis, "CS", "GRID")
-
-
-def normalize_horizontal_basis_kind(kind):
-    """Normalize a user supplied horizontal-basis kind."""
-    normalized = str(kind).strip().upper()
-    if normalized not in {"SH", "CS"}:
-        raise ValueError("horizontal_basis_kind must be one of ['CS', 'SH'].")
-    return normalized
-
-
 class SphericalRepresentation(ABC):
     """Abstract metadata interface for spherical representations.
 
@@ -213,92 +200,7 @@ class SphericalRepresentation(ABC):
 class SphericalBasis(SphericalRepresentation):
     """Abstract metadata interface for spherical bases."""
 
-    supports_surface_potential_operators = False
-    supports_radial_potential_operators = False
-
-    required_attributes = SphericalRepresentation.required_attributes + (
-        "minimum_phi_sampling",
-        "caching",
-    )
-
-    @property
-    @abstractmethod
-    def minimum_phi_sampling(self):
-        """Minimum required sampling in phi direction."""
-        pass
-
-    @property
-    @abstractmethod
-    def caching(self):
-        """Whether basis evaluations can be cached."""
-        pass
-
-
-class GridBasis(SphericalBasis):
-    """Basis whose coefficients are values on a native grid."""
-
-    def __init__(self):
-        """Initialize default grid-basis metadata."""
-        self._kind = "GRID"
-        self._index_names = None
-        self._index_length = None
-        self._index_arrays = None
-        self._minimum_phi_sampling = 1
-        self._caching = False
-
-    @property
-    def kind(self):
-        """Short identifier for the grid basis."""
-        return self._kind
-
-    @kind.setter
-    def kind(self, value):
-        self._kind = value
-
-    @property
-    def index_names(self):
-        """Names of indices used in the basis."""
-        return self._index_names
-
-    @index_names.setter
-    def index_names(self, value):
-        self._index_names = value
-
-    @property
-    def index_length(self):
-        """Total number of grid coefficients."""
-        return self._index_length
-
-    @index_length.setter
-    def index_length(self, value):
-        self._index_length = value
-
-    @property
-    def index_arrays(self):
-        """Arrays of grid-coordinate indices used in the basis."""
-        return self._index_arrays
-
-    @index_arrays.setter
-    def index_arrays(self, value):
-        self._index_arrays = value
-
-    @property
-    def minimum_phi_sampling(self):
-        """Minimum required sampling in phi direction."""
-        return self._minimum_phi_sampling
-
-    @minimum_phi_sampling.setter
-    def minimum_phi_sampling(self, value):
-        self._minimum_phi_sampling = value
-
-    @property
-    def caching(self):
-        """Whether basis evaluations can be cached."""
-        return self._caching
-
-    @caching.setter
-    def caching(self, value):
-        self._caching = bool(value)
+    required_attributes = SphericalRepresentation.required_attributes
 
 
 class SurfaceOperators(SphericalBasis):
@@ -311,10 +213,8 @@ class SurfaceOperators(SphericalBasis):
     component of ``curl(F)`` is ``laplacian(psi)``.
     """
 
-    supports_surface_potential_operators = True
-
     @abstractmethod
-    def evaluate_on_grid(self, grid, derivative=None, cache_in=None, cache_out=False):
+    def evaluate_on_grid(self, grid, derivative=None):
         """Evaluate basis functions or derivatives on ``grid``."""
         pass
 
@@ -323,18 +223,22 @@ class SurfaceOperators(SphericalBasis):
         """Return the scalar surface Laplacian operator."""
         pass
 
-    def get_scalar_evaluation_matrix(self, grid):
+    def get_scalar_evaluation_matrix(self, grid, derivative=None):
         """Return the scalar coefficient-to-grid matrix."""
         return _backend_array(
-            self.evaluate_on_grid(grid),
+            self.evaluate_on_grid(grid, derivative=derivative),
             getattr(grid, "theta", None),
             getattr(grid, "phi", None),
         )
 
-    def get_scalar_evaluation_operator(self, grid):
+    def get_scalar_evaluation_operator(self, grid, derivative=None):
         """Return the scalar coefficient-to-grid operator."""
-        matrix = self.get_scalar_evaluation_matrix(grid)
-        return as_linear_map(matrix, input_shape=(self.index_length,))
+        matrix = self.get_scalar_evaluation_matrix(grid, derivative=derivative)
+        return as_linear_map(
+            matrix,
+            input_shape=(self.index_length,),
+            output_shape=matrix.shape[:-1],
+        )
 
     def get_surface_gradient_matrix(self, grid):
         """Return ``[d_theta, sin(theta)^-1 d_phi]`` on a surface."""
@@ -453,41 +357,7 @@ class SurfaceOperators(SphericalBasis):
         )
 
 
-class RadialLaplaceContinuation(ABC):
-    """Interface for bases with a radial Laplace continuation."""
-
-    supports_radial_potential_operators = True
-
-    def get_external_potential_continuation_operator(self, start, end):
-        """Return the external-potential continuation operator."""
-        return as_linear_map(self.external_potential_continuation(start, end))
-
-    def get_internal_potential_continuation_operator(self, start, end):
-        """Return the internal-potential continuation operator."""
-        return as_linear_map(self.internal_potential_continuation(start, end))
-
-    def get_boundary_potential_discontinuity_operator(self):
-        """Return the boundary-potential discontinuity operator."""
-        return as_linear_map(self.boundary_potential_discontinuity)
-
-    @abstractmethod
-    def external_potential_continuation(self, start, end):
-        """Return external-potential continuation."""
-        pass
-
-    @abstractmethod
-    def internal_potential_continuation(self, start, end):
-        """Return internal-potential continuation."""
-        pass
-
-    @property
-    @abstractmethod
-    def boundary_potential_discontinuity(self):
-        """Return the regular/irregular potential discontinuity."""
-        pass
-
-
-class BasisView(SurfaceOperators, RadialLaplaceContinuation):
+class BasisView(SurfaceOperators):
     """Coefficient-space view of another evaluable basis."""
 
     def __init__(
@@ -518,15 +388,6 @@ class BasisView(SurfaceOperators, RadialLaplaceContinuation):
         self.index_arrays = self._slice_index_arrays(
             parent_basis, self._parent_coefficient_indices
         )
-        self.minimum_phi_sampling = parent_basis.minimum_phi_sampling
-        self.caching = parent_basis.caching
-        self.supports_surface_potential_operators = bool(
-            parent_basis.supports_surface_potential_operators
-        )
-        self.supports_radial_potential_operators = bool(
-            parent_basis.supports_radial_potential_operators
-        )
-
         for name, values in zip(self.index_names, self.index_arrays):
             if isinstance(name, str) and name.isidentifier() and not hasattr(self, name):
                 setattr(self, name, values)
@@ -649,24 +510,6 @@ class BasisView(SurfaceOperators, RadialLaplaceContinuation):
     def index_arrays(self, value):
         self._index_arrays = value
 
-    @property
-    def minimum_phi_sampling(self):
-        """Minimum required sampling in phi direction."""
-        return self._minimum_phi_sampling
-
-    @minimum_phi_sampling.setter
-    def minimum_phi_sampling(self, value):
-        self._minimum_phi_sampling = value
-
-    @property
-    def caching(self):
-        """Whether basis evaluations can be cached."""
-        return self._caching
-
-    @caching.setter
-    def caching(self, value):
-        self._caching = bool(value)
-
     def _slice_coefficient_operator(self, values, operator_name):
         """Slice a parent coefficient-space operator to this view."""
         indices = self._parent_coefficient_indices
@@ -696,54 +539,17 @@ class BasisView(SurfaceOperators, RadialLaplaceContinuation):
             return array[indices][:, indices]
         raise ValueError(f"{operator_name} must be a 1-D or square 2-D coefficient operator.")
 
-    def _require_radial_support(self):
-        """Raise if the parent basis has no radial continuation."""
-        if not self.supports_radial_potential_operators:
-            raise NotImplementedError(
-                f"{type(self.parent_basis).__name__} does not support radial potential operators."
-            )
-
-    def evaluate_on_grid(self, grid, derivative=None, cache_in=None, cache_out=False):
+    def evaluate_on_grid(self, grid, derivative=None):
         """Evaluate the viewed basis functions on ``grid``."""
         result = self.parent_basis.evaluate_on_grid(
             grid,
             derivative=derivative,
-            cache_in=cache_in,
-            cache_out=cache_out,
         )
-        if cache_out:
-            matrix, cache = result
-            return matrix[:, self._parent_coefficient_indices], cache
         return result[:, self._parent_coefficient_indices]
 
     def laplacian(self, r=1.0):
         """Return the viewed scalar surface Laplacian operator."""
         return self._slice_coefficient_operator(self.parent_basis.laplacian(r), "laplacian")
-
-    @property
-    def boundary_potential_discontinuity(self):
-        """Return the viewed boundary-potential discontinuity."""
-        self._require_radial_support()
-        return self._slice_coefficient_operator(
-            self.parent_basis.boundary_potential_discontinuity,
-            "boundary_potential_discontinuity",
-        )
-
-    def external_potential_continuation(self, start, end):
-        """Return the viewed external-potential continuation."""
-        self._require_radial_support()
-        return self._slice_coefficient_operator(
-            self.parent_basis.external_potential_continuation(start, end),
-            "external_potential_continuation",
-        )
-
-    def internal_potential_continuation(self, start, end):
-        """Return the viewed internal-potential continuation."""
-        self._require_radial_support()
-        return self._slice_coefficient_operator(
-            self.parent_basis.internal_potential_continuation(start, end),
-            "internal_potential_continuation",
-        )
 
     def scalar_fields_are_mean_free_by_construction(self):
         """Return whether scalar coefficients omit the mean term."""

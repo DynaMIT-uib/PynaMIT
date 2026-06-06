@@ -17,8 +17,8 @@ from pynamit.sphere import Grid
 from pynamit.primitives.coefficient_field import CoefficientField
 from pynamit.primitives.field_space import FieldSpace
 from pynamit.primitives.io import IO
-from pynamit.sphere import CSBasis, SHBasis
-from pynamit.primitives.spherical_transform import SphericalTransform
+from pynamit.sphere import CSBasis, SHBasis, SolidHarmonics
+from pynamit.sphere.spherical_transform import SphericalTransform
 from pynamit.simulation.mainfield import Mainfield
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.math.constants import RE, mu0
@@ -125,6 +125,7 @@ class PynamEye(object):
 
         full_basis = SHBasis(settings.Nmax, settings.Mmax, mean_free=False)
         self.basis = full_basis.with_mean_free(True)
+        self.solid_harmonics = SolidHarmonics(self.basis)
 
         cNmax = int(self.datasets["conductance"].n.max())
         cMmax = int(self.datasets["conductance"].m.max())
@@ -202,7 +203,10 @@ class PynamEye(object):
         self.m_ind_to_Br = -(self.RI**2) * surface_laplacian
         self.m_imp_to_jr = self.RI / mu0 * surface_laplacian
         self.W_to_dBr_dt = 1 / self.RI
-        self.m_ind_to_Jeq = -self.RI / mu0 * self.basis.boundary_potential_discontinuity
+        self.poloidal_to_boundary_potential_jump_factor = (
+            self.solid_harmonics.poloidal_to_boundary_potential_jump_factor
+        )
+        self.m_ind_to_Jeq = -self.RI / mu0 * self.poloidal_to_boundary_potential_jump_factor
 
         # Calculate matrices to calculate current.
         self.B_pol_to_gridded_JS = {}
@@ -212,7 +216,7 @@ class PynamEye(object):
         for region in ["global", "north", "south"]:
             self.B_pol_to_gridded_JS[region] = (
                 -self.transforms[region].scalar_coeffs_to_gridded_rhat_cross_gradient
-                * self.basis.boundary_potential_discontinuity
+                * self.poloidal_to_boundary_potential_jump_factor
                 / mu0
             )
             self.B_tor_to_gridded_JS[region] = (
@@ -262,7 +266,7 @@ class PynamEye(object):
 
             self.B_pol_to_gridded_JS = (
                 -self.transforms["num"].scalar_coeffs_to_gridded_rhat_cross_gradient
-                * self.basis.boundary_potential_discontinuity
+                * self.poloidal_to_boundary_potential_jump_factor
                 / mu0
             )
             self.B_tor_to_gridded_JS = (

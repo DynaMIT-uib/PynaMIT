@@ -74,8 +74,13 @@ class LeastSquaresProblem:
             as_linear_map(L, input_shape=self.solution_shape) if L is not None else None
             for L in reg_L_list
         ]
-        self.regularization_weights = self._prepare_input_list(
-            reg_weights_in, "regularization_weights", count=self.num_reg_terms, default_val=0.0
+        self.regularization_weights = self._validate_regularization_weights(
+            self._prepare_input_list(
+                reg_weights_in,
+                "regularization_weights",
+                count=self.num_reg_terms,
+                default_val=0.0,
+            )
         )
 
     def _create_weight_operator(
@@ -240,6 +245,27 @@ class LeastSquaresProblem:
             for i, L_item in enumerate(self.regularization_matrices)
             if i < len(lambdas) and L_item is not None and lambdas[i] > 1e-12
         )
+
+    @staticmethod
+    def _validate_regularization_weights(weights: list) -> list[float]:
+        """Return finite, non-negative scalar regularization weights."""
+        validated = []
+        for index, weight in enumerate(weights):
+            try:
+                array = np.asarray(weight)
+                if array.ndim != 0:
+                    raise ValueError
+                value = float(array)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"regularization_weights[{index}] must be a finite non-negative scalar."
+                ) from exc
+            if not math.isfinite(value) or value < 0.0:
+                raise ValueError(
+                    f"regularization_weights[{index}] must be a finite non-negative scalar."
+                )
+            validated.append(value)
+        return validated
 
     @staticmethod
     def _prepare_input_list(

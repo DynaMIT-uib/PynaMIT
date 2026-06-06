@@ -8,7 +8,7 @@ import h5py as h5
 import cartopy.crs as ccrs
 
 from pynamit.sphere import Grid
-from pynamit.primitives.spherical_transform import SphericalTransform
+from pynamit.sphere.spherical_transform import SphericalTransform
 from pynamit.primitives.coefficient_field import CoefficientField
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.primitives.io import IO

@@ -13,13 +13,13 @@ import numpy as np
 import xarray as xr
 
 from pynamit.math.constants import mu0
-from pynamit.math import as_linear_map
+from pynamit.math import as_linear_map, diagonal_linear_map
 from pynamit.math.backend import block_until_ready, get_array_module, to_jax, to_numpy, use_jax
-from pynamit.sphere import Grid
-from pynamit.primitives.spherical_transform import SphericalTransform, resolve_sqrt_weights
+from pynamit.sphere import Grid, SolidHarmonics, SurfaceOperators
+from pynamit.sphere.spherical_transform import SphericalTransform, resolve_sqrt_weights
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.math.tensor_operations import weighted_tensor_pinv
-from pynamit.sphere import CSBasis, SphericalBasis, is_sh_basis
+from pynamit.sphere import CSBasis, is_sh_basis
 
 logger = logging.getLogger(__name__)
 
@@ -45,16 +45,6 @@ def _extended_scalar_basis_for_potential(basis, settings):
     return basis
 
 
-def _dense_operator_matrix(operator, input_length, output_length):
-    """Return an explicit dense operator array."""
-    op = as_linear_map(
-        operator,
-        input_shape=(input_length,),
-        output_shape=(output_length,),
-    )
-    return np.asarray(op.dense(backend="numpy"))
-
-
 class Geometry:
     """Encapsulates the geometric setup for the ionospheric simulation.
 
@@ -66,17 +56,21 @@ class Geometry:
 
     def __init__(
         self,
-        basis: SphericalBasis,
+        basis: SurfaceOperators,
         cs_basis: CSBasis,
         mainfield: Any,
         settings: Any,
         PFAC_matrix: Optional[xr.DataArray] = None,
-        radial_continuation_basis: Optional[SphericalBasis] = None,
+        solid_harmonics: Optional[SolidHarmonics] = None,
     ) -> None:
         """Initialize the geometric context."""
+        if not isinstance(basis, SurfaceOperators):
+            raise TypeError("Geometry basis must implement SurfaceOperators.")
+        if solid_harmonics is not None and not isinstance(solid_harmonics, SolidHarmonics):
+            raise TypeError("solid_harmonics must be a SolidHarmonics object.")
         self.basis = basis
-        self.radial_continuation_basis = radial_continuation_basis or (
-            basis if basis.supports_radial_potential_operators else None
+        self.solid_harmonics = solid_harmonics or (
+            SolidHarmonics(basis) if is_sh_basis(basis) else None
         )
         self.settings = settings
         self.mainfield = mainfield
@@ -112,11 +106,6 @@ class Geometry:
         self._m_imp_to_gridded_JS = None
         self._Br_to_gridded_JS = None
 
-        if not self.basis.supports_surface_potential_operators:
-            raise NotImplementedError(
-                f"{type(self.basis).__name__} does not provide surface-potential operators."
-            )
-
         self.surface_laplacian_operator = self.basis.get_surface_laplacian_operator(
             self.RI
         )
@@ -133,33 +122,46 @@ class Geometry:
         self._m_imp_to_jr = None
         self.E_df_to_d_m_ind_dt = 1.0 / self.RI
         self._m_ind_to_Br = None
-        if self.radial_continuation_basis is None:
+        if self.solid_harmonics is None:
             raise NotImplementedError(
-                f"{type(self.basis).__name__} requires a radial Laplace continuation "
-                "for sheet-current coupling."
+                f"{type(self.basis).__name__} requires solid harmonics for sheet-current coupling."
             )
 
-        self.horizontal_to_radial_continuation = (
-            self._build_horizontal_to_radial_continuation()
+        self.horizontal_to_solid_harmonic_operator = (
+            self._build_horizontal_to_solid_harmonic_operator()
         )
-        self.radial_continuation_to_horizontal = (
-            self._build_radial_continuation_to_horizontal()
+        self.horizontal_to_solid_harmonic = np.asarray(
+            self.horizontal_to_solid_harmonic_operator.dense(backend="numpy")
         )
-        self.radial_boundary_potential_discontinuity = _dense_operator_matrix(
-            self.radial_continuation_basis.boundary_potential_discontinuity,
-            self.radial_continuation_basis.index_length,
-            self.radial_continuation_basis.index_length,
+        self.solid_harmonic_to_horizontal_operator = (
+            self._build_solid_harmonic_to_horizontal_operator()
         )
-        self.radial_Ve_to_JS = self._build_radial_potential_to_sheet_current()
-        self.sheet_current_potential = self._build_sheet_current_potential()
-        self.sheet_current_potential_operator = as_linear_map(
-            self.sheet_current_potential,
-            input_shape=(self.basis.index_length,),
-            output_shape=(self.radial_continuation_basis.index_length,),
+        self.solid_harmonic_to_horizontal = np.asarray(
+            self.solid_harmonic_to_horizontal_operator.dense(backend="numpy")
+        )
+        self.poloidal_to_boundary_potential_jump_factor_operator = diagonal_linear_map(
+            self.solid_harmonics.poloidal_to_boundary_potential_jump_factor
+        )
+        self.poloidal_to_boundary_potential_jump_factor = np.asarray(
+            self.poloidal_to_boundary_potential_jump_factor_operator.dense(
+                backend="numpy"
+            )
+        )
+        self.solid_harmonic_poloidal_to_gridded_sheet_current = (
+            self._build_solid_harmonic_poloidal_to_gridded_sheet_current()
+        )
+        self.horizontal_to_boundary_potential_jump_factor_operator = (
+            self.poloidal_to_boundary_potential_jump_factor_operator
+            @ self.horizontal_to_solid_harmonic_operator
+        )
+        self.horizontal_to_boundary_potential_jump_factor = np.asarray(
+            self.horizontal_to_boundary_potential_jump_factor_operator.dense(
+                backend="numpy"
+            )
         )
         self.horizontal_potential_to_gridded_JS = np.tensordot(
-            self.radial_Ve_to_JS,
-            self.horizontal_to_radial_continuation,
+            self.solid_harmonic_poloidal_to_gridded_sheet_current,
+            self.horizontal_to_solid_harmonic,
             axes=([2], [0]),
         )
 
@@ -197,6 +199,15 @@ class Geometry:
             self._m_ind_to_Br = _compact_operator_array(self.m_ind_to_Br_operator)
         return self._m_ind_to_Br
 
+    @property
+    def jr_coeffs_to_j_apex(self) -> np.ndarray:
+        """Return the explicit radial-current to apex-current matrix."""
+        if self._jr_coeffs_to_j_apex is None:
+            self._jr_coeffs_to_j_apex = np.asarray(
+                self.jr_coeffs_to_j_apex_operator.dense(backend="numpy")
+            ).copy()
+        return self._jr_coeffs_to_j_apex
+
     def tangential_to_helmholtz(self, vec: np.ndarray) -> np.ndarray:
         """Convert tangential vector field to Helmholtz coeffs."""
         coeffs = np.tensordot(self.helmholtz_analysis_matrix, vec, 2)
@@ -229,13 +240,13 @@ class Geometry:
             self.grid,
             area_weighted=self.area_weighted_least_squares,
         )
-        if self.radial_continuation_basis is None:
-            self.radial_continuation_transform = None
-        elif self.radial_continuation_basis is self.basis:
-            self.radial_continuation_transform = self.spherical_transform
+        if self.solid_harmonics is None:
+            self.solid_harmonic_transform = None
+        elif self.solid_harmonics.basis is self.basis:
+            self.solid_harmonic_transform = self.spherical_transform
         else:
-            self.radial_continuation_transform = SphericalTransform(
-                self.radial_continuation_basis,
+            self.solid_harmonic_transform = SphericalTransform(
+                self.solid_harmonics.basis,
                 self.grid,
                 area_weighted=self.area_weighted_least_squares,
             )
@@ -261,53 +272,56 @@ class Geometry:
             vector=vector,
         )
 
-    def _build_horizontal_to_radial_continuation(self) -> np.ndarray:
-        """Project horizontal scalar coefficients into radial space.
+    def _build_horizontal_to_solid_harmonic_operator(self):
+        """Project horizontal coefficients into the SH radial space.
 
-        The horizontal basis owns surface operators.  The radial
-        continuation basis owns the regular/irregular Laplace solution
-        used for boundary sheet-current coupling.  For the CS horizontal
-        path this is a grid least-squares projection from CS nodal
-        values to the SH continuation coefficients; for the SH path it
-        is the identity.
+        The horizontal basis owns surface operators. ``SolidHarmonics``
+        owns the radial laws and wraps the SH basis used for their
+        angular coefficients. For the CS horizontal path this is a grid
+        least-squares projection from CS nodal values to those SH
+        coefficients; for the SH path it is the identity.
         """
-        if self.radial_continuation_basis.coefficients_are_compatible_with(self.basis):
-            return np.eye(self.basis.index_length)
-        radial_to_grid = self.radial_continuation_transform.scalar_coeffs_to_grid
+        if self.solid_harmonics.basis.coefficients_are_compatible_with(self.basis):
+            return diagonal_linear_map(np.ones(self.basis.index_length))
+        solid_to_grid = self.solid_harmonic_transform.scalar_coeffs_to_grid
         horizontal_to_grid = self.spherical_transform.scalar_coeffs_to_grid
-        grid_to_radial = weighted_tensor_pinv(
-            radial_to_grid,
+        grid_to_solid = weighted_tensor_pinv(
+            solid_to_grid,
             sqrt_weights=self.grid_sqrt_weights(),
             n_leading_flattened=1,
         )
-        return np.asarray(grid_to_radial @ horizontal_to_grid)
+        return as_linear_map(
+            np.asarray(grid_to_solid @ horizontal_to_grid),
+            input_shape=(self.basis.index_length,),
+            output_shape=(self.solid_harmonics.basis.index_length,),
+        )
 
-    def _build_radial_continuation_to_horizontal(self) -> np.ndarray:
-        """Project radial coefficients to horizontal space."""
-        if self.radial_continuation_basis.coefficients_are_compatible_with(self.basis):
-            return np.eye(self.basis.index_length)
+    def _build_solid_harmonic_to_horizontal_operator(self):
+        """Project solid-harmonic coefficients to horizontal space."""
+        if self.solid_harmonics.basis.coefficients_are_compatible_with(self.basis):
+            return diagonal_linear_map(np.ones(self.basis.index_length))
         horizontal_to_grid = self.spherical_transform.scalar_coeffs_to_grid
-        radial_to_grid = self.radial_continuation_transform.scalar_coeffs_to_grid
+        solid_to_grid = self.solid_harmonic_transform.scalar_coeffs_to_grid
         grid_to_horizontal = weighted_tensor_pinv(
             horizontal_to_grid,
             sqrt_weights=self.grid_sqrt_weights(),
             n_leading_flattened=1,
         )
-        return np.asarray(grid_to_horizontal @ radial_to_grid)
-
-    def _build_radial_potential_to_sheet_current(self) -> np.ndarray:
-        """Return radial potential to sheet current on grid."""
-        return (1.0 / self.RI) * np.tensordot(
-            self.radial_continuation_transform.scalar_coeffs_to_gridded_rhat_cross_gradient,
-            (-self.RI / mu0) * self.radial_boundary_potential_discontinuity,
-            axes=([2], [0]),
+        return as_linear_map(
+            np.asarray(grid_to_horizontal @ solid_to_grid),
+            input_shape=(self.solid_harmonics.basis.index_length,),
+            output_shape=(self.basis.index_length,),
         )
 
-    def _build_sheet_current_potential(self) -> np.ndarray:
-        """Return horizontal scalar to radial boundary discontinuity."""
+    def _build_solid_harmonic_poloidal_to_gridded_sheet_current(self) -> np.ndarray:
+        """Map solid-harmonic poloidal coefficients to sheet current."""
+        jump_factor = np.asarray(
+            self.solid_harmonics.poloidal_to_boundary_potential_jump_factor
+        ).reshape(1, 1, -1)
         return (
-            self.radial_boundary_potential_discontinuity
-            @ self.horizontal_to_radial_continuation
+            -self.solid_harmonic_transform.scalar_coeffs_to_gridded_rhat_cross_gradient
+            * jump_factor
+            / mu0
         )
 
     def _init_constraint_mappings(self) -> None:
@@ -323,20 +337,22 @@ class Geometry:
         else:
             self.ll_mask = np.zeros(self.grid.size, dtype=bool)
 
-        self.jr_coeffs_to_j_apex = np.asarray(
-            self.b_evaluator.radial_to_apex.reshape((-1, 1))
-            * self.spherical_transform.scalar_coeffs_to_grid
-        ).copy()
-        self.E_coeffs_to_E_apex_ll_diff = None
+        self._jr_coeffs_to_j_apex = None
+        self.jr_coeffs_to_j_apex_operator = (
+            self._build_jr_coeffs_to_j_apex_operator()
+        )
+        self._E_coeffs_to_E_apex_ll_diff = None
+        self.E_coeffs_to_E_apex_ll_diff_operator = None
 
         if self.connect_hemispheres:
             # Modify jr constraint for interhemispheric connection
-            jr_coeffs_to_j_apex_cp = np.asarray(
-                self.cp_b_evaluator.radial_to_apex.reshape((-1, 1))
-                * self.cp_spherical_transform.scalar_coeffs_to_grid
+            cp_operator = self._build_jr_coeffs_to_j_apex_operator(
+                transform=self.cp_spherical_transform,
+                evaluator=self.cp_b_evaluator,
+                output_scale=self.ll_mask,
             )
-            self.jr_coeffs_to_j_apex = self.jr_coeffs_to_j_apex - (
-                self.ll_mask.reshape((-1, 1)) * jr_coeffs_to_j_apex_cp
+            self.jr_coeffs_to_j_apex_operator = (
+                self.jr_coeffs_to_j_apex_operator - cp_operator
             )
 
             # Create E-field mapping difference operator for constraint
@@ -352,9 +368,46 @@ class Geometry:
                 np.asarray(self.cp_spherical_transform.helmholtz_coeffs_to_gridded_vector),
                 optimize=True,
             )
-            self.E_coeffs_to_E_apex_ll_diff = np.ascontiguousarray(
+            E_coeffs_to_E_apex_ll_diff = np.ascontiguousarray(
                 (E_coeffs_to_E_apex - E_coeffs_to_E_apex_cp)[:, self.ll_mask]
             )
+            self.E_coeffs_to_E_apex_ll_diff_operator = as_linear_map(
+                E_coeffs_to_E_apex_ll_diff,
+                input_shape=(2, self.basis.index_length),
+                output_shape=(2, int(np.sum(self.ll_mask))),
+            )
+
+    def _build_jr_coeffs_to_j_apex_operator(
+        self,
+        *,
+        transform=None,
+        evaluator=None,
+        output_scale=None,
+    ):
+        """Return radial-current coefficients mapped to apex current."""
+        transform = self.spherical_transform if transform is None else transform
+        evaluator = self.b_evaluator if evaluator is None else evaluator
+        scale = np.asarray(evaluator.radial_to_apex)
+        if output_scale is not None:
+            scale = scale * np.asarray(output_scale)
+        scale_operator = diagonal_linear_map(
+            scale.reshape(-1),
+            input_shape=(transform.target.size,),
+            output_shape=(transform.target.size,),
+        )
+        return scale_operator @ transform.scalar_coeffs_to_grid_operator
+
+    @property
+    def E_coeffs_to_E_apex_ll_diff(self) -> Optional[np.ndarray]:
+        """Return explicit low-latitude E-apex difference tensor."""
+        operator = self.E_coeffs_to_E_apex_ll_diff_operator
+        if operator is None:
+            return None
+        if self._E_coeffs_to_E_apex_ll_diff is None:
+            self._E_coeffs_to_E_apex_ll_diff = np.asarray(
+                operator.dense(backend="numpy")
+            ).reshape(operator.output_shape + operator.input_shape)
+        return self._E_coeffs_to_E_apex_ll_diff
 
     @property
     def bP(self) -> np.ndarray:
@@ -395,12 +448,6 @@ class Geometry:
         self._T_to_Ve = xr.DataArray(np.zeros((n, n)), dims=("i", "j"))
         if self.mainfield.kind == "radial" or self.ignore_PFAC:
             return
-        if not self.radial_continuation_basis.supports_radial_potential_operators:
-            raise NotImplementedError(
-                "PFAC integration requires a radial-continuation basis with "
-                "radial potential operators."
-            )
-
         rk_steps = np.asarray(self.FAC_integration_steps)
         Delta_k = np.diff(rk_steps)
         rks = rk_steps[:-1] + 0.5 * Delta_k
@@ -414,8 +461,8 @@ class Geometry:
                 "All FAC integration steps must be inside the magnetospheric boundary (RM)."
             )
 
-        JS_rk_to_radial_Ve_rk = weighted_tensor_pinv(
-            self.radial_Ve_to_JS,
+        JS_rk_to_solid_poloidal_rk = weighted_tensor_pinv(
+            self.solid_harmonic_poloidal_to_gridded_sheet_current,
             sqrt_weights=self.grid_sqrt_weights(vector=True),
             n_leading_flattened=2,
             rtol=0,
@@ -445,52 +492,42 @@ class Geometry:
             )
             m_imp_to_JS_rk = np.einsum("ij,jk->ijk", jr_to_JS_rk, m_imp_to_jr_grid, optimize=True)
 
-            radial_Ve_rk_to_Ve = _diagonal_operator_values(
-                self.radial_continuation_basis.external_potential_continuation(
-                    rk, self.RI
-                )
+            regular_poloidal_rk_to_ri = _diagonal_operator_values(
+                self.solid_harmonics.regular_reference_shift(rk, self.RI)
             ).reshape((-1, 1, 1))
             if self.RM is not None:
-                radial_Ve_rk_to_Ve -= (
+                regular_poloidal_rk_to_ri -= (
                     _diagonal_operator_values(
-                        self.radial_continuation_basis.external_potential_continuation(
-                            self.RM, self.RI
-                        )
+                        self.solid_harmonics.regular_reference_shift(self.RM, self.RI)
                     )
                     * _diagonal_operator_values(
-                        self.radial_continuation_basis.internal_potential_continuation(
-                            rk, self.RM
-                        )
+                        self.solid_harmonics.irregular_reference_shift(rk, self.RM)
                     )
                 ).reshape((-1, 1, 1))
                 factor = -1.0 / (
                     1.0
                     - _diagonal_operator_values(
-                        self.radial_continuation_basis.external_potential_continuation(
-                            self.RM, self.RI
-                        )
+                        self.solid_harmonics.regular_reference_shift(self.RM, self.RI)
                     )
                     * _diagonal_operator_values(
-                        self.radial_continuation_basis.internal_potential_continuation(
-                            self.RI, self.RM
-                        )
+                        self.solid_harmonics.irregular_reference_shift(self.RI, self.RM)
                     )
                 )
             else:
                 factor = -1.0
 
-            JS_rk_to_radial_Ve = JS_rk_to_radial_Ve_rk * radial_Ve_rk_to_Ve
+            JS_rk_to_solid_poloidal = JS_rk_to_solid_poloidal_rk * regular_poloidal_rk_to_ri
             if np.ndim(factor) == 0:
-                JS_rk_to_radial_Ve *= factor
+                JS_rk_to_solid_poloidal *= factor
             else:
-                JS_rk_to_radial_Ve *= np.asarray(factor).reshape((-1, 1, 1))
-            JS_rk_to_Ve = np.tensordot(
-                self.radial_continuation_to_horizontal,
-                JS_rk_to_radial_Ve,
+                JS_rk_to_solid_poloidal *= np.asarray(factor).reshape((-1, 1, 1))
+            JS_rk_to_horizontal_poloidal = np.tensordot(
+                self.solid_harmonic_to_horizontal,
+                JS_rk_to_solid_poloidal,
                 axes=([1], [0]),
             )
             self._T_to_Ve += Delta_k[i] * np.tensordot(
-                JS_rk_to_Ve, m_imp_to_JS_rk, axes=2
+                JS_rk_to_horizontal_poloidal, m_imp_to_JS_rk, axes=2
             )
 
     # ----- Source coefficients to gridded sheet current -----
@@ -534,39 +571,31 @@ class Geometry:
         if self._m_ind_to_gridded_JS is None:
             m_ind_to_gridded_JS = self.horizontal_potential_to_gridded_JS.copy()
             if self.RM is not None:
-                br_shift = _diagonal_operator_values(
-                    self.radial_continuation_basis.external_potential_continuation(
-                        self.RM, self.RI
-                    )
+                regular_shift = _diagonal_operator_values(
+                    self.solid_harmonics.regular_reference_shift(self.RM, self.RI)
                 )
-                vi_shift = _diagonal_operator_values(
-                    self.radial_continuation_basis.internal_potential_continuation(
-                        self.RI, self.RM
-                    )
+                irregular_shift = _diagonal_operator_values(
+                    self.solid_harmonics.irregular_reference_shift(self.RI, self.RM)
                 )
-                den = 1.0 - br_shift * vi_shift
-                radial_m_ind_to_Br = _diagonal_operator_values(
+                den = 1.0 - regular_shift * irregular_shift
+                solid_harmonic_m_ind_to_Br = _diagonal_operator_values(
                     -(self.RI**2)
-                    * self.radial_continuation_basis.get_surface_laplacian_operator(
-                        self.RI
-                    )
+                    * self.solid_harmonics.basis.get_surface_laplacian_operator(self.RI)
                 )
-                br_to_radial_potential = (
-                    (-br_shift / den / radial_m_ind_to_Br).reshape((-1, 1))
-                    * self.horizontal_to_radial_continuation
-                )
+                br_to_solid_harmonic_poloidal = (
+                    -regular_shift / den / solid_harmonic_m_ind_to_Br
+                ).reshape((-1, 1)) * self.horizontal_to_solid_harmonic
                 self._Br_to_gridded_JS = np.tensordot(
-                    self.radial_Ve_to_JS,
-                    br_to_radial_potential,
+                    self.solid_harmonic_poloidal_to_gridded_sheet_current,
+                    br_to_solid_harmonic_poloidal,
                     axes=([2], [0]),
                 )
-                m_ind_to_radial_potential = (
-                    (1.0 + (br_shift * vi_shift / den)).reshape((-1, 1))
-                    * self.horizontal_to_radial_continuation
-                )
+                m_ind_to_solid_harmonic_poloidal = (
+                    1.0 + (regular_shift * irregular_shift / den)
+                ).reshape((-1, 1)) * self.horizontal_to_solid_harmonic
                 m_ind_to_gridded_JS = np.tensordot(
-                    self.radial_Ve_to_JS,
-                    m_ind_to_radial_potential,
+                    self.solid_harmonic_poloidal_to_gridded_sheet_current,
+                    m_ind_to_solid_harmonic_poloidal,
                     axes=([2], [0]),
                 )
             self._m_ind_to_gridded_JS = m_ind_to_gridded_JS

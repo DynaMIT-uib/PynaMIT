@@ -6,12 +6,13 @@ coupling.
 
 import numpy as np
 import xarray as xr
-from pynamit.sphere import normalize_horizontal_basis_kind
+from pynamit.math import is_noop_linear_map
 from pynamit.math.constants import RE
 from pynamit.math.least_squares_solver import get_default_least_squares_solver
 from pynamit.primitives.field_evaluator import FieldEvaluator
-from pynamit.primitives.spherical_transform import SphericalTransform
-from pynamit.sphere import Grid, is_grid_basis
+from pynamit.simulation.schema import normalize_horizontal_basis_kind
+from pynamit.sphere.spherical_transform import SphericalTransform
+from pynamit.sphere import Grid
 from pynamit.primitives.io import IO
 from pynamit.simulation.data import SimulationData
 from pynamit.simulation.mainfield import Mainfield
@@ -203,7 +204,7 @@ class Dynamics(object):
         self.sh_basis = self.schema.sh_basis
         self.sh_basis_mean_free = self.schema.sh_basis_mean_free
         self.horizontal_basis = self.schema.horizontal_basis
-        self.radial_continuation_basis = self.schema.radial_continuation_basis
+        self.solid_harmonics = self.schema.solid_harmonics
 
         self.input_vars = self.schema.input_vars
         self.input_field_spaces = self.schema.input_field_spaces
@@ -213,7 +214,7 @@ class Dynamics(object):
         self.output_field_spaces = self.schema.output_field_spaces
         self.output_timeseries = self.data.output_timeseries
 
-        self.interpolation_bases = self.schema.interpolation_bases
+        self.input_projection_bases = self.schema.input_projection_bases
 
         input_grid = Grid(
             theta=self.cs_basis.arr_theta,
@@ -224,7 +225,7 @@ class Dynamics(object):
             key: SphericalTransform(
                 self.input_field_spaces[key].representation,
                 input_grid,
-                interpolation_basis=self.cs_basis,
+                grid_remap_basis=self.cs_basis,
                 area_weighted=bool(self.settings.area_weighted_least_squares),
             )
             for key in self.input_vars
@@ -245,7 +246,7 @@ class Dynamics(object):
             self.cs_basis,
             self.settings,
             PFAC_matrix=self.data.pfac_matrix,
-            radial_continuation_basis=self.radial_continuation_basis,
+            solid_harmonics=self.solid_harmonics,
         )
         self.horizontal_spherical_transform = self.state.geometry.spherical_transform
 
@@ -871,28 +872,39 @@ class Dynamics(object):
         input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
         transform = self.input_transforms[key]
         field_space = self.input_field_spaces[key]
-        project = (
-            transform.project_helmholtz
-            if field_space.field_type == "tangential"
-            else transform.project_scalar
-        )
-
-        projected_data = {}
-        for var, values in input_data.items():
-            projected_values = project(
-                values,
+        if field_space.field_type == "scalar" and len(input_data) > 1:
+            projected_data = self._project_scalar_input_variables(
+                key,
+                input_data,
                 input_grid=input_grid,
-                projection_basis=self.interpolation_bases[key],
+                input_time=input_time,
                 sqrt_weights=sqrt_weights,
                 reg_lambda=reg_lambda,
                 pinv_rtol=pinv_rtol,
             )
-            if projected_values.shape[0] != input_time.size:
-                raise ValueError(
-                    f"{key}.{var} has {projected_values.shape[0]} projected time "
-                    f"slices, but {input_time.size} time values were supplied."
+        else:
+            projected_data = {}
+            project = (
+                transform.project_helmholtz
+                if field_space.field_type == "tangential"
+                else transform.project_scalar
+            )
+
+            for var, values in input_data.items():
+                projected_values = project(
+                    values,
+                    input_grid=input_grid,
+                    projection_basis=self.input_projection_bases[key],
+                    sqrt_weights=sqrt_weights,
+                    reg_lambda=reg_lambda,
+                    pinv_rtol=pinv_rtol,
                 )
-            projected_data[var] = projected_values
+                if projected_values.shape[0] != input_time.size:
+                    raise ValueError(
+                        f"{key}.{var} has {projected_values.shape[0]} projected time "
+                        f"slices, but {input_time.size} time values were supplied."
+                    )
+                projected_data[var] = projected_values
 
         for time_index in range(input_time.size):
             self.input_timeseries.add_entry(
@@ -902,6 +914,45 @@ class Dynamics(object):
             )
 
         self.data.save_input_dataset(key)
+
+    def _project_scalar_input_variables(
+        self,
+        key,
+        input_data,
+        *,
+        input_grid,
+        input_time,
+        sqrt_weights=None,
+        reg_lambda=None,
+        pinv_rtol=1e-15,
+    ):
+        """Project scalar input variables in one batched transform."""
+        transform = self.input_transforms[key]
+        normalized = {
+            var: transform.normalize_scalar_value_batch(values, input_grid)
+            for var, values in input_data.items()
+        }
+        for var, values in normalized.items():
+            if values.shape[0] != input_time.size:
+                raise ValueError(
+                    f"{key}.{var} has {values.shape[0]} projected time "
+                    f"slices, but {input_time.size} time values were supplied."
+                )
+
+        variables = tuple(normalized)
+        combined = np.concatenate([normalized[var] for var in variables], axis=0)
+        projected = transform.project_scalar(
+            combined,
+            input_grid=input_grid,
+            projection_basis=self.input_projection_bases[key],
+            sqrt_weights=sqrt_weights,
+            reg_lambda=reg_lambda,
+            pinv_rtol=pinv_rtol,
+        )
+        return {
+            var: projected[index * input_time.size : (index + 1) * input_time.size]
+            for index, var in enumerate(variables)
+        }
 
     def _should_project_conductance(self, project):
         """Return the effective conductance projection setting."""
@@ -928,18 +979,23 @@ class Dynamics(object):
         if reg_lambda is not None:
             raise ValueError("reg_lambda is not supported when conductance projection is off.")
 
-        storage_representation = self.input_field_spaces[key].representation
-        if not is_grid_basis(storage_representation):
-            raise ValueError(
-                "Direct grid conductance storage requires Dynamics(project_conductance=False)."
-            )
-
         input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
         model_grid = self.state.geometry.grid
         if not input_grid.same_as(model_grid):
             raise ValueError(
                 "Direct grid conductance storage requires the input grid to match "
                 "the state/model grid."
+            )
+
+        storage_representation = self.input_field_spaces[key].representation
+        get_operator = getattr(storage_representation, "get_scalar_evaluation_operator", None)
+        if not callable(get_operator) or not is_noop_linear_map(
+            get_operator(model_grid),
+            input_shape=(model_grid.size,),
+            output_shape=(model_grid.size,),
+        ):
+            raise ValueError(
+                "Direct grid conductance storage requires Dynamics(project_conductance=False)."
             )
 
         if hasattr(storage_representation, "arr_theta") and hasattr(

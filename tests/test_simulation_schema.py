@@ -4,7 +4,11 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from pynamit.simulation.schema import build_simulation_schema, field_spaces_from_bases
+from pynamit.simulation.schema import (
+    build_simulation_schema,
+    field_spaces_from_bases,
+    normalize_horizontal_basis_kind,
+)
 
 
 def _settings(**attrs):
@@ -21,12 +25,20 @@ def _settings(**attrs):
     return xr.Dataset(attrs=defaults)
 
 
+def test_horizontal_basis_kind_is_simulation_policy():
+    """Normalize horizontal basis choices within simulation policy."""
+    assert normalize_horizontal_basis_kind(" sh ") == "SH"
+    assert normalize_horizontal_basis_kind("cs") == "CS"
+    with pytest.raises(ValueError, match="horizontal_basis_kind"):
+        normalize_horizontal_basis_kind("grid")
+
+
 def test_sh_schema_uses_mean_free_sh_inputs_and_outputs():
     """SH mode keeps the established mean-free SH storage choices."""
     schema = build_simulation_schema(_settings(), "SH")
 
     assert schema.horizontal_basis is schema.sh_basis_mean_free
-    assert schema.radial_continuation_basis is schema.horizontal_basis
+    assert schema.solid_harmonics.basis is schema.horizontal_basis
     assert schema.input_field_spaces["jr"].representation is schema.sh_basis_mean_free
     assert schema.input_field_spaces["Br"].representation is schema.sh_basis_mean_free
     assert schema.input_field_spaces["u"].representation is schema.sh_basis_mean_free
@@ -45,7 +57,7 @@ def test_cs_schema_uses_full_length_storage_with_mean_free_intent():
     schema = build_simulation_schema(_settings(), "cs")
 
     assert schema.horizontal_basis is schema.cs_basis
-    assert schema.radial_continuation_basis is schema.sh_basis_mean_free
+    assert schema.solid_harmonics.basis is schema.sh_basis_mean_free
     assert all(
         space.representation is schema.cs_basis
         for space in schema.input_field_spaces.values()
@@ -54,7 +66,9 @@ def test_cs_schema_uses_full_length_storage_with_mean_free_intent():
         space.representation is schema.cs_basis
         for space in schema.output_field_spaces.values()
     )
-    assert all(basis is schema.cs_basis for basis in schema.interpolation_bases.values())
+    assert all(
+        basis is schema.cs_basis for basis in schema.input_projection_bases.values()
+    )
 
     state_space = schema.output_field_spaces["state"]
     assert state_space.mean_free
@@ -71,7 +85,9 @@ def test_schema_respects_vector_input_flags_for_sh_projection_basis():
 
     assert schema.input_field_spaces["jr"].representation is schema.sh_basis_mean_free
     assert schema.input_field_spaces["conductance"].representation is schema.sh_basis
-    assert all(basis is schema.cs_basis for basis in schema.interpolation_bases.values())
+    assert all(
+        basis is schema.cs_basis for basis in schema.input_projection_bases.values()
+    )
 
 
 def test_sh_schema_can_store_conductance_on_grid_without_projection():
@@ -80,7 +96,7 @@ def test_sh_schema_can_store_conductance_on_grid_without_projection():
 
     assert schema.horizontal_basis is schema.sh_basis_mean_free
     assert schema.input_field_spaces["conductance"].representation is schema.cs_basis
-    assert schema.interpolation_bases["conductance"] is schema.cs_basis
+    assert schema.input_projection_bases["conductance"] is schema.cs_basis
     assert not schema.input_field_spaces["conductance"].mean_free
 
 

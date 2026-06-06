@@ -18,6 +18,8 @@ from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 
+from pynamit.sphere.grid import Grid
+
 FALLBACK_RESOURCE = resources.files("pynamit.data") / "fallback_inputs.json"
 _INPUT_SOURCE = os.environ.get("PYNAMIT_INPUT_SOURCE", "auto").lower()
 
@@ -105,9 +107,6 @@ def set_input_source(source: Optional[str]) -> str:
         os.environ["PYNAMIT_INPUT_SOURCE"] = normalized
 
     return _INPUT_SOURCE
-
-
-GRID_MATCH_ABS_TOL = 1e-6
 
 
 def _load_fallback(path: Optional[os.PathLike[str] | str] = None) -> Dict[str, Any]:
@@ -267,14 +266,13 @@ def _select_fallback_entry(
         key = sorted(entries.keys(), key=_entry_sort_key)[0]
         return entries[key]
 
+    target_hash = Grid(lat=lat, lon=lon).hash
     for key, entry in entries.items():
         entry_lat = np.asarray(entry["lat"])
         entry_lon = np.asarray(entry["lon"])
         if entry_lat.size != lat.size or entry_lon.size != lon.size:
             continue
-        if np.allclose(entry_lat, lat, atol=GRID_MATCH_ABS_TOL, rtol=0.0) and np.allclose(
-            entry_lon, lon, atol=GRID_MATCH_ABS_TOL, rtol=0.0
-        ):
+        if Grid(lat=entry_lat, lon=entry_lon).hash == target_hash:
             return entry
 
     available = ", ".join(sorted(entries.keys()))

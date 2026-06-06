@@ -7,7 +7,7 @@ import pytest
 from scipy.sparse import csr_matrix
 
 import pynamit
-from pynamit.primitives.spherical_transform import (
+from pynamit.sphere.spherical_transform import (
     SphericalTransform,
     grid_sqrt_area_weights,
     resolve_sqrt_weights,
@@ -16,6 +16,7 @@ from pynamit.math import (
     JAX_AVAILABLE,
     as_linear_map,
     diagonal_linear_map,
+    is_noop_linear_map,
     set_backend,
     to_jax,
     to_numpy,
@@ -27,12 +28,10 @@ from pynamit.sphere import (
     BasisView,
     CSBasis,
     Grid,
-    GridBasis,
-    RadialLaplaceContinuation,
     SHBasis,
+    SolidHarmonics,
     SurfaceOperators,
     SphericalRepresentation,
-    is_grid_basis,
 )
 
 
@@ -47,13 +46,18 @@ def test_public_sphere_package_is_canonical():
     assert SphericalBasis is CoreBasis
     assert pynamit.CSBasis is CSBasis
     assert pynamit.SHBasis is SHBasis
+    assert pynamit.SolidHarmonics is SolidHarmonics
     assert pynamit.SphericalBasis is SphericalBasis
     assert pynamit.SphericalRepresentation is SphericalRepresentation
     assert pynamit.BasisView is BasisView
+    assert not hasattr(pynamit, "normalize_horizontal_basis_kind")
+    sphere_package = importlib.import_module("pynamit.sphere")
+    assert not hasattr(sphere_package, "normalize_horizontal_basis_kind")
     assert importlib.util.find_spec("pynamit.basis") is None
     assert importlib.util.find_spec("pynamit.primitives.basis") is None
     assert importlib.util.find_spec("pynamit.primitives.field_transform") is None
-    assert importlib.util.find_spec("pynamit.primitives.spherical_transform") is not None
+    assert importlib.util.find_spec("pynamit.primitives.spherical_transform") is None
+    assert importlib.util.find_spec("pynamit.sphere.spherical_transform") is not None
     assert importlib.util.find_spec("pynamit.cubed_sphere") is None
     assert importlib.util.find_spec("pynamit.spherical_harmonics") is None
     assert importlib.util.find_spec("pynamit.primitives.grid") is None
@@ -68,11 +72,15 @@ def test_concrete_bases_implement_basis_interface():
     assert isinstance(sh_basis, SphericalBasis)
     assert isinstance(sh_basis, SurfaceOperators)
     assert isinstance(cs_basis, SphericalBasis)
-    assert isinstance(cs_basis, GridBasis)
     assert isinstance(cs_basis, SurfaceOperators)
-    assert is_grid_basis(cs_basis)
+    assert is_noop_linear_map(
+        cs_basis.get_scalar_evaluation_operator(cs_basis.native_grid)
+    )
+    assert not is_noop_linear_map(sh_basis.get_scalar_evaluation_operator(cs_basis.native_grid))
     assert sh_basis.kind == "SH"
     assert cs_basis.kind == "CS"
+    assert not hasattr(sh_basis, "caching")
+    assert not hasattr(cs_basis, "caching")
     assert cs_basis.index_length == cs_basis.arr_theta.size
     sh_basis.validate_metadata()
     cs_basis.validate_metadata()
@@ -87,21 +95,21 @@ def test_grid_and_bases_are_spherical_representations():
     assert not isinstance(grid, SphericalBasis)
 
 
-def test_basis_capability_designators_are_explicit():
-    """Potential-basis capabilities are explicit."""
+def test_solid_harmonics_are_separate_from_surface_bases():
+    """Solid-harmonic physics wraps rather than extends an SH basis."""
     sh_basis = SHBasis(3, 2)
     cs_basis = CSBasis(4)
+    solid_harmonics = SolidHarmonics(sh_basis)
 
-    assert sh_basis.supports_surface_potential_operators
-    assert sh_basis.supports_radial_potential_operators
-    assert isinstance(sh_basis, RadialLaplaceContinuation)
-    assert cs_basis.supports_surface_potential_operators
-    assert not cs_basis.supports_radial_potential_operators
-    assert not isinstance(cs_basis, RadialLaplaceContinuation)
-    assert not hasattr(cs_basis, "external_potential_continuation")
-    assert not hasattr(cs_basis, "internal_potential_continuation")
-    assert not hasattr(cs_basis, "boundary_potential_discontinuity")
-    assert not hasattr(cs_basis, "sheet_current_potential")
+    assert solid_harmonics.basis is sh_basis
+    assert isinstance(sh_basis, SurfaceOperators)
+    assert isinstance(cs_basis, SurfaceOperators)
+    for basis in (sh_basis, cs_basis):
+        assert not hasattr(basis, "external_potential_continuation")
+        assert not hasattr(basis, "internal_potential_continuation")
+        assert not hasattr(basis, "boundary_potential_discontinuity")
+    with pytest.raises(TypeError, match="SH surface basis"):
+        SolidHarmonics(cs_basis)
 
 
 def test_grid_hash_matches_equivalent_coordinates():
@@ -118,6 +126,28 @@ def test_grid_hash_matches_equivalent_coordinates():
     assert first.coefficients_are_compatible_with(second)
     assert not first.same_as(different)
     assert not first.coefficients_are_compatible_with(different)
+
+
+def test_csbasis_native_grid_comparison_uses_grid_hash(monkeypatch):
+    """Native CS Grid matching delegates to Grid.same_as."""
+    cs_basis = CSBasis(4)
+    grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
+
+    def fail_allclose(*args, **kwargs):
+        raise AssertionError("Grid-native comparison should use coordinate hashes")
+
+    monkeypatch.setattr(
+        "pynamit.sphere.cubed_sphere.cs_basis.np.allclose",
+        fail_allclose,
+    )
+
+    assert cs_basis._is_native_grid(grid)
+    grid_like = type(
+        "GridLike",
+        (),
+        {"theta": cs_basis.arr_theta + 1e-10, "phi": cs_basis.arr_phi - 1e-10},
+    )()
+    assert cs_basis._is_native_grid(grid_like)
 
 
 def test_basis_coefficient_compatibility_uses_coefficient_space():
@@ -223,21 +253,42 @@ def test_helmholtz_divergence_and_radial_curl_are_laplacian_maps(basis_kind):
     np.testing.assert_allclose(to_numpy(actual_radial_curl), expected_radial_curl)
 
 
-def test_radial_laplace_continuation_matches_sh_formulas():
-    """Radial continuation uses the SH Laplace-continuation formulas."""
+def test_solid_harmonics_match_reference_radius_shift_formulas():
+    """Solid harmonics use geomagnetic reference-radius scaling."""
     sh_basis = SHBasis(3, 2)
+    solid_harmonics = SolidHarmonics(sh_basis)
 
     np.testing.assert_allclose(
-        sh_basis.external_potential_continuation(2.0, 3.0),
+        solid_harmonics.regular_reference_shift(2.0, 3.0),
         (2.0 / 3.0) ** (1 - sh_basis.n),
     )
     np.testing.assert_allclose(
-        sh_basis.internal_potential_continuation(2.0, 3.0),
+        solid_harmonics.irregular_reference_shift(2.0, 3.0),
         (2.0 / 3.0) ** (sh_basis.n + 2),
     )
     np.testing.assert_allclose(
-        sh_basis.boundary_potential_discontinuity,
+        solid_harmonics.poloidal_to_regular_potential_factor,
+        -(sh_basis.n + 1),
+    )
+    np.testing.assert_allclose(
+        solid_harmonics.poloidal_to_irregular_potential_factor,
+        sh_basis.n,
+    )
+    np.testing.assert_allclose(
+        solid_harmonics.poloidal_to_boundary_potential_jump_factor,
         2 * sh_basis.n + 1,
+    )
+    np.testing.assert_allclose(
+        solid_harmonics.poloidal_to_boundary_potential_jump(7.0),
+        7.0 * (2 * sh_basis.n + 1),
+    )
+    np.testing.assert_allclose(
+        -sh_basis.n * solid_harmonics.poloidal_to_regular_potential_factor,
+        sh_basis.n * (sh_basis.n + 1),
+    )
+    np.testing.assert_allclose(
+        (sh_basis.n + 1) * solid_harmonics.poloidal_to_irregular_potential_factor,
+        sh_basis.n * (sh_basis.n + 1),
     )
 
 
@@ -716,7 +767,11 @@ def test_shbasis_surface_operators_preserve_jax_inputs():
 
         G = sh_basis.evaluate_on_grid(grid)
         grid_values = sh_basis.get_scalar_evaluation_operator(grid).matvec(values)
-        shifted = sh_basis.get_external_potential_continuation_operator(2.0, 3.0).matvec(values)
+        shifted = (
+            SolidHarmonics(sh_basis)
+            .get_regular_reference_shift_operator(2.0, 3.0)
+            .matvec(values)
+        )
 
         assert "jax" in type(G).__module__
         assert "jax" in type(sh_basis.laplacian()).__module__
@@ -736,7 +791,6 @@ def test_shbasis_mean_free_option_matches_nmin_one_space():
 
     assert isinstance(cached_mean_free, BasisView)
     assert isinstance(cached_mean_free, SurfaceOperators)
-    assert cached_mean_free.supports_radial_potential_operators
     assert cached_mean_free.parent_basis is full
     assert cached_mean_free.root_basis is full
     assert mean_free.scalar_fields_are_mean_free_by_construction()
@@ -766,17 +820,19 @@ def test_shbasis_mean_free_view_slices_parent_operators():
         direct_mean_free.evaluate_on_grid(grid),
     )
     np.testing.assert_allclose(view.laplacian(), direct_mean_free.laplacian())
+    view_solid_harmonics = SolidHarmonics(view)
+    direct_solid_harmonics = SolidHarmonics(direct_mean_free)
     np.testing.assert_allclose(
-        view.external_potential_continuation(2.0, 3.0),
-        direct_mean_free.external_potential_continuation(2.0, 3.0),
+        view_solid_harmonics.regular_reference_shift(2.0, 3.0),
+        direct_solid_harmonics.regular_reference_shift(2.0, 3.0),
     )
     np.testing.assert_allclose(
-        view.internal_potential_continuation(2.0, 3.0),
-        direct_mean_free.internal_potential_continuation(2.0, 3.0),
+        view_solid_harmonics.irregular_reference_shift(2.0, 3.0),
+        direct_solid_harmonics.irregular_reference_shift(2.0, 3.0),
     )
     np.testing.assert_allclose(
-        view.boundary_potential_discontinuity,
-        direct_mean_free.boundary_potential_discontinuity,
+        view_solid_harmonics.poloidal_to_boundary_potential_jump_factor,
+        direct_solid_harmonics.poloidal_to_boundary_potential_jump_factor,
     )
 
 
@@ -790,8 +846,6 @@ def test_basis_view_slices_cs_surface_operators():
     assert isinstance(view, SurfaceOperators)
     assert view.kind == "CS"
     assert view.index_length == indices.size
-    assert view.supports_surface_potential_operators
-    assert not view.supports_radial_potential_operators
     np.testing.assert_allclose(view.index_arrays[0], cs_basis.arr_theta[indices])
     np.testing.assert_allclose(view.index_arrays[1], cs_basis.arr_phi[indices])
     np.testing.assert_allclose(
@@ -806,16 +860,66 @@ def test_basis_view_slices_cs_surface_operators():
         view.laplacian(),
         cs_basis.laplacian()[np.ix_(indices, indices)],
     )
-    with pytest.raises(NotImplementedError):
-        view.external_potential_continuation(2.0, 3.0)
-    with pytest.raises(NotImplementedError):
-        view.boundary_potential_discontinuity
+    with pytest.raises(TypeError, match="SH surface basis"):
+        SolidHarmonics(view)
 
 
 def test_shbasis_rejects_inconsistent_mean_free_options():
     """Nmin and mean_free must describe the same scalar space."""
     with pytest.raises(ValueError, match="inconsistent scalar-space options"):
         SHBasis(3, 2, Nmin=0, mean_free=True)
+
+
+def test_spherical_transform_reuses_sh_evaluation_context(monkeypatch):
+    """Basis-owned grid cache reuses expensive SH work."""
+    sh_basis = SHBasis(4, 3)
+    grid = Grid(theta=np.array([30.0, 65.0, 85.0]), phi=np.array([0.0, 45.0, 120.0]))
+    transform = SphericalTransform(sh_basis, grid)
+    calls = {"legendre": 0, "derivative": 0}
+    original_legendre = sh_basis.legendre
+    original_derivative = sh_basis.legendre_derivative
+
+    def counted_legendre(theta):
+        calls["legendre"] += 1
+        return original_legendre(theta)
+
+    def counted_derivative(theta, P):
+        calls["derivative"] += 1
+        return original_derivative(theta, P)
+
+    monkeypatch.setattr(sh_basis, "legendre", counted_legendre)
+    monkeypatch.setattr(sh_basis, "legendre_derivative", counted_derivative)
+
+    transform.scalar_coeffs_to_grid
+    transform.scalar_coeffs_to_gridded_theta_derivative
+    transform.scalar_coeffs_to_gridded_phi_derivative
+
+    assert calls == {"legendre": 1, "derivative": 1}
+    assert not hasattr(transform, "_source_evaluator")
+
+
+def test_csbasis_reuses_native_operator_cache():
+    """Native CS surface operators are cached on the basis."""
+    cs_basis = CSBasis(8)
+    grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
+    same_grid = Grid(theta=cs_basis.arr_theta.copy(), phi=cs_basis.arr_phi.copy())
+
+    assert cs_basis.get_scalar_evaluation_operator(
+        grid
+    ) is cs_basis.get_scalar_evaluation_operator(same_grid)
+    assert cs_basis.get_scalar_evaluation_operator(
+        grid,
+        derivative="theta",
+    ) is cs_basis.get_scalar_evaluation_operator(same_grid, derivative="theta")
+    assert cs_basis.get_surface_gradient_operator(
+        grid
+    ) is cs_basis.get_surface_gradient_operator(same_grid)
+    assert cs_basis.get_rhat_cross_gradient_operator(
+        grid
+    ) is cs_basis.get_rhat_cross_gradient_operator(same_grid)
+    assert cs_basis.get_helmholtz_synthesis_operator(
+        grid
+    ) is cs_basis.get_helmholtz_synthesis_operator(same_grid)
 
 
 def test_incomplete_basis_subclass_is_rejected():
@@ -836,8 +940,6 @@ def test_surface_operator_subclass_must_implement_evaluate_on_grid():
         index_names = ["i"]
         index_length = 1
         index_arrays = [[0]]
-        minimum_phi_sampling = 1
-        caching = False
 
     with pytest.raises(TypeError):
         IncompleteSurfaceOperators()
