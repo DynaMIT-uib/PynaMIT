@@ -870,7 +870,7 @@ def test_shbasis_rejects_inconsistent_mean_free_options():
 
 
 def test_spherical_transform_reuses_sh_evaluation_context(monkeypatch):
-    """Transform-owned evaluation context reuses expensive SH work."""
+    """Basis-owned grid cache reuses expensive SH work."""
     sh_basis = SHBasis(4, 3)
     grid = Grid(theta=np.array([30.0, 65.0, 85.0]), phi=np.array([0.0, 45.0, 120.0]))
     transform = SphericalTransform(sh_basis, grid)
@@ -894,33 +894,31 @@ def test_spherical_transform_reuses_sh_evaluation_context(monkeypatch):
     transform.scalar_coeffs_to_gridded_phi_derivative
 
     assert calls == {"legendre": 1, "derivative": 1}
+    assert not hasattr(transform, "_source_evaluator")
 
 
-def test_spherical_transform_reuses_native_cs_evaluator_gradient(monkeypatch):
-    """Native CS evaluator reuses gradient for vector synthesis."""
+def test_csbasis_reuses_native_operator_cache():
+    """Native CS surface operators are cached on the basis."""
     cs_basis = CSBasis(8)
     grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
-    transform = SphericalTransform(cs_basis, grid)
-    calls = {"gradient": 0, "rxgrad": 0}
-    original_gradient = cs_basis.get_surface_gradient_matrix
-    original_rxgrad = cs_basis.get_rhat_cross_gradient_matrix
+    same_grid = Grid(theta=cs_basis.arr_theta.copy(), phi=cs_basis.arr_phi.copy())
 
-    def counted_gradient(grid):
-        calls["gradient"] += 1
-        return original_gradient(grid)
-
-    def counted_rxgrad(grid):
-        calls["rxgrad"] += 1
-        return original_rxgrad(grid)
-
-    monkeypatch.setattr(cs_basis, "get_surface_gradient_matrix", counted_gradient)
-    monkeypatch.setattr(cs_basis, "get_rhat_cross_gradient_matrix", counted_rxgrad)
-
-    transform.helmholtz_coeffs_to_gridded_vector
-    transform.scalar_coeffs_to_gridded_gradient
-    transform.scalar_coeffs_to_gridded_rhat_cross_gradient
-
-    assert calls == {"gradient": 1, "rxgrad": 0}
+    assert cs_basis.get_scalar_evaluation_operator(
+        grid
+    ) is cs_basis.get_scalar_evaluation_operator(same_grid)
+    assert cs_basis.get_scalar_evaluation_operator(
+        grid,
+        derivative="theta",
+    ) is cs_basis.get_scalar_evaluation_operator(same_grid, derivative="theta")
+    assert cs_basis.get_surface_gradient_operator(
+        grid
+    ) is cs_basis.get_surface_gradient_operator(same_grid)
+    assert cs_basis.get_rhat_cross_gradient_operator(
+        grid
+    ) is cs_basis.get_rhat_cross_gradient_operator(same_grid)
+    assert cs_basis.get_helmholtz_synthesis_operator(
+        grid
+    ) is cs_basis.get_helmholtz_synthesis_operator(same_grid)
 
 
 def test_incomplete_basis_subclass_is_rejected():

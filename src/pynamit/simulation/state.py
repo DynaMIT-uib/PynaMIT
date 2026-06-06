@@ -295,13 +295,8 @@ class State:
         """Linear map enforcing the E-field low-latitude constraint."""
         if self._E_map_constraint_cache is None:
             inner_map = self.m_imp_to_E_coeffs
-            outer_tensor = self.geometry.E_coeffs_to_E_apex_ll_diff
-            if inner_map is not None and outer_tensor is not None:
-                outer_map = as_linear_map(
-                    outer_tensor,
-                    input_shape=inner_map.output_shape,
-                    output_shape=(2, int(np.sum(self.geometry.ll_mask))),
-                )
+            outer_map = self.geometry.E_coeffs_to_E_apex_ll_diff_operator
+            if inner_map is not None and outer_map is not None:
                 self._E_map_constraint_cache = outer_map @ inner_map
         return self._E_map_constraint_cache
 

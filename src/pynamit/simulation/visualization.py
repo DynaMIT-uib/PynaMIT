@@ -14,6 +14,7 @@ from polplot import Polarplot
 from pynamit.sphere import Grid
 from pynamit.sphere.spherical_transform import SphericalTransform
 from pynamit.primitives.field_evaluator import FieldEvaluator
+from pynamit.math.constants import mu0
 
 
 def cs_interpolate(projection, inlat, inlon, values, outlat, outlon, **kwargs):
@@ -153,6 +154,161 @@ def globalplot(lon, lat, data, noon_longitude=0, scatter=False, **kwargs):
     plt.close()
 
 
+def _current_output_key(dynamics, preferred=None):
+    """Return the available output key to visualize."""
+    datasets = dynamics.output_timeseries.datasets
+    if preferred is not None:
+        if preferred not in datasets:
+            raise ValueError(f"No output dataset named {preferred!r} is available.")
+        return preferred
+    if "state" in datasets:
+        return "state"
+    if "steady_state" in datasets:
+        return "steady_state"
+    raise RuntimeError("No state or steady_state output is available to visualize.")
+
+
+def _current_output_entry(dynamics, key=None):
+    """Return current output coefficients from a ``Dynamics`` object."""
+    key = _current_output_key(dynamics, preferred=key)
+    entry = dynamics.output_timeseries.get_entry(key, dynamics.current_time)
+    if entry is None:
+        raise RuntimeError(
+            f"No {key!r} output is available at t={float(dynamics.current_time):.3f}."
+        )
+    return entry
+
+
+def _transform_for_source(source, transform):
+    """Return ``transform`` or an equivalent one for ``source``."""
+    if transform.source.coefficients_are_compatible_with(source):
+        return transform
+    return SphericalTransform(source, transform.target)
+
+
+def evaluate_Br(dynamics, transform, *, key=None):
+    """Evaluate radial magnetic perturbation on ``transform.target``."""
+    entry = _current_output_entry(dynamics, key=key)
+    geometry = dynamics.state.geometry
+    coeffs = geometry.m_ind_to_Br_operator.matvec(entry["m_ind"])
+    return _transform_for_source(geometry.basis, transform).synthesize_scalar(coeffs)
+
+
+def evaluate_jr(dynamics, transform, *, key=None):
+    """Evaluate radial current density on ``transform.target``."""
+    entry = _current_output_entry(dynamics, key=key)
+    geometry = dynamics.state.geometry
+    coeffs = geometry.m_imp_to_jr_operator.matvec(entry["m_imp"])
+    return _transform_for_source(geometry.basis, transform).synthesize_scalar(coeffs)
+
+
+def evaluate_equivalent_current_function(dynamics, transform, *, key=None):
+    """Evaluate the equivalent-current stream function."""
+    entry = _current_output_entry(dynamics, key=key)
+    geometry = dynamics.state.geometry
+    coeffs = (
+        -geometry.RI
+        / mu0
+        * geometry.horizontal_to_boundary_potential_jump_factor_operator.matvec(
+            entry["m_ind"]
+        )
+    )
+    solid_transform = _transform_for_source(geometry.solid_harmonics.basis, transform)
+    return solid_transform.synthesize_scalar(coeffs)
+
+
+def _solid_harmonic_poloidal_to_sheet_current(geometry, transform):
+    """Return solid-harmonic poloidal coefficients to sheet current."""
+    solid_transform = _transform_for_source(geometry.solid_harmonics.basis, transform)
+    jump_factor = np.asarray(
+        geometry.solid_harmonics.poloidal_to_boundary_potential_jump_factor
+    ).reshape(1, 1, -1)
+    return (
+        -np.asarray(solid_transform.scalar_coeffs_to_gridded_rhat_cross_gradient)
+        * jump_factor
+        / mu0
+    )
+
+
+def _horizontal_poloidal_to_sheet_current(geometry, transform):
+    """Return horizontal poloidal coefficients to sheet current."""
+    solid_to_sheet = _solid_harmonic_poloidal_to_sheet_current(geometry, transform)
+    return np.tensordot(
+        solid_to_sheet,
+        np.asarray(geometry.horizontal_to_solid_harmonic),
+        axes=([2], [0]),
+    )
+
+
+def _diagonal_values(operator):
+    """Return diagonal values from a diagonal LinearMap."""
+    return np.asarray(operator.diagonal(backend="numpy"))
+
+
+def evaluate_sheet_current(dynamics, transform, *, key=None):
+    """Evaluate total horizontal sheet current."""
+    entry = _current_output_entry(dynamics, key=key)
+    geometry = dynamics.state.geometry
+    horizontal_transform = _transform_for_source(geometry.basis, transform)
+
+    m_imp = np.asarray(entry["m_imp"])
+    m_ind = np.asarray(entry["m_ind"])
+
+    toroidal_to_sheet = (
+        -np.asarray(horizontal_transform.scalar_coeffs_to_gridded_gradient) / mu0
+    )
+    poloidal_to_sheet = _horizontal_poloidal_to_sheet_current(geometry, transform)
+
+    sheet_current = np.tensordot(toroidal_to_sheet, m_imp, axes=([2], [0]))
+    horizontal_poloidal = np.asarray(geometry.T_to_Ve.values) @ m_imp
+    sheet_current += np.tensordot(
+        poloidal_to_sheet,
+        horizontal_poloidal,
+        axes=([2], [0]),
+    )
+
+    if geometry.RM is None:
+        m_ind_to_sheet = poloidal_to_sheet
+    else:
+        regular_shift = _diagonal_values(
+            geometry.solid_harmonics.regular_reference_shift(geometry.RM, geometry.RI)
+        )
+        irregular_shift = _diagonal_values(
+            geometry.solid_harmonics.irregular_reference_shift(geometry.RI, geometry.RM)
+        )
+        denominator = 1.0 - regular_shift * irregular_shift
+        m_ind_to_solid = (
+            1.0 + regular_shift * irregular_shift / denominator
+        ).reshape(-1, 1) * np.asarray(geometry.horizontal_to_solid_harmonic)
+        solid_to_sheet = _solid_harmonic_poloidal_to_sheet_current(geometry, transform)
+        m_ind_to_sheet = np.tensordot(
+            solid_to_sheet,
+            m_ind_to_solid,
+            axes=([2], [0]),
+        )
+
+    sheet_current += np.tensordot(m_ind_to_sheet, m_ind, axes=([2], [0]))
+    return sheet_current
+
+
+def evaluate_Phi(dynamics, transform, *, key=None):
+    """Evaluate electric curl-free potential in volts."""
+    entry = _current_output_entry(dynamics, key=key)
+    geometry = dynamics.state.geometry
+    return geometry.RI * _transform_for_source(geometry.basis, transform).synthesize_scalar(
+        entry["Phi"]
+    )
+
+
+def evaluate_W(dynamics, transform, *, key=None):
+    """Evaluate electric divergence-free potential in volts."""
+    entry = _current_output_entry(dynamics, key=key)
+    geometry = dynamics.state.geometry
+    return geometry.RI * _transform_for_source(geometry.basis, transform).synthesize_scalar(
+        entry["W"]
+    )
+
+
 def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     """Generate diagnostic plots of simulation state.
 
@@ -190,19 +346,17 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
 
     global_projection = ccrs.PlateCarree(central_longitude=noon_longitude)
 
-    fig = plt.figure(figsize=(15, 13))
+    fig = plt.figure(figsize=(15, 10))
 
-    paxn_B = Polarplot(plt.subplot2grid((4, 4), (0, 0)))
-    paxs_B = Polarplot(plt.subplot2grid((4, 4), (0, 1)))
-    paxn_j = Polarplot(plt.subplot2grid((4, 4), (0, 2)))
-    paxs_j = Polarplot(plt.subplot2grid((4, 4), (0, 3)))
-    gax_B = plt.subplot2grid((4, 2), (1, 0), projection=global_projection, rowspan=2)
-    gax_j = plt.subplot2grid((4, 2), (1, 1), projection=global_projection, rowspan=2)
-    ax_1 = plt.subplot2grid((4, 3), (3, 0))
-    ax_2 = plt.subplot2grid((4, 3), (3, 1))
-    ax_3 = plt.subplot2grid((4, 3), (3, 2))
+    paxn_B = Polarplot(plt.subplot2grid((3, 4), (0, 0)))
+    paxs_B = Polarplot(plt.subplot2grid((3, 4), (0, 1)))
+    paxn_j = Polarplot(plt.subplot2grid((3, 4), (0, 2)))
+    paxs_j = Polarplot(plt.subplot2grid((3, 4), (0, 3)))
+    gax_B = plt.subplot2grid((3, 3), (1, 0), projection=global_projection, rowspan=2)
+    gax_j = plt.subplot2grid((3, 3), (1, 1), projection=global_projection, rowspan=2)
+    gax_eq = plt.subplot2grid((3, 3), (1, 2), projection=global_projection, rowspan=2)
 
-    for ax in [gax_B, gax_j]:
+    for ax in [gax_B, gax_j, gax_eq]:
         ax.coastlines(zorder=2, color="grey")
 
     # Set up plotting grid and evaluators.
@@ -210,23 +364,14 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     lat, lon = np.linspace(-89.9, 89.9, NLA), np.linspace(-180, 180, NLO)
     lat, lon = map(np.ravel, np.meshgrid(lat, lon))
     plt_grid = Grid(lat=lat, lon=lon)
-    plt_state_evaluator = SphericalTransform(
-        dynamics.state.basis, plt_grid
-    )
-    plt_b_evaluator = FieldEvaluator(dynamics.state.mainfield, plt_grid, dynamics.state.RI)
+    plt_state_evaluator = SphericalTransform(dynamics.state.basis, plt_grid)
+    plt_b_evaluator = FieldEvaluator(dynamics.mainfield, plt_grid, dynamics.state.RI)
 
     # Calculate values to plot.
-    Br = dynamics.state.get_Br(plt_state_evaluator)
-    FAC = (
-        plt_state_evaluator.scalar_coeffs_to_grid.dot(
-            dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr
-        )
-        / plt_b_evaluator.br
-    )
-    eq_current_function = dynamics.state.get_Jeq(plt_state_evaluator)
-
-    jr_mod = dynamics.horizontal_spherical_transform.scalar_coeffs_to_grid.dot(
-        dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr
+    Br = evaluate_Br(dynamics, plt_state_evaluator)
+    FAC = evaluate_jr(dynamics, plt_state_evaluator) / plt_b_evaluator.br
+    eq_current_function = evaluate_equivalent_current_function(
+        dynamics, plt_state_evaluator
     )
 
     # Make global plots.
@@ -251,6 +396,13 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
         transform=ccrs.PlateCarree(),
         **FAC_kwargs,
     )
+    gax_eq.contour(
+        lon.reshape((NLO, NLA)),
+        lat.reshape((NLO, NLA)),
+        eq_current_function.reshape((NLO, NLA)),
+        transform=ccrs.PlateCarree(),
+        **eqJ_kwargs,
+    )
 
     # Make polar plots.
     mlt = (lon - noon_longitude + 180) / 15  # rotate so that noon is up
@@ -267,66 +419,17 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     paxs_j.contour(lat[iii], mlt[iii], eq_current_function[iii], **eqJ_kwargs)
     paxs_j.contourf(lat[iii], mlt[iii], FAC[iii], **FAC_kwargs)
 
-    # Make scatter plot of high latitude jr.
-    iii = np.abs(dynamics.state.geometry.grid.lat) > dynamics.state.latitude_boundary
-    jrmax = np.max(np.abs(dynamics.state.jr))
-    ax_1.scatter(dynamics.state.jr, jr_mod[iii])
-    ax_1.plot([-jrmax, jrmax], [-jrmax, jrmax], "k-")
-    ax_1.set_xlabel("Input ")
-
-    # Make scatter plot of FACs at conjugate points.
-    j_par_ll = dynamics.state.G_par_ll.dot(dynamics.state.m_imp.coeffs)
-    j_par_cp = dynamics.state.G_par_cp.dot(dynamics.state.m_imp.coeffs)
-    j_par_max = np.max(np.abs(j_par_ll))
-    ax_2.scatter(j_par_ll, j_par_cp)
-    ax_2.plot([-j_par_max, j_par_max], [-j_par_max, j_par_max], "k-")
-    ax_2.set_xlabel(
-        r"$j_\parallel$ [A/m$^2$] at |latitude| $< {}^\circ$".format(
-            dynamics.state.latitude_boundary
-        )
-    )
-    ax_2.set_ylabel(r"$j_\parallel$ [A/m$^2$] at conjugate points")
-
-    # Make scatter plot of Ed1 and Ed2 vs conjugate point values.
-    cu_cp = (
-        dynamics.state.u_phi_cp * dynamics.state.aup_cp
-        + dynamics.state.u_theta_cp * dynamics.state.aut_cp
-    )
-    cu_ll = (
-        dynamics.state.u_phi_ll * dynamics.state.aup_ll
-        + dynamics.state.u_theta_ll * dynamics.state.aut_ll
-    )
-    A_imp_ll = (
-        dynamics.state.etaP_ll * dynamics.state.aeP_imp_ll
-        + dynamics.state.etaH_ll * dynamics.state.aeH_imp_ll
-    )
-    A_imp_cp = (
-        dynamics.state.etaP_cp * dynamics.state.aeP_imp_cp
-        + dynamics.state.etaH_cp * dynamics.state.aeH_imp_cp
-    )
-    A_ind_ll = (
-        dynamics.state.etaP_ll * dynamics.state.aeP_ind_ll
-        + dynamics.state.etaH_ll * dynamics.state.aeH_ind_ll
-    )
-    A_ind_cp = (
-        dynamics.state.etaP_cp * dynamics.state.aeP_ind_cp
-        + dynamics.state.etaH_cp * dynamics.state.aeH_ind_cp
-    )
-
-    c_ll = cu_ll + A_ind_ll.dot(dynamics.state.m_ind.coeffs)
-    c_cp = cu_cp + A_ind_cp.dot(dynamics.state.m_ind.coeffs)
-    Ed1_ll, Ed2_ll = np.split(c_ll + A_imp_ll.dot(dynamics.state.m_imp.coeffs), 2)
-    Ed1_cp, Ed2_cp = np.split(c_cp + A_imp_cp.dot(dynamics.state.m_imp.coeffs), 2)
-    ax_3.scatter(Ed1_ll, Ed1_cp, label="$E_{d_1}$")
-    ax_3.scatter(Ed2_ll, Ed2_cp, label="$E_{d_2}$")
-    ax_3.set_xlabel("$E_{d_i}$")
-    ax_3.set_ylabel("$E_{d_i}$ at conjugate points")
-    ax_3.legend(frameon=False)
-
     if title is not None:
         gax_j.set_title(title)
 
-    plt.subplots_adjust(top=0.89, bottom=0.095, left=0.025, right=0.95, hspace=0.0, wspace=0.185)
+    plt.subplots_adjust(
+        top=0.89,
+        bottom=0.095,
+        left=0.025,
+        right=0.95,
+        hspace=0.0,
+        wspace=0.185,
+    )
     if filename is not None:
         fig.savefig(filename)
     else:
@@ -441,12 +544,12 @@ def compare_AMPS_jr_and_CF_currents(dynamics, a, d, date, lon0):
     m_state_evaluator = SphericalTransform(
         dynamics.horizontal_basis, Grid(lat=mlat, lon=lon)
     )
-    jr = dynamics.get_jr(m_state_evaluator) * 1e6
+    jr = evaluate_jr(dynamics, m_state_evaluator) * 1e6
 
     mv_state_evaluator = SphericalTransform(
         dynamics.horizontal_basis, Grid(lat=mlatv, lon=lonv)
     )
-    js, je = dynamics.state.get_JS(mv_state_evaluator) * 1e3
+    js, je = evaluate_sheet_current(dynamics, mv_state_evaluator) * 1e3
     jn = -js
 
     jrn, jrs = np.split(jr, 2)
@@ -476,7 +579,7 @@ def compare_AMPS_jr_and_CF_currents(dynamics, a, d, date, lon0):
     plt_state_evaluator = SphericalTransform(
         dynamics.horizontal_basis, plt_grid
     )
-    jr = dynamics.get_jr(plt_state_evaluator)
+    jr = evaluate_jr(dynamics, plt_state_evaluator)
 
     globalplot(
         plt_grid.lon.reshape(pltshape),
@@ -500,10 +603,9 @@ def plot_AMPS_Br(a):
     _, axes = plt.subplots(ncols=2, figsize=(10, 5))
     paxes = [polplot.Polarplot(ax) for ax in axes.flatten()]
 
-    if not compare_AMPS_jr_and_CF_currents:
-        mlat, mlt = a.scalargrid
-        mlatn, mltn = np.split(mlat, 2)[0], np.split(mlt, 2)[0]
-        mn_grid = Grid(lat=mlatn, lon=mltn)
+    mlat, mlt = a.scalargrid
+    mlatn, mltn = np.split(mlat, 2)[0], np.split(mlt, 2)[0]
+    mn_grid = Grid(lat=mlatn, lon=mltn)
 
     Bu = a.get_ground_Buqd(height=a.height)
     paxes[0].contourf(
@@ -544,10 +646,20 @@ def show_jr_and_conductance(dynamics, conductance_grid, hall, pedersen, lon0):
 
     plt_grid = Grid(lat=lat, lon=lon)
     hall_plt = cs_interpolate(
-        cs_basis, conductance_grid.lat, conductance_grid.lon, hall, plt_grid.lat, plt_grid.lon
+        dynamics.cs_basis,
+        conductance_grid.lat,
+        conductance_grid.lon,
+        hall,
+        plt_grid.lat,
+        plt_grid.lon,
     )
     pede_plt = cs_interpolate(
-        cs_basis, conductance_grid.lat, conductance_grid.lon, pedersen, plt_grid.lat, plt_grid.lon
+        dynamics.cs_basis,
+        conductance_grid.lat,
+        conductance_grid.lon,
+        pedersen,
+        plt_grid.lat,
+        plt_grid.lon,
     )
 
     globalplot(
@@ -570,7 +682,7 @@ def show_jr_and_conductance(dynamics, conductance_grid, hall, pedersen, lon0):
     plt_state_evaluator = SphericalTransform(
         dynamics.horizontal_basis, plt_grid
     )
-    jr = dynamics.state.get_jr(plt_state_evaluator)
+    jr = evaluate_jr(dynamics, plt_state_evaluator)
     globalplot(
         plt_grid.lon.reshape(pltshape),
         plt_grid.lat.reshape(pltshape),
@@ -672,7 +784,7 @@ def time_dependent_plot(
     fn = os.path.join(fig_directory, "new_" + str(filecount).zfill(3) + ".png")
     title = "t = {:.3} s".format(dynamics.current_time)
 
-    Br = dynamics.state.get_Br(plt_state_evaluator)
+    Br = evaluate_Br(dynamics, plt_state_evaluator)
 
     _, paxn, paxs, _ = globalplot(
         plt_grid.lon.reshape(pltshape),
@@ -686,9 +798,9 @@ def time_dependent_plot(
         extend="both",
     )
 
-    Phi = dynamics.state.get_Phi(plt_state_evaluator) * 1e-3
+    Phi = evaluate_Phi(dynamics, plt_state_evaluator) * 1e-3
 
-    # W = dynamics.state.get_W(plt_state_evaluator) * 1e-3
+    # W = evaluate_W(dynamics, plt_state_evaluator) * 1e-3
     nnn = plt_grid.lat.flatten() > 50
     sss = plt_grid.lat.flatten() < -50
     # paxn.contour(

@@ -341,7 +341,8 @@ class Geometry:
         self.jr_coeffs_to_j_apex_operator = (
             self._build_jr_coeffs_to_j_apex_operator()
         )
-        self.E_coeffs_to_E_apex_ll_diff = None
+        self._E_coeffs_to_E_apex_ll_diff = None
+        self.E_coeffs_to_E_apex_ll_diff_operator = None
 
         if self.connect_hemispheres:
             # Modify jr constraint for interhemispheric connection
@@ -367,8 +368,13 @@ class Geometry:
                 np.asarray(self.cp_spherical_transform.helmholtz_coeffs_to_gridded_vector),
                 optimize=True,
             )
-            self.E_coeffs_to_E_apex_ll_diff = np.ascontiguousarray(
+            E_coeffs_to_E_apex_ll_diff = np.ascontiguousarray(
                 (E_coeffs_to_E_apex - E_coeffs_to_E_apex_cp)[:, self.ll_mask]
+            )
+            self.E_coeffs_to_E_apex_ll_diff_operator = as_linear_map(
+                E_coeffs_to_E_apex_ll_diff,
+                input_shape=(2, self.basis.index_length),
+                output_shape=(2, int(np.sum(self.ll_mask))),
             )
 
     def _build_jr_coeffs_to_j_apex_operator(
@@ -390,6 +396,18 @@ class Geometry:
             output_shape=(transform.target.size,),
         )
         return scale_operator @ transform.scalar_coeffs_to_grid_operator
+
+    @property
+    def E_coeffs_to_E_apex_ll_diff(self) -> Optional[np.ndarray]:
+        """Return explicit low-latitude E-apex difference tensor."""
+        operator = self.E_coeffs_to_E_apex_ll_diff_operator
+        if operator is None:
+            return None
+        if self._E_coeffs_to_E_apex_ll_diff is None:
+            self._E_coeffs_to_E_apex_ll_diff = np.asarray(
+                operator.dense(backend="numpy")
+            ).reshape(operator.output_shape + operator.input_shape)
+        return self._E_coeffs_to_E_apex_ll_diff
 
     @property
     def bP(self) -> np.ndarray:

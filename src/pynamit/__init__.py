@@ -58,12 +58,37 @@ from .primitives.coefficient_field import CoefficientField
 from .primitives.field_evaluator import FieldEvaluator
 from .primitives.field_space import FieldSpace
 from .simulation.dynamics import Dynamics
-from .simulation.input_vs_interpolated import plot_input_vs_interpolated
 from .simulation.mainfield import Mainfield
-from .simulation.pynameye import PynamEye
-from .simulation.visualization import debugplot, globalplot
 from .math import set_backend, use_jax
 from .external_inputs import set_input_source, get_input_source
+
+_LAZY_EXPORTS = {
+    "PynamEye": ("pynamit.simulation.pynameye", "PynamEye"),
+    "debugplot": ("pynamit.simulation.visualization", "debugplot"),
+    "globalplot": ("pynamit.simulation.visualization", "globalplot"),
+    "plot_input_vs_interpolated": (
+        "pynamit.simulation.input_vs_interpolated",
+        "plot_input_vs_interpolated",
+    ),
+}
+
+
+def __getattr__(name):
+    """Load optional visualization helpers only when requested."""
+    if name in _LAZY_EXPORTS:
+        from importlib import import_module
+
+        module_name, attr_name = _LAZY_EXPORTS[name]
+        value = getattr(import_module(module_name), attr_name)
+        globals()[name] = value
+        return value
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__():
+    """Return public package attributes including lazy exports."""
+    return sorted(set(globals()) | set(__all__))
+
 
 __all__ = [
     "BasisView",

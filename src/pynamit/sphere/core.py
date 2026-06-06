@@ -255,75 +255,6 @@ class GridBasis(SphericalBasis):
         self._index_arrays = value
 
 
-class SurfaceEvaluator:
-    """Grid-bound evaluator for surface operators."""
-
-    def __init__(self, basis, grid):
-        """Bind ``basis`` evaluations to one ``grid``."""
-        self.basis = basis
-        self.grid = grid
-
-    def evaluate(self, derivative=None):
-        """Evaluate scalar basis functions or derivatives."""
-        return self.basis.evaluate_on_grid(self.grid, derivative=derivative)
-
-    def scalar_evaluation_matrix(self):
-        """Return the scalar coefficient-to-grid matrix."""
-        return _backend_array(
-            self.evaluate(),
-            getattr(self.grid, "theta", None),
-            getattr(self.grid, "phi", None),
-        )
-
-    def scalar_evaluation_operator(self, derivative=None):
-        """Return the scalar coefficient-to-grid operator."""
-        matrix = self.evaluate(derivative=derivative)
-        return as_linear_map(
-            matrix,
-            input_shape=(self.basis.index_length,),
-            output_shape=matrix.shape[:-1],
-        )
-
-    def surface_gradient_matrix(self):
-        """Return ``[d_theta, sin(theta)^-1 d_phi]`` on the grid."""
-        return self.basis.get_surface_gradient_matrix(self.grid)
-
-    def surface_gradient_operator(self):
-        """Return the scalar-to-vector surface-gradient operator."""
-        matrix = self.surface_gradient_matrix()
-        return as_linear_map(
-            matrix,
-            input_shape=(self.basis.index_length,),
-            output_shape=matrix.shape[:-1],
-        )
-
-    def rhat_cross_gradient_matrix(self):
-        """Return the tangential ``rhat x grad`` operator."""
-        return self.basis.get_rhat_cross_gradient_matrix(self.grid)
-
-    def rhat_cross_gradient_operator(self):
-        """Return the scalar-to-vector ``rhat x grad`` operator."""
-        matrix = self.rhat_cross_gradient_matrix()
-        return as_linear_map(
-            matrix,
-            input_shape=(self.basis.index_length,),
-            output_shape=matrix.shape[:-1],
-        )
-
-    def helmholtz_synthesis_matrix(self):
-        """Return the Helmholtz synthesis tensor on the grid."""
-        return self.basis.get_helmholtz_synthesis_matrix(self.grid)
-
-    def helmholtz_synthesis_operator(self):
-        """Return the Helmholtz-potential-to-vector operator."""
-        matrix = self.helmholtz_synthesis_matrix()
-        return as_linear_map(
-            matrix,
-            input_shape=(2, self.basis.index_length),
-            output_shape=matrix.shape[:2],
-        )
-
-
 class SurfaceOperators(SphericalBasis):
     """Basis with scalar and vector operators on a spherical surface.
 
@@ -333,10 +264,6 @@ class SurfaceOperators(SphericalBasis):
     With this convention, ``div_s(F) = -laplacian(phi)`` and the radial
     component of ``curl(F)`` is ``laplacian(psi)``.
     """
-
-    def evaluator_for_grid(self, grid):
-        """Return an evaluator bound to ``grid``."""
-        return SurfaceEvaluator(self, grid)
 
     @abstractmethod
     def evaluate_on_grid(self, grid, derivative=None):
@@ -348,18 +275,22 @@ class SurfaceOperators(SphericalBasis):
         """Return the scalar surface Laplacian operator."""
         pass
 
-    def get_scalar_evaluation_matrix(self, grid):
+    def get_scalar_evaluation_matrix(self, grid, derivative=None):
         """Return the scalar coefficient-to-grid matrix."""
         return _backend_array(
-            self.evaluate_on_grid(grid),
+            self.evaluate_on_grid(grid, derivative=derivative),
             getattr(grid, "theta", None),
             getattr(grid, "phi", None),
         )
 
-    def get_scalar_evaluation_operator(self, grid):
+    def get_scalar_evaluation_operator(self, grid, derivative=None):
         """Return the scalar coefficient-to-grid operator."""
-        matrix = self.get_scalar_evaluation_matrix(grid)
-        return as_linear_map(matrix, input_shape=(self.index_length,))
+        matrix = self.get_scalar_evaluation_matrix(grid, derivative=derivative)
+        return as_linear_map(
+            matrix,
+            input_shape=(self.index_length,),
+            output_shape=matrix.shape[:-1],
+        )
 
     def get_surface_gradient_matrix(self, grid):
         """Return ``[d_theta, sin(theta)^-1 d_phi]`` on a surface."""

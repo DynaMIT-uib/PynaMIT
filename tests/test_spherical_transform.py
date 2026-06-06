@@ -511,7 +511,7 @@ def test_cs_non_native_scalar_operator_uses_remap_without_dense_interpolation(
 
     monkeypatch.setattr(basis, "interpolate_scalar", fail_interpolate_scalar)
 
-    operator = basis.evaluator_for_grid(target).scalar_evaluation_operator()
+    operator = basis.get_scalar_evaluation_operator(target)
 
     assert operator.output_shape == (target.size,)
     np.testing.assert_allclose(operator.matvec(coeffs), expected, atol=1e-12)
@@ -560,10 +560,9 @@ def test_cs_non_native_vector_operators_use_remap_without_dense_interpolation(
         fail_interpolate_vector_components,
     )
 
-    evaluator = basis.evaluator_for_grid(target)
-    gradient_operator = evaluator.surface_gradient_operator()
-    rxgrad_operator = evaluator.rhat_cross_gradient_operator()
-    helmholtz_operator = evaluator.helmholtz_synthesis_operator()
+    gradient_operator = basis.get_surface_gradient_operator(target)
+    rxgrad_operator = basis.get_rhat_cross_gradient_operator(target)
+    helmholtz_operator = basis.get_helmholtz_synthesis_operator(target)
 
     np.testing.assert_allclose(
         gradient_operator.matvec(scalar_coeffs).reshape(2, target.size),

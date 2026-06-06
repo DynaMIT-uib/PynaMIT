@@ -17,183 +17,10 @@ from scipy.spatial import Delaunay
 
 from pynamit.math import as_linear_map
 from pynamit.math.backend import get_array_module, to_numpy, use_jax
-from pynamit.sphere.core import GridBasis, SurfaceEvaluator, SurfaceOperators
+from pynamit.sphere.core import GridBasis, SurfaceOperators
 
 d2r = np.pi / 180
 datapath = os.path.dirname(os.path.abspath(__file__)) + "/data/"
-
-
-class _CSSurfaceEvaluator(SurfaceEvaluator):
-    """Grid-bound CS evaluator with cached matrices."""
-
-    def __init__(self, basis, grid):
-        """Bind one CS basis to one grid."""
-        super().__init__(basis, grid)
-        self._matrix_cache = {}
-        self._operator_cache = {}
-
-    def evaluate(self, derivative=None):
-        """Evaluate and cache CS scalar or derivative matrices."""
-        key = ("evaluate", derivative)
-        if key not in self._matrix_cache:
-            self._matrix_cache[key] = self.basis.evaluate_on_grid(
-                self.grid,
-                derivative=derivative,
-            )
-        return self._matrix_cache[key]
-
-    def surface_gradient_matrix(self):
-        """Return cached CS surface-gradient matrices."""
-        key = "surface_gradient"
-        if key not in self._matrix_cache:
-            self._matrix_cache[key] = self.basis.get_surface_gradient_matrix(self.grid)
-        return self._matrix_cache[key]
-
-    def rhat_cross_gradient_matrix(self):
-        """Return cached CS ``rhat x grad`` matrices."""
-        key = "rhat_cross_gradient"
-        if key not in self._matrix_cache:
-            if self.basis._is_native_grid(self.grid):
-                gradient = self.surface_gradient_matrix()
-                xp = get_array_module(gradient)
-                self._matrix_cache[key] = xp.stack([-gradient[1], gradient[0]])
-            else:
-                self._matrix_cache[key] = self.basis.get_rhat_cross_gradient_matrix(
-                    self.grid
-                )
-        return self._matrix_cache[key]
-
-    def helmholtz_synthesis_matrix(self):
-        """Return cached CS Helmholtz synthesis matrices."""
-        key = "helmholtz_synthesis"
-        if key not in self._matrix_cache:
-            gradient = self.surface_gradient_matrix()
-            rhat_cross_gradient = self.rhat_cross_gradient_matrix()
-            xp = get_array_module(gradient, rhat_cross_gradient)
-            self._matrix_cache[key] = xp.stack(
-                [-xp.asarray(gradient), xp.asarray(rhat_cross_gradient)],
-                axis=2,
-            )
-        return self._matrix_cache[key]
-
-    def scalar_evaluation_operator(self, derivative=None):
-        """Return cached CS scalar or derivative operators."""
-        key = ("scalar_evaluation", derivative)
-        if key not in self._operator_cache:
-            if self.basis._is_native_grid(self.grid):
-                if derivative is None:
-                    matrix = sp.eye(self.basis.index_length, format="csr")
-                elif derivative in {"theta", "phi"}:
-                    matrix = self.basis._get_derivative_bundle()[derivative]
-                else:
-                    raise ValueError(f'Invalid derivative "{derivative}".')
-                self._operator_cache[key] = as_linear_map(
-                    matrix,
-                    input_shape=(self.basis.index_length,),
-                    output_shape=(self.basis.index_length,),
-                )
-            else:
-                if derivative is None:
-                    self._operator_cache[key] = self.basis.scalar_grid_remap_operator(
-                        self.basis.native_grid,
-                        self.grid,
-                    )
-                else:
-                    self._operator_cache[key] = super().scalar_evaluation_operator(
-                        derivative=derivative
-                    )
-        return self._operator_cache[key]
-
-    def surface_gradient_operator(self):
-        """Return cached CS surface-gradient operator."""
-        key = "surface_gradient"
-        if key not in self._operator_cache:
-            if self.basis._is_native_grid(self.grid):
-                bundle = self.basis._get_derivative_bundle()
-                matrix = sp.vstack([bundle["theta"], bundle["phi"]], format="csr")
-                self._operator_cache[key] = as_linear_map(
-                    matrix,
-                    input_shape=(self.basis.index_length,),
-                    output_shape=(2, self.basis.index_length),
-                )
-            else:
-                bundle = self.basis._get_derivative_bundle()
-                matrix = sp.vstack([bundle["theta"], bundle["phi"]], format="csr")
-                native_operator = as_linear_map(
-                    matrix,
-                    input_shape=(self.basis.index_length,),
-                    output_shape=(2, self.basis.index_length),
-                )
-                remap_operator = self.basis.tangential_grid_remap_operator(
-                    self.basis.native_grid,
-                    self.grid,
-                )
-                self._operator_cache[key] = remap_operator @ native_operator
-        return self._operator_cache[key]
-
-    def rhat_cross_gradient_operator(self):
-        """Return cached CS ``rhat x grad`` operator."""
-        key = "rhat_cross_gradient"
-        if key not in self._operator_cache:
-            if self.basis._is_native_grid(self.grid):
-                bundle = self.basis._get_derivative_bundle()
-                matrix = sp.vstack([-bundle["phi"], bundle["theta"]], format="csr")
-                self._operator_cache[key] = as_linear_map(
-                    matrix,
-                    input_shape=(self.basis.index_length,),
-                    output_shape=(2, self.basis.index_length),
-                )
-            else:
-                bundle = self.basis._get_derivative_bundle()
-                matrix = sp.vstack([-bundle["phi"], bundle["theta"]], format="csr")
-                native_operator = as_linear_map(
-                    matrix,
-                    input_shape=(self.basis.index_length,),
-                    output_shape=(2, self.basis.index_length),
-                )
-                remap_operator = self.basis.tangential_grid_remap_operator(
-                    self.basis.native_grid,
-                    self.grid,
-                )
-                self._operator_cache[key] = remap_operator @ native_operator
-        return self._operator_cache[key]
-
-    def helmholtz_synthesis_operator(self):
-        """Return cached CS Helmholtz synthesis operator."""
-        key = "helmholtz_synthesis"
-        if key not in self._operator_cache:
-            if self.basis._is_native_grid(self.grid):
-                bundle = self.basis._get_derivative_bundle()
-                theta = bundle["theta"]
-                phi = bundle["phi"]
-                matrix = sp.bmat(
-                    [[-theta, -phi], [-phi, theta]],
-                    format="csr",
-                )
-                self._operator_cache[key] = as_linear_map(
-                    matrix,
-                    input_shape=(2, self.basis.index_length),
-                    output_shape=(2, self.basis.index_length),
-                )
-            else:
-                bundle = self.basis._get_derivative_bundle()
-                theta = bundle["theta"]
-                phi = bundle["phi"]
-                matrix = sp.bmat(
-                    [[-theta, -phi], [-phi, theta]],
-                    format="csr",
-                )
-                native_operator = as_linear_map(
-                    matrix,
-                    input_shape=(2, self.basis.index_length),
-                    output_shape=(2, self.basis.index_length),
-                )
-                remap_operator = self.basis.tangential_grid_remap_operator(
-                    self.basis.native_grid,
-                    self.grid,
-                )
-                self._operator_cache[key] = remap_operator @ native_operator
-        return self._operator_cache[key]
 
 
 class CSBasis(GridBasis, SurfaceOperators):
@@ -272,6 +99,7 @@ class CSBasis(GridBasis, SurfaceOperators):
 
     _shared_remap_matrix_cache = OrderedDict()
     _shared_remap_matrix_cache_size = 8
+    _surface_cache_size = 16
 
     def __init__(self, N=None):
         """Initialize the cubed sphere basis.
@@ -299,6 +127,8 @@ class CSBasis(GridBasis, SurfaceOperators):
         self._laplacian_cache = {}
         self._laplacian_sparse_cache = {}
         self._remap_operator_cache = {}
+        self._surface_matrix_cache = OrderedDict()
+        self._surface_operator_cache = OrderedDict()
 
         if N is not None:
             if not isinstance(N, (int, np.integer)):
@@ -352,9 +182,86 @@ class CSBasis(GridBasis, SurfaceOperators):
             )
         return self._native_grid
 
-    def evaluator_for_grid(self, grid):
-        """Return a grid-bound CS evaluator."""
-        return _CSSurfaceEvaluator(self, grid)
+    @staticmethod
+    def _surface_cache_key(name, grid, *parts):
+        """Return a cache key for target-grid surface data."""
+        signature = getattr(grid, "signature", None)
+        if signature is None:
+            return None
+        return (name, *parts, signature, bool(use_jax()))
+
+    def _cached_surface_matrix(self, name, grid, build, *parts):
+        """Return a cached target-grid matrix when possible."""
+        key = self._surface_cache_key(name, grid, *parts)
+        if key is None:
+            return build()
+        cache = self._surface_matrix_cache
+        if key in cache:
+            cache.move_to_end(key)
+            return cache[key]
+        matrix = build()
+        cache[key] = matrix
+        if len(cache) > self._surface_cache_size:
+            cache.popitem(last=False)
+        return matrix
+
+    def _cached_surface_operator(self, name, grid, build, *parts):
+        """Return a cached target-grid LinearMap when possible."""
+        key = self._surface_cache_key(name, grid, *parts)
+        if key is None:
+            return build()
+        cache = self._surface_operator_cache
+        if key in cache:
+            cache.move_to_end(key)
+            return cache[key]
+        operator = build()
+        cache[key] = operator
+        if len(cache) > self._surface_cache_size:
+            cache.popitem(last=False)
+        return operator
+
+    def get_scalar_evaluation_matrix(self, grid, derivative=None):
+        """Return the cached CS scalar evaluation matrix."""
+        return self._cached_surface_matrix(
+            "scalar_evaluation",
+            grid,
+            lambda: self.evaluate_on_grid(grid, derivative=derivative),
+            derivative,
+        )
+
+    def get_scalar_evaluation_operator(self, grid, derivative=None):
+        """Return the cached CS scalar evaluation operator."""
+
+        def build():
+            if self._is_native_grid(grid):
+                if derivative is None:
+                    matrix = sp.eye(self.index_length, format="csr")
+                elif derivative in {"theta", "phi"}:
+                    matrix = self._get_derivative_bundle()[derivative]
+                else:
+                    raise ValueError(f'Invalid derivative "{derivative}".')
+                return as_linear_map(
+                    matrix,
+                    input_shape=(self.index_length,),
+                    output_shape=(self.index_length,),
+                )
+
+            if derivative is None:
+                return self.scalar_grid_remap_operator(self.native_grid, grid)
+
+            matrix = self.get_scalar_evaluation_matrix(grid, derivative=derivative)
+            return as_linear_map(
+                matrix,
+                input_shape=(self.index_length,),
+                output_shape=matrix.shape[:-1],
+            )
+
+        return self._cached_surface_operator(
+            "scalar_evaluation",
+            grid,
+            build,
+            derivative,
+        )
 
     @staticmethod
     def _spherical_triangle_area(a, b, c):
@@ -839,34 +746,121 @@ class CSBasis(GridBasis, SurfaceOperators):
 
     def get_surface_gradient_matrix(self, grid):
         """Return the CS surface-gradient matrix on ``grid``."""
-        if self._is_native_grid(grid):
-            return SurfaceOperators.get_surface_gradient_matrix(self, grid)
-        native_gradient = SurfaceOperators.get_surface_gradient_matrix(self, self)
-        matrix = self._interpolate_tangential_operator(native_gradient, grid)
-        return get_array_module(getattr(grid, "theta", None), matrix).asarray(matrix)
+        def build():
+            if self._is_native_grid(grid):
+                return SurfaceOperators.get_surface_gradient_matrix(self, grid)
+            native_gradient = SurfaceOperators.get_surface_gradient_matrix(self, self)
+            matrix = self._interpolate_tangential_operator(native_gradient, grid)
+            xp = get_array_module(getattr(grid, "theta", None), matrix)
+            return xp.asarray(matrix)
+
+        return self._cached_surface_matrix("surface_gradient", grid, build)
+
+    def get_surface_gradient_operator(self, grid):
+        """Return the CS surface-gradient operator on ``grid``."""
+
+        def build():
+            bundle = self._get_derivative_bundle()
+            matrix = sp.vstack([bundle["theta"], bundle["phi"]], format="csr")
+            native_operator = as_linear_map(
+                matrix,
+                input_shape=(self.index_length,),
+                output_shape=(2, self.index_length),
+            )
+            if self._is_native_grid(grid):
+                return native_operator
+            return self.tangential_grid_remap_operator(
+                self.native_grid,
+                grid,
+            ) @ native_operator
+
+        return self._cached_surface_operator("surface_gradient", grid, build)
 
     def get_rhat_cross_gradient_matrix(self, grid):
         """Return the CS rhat-cross-gradient matrix on ``grid``."""
-        if self._is_native_grid(grid):
-            return SurfaceOperators.get_rhat_cross_gradient_matrix(self, grid)
-        native_rxgrad = SurfaceOperators.get_rhat_cross_gradient_matrix(self, self)
-        matrix = self._interpolate_tangential_operator(native_rxgrad, grid)
-        return get_array_module(getattr(grid, "theta", None), matrix).asarray(matrix)
+        def build():
+            if self._is_native_grid(grid):
+                return SurfaceOperators.get_rhat_cross_gradient_matrix(self, grid)
+            native_rxgrad = SurfaceOperators.get_rhat_cross_gradient_matrix(self, self)
+            matrix = self._interpolate_tangential_operator(native_rxgrad, grid)
+            xp = get_array_module(getattr(grid, "theta", None), matrix)
+            return xp.asarray(matrix)
+
+        return self._cached_surface_matrix("rhat_cross_gradient", grid, build)
+
+    def get_rhat_cross_gradient_operator(self, grid):
+        """Return the CS rhat-cross-gradient operator on ``grid``."""
+
+        def build():
+            bundle = self._get_derivative_bundle()
+            matrix = sp.vstack([-bundle["phi"], bundle["theta"]], format="csr")
+            native_operator = as_linear_map(
+                matrix,
+                input_shape=(self.index_length,),
+                output_shape=(2, self.index_length),
+            )
+            if self._is_native_grid(grid):
+                return native_operator
+            return self.tangential_grid_remap_operator(
+                self.native_grid,
+                grid,
+            ) @ native_operator
+
+        return self._cached_surface_operator("rhat_cross_gradient", grid, build)
 
     def get_helmholtz_synthesis_matrix(self, grid):
         """Return the CS Helmholtz synthesis tensor on ``grid``."""
-        if self._is_native_grid(grid):
-            return SurfaceOperators.get_helmholtz_synthesis_matrix(self, grid)
-        xp = get_array_module(getattr(grid, "theta", None), getattr(grid, "phi", None))
-        native_gradient = SurfaceOperators.get_surface_gradient_matrix(self, self)
-        native_rxgrad = np.stack([-native_gradient[1], native_gradient[0]], axis=0)
-        return xp.stack(
-            [
-                -xp.asarray(self._interpolate_tangential_operator(native_gradient, grid)),
-                xp.asarray(self._interpolate_tangential_operator(native_rxgrad, grid)),
-            ],
-            axis=2,
-        )
+        def build():
+            if self._is_native_grid(grid):
+                return SurfaceOperators.get_helmholtz_synthesis_matrix(self, grid)
+            xp = get_array_module(
+                getattr(grid, "theta", None),
+                getattr(grid, "phi", None),
+            )
+            native_gradient = SurfaceOperators.get_surface_gradient_matrix(self, self)
+            native_rxgrad = np.stack([-native_gradient[1], native_gradient[0]], axis=0)
+            target_gradient = self._interpolate_tangential_operator(
+                native_gradient,
+                grid,
+            )
+            target_rxgrad = self._interpolate_tangential_operator(
+                native_rxgrad,
+                grid,
+            )
+            return xp.stack(
+                [
+                    -xp.asarray(target_gradient),
+                    xp.asarray(target_rxgrad),
+                ],
+                axis=2,
+            )
+
+        return self._cached_surface_matrix("helmholtz_synthesis", grid, build)
+
+    def get_helmholtz_synthesis_operator(self, grid):
+        """Return the CS Helmholtz synthesis operator on ``grid``."""
+
+        def build():
+            bundle = self._get_derivative_bundle()
+            theta = bundle["theta"]
+            phi = bundle["phi"]
+            matrix = sp.bmat(
+                [[-theta, -phi], [-phi, theta]],
+                format="csr",
+            )
+            native_operator = as_linear_map(
+                matrix,
+                input_shape=(2, self.index_length),
+                output_shape=(2, self.index_length),
+            )
+            if self._is_native_grid(grid):
+                return native_operator
+            return self.tangential_grid_remap_operator(
+                self.native_grid,
+                grid,
+            ) @ native_operator
+
+        return self._cached_surface_operator("helmholtz_synthesis", grid, build)
 
     def _sparse_laplacian_matrix(self, r=1.0):
         """Return the cached sparse discrete scalar Laplacian."""

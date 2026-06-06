@@ -84,11 +84,13 @@ class SphericalTransform:
         self._scalar_least_squares_problem = None
         self._helmholtz_least_squares_problem = None
         self._input_transform = None
-        self._source_evaluator = self.source.evaluator_for_grid(self.target)
 
     def _evaluate_source_on_target(self, derivative=None):
-        """Evaluate the source on the target with shared context."""
-        return self._source_evaluator.evaluate(derivative=derivative)
+        """Evaluate the source on the target grid."""
+        return self.source.get_scalar_evaluation_matrix(
+            self.target,
+            derivative=derivative,
+        )
 
     @property
     def scalar_coeffs_to_grid(self):
@@ -102,7 +104,7 @@ class SphericalTransform:
         """Operator mapping scalar coefficients to grid values."""
         if not hasattr(self, "_scalar_coeffs_to_grid_operator"):
             self._scalar_coeffs_to_grid_operator = (
-                self._source_evaluator.scalar_evaluation_operator()
+                self.source.get_scalar_evaluation_operator(self.target)
             )
         return self._scalar_coeffs_to_grid_operator
 
@@ -125,7 +127,10 @@ class SphericalTransform:
         """Operator evaluating the theta derivative."""
         if not hasattr(self, "_scalar_coeffs_to_gridded_theta_derivative_operator"):
             self._scalar_coeffs_to_gridded_theta_derivative_operator = (
-                self._source_evaluator.scalar_evaluation_operator(derivative="theta")
+                self.source.get_scalar_evaluation_operator(
+                    self.target,
+                    derivative="theta",
+                )
             )
         return self._scalar_coeffs_to_gridded_theta_derivative_operator
 
@@ -148,7 +153,10 @@ class SphericalTransform:
         """Operator evaluating the phi derivative."""
         if not hasattr(self, "_scalar_coeffs_to_gridded_phi_derivative_operator"):
             self._scalar_coeffs_to_gridded_phi_derivative_operator = (
-                self._source_evaluator.scalar_evaluation_operator(derivative="phi")
+                self.source.get_scalar_evaluation_operator(
+                    self.target,
+                    derivative="phi",
+                )
             )
         return self._scalar_coeffs_to_gridded_phi_derivative_operator
 
@@ -157,7 +165,7 @@ class SphericalTransform:
         """Matrix evaluating the horizontal gradient."""
         if not hasattr(self, "_scalar_coeffs_to_gridded_gradient"):
             self._scalar_coeffs_to_gridded_gradient = (
-                self._source_evaluator.surface_gradient_matrix()
+                self.source.get_surface_gradient_matrix(self.target)
             )
         return self._scalar_coeffs_to_gridded_gradient
 
@@ -166,7 +174,7 @@ class SphericalTransform:
         """Operator evaluating the horizontal gradient."""
         if not hasattr(self, "_scalar_coeffs_to_gridded_gradient_operator"):
             self._scalar_coeffs_to_gridded_gradient_operator = (
-                self._source_evaluator.surface_gradient_operator()
+                self.source.get_surface_gradient_operator(self.target)
             )
         return self._scalar_coeffs_to_gridded_gradient_operator
 
@@ -175,7 +183,7 @@ class SphericalTransform:
         """Matrix evaluating r-hat x horizontal gradient."""
         if not hasattr(self, "_scalar_coeffs_to_gridded_rhat_cross_gradient"):
             self._scalar_coeffs_to_gridded_rhat_cross_gradient = (
-                self._source_evaluator.rhat_cross_gradient_matrix()
+                self.source.get_rhat_cross_gradient_matrix(self.target)
             )
         return self._scalar_coeffs_to_gridded_rhat_cross_gradient
 
@@ -184,7 +192,7 @@ class SphericalTransform:
         """Operator evaluating r-hat x horizontal gradient."""
         if not hasattr(self, "_scalar_coeffs_to_gridded_rhat_cross_gradient_operator"):
             self._scalar_coeffs_to_gridded_rhat_cross_gradient_operator = (
-                self._source_evaluator.rhat_cross_gradient_operator()
+                self.source.get_rhat_cross_gradient_operator(self.target)
             )
         return self._scalar_coeffs_to_gridded_rhat_cross_gradient_operator
 
@@ -205,7 +213,7 @@ class SphericalTransform:
                 )
             else:
                 self._helmholtz_coeffs_to_gridded_vector = (
-                    self._source_evaluator.helmholtz_synthesis_matrix()
+                    self.source.get_helmholtz_synthesis_matrix(self.target)
                 )
         return self._helmholtz_coeffs_to_gridded_vector
 
@@ -214,7 +222,7 @@ class SphericalTransform:
         """Operator evaluating horizontal vector field expansions."""
         if not hasattr(self, "_helmholtz_coeffs_to_gridded_vector_operator"):
             self._helmholtz_coeffs_to_gridded_vector_operator = (
-                self._source_evaluator.helmholtz_synthesis_operator()
+                self.source.get_helmholtz_synthesis_operator(self.target)
             )
         return self._helmholtz_coeffs_to_gridded_vector_operator
 
