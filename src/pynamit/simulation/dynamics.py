@@ -6,12 +6,13 @@ coupling.
 
 import numpy as np
 import xarray as xr
+from pynamit.math import is_noop_linear_map
 from pynamit.math.constants import RE
 from pynamit.math.least_squares_solver import get_default_least_squares_solver
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.simulation.schema import normalize_horizontal_basis_kind
 from pynamit.sphere.spherical_transform import SphericalTransform
-from pynamit.sphere import Grid, is_grid_basis
+from pynamit.sphere import Grid
 from pynamit.primitives.io import IO
 from pynamit.simulation.data import SimulationData
 from pynamit.simulation.mainfield import Mainfield
@@ -978,18 +979,23 @@ class Dynamics(object):
         if reg_lambda is not None:
             raise ValueError("reg_lambda is not supported when conductance projection is off.")
 
-        storage_representation = self.input_field_spaces[key].representation
-        if not is_grid_basis(storage_representation):
-            raise ValueError(
-                "Direct grid conductance storage requires Dynamics(project_conductance=False)."
-            )
-
         input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
         model_grid = self.state.geometry.grid
         if not input_grid.same_as(model_grid):
             raise ValueError(
                 "Direct grid conductance storage requires the input grid to match "
                 "the state/model grid."
+            )
+
+        storage_representation = self.input_field_spaces[key].representation
+        get_operator = getattr(storage_representation, "get_scalar_evaluation_operator", None)
+        if not callable(get_operator) or not is_noop_linear_map(
+            get_operator(model_grid),
+            input_shape=(model_grid.size,),
+            output_shape=(model_grid.size,),
+        ):
+            raise ValueError(
+                "Direct grid conductance storage requires Dynamics(project_conductance=False)."
             )
 
         if hasattr(storage_representation, "arr_theta") and hasattr(

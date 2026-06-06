@@ -15,15 +15,15 @@ from scipy.sparse import coo_matrix
 from scipy.interpolate import griddata
 from scipy.spatial import Delaunay
 
-from pynamit.math import as_linear_map
+from pynamit.math import as_linear_map, identity_linear_map
 from pynamit.math.backend import get_array_module, to_numpy, use_jax
-from pynamit.sphere.core import GridBasis, SurfaceOperators
+from pynamit.sphere.core import SurfaceOperators
 
 d2r = np.pi / 180
 datapath = os.path.dirname(os.path.abspath(__file__)) + "/data/"
 
 
-class CSBasis(GridBasis, SurfaceOperators):
+class CSBasis(SurfaceOperators):
     """Class for representing cubed sphere bases.
 
     This module provides an implementation of the cubed sphere grid
@@ -121,8 +121,10 @@ class CSBasis(GridBasis, SurfaceOperators):
         ValueError
             If N is provided but is not an even number.
         """
-        super().__init__()
-        self.kind = "CS"
+        self._kind = "CS"
+        self._index_names = None
+        self._index_length = None
+        self._index_arrays = None
         self._derivative_bundle = None
         self._laplacian_cache = {}
         self._laplacian_sparse_cache = {}
@@ -161,6 +163,38 @@ class CSBasis(GridBasis, SurfaceOperators):
             self.index_arrays = [self.arr_theta, self.arr_phi]
 
             self.validate_metadata()
+
+    @property
+    def kind(self):
+        """Short identifier for the cubed-sphere basis."""
+        return self._kind
+
+    @property
+    def index_names(self):
+        """Names of indices used in the basis."""
+        return self._index_names
+
+    @index_names.setter
+    def index_names(self, value):
+        self._index_names = value
+
+    @property
+    def index_length(self):
+        """Total number of native CS coefficients."""
+        return self._index_length
+
+    @index_length.setter
+    def index_length(self, value):
+        self._index_length = value
+
+    @property
+    def index_arrays(self):
+        """Arrays of native CS grid coordinates."""
+        return self._index_arrays
+
+    @index_arrays.setter
+    def index_arrays(self, value):
+        self._index_arrays = value
 
     @property
     def coefficient_space_signature(self):
@@ -235,7 +269,7 @@ class CSBasis(GridBasis, SurfaceOperators):
         def build():
             if self._is_native_grid(grid):
                 if derivative is None:
-                    matrix = sp.eye(self.index_length, format="csr")
+                    return identity_linear_map((self.index_length,))
                 elif derivative in {"theta", "phi"}:
                     matrix = self._get_derivative_bundle()[derivative]
                 else:
@@ -575,6 +609,8 @@ class CSBasis(GridBasis, SurfaceOperators):
 
     def scalar_grid_remap_operator(self, source_grid, target_grid):
         """Return a cached scalar grid-remap operator."""
+        if source_grid.same_as(target_grid):
+            return identity_linear_map((source_grid.size,))
         matrix_key = self._remap_matrix_key(
             "scalar_grid_remap_matrix",
             source_grid,
@@ -602,6 +638,8 @@ class CSBasis(GridBasis, SurfaceOperators):
 
     def tangential_grid_remap_operator(self, source_grid, target_grid):
         """Return a cached tangential grid-remap operator."""
+        if source_grid.same_as(target_grid):
+            return identity_linear_map((2, source_grid.size))
         matrix_key = self._remap_matrix_key(
             "tangential_grid_remap_matrix",
             source_grid,

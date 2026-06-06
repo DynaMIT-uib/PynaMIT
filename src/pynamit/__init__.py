@@ -7,7 +7,7 @@ utilities.
 Attributes
 ----------
 SphericalTransform : class
-    Class for transforming between spherical representations.
+    Class for analysis and synthesis between a surface basis and grid.
 BasisEvaluator : class
     Historical alias for SphericalTransform.
 CSBasis : class
@@ -40,7 +40,6 @@ from .sphere import (
     BasisView,
     CSBasis,
     Grid,
-    GridBasis,
     SHBasis,
     SolidHarmonics,
     SphericalBasis,
@@ -50,7 +49,6 @@ from .sphere import (
     basis_kind,
     is_basis_kind,
     is_cs_basis,
-    is_grid_basis,
     is_sh_basis,
 )
 from .primitives.basis_evaluator import BasisEvaluator
@@ -99,7 +97,6 @@ __all__ = [
     "FieldEvaluator",
     "FieldSpace",
     "Grid",
-    "GridBasis",
     "Mainfield",
     "PynamEye",
     "SHBasis",
@@ -113,7 +110,6 @@ __all__ = [
     "globalplot",
     "is_basis_kind",
     "is_cs_basis",
-    "is_grid_basis",
     "is_sh_basis",
     "plot_input_vs_interpolated",
     "set_backend",

@@ -1,15 +1,13 @@
-"""Spherical representations, bases, transforms, and radial operations."""
+"""Spherical representations and transforms."""
 
 from pynamit.sphere.core import (
     BasisView,
-    GridBasis,
     SphericalBasis,
     SphericalRepresentation,
     SurfaceOperators,
     basis_kind,
     is_basis_kind,
     is_cs_basis,
-    is_grid_basis,
     is_sh_basis,
 )
 from pynamit.sphere.cubed_sphere.cs_basis import CSBasis
@@ -22,7 +20,6 @@ __all__ = [
     "BasisView",
     "CSBasis",
     "Grid",
-    "GridBasis",
     "SHBasis",
     "SolidHarmonics",
     "SphericalBasis",
@@ -32,6 +29,5 @@ __all__ = [
     "basis_kind",
     "is_basis_kind",
     "is_cs_basis",
-    "is_grid_basis",
     "is_sh_basis",
 ]

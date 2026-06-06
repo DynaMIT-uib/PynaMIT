@@ -7,10 +7,10 @@ spherical-basis coefficients and grid values.
 import numpy as np
 
 from pynamit.math.backend import get_array_module
-from pynamit.math.linear_map import LinearMap, as_linear_map
+from pynamit.math.linear_map import LinearMap, as_linear_map, is_noop_linear_map
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver, get_default_least_squares_solver
-from pynamit.sphere.core import SurfaceOperators, is_grid_basis
+from pynamit.sphere.core import SurfaceOperators
 from pynamit.sphere.grid import Grid
 
 
@@ -354,7 +354,7 @@ class SphericalTransform:
 
     def analyze_scalar(self, grid_values, solver_type=None):
         """Analyze scalar grid values into source coefficients."""
-        if self._analysis_is_identity():
+        if self._scalar_analysis_is_noop():
             return grid_values
         return self._solve_least_squares(
             self.scalar_least_squares_problem, grid_values, solver_type
@@ -362,8 +362,6 @@ class SphericalTransform:
 
     def analyze_helmholtz(self, grid_values, solver_type=None):
         """Analyze grid values into Helmholtz coefficients."""
-        if self._analysis_is_identity():
-            return grid_values
         return self._solve_least_squares(
             self.helmholtz_least_squares_problem, grid_values, solver_type
         )
@@ -468,32 +466,19 @@ class SphericalTransform:
     def _analysis_coefficients_to_rows(self, coeffs, *, batch_size, helmholtz):
         """Return analysis coefficients in time-row layout."""
         array = np.asarray(coeffs)
-        if self._analysis_is_identity():
+        if not helmholtz and self._scalar_analysis_is_noop():
             return array.reshape(batch_size, -1)
         if batch_size == 1:
             return array.reshape(1, -1)
         return np.moveaxis(array, -1, 0).reshape(batch_size, -1)
 
-    def _analysis_is_identity(self):
-        """Return whether target values are source coefficients."""
-        if not is_grid_basis(self.source):
-            return False
-        if self.source.index_length != self.target.size:
-            return False
-
-        is_native_grid = getattr(self.source, "_is_native_grid", None)
-        if callable(is_native_grid):
-            return bool(is_native_grid(self.target))
-
-        native_grid = getattr(self.source, "native_grid", None)
-        if native_grid is not None:
-            return self.target.same_as(native_grid)
-
-        if hasattr(self.source, "theta") and hasattr(self.source, "phi"):
-            source_grid = Grid(theta=self.source.theta, phi=self.source.phi)
-            return self.target.same_as(source_grid)
-
-        return False
+    def _scalar_analysis_is_noop(self):
+        """Return whether scalar analysis is a no-op."""
+        return is_noop_linear_map(
+            self.scalar_coeffs_to_grid_operator,
+            input_shape=(self.source.index_length,),
+            output_shape=(self.target.size,),
+        )
 
     def _coefficient_array(self, coeffs, *, helmholtz=False, preserve_backend=False):
         """Return validated coefficient values."""
@@ -596,9 +581,10 @@ class SphericalTransform:
 
     def _basis_can_project_directly(self, projection_basis):
         """Return whether the input basis should be fitted directly."""
-        return isinstance(projection_basis, SurfaceOperators) and not is_grid_basis(
-            projection_basis
-        )
+        return isinstance(
+            projection_basis,
+            SurfaceOperators,
+        ) and not callable(getattr(projection_basis, "scalar_grid_remap_operator", None))
 
     def _validate_direct_projection_basis(self, projection_basis):
         """Raise if direct-fit coefficients would not match storage."""

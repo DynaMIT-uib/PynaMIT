@@ -36,6 +36,8 @@ These identities are exposed by the shared ``SurfaceOperators`` methods,
 so code outside the basis implementations can ask for scalar evaluation,
 surface gradients, Helmholtz synthesis, surface divergence, radial curl,
 and surface Laplacian through the same interface for SH and CS bases.
+The bases own these matrix/operator objects directly; transforms are
+consumers of this interface rather than a separate evaluation layer.
 
 Surface Bases Versus Solid Harmonics
 ------------------------------------

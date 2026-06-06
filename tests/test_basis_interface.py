@@ -16,6 +16,7 @@ from pynamit.math import (
     JAX_AVAILABLE,
     as_linear_map,
     diagonal_linear_map,
+    is_noop_linear_map,
     set_backend,
     to_jax,
     to_numpy,
@@ -27,12 +28,10 @@ from pynamit.sphere import (
     BasisView,
     CSBasis,
     Grid,
-    GridBasis,
     SHBasis,
     SolidHarmonics,
     SurfaceOperators,
     SphericalRepresentation,
-    is_grid_basis,
 )
 
 
@@ -73,9 +72,11 @@ def test_concrete_bases_implement_basis_interface():
     assert isinstance(sh_basis, SphericalBasis)
     assert isinstance(sh_basis, SurfaceOperators)
     assert isinstance(cs_basis, SphericalBasis)
-    assert isinstance(cs_basis, GridBasis)
     assert isinstance(cs_basis, SurfaceOperators)
-    assert is_grid_basis(cs_basis)
+    assert is_noop_linear_map(
+        cs_basis.get_scalar_evaluation_operator(cs_basis.native_grid)
+    )
+    assert not is_noop_linear_map(sh_basis.get_scalar_evaluation_operator(cs_basis.native_grid))
     assert sh_basis.kind == "SH"
     assert cs_basis.kind == "CS"
     assert not hasattr(sh_basis, "caching")

@@ -117,11 +117,6 @@ def is_cs_basis(basis):
     return is_basis_kind(basis, "CS")
 
 
-def is_grid_basis(basis):
-    """Return whether ``basis`` stores values directly on a grid."""
-    return isinstance(basis, GridBasis) or is_basis_kind(basis, "CS", "GRID")
-
-
 class SphericalRepresentation(ABC):
     """Abstract metadata interface for spherical representations.
 
@@ -206,53 +201,6 @@ class SphericalBasis(SphericalRepresentation):
     """Abstract metadata interface for spherical bases."""
 
     required_attributes = SphericalRepresentation.required_attributes
-
-
-class GridBasis(SphericalBasis):
-    """Basis whose coefficients are values on a native grid."""
-
-    def __init__(self):
-        """Initialize default grid-basis metadata."""
-        self._kind = "GRID"
-        self._index_names = None
-        self._index_length = None
-        self._index_arrays = None
-
-    @property
-    def kind(self):
-        """Short identifier for the grid basis."""
-        return self._kind
-
-    @kind.setter
-    def kind(self, value):
-        self._kind = value
-
-    @property
-    def index_names(self):
-        """Names of indices used in the basis."""
-        return self._index_names
-
-    @index_names.setter
-    def index_names(self, value):
-        self._index_names = value
-
-    @property
-    def index_length(self):
-        """Total number of grid coefficients."""
-        return self._index_length
-
-    @index_length.setter
-    def index_length(self, value):
-        self._index_length = value
-
-    @property
-    def index_arrays(self):
-        """Arrays of grid-coordinate indices used in the basis."""
-        return self._index_arrays
-
-    @index_arrays.setter
-    def index_arrays(self, value):
-        self._index_arrays = value
 
 
 class SurfaceOperators(SphericalBasis):

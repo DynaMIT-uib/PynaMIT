@@ -17,6 +17,8 @@ from pynamit.math.linear_map import (
     LinearMap,
     as_linear_map,
     diagonal_linear_map,
+    identity_linear_map,
+    is_noop_linear_map,
     vstack_linear_maps,
 )
 from pynamit.math._einsum_linear_map import (
@@ -34,6 +36,8 @@ __all__ = [
     "einsum_linear_map",
     "einsum_linear_map_from_matvec",
     "get_array_module",
+    "identity_linear_map",
+    "is_noop_linear_map",
     "jit",
     "set_backend",
     "to_jax",
