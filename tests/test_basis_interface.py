@@ -14,6 +14,7 @@ from pynamit.sphere.spherical_transform import (
 )
 from pynamit.math import (
     JAX_AVAILABLE,
+    LinearMap,
     as_linear_map,
     diagonal_linear_map,
     is_noop_linear_map,
@@ -509,6 +510,43 @@ def test_spherical_transform_contract_scalar_coeffs_to_grid_matches_explicit_pro
     )
     with pytest.raises(ValueError, match="vector, matrix, or LinearMap"):
         evaluator.contract_scalar_coeffs_to_grid(np.zeros((1, 1, 1)))
+
+
+def test_spherical_transform_contract_scalar_coeffs_uses_operator_actions():
+    """Scalar grid contraction can use a structured right operator."""
+    cs_basis = CSBasis(8)
+    evaluator = SphericalTransform(
+        cs_basis,
+        Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi),
+    )
+    rng = np.random.default_rng(1)
+    matrix = rng.normal(size=(cs_basis.index_length, 3)) + 1j * rng.normal(
+        size=(cs_basis.index_length, 3)
+    )
+
+    def fail_dense(_xp):
+        raise AssertionError("contract_scalar_coeffs_to_grid should not densify")
+
+    operator = LinearMap(
+        shape=matrix.shape,
+        dtype=matrix.dtype,
+        _matvec=lambda x: matrix @ np.asarray(x).reshape(3),
+        _rmatvec=lambda y: matrix.conj().T @ np.asarray(y).reshape(
+            cs_basis.index_length
+        ),
+        _matmat=lambda x: matrix @ np.asarray(x).reshape(3, -1),
+        _rmatmat=lambda y: matrix.conj().T @ np.asarray(y).reshape(
+            cs_basis.index_length, -1
+        ),
+        _dense_array_func=fail_dense,
+        input_shape=(3,),
+        output_shape=(cs_basis.index_length,),
+    )
+
+    np.testing.assert_allclose(
+        evaluator.contract_scalar_coeffs_to_grid(operator),
+        evaluator.scalar_coeffs_to_grid @ matrix,
+    )
 
 
 def test_grid_basis_regularization_requires_degree_metadata():

@@ -67,6 +67,8 @@ class LinearMap:
     )
     _backend_context: tuple[Any, ...] = field(default=(), repr=False)
     _is_noop: bool = field(default=False, repr=False)
+    _einsum_map: Any = field(default=None, repr=False, compare=False)
+    _dense_tensor: Any = field(default=None, repr=False, compare=False)
     output_shape: Optional[tuple[int, ...]] = None
     input_shape: Optional[tuple[int, ...]] = None
     _dense_cache: dict[str, Any] = field(
@@ -249,9 +251,11 @@ class LinearMap:
                 input_shape=other_map.input_shape,
                 output_shape=self.output_shape,
             )
-
         self_is_diagonal = self._diagonal_array_func is not None
         other_is_diagonal = other_map._diagonal_array_func is not None
+        composed_einsum = self._compose_einsum_matmul(other_map)
+        if composed_einsum is not None:
+            return composed_einsum.to_linear_map()
 
         def matvec(x: Any) -> Any:
             return self.matvec(other_map.matvec(x))
@@ -306,6 +310,97 @@ class LinearMap:
             _backend_context=self._backend_context + other_map._backend_context,
             output_shape=self.output_shape,
             input_shape=other_map.input_shape,
+        )
+
+    def _compose_einsum_matmul(self, other_map: "LinearMap") -> Any:
+        """Return a symbolic einsum composition, when safe."""
+        self_is_diagonal = self._diagonal_array_func is not None
+        other_is_diagonal = other_map._diagonal_array_func is not None
+        if self_is_diagonal and other_is_diagonal:
+            return None
+        if self_is_diagonal:
+            right_einsum = other_map._composition_einsum_map()
+            if (
+                right_einsum is None
+                or self.output_shape != self.input_shape
+                or self.output_shape != other_map.output_shape
+                or self.output_shape != right_einsum.output_shape
+            ):
+                return None
+            try:
+                from pynamit.math._einsum_linear_map import (
+                    compose_diagonal_einsum_map,
+                )
+
+                return compose_diagonal_einsum_map(
+                    self._diagonal_array(),
+                    self.output_shape,
+                    right_einsum,
+                    side="left",
+                )
+            except ValueError:
+                return None
+        if other_is_diagonal:
+            left_einsum = self._composition_einsum_map()
+            if (
+                left_einsum is None
+                or other_map.output_shape != other_map.input_shape
+                or other_map.input_shape != self.input_shape
+                or other_map.input_shape != left_einsum.input_shape
+            ):
+                return None
+            try:
+                from pynamit.math._einsum_linear_map import (
+                    compose_diagonal_einsum_map,
+                )
+
+                return compose_diagonal_einsum_map(
+                    other_map._diagonal_array(),
+                    other_map.input_shape,
+                    left_einsum,
+                    side="right",
+                )
+            except ValueError:
+                return None
+
+        left_einsum = self._composition_einsum_map()
+        right_einsum = other_map._composition_einsum_map()
+        if left_einsum is None or right_einsum is None:
+            return None
+        if (
+            self.output_shape != left_einsum.output_shape
+            or self.input_shape != left_einsum.input_shape
+            or other_map.output_shape != right_einsum.output_shape
+            or other_map.input_shape != right_einsum.input_shape
+        ):
+            return None
+        try:
+            from pynamit.math._einsum_linear_map import compose_einsum_maps
+
+            return compose_einsum_maps(left_einsum, right_einsum)
+        except ValueError:
+            return None
+
+    def _composition_einsum_map(self) -> Any:
+        """Return an einsum view for composition, when safe."""
+        if (
+            self._einsum_map is not None
+            and self._einsum_map.output_shape == self.output_shape
+            and self._einsum_map.input_shape == self.input_shape
+        ):
+            return self._einsum_map
+        if self._dense_tensor is None:
+            return None
+        if tuple(getattr(self._dense_tensor, "shape", ())) != (
+            self.output_shape + self.input_shape
+        ):
+            return None
+        from pynamit.math._einsum_linear_map import dense_tensor_einsum_map
+
+        return dense_tensor_einsum_map(
+            self._dense_tensor,
+            output_shape=self.output_shape,
+            input_shape=self.input_shape,
         )
 
     def __add__(self, other: Any) -> "LinearMap":
@@ -374,6 +469,22 @@ class LinearMap:
         if not np.isscalar(other):
             return NotImplemented
         scalar = other
+        if (
+            self._einsum_map is not None
+            and self._einsum_map.output_shape == self.output_shape
+            and self._einsum_map.input_shape == self.input_shape
+        ):
+            from pynamit.math._einsum_linear_map import scale_einsum_map
+
+            return scale_einsum_map(self._einsum_map, scalar).to_linear_map()
+
+        scaled_dense_tensor = None
+        if (
+            self._dense_tensor is not None
+            and tuple(getattr(self._dense_tensor, "shape", ()))
+            == self.output_shape + self.input_shape
+        ):
+            scaled_dense_tensor = self._dense_tensor * scalar
 
         def matvec(x: Any) -> Any:
             return self.matvec(x) * scalar
@@ -409,6 +520,7 @@ class LinearMap:
             ),
             _normal_matrix_diag=normal_matrix_diag,
             _backend_context=self._backend_context,
+            _dense_tensor=scaled_dense_tensor,
             output_shape=self.output_shape,
             input_shape=self.input_shape,
         )
@@ -556,6 +668,7 @@ def _linear_map_from_dense(
         _dense_array_func=dense_array,
         _normal_matrix_diag=normal_matrix_diag,
         _backend_context=(mat_array,),
+        _dense_tensor=mat_array.reshape(out_shape + in_shape),
         output_shape=out_shape,
         input_shape=in_shape,
     )
@@ -703,6 +816,8 @@ def vstack_linear_maps(
         else as_linear_map(item)
         for item in maps
     )
+    if len(row_maps) == 1:
+        return row_maps[0]
     if not row_maps:
         if input_shape is None:
             raise ValueError("input_shape is required when stacking no maps.")

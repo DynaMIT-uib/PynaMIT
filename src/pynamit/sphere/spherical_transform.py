@@ -7,7 +7,12 @@ spherical-basis coefficients and grid values.
 import numpy as np
 
 from pynamit.math.backend import get_array_module
-from pynamit.math.linear_map import LinearMap, as_linear_map, is_noop_linear_map
+from pynamit.math.linear_map import (
+    LinearMap,
+    as_linear_map,
+    diagonal_linear_map,
+    is_noop_linear_map,
+)
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver, get_default_least_squares_solver
 from pynamit.sphere.core import SurfaceOperators
@@ -263,12 +268,26 @@ class SphericalTransform:
             if self.reg_lambda is None:
                 self._L = None
             else:
+                self._L = np.asarray(self.L_operator.dense(backend="numpy"))
+        return self._L
+
+    @property
+    def L_operator(self):
+        """Degree-weighted regularization operator for scalar fields."""
+        if not hasattr(self, "_L_operator"):
+            if self.reg_lambda is None:
+                self._L_operator = None
+            else:
                 if not hasattr(self.source, "n"):
                     raise NotImplementedError(
                         "Degree-weighted scalar regularization requires basis.n."
                     )
-                self._L = np.diag(self.source.n)
-        return self._L
+                self._L_operator = diagonal_linear_map(
+                    np.asarray(self.source.n),
+                    input_shape=(self.source.index_length,),
+                    output_shape=(self.source.index_length,),
+                )
+        return self._L_operator
 
     @property
     def L_helmholtz(self):
@@ -277,34 +296,38 @@ class SphericalTransform:
             if self.reg_lambda is None:
                 self._L_helmholtz = None
             else:
+                self._L_helmholtz = np.asarray(
+                    self.L_helmholtz_operator.dense(backend="numpy")
+                ).reshape(
+                    (2, self.source.index_length, 2, self.source.index_length)
+                )
+        return self._L_helmholtz
+
+    @property
+    def L_helmholtz_operator(self):
+        """Degree-weighted Helmholtz regularization operator."""
+        if not hasattr(self, "_L_helmholtz_operator"):
+            if self.reg_lambda is None:
+                self._L_helmholtz_operator = None
+            else:
                 if not hasattr(self.source, "n"):
                     raise NotImplementedError(
                         "Degree-weighted Helmholtz regularization requires basis.n."
                     )
-                curl_free_selector = np.asarray(
-                    self.source.get_helmholtz_curl_free_potential_matrix()
+                n = np.asarray(self.source.n)
+                weights = np.stack(
+                    [
+                        n * (n + 1) / (2 * n + 1),
+                        (n + 1) / 2,
+                    ],
+                    axis=0,
                 )
-                divergence_free_selector = np.asarray(
-                    self.source.get_helmholtz_divergence_free_potential_matrix()
+                self._L_helmholtz_operator = diagonal_linear_map(
+                    weights.reshape(-1),
+                    input_shape=(2, self.source.index_length),
+                    output_shape=(2, self.source.index_length),
                 )
-                # The weights are the existing SH spectral penalties.
-                # The selector matrices keep the Helmholtz component
-                # semantics explicit without moving this policy onto
-                # the basis implementation.
-                curl_free_weight = np.diag(
-                    self.source.n * (self.source.n + 1) / (2 * self.source.n + 1)
-                )
-                divergence_free_weight = np.diag((self.source.n + 1) / 2)
-                L_cf = np.tensordot(
-                    curl_free_weight, curl_free_selector, axes=([1], [0])
-                )
-                L_df = np.tensordot(
-                    divergence_free_weight,
-                    divergence_free_selector,
-                    axes=([1], [0]),
-                )
-                self._L_helmholtz = np.stack([L_cf, L_df], axis=0)
-        return self._L_helmholtz
+        return self._L_helmholtz_operator
 
     @property
     def scalar_least_squares_problem(self) -> LeastSquaresProblem:
@@ -316,7 +339,7 @@ class SphericalTransform:
                 data_shapes=self.target.size,
                 sqrt_weights=self.sqrt_weights,
                 regularization_weights=self.reg_lambda,
-                regularization_matrices=self.L,
+                regularization_matrices=self.L_operator,
             )
         return self._scalar_least_squares_problem
 
@@ -330,7 +353,7 @@ class SphericalTransform:
                 data_shapes=(2, self.target.size),
                 sqrt_weights=self.helmholtz_sqrt_weights,
                 regularization_weights=self.reg_lambda,
-                regularization_matrices=self.L_helmholtz,
+                regularization_matrices=self.L_helmholtz_operator,
             )
         return self._helmholtz_least_squares_problem
 
@@ -369,12 +392,14 @@ class SphericalTransform:
     def scalar_regularization_term(self, coeffs):
         """Return the scalar regularization term."""
         coeff_array = self._coefficient_array(coeffs)
-        return np.dot(coeff_array, np.dot(self.L, coeff_array))
+        return np.dot(coeff_array, self.L_operator.matvec(coeff_array))
 
     def helmholtz_regularization_term(self, coeffs):
         """Return the Helmholtz regularization term."""
         coeff_array = self._coefficient_array(coeffs, helmholtz=True)
-        return np.tensordot(self.L_helmholtz, coeff_array, 2)
+        return self.L_helmholtz_operator.matvec(coeff_array.reshape(-1)).reshape(
+            coeff_array.shape
+        )
 
     def project_scalar(
         self,
@@ -529,7 +554,10 @@ class SphericalTransform:
                 return scalar_coeffs_to_grid * diagonal
             except ValueError:
                 pass
-        return scalar_coeffs_to_grid @ xp.asarray(op.dense())
+        product_adjoint = op.rmatmat(
+            xp.swapaxes(xp.conjugate(scalar_coeffs_to_grid), -2, -1)
+        )
+        return xp.swapaxes(xp.conjugate(product_adjoint), -2, -1)
 
     def normalize_scalar_value_batch(self, values, input_grid):
         """Return scalar values with canonical time-first layout."""

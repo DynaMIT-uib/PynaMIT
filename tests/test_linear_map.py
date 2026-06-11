@@ -1,5 +1,7 @@
 """Tests for the LinearMap abstraction."""
 
+from itertools import product
+
 import numpy as np
 import pytest
 from scipy.sparse import csr_matrix
@@ -89,6 +91,17 @@ def test_vstack_linear_maps_matches_stacked_matrix_operations():
     np.testing.assert_allclose(stacked.normal_matrix_diag(), np.sum(expected**2, axis=0))
     assert stacked.input_shape == (2,)
     assert stacked.output_shape == (3,)
+
+
+def test_vstack_linear_maps_elides_single_row():
+    """Single-row stacks preserve the underlying map structure."""
+    matrix = as_linear_map(
+        np.array([[1.0, 2.0], [3.0, 5.0]]),
+        output_shape=(2,),
+        input_shape=(2,),
+    )
+
+    assert vstack_linear_maps([matrix], input_shape=(2,)) is matrix
 
 
 def test_linear_map_shape_metadata_is_validated_and_relabelable():
@@ -189,6 +202,84 @@ def test_linear_map_diagonal_accessor_is_strict():
     )
     with pytest.raises(ValueError, match="not diagonal"):
         non_diagonal_matrix.diagonal(backend="numpy")
+
+
+def test_scaled_dense_map_preserves_composition_structure():
+    """Scaled dense maps remain structurally composable."""
+    rng = np.random.default_rng(14)
+    scalar = -2.5
+    left_tensor = rng.normal(size=(2, 3, 4))
+    right_tensor = rng.normal(size=(4, 5))
+    left = as_linear_map(
+        left_tensor.reshape(6, 4),
+        output_shape=(2, 3),
+        input_shape=(4,),
+    )
+    right = einsum_linear_map(
+        component_tensors=[right_tensor],
+        einsum_string_dense="ij->ij",
+        einsum_string_matvec="ij,j->i",
+        einsum_string_rmatvec="i,ij->j",
+        output_shape=(4,),
+        input_shape=(5,),
+    )
+
+    def fail_dense(_xp):
+        raise AssertionError("scaled dense composition should use stored tensor")
+
+    object.__setattr__(left, "_dense_array_func", fail_dense)
+
+    scaled = scalar * left
+    composed = scaled @ right
+
+    assert scaled._dense_tensor is not None
+    assert composed._einsum_map is not None
+    np.testing.assert_allclose(
+        composed.dense(backend="numpy"),
+        scalar * left_tensor.reshape(6, 4) @ right_tensor,
+    )
+
+
+def test_scaled_einsum_map_preserves_composition_structure():
+    """Scaled einsum maps stay structurally composable."""
+    rng = np.random.default_rng(15)
+    scalar = 1.5 - 0.25j
+    left_tensor = rng.normal(size=(2, 3, 4)) + 1j * rng.normal(size=(2, 3, 4))
+    right_tensor = rng.normal(size=(4, 5)) + 1j * rng.normal(size=(4, 5))
+    left = einsum_linear_map(
+        component_tensors=[left_tensor],
+        einsum_string_dense="abi->abi",
+        einsum_string_matvec="abi,i->ab",
+        einsum_string_rmatvec="ab,abi->i",
+        output_shape=(2, 3),
+        input_shape=(4,),
+    )
+    right = einsum_linear_map(
+        component_tensors=[right_tensor],
+        einsum_string_dense="ij->ij",
+        einsum_string_matvec="ij,j->i",
+        einsum_string_rmatvec="i,ij->j",
+        output_shape=(4,),
+        input_shape=(5,),
+    )
+
+    def fail_dense(_xp):
+        raise AssertionError("scaled einsum composition should not densify")
+
+    object.__setattr__(left, "_dense_array_func", fail_dense)
+    object.__setattr__(right, "_dense_array_func", fail_dense)
+
+    scaled = scalar * left
+    composed = scaled @ right
+    expected = scalar * left_tensor.reshape(6, 4) @ right_tensor
+
+    assert scaled._einsum_map is not None
+    assert composed._einsum_map is not None
+    np.testing.assert_allclose(composed.dense(backend="numpy"), expected)
+    np.testing.assert_allclose(
+        composed.normal_matrix_diag(),
+        np.sum(np.abs(expected) ** 2, axis=0),
+    )
 
 
 def test_dense_linear_map_materializes_once_per_backend():
@@ -463,6 +554,458 @@ def test_einsum_linear_map_batched_application_matches_dense():
     np.testing.assert_allclose(linear_map.matmat(x_block), dense @ x_block)
     np.testing.assert_allclose(linear_map.rmatmat(y_block), dense.T @ y_block)
     np.testing.assert_allclose(linear_map.normal_matrix_diag(), np.sum(dense**2, axis=0))
+
+
+def test_einsum_linear_map_composition_fuses_exact_shapes():
+    """Exact shaped einsum compositions stay einsum-backed."""
+    rng = np.random.default_rng(3)
+    left_tensor = rng.normal(size=(2, 3, 4, 5)) + 1j * rng.normal(size=(2, 3, 4, 5))
+    right_tensor = rng.normal(size=(4, 5, 6)) + 1j * rng.normal(size=(4, 5, 6))
+    left = einsum_linear_map(
+        component_tensors=[left_tensor],
+        einsum_string_dense="abij->abij",
+        einsum_string_matvec="abij,ij->ab",
+        einsum_string_rmatvec="ab,abij->ij",
+        output_shape=(2, 3),
+        input_shape=(4, 5),
+    )
+    right = einsum_linear_map(
+        component_tensors=[right_tensor],
+        einsum_string_dense="ijk->ijk",
+        einsum_string_matvec="ijk,k->ij",
+        einsum_string_rmatvec="ij,ijk->k",
+        output_shape=(4, 5),
+        input_shape=(6,),
+    )
+    expected_dense = left_tensor.reshape(6, 20) @ right_tensor.reshape(20, 6)
+
+    def fail_dense(_xp):
+        raise AssertionError("fused einsum composition should not densify inputs")
+
+    object.__setattr__(left, "_dense_array_func", fail_dense)
+    object.__setattr__(right, "_dense_array_func", fail_dense)
+
+    composed = left @ right
+    x = rng.normal(size=6) + 1j * rng.normal(size=6)
+    y = rng.normal(size=6) + 1j * rng.normal(size=6)
+    block = rng.normal(size=(6, 4)) + 1j * rng.normal(size=(6, 4))
+
+    assert composed._einsum_map is not None
+
+    def fail_probe():
+        raise AssertionError("fused normal diagonal should use direct einsum")
+
+    object.__setattr__(composed._einsum_map, "_normal_matrix_diag_probe", fail_probe)
+
+    np.testing.assert_allclose(composed.dense(backend="numpy"), expected_dense)
+    np.testing.assert_allclose(composed.matvec(x), expected_dense @ x)
+    np.testing.assert_allclose(composed.matmat(block), expected_dense @ block)
+    np.testing.assert_allclose(composed.rmatvec(y), expected_dense.conj().T @ y)
+    np.testing.assert_allclose(
+        composed.normal_matrix_diag(),
+        np.sum(np.abs(expected_dense) ** 2, axis=0),
+    )
+
+
+def test_dense_and_einsum_linear_map_composition_fuses_exact_shapes():
+    """Dense maps can fuse with einsum maps."""
+    rng = np.random.default_rng(5)
+    left_tensor = rng.normal(size=(2, 3, 4, 5)) + 1j * rng.normal(size=(2, 3, 4, 5))
+    right_tensor = rng.normal(size=(4, 5, 6)) + 1j * rng.normal(size=(4, 5, 6))
+    left = as_linear_map(
+        left_tensor.reshape(6, 20),
+        output_shape=(2, 3),
+        input_shape=(4, 5),
+    )
+    right = einsum_linear_map(
+        component_tensors=[right_tensor],
+        einsum_string_dense="ijk->ijk",
+        einsum_string_matvec="ijk,k->ij",
+        einsum_string_rmatvec="ij,ijk->k",
+        output_shape=(4, 5),
+        input_shape=(6,),
+    )
+    expected_dense = left_tensor.reshape(6, 20) @ right_tensor.reshape(20, 6)
+
+    def fail_dense(_xp):
+        raise AssertionError("fused composition should not densify inputs")
+
+    object.__setattr__(left, "_dense_array_func", fail_dense)
+    object.__setattr__(right, "_dense_array_func", fail_dense)
+
+    composed = left @ right
+    x = rng.normal(size=6) + 1j * rng.normal(size=6)
+    y = rng.normal(size=6) + 1j * rng.normal(size=6)
+
+    assert composed._einsum_map is not None
+    np.testing.assert_allclose(composed.dense(backend="numpy"), expected_dense)
+    np.testing.assert_allclose(composed.matvec(x), expected_dense @ x)
+    np.testing.assert_allclose(composed.rmatvec(y), expected_dense.conj().T @ y)
+
+
+def test_einsum_and_dense_linear_map_composition_fuses_exact_shapes():
+    """Einsum maps can fuse with dense maps on the right."""
+    rng = np.random.default_rng(6)
+    left_tensor = rng.normal(size=(2, 3, 4, 5)) + 1j * rng.normal(size=(2, 3, 4, 5))
+    right_tensor = rng.normal(size=(4, 5, 6)) + 1j * rng.normal(size=(4, 5, 6))
+    left = einsum_linear_map(
+        component_tensors=[left_tensor],
+        einsum_string_dense="abij->abij",
+        einsum_string_matvec="abij,ij->ab",
+        einsum_string_rmatvec="ab,abij->ij",
+        output_shape=(2, 3),
+        input_shape=(4, 5),
+    )
+    right = as_linear_map(
+        right_tensor.reshape(20, 6),
+        output_shape=(4, 5),
+        input_shape=(6,),
+    )
+    expected_dense = left_tensor.reshape(6, 20) @ right_tensor.reshape(20, 6)
+
+    def fail_dense(_xp):
+        raise AssertionError("fused composition should not densify inputs")
+
+    object.__setattr__(left, "_dense_array_func", fail_dense)
+    object.__setattr__(right, "_dense_array_func", fail_dense)
+
+    composed = left @ right
+    x = rng.normal(size=6) + 1j * rng.normal(size=6)
+    y = rng.normal(size=6) + 1j * rng.normal(size=6)
+
+    assert composed._einsum_map is not None
+    np.testing.assert_allclose(composed.dense(backend="numpy"), expected_dense)
+    np.testing.assert_allclose(composed.matvec(x), expected_dense @ x)
+    np.testing.assert_allclose(composed.rmatvec(y), expected_dense.conj().T @ y)
+
+
+def test_dense_linear_map_composition_fuses_exact_shapes():
+    """Dense-dense products use einsum-backed composition."""
+    rng = np.random.default_rng(7)
+    left = as_linear_map(rng.normal(size=(4, 3)))
+    right = as_linear_map(rng.normal(size=(3, 2)))
+
+    composed = left @ right
+
+    assert composed._einsum_map is not None
+    np.testing.assert_allclose(
+        composed.dense(backend="numpy"),
+        left.dense(backend="numpy") @ right.dense(backend="numpy"),
+    )
+
+
+def test_diagonal_and_einsum_composition_fuses_exact_shapes():
+    """Shaped diagonals fuse as elementwise einsum factors."""
+    rng = np.random.default_rng(11)
+    left_diag_values = rng.normal(size=(2, 3)) + 1j * rng.normal(size=(2, 3))
+    right_diag_values = rng.normal(size=(4, 5)) + 1j * rng.normal(size=(4, 5))
+    tensor = rng.normal(size=(2, 3, 4, 5)) + 1j * rng.normal(size=(2, 3, 4, 5))
+    base = einsum_linear_map(
+        component_tensors=[tensor],
+        einsum_string_dense="abij->abij",
+        einsum_string_matvec="abij,ij->ab",
+        einsum_string_rmatvec="ab,abij->ij",
+        output_shape=(2, 3),
+        input_shape=(4, 5),
+    )
+    left_diag = diagonal_linear_map(
+        left_diag_values.reshape(-1),
+        output_shape=(2, 3),
+        input_shape=(2, 3),
+    )
+    right_diag = diagonal_linear_map(
+        right_diag_values.reshape(-1),
+        output_shape=(4, 5),
+        input_shape=(4, 5),
+    )
+    expected_left = left_diag_values.reshape(6, 1) * tensor.reshape(6, 20)
+    expected_right = tensor.reshape(6, 20) * right_diag_values.reshape(1, 20)
+
+    def fail_dense(_xp):
+        raise AssertionError("diagonal fusion should not materialize dense diagonal")
+
+    object.__setattr__(left_diag, "_dense_array_func", fail_dense)
+    object.__setattr__(right_diag, "_dense_array_func", fail_dense)
+
+    left_composed = left_diag @ base
+    right_composed = base @ right_diag
+    x = rng.normal(size=20) + 1j * rng.normal(size=20)
+    y = rng.normal(size=6) + 1j * rng.normal(size=6)
+
+    assert left_composed._einsum_map is not None
+    assert right_composed._einsum_map is not None
+    np.testing.assert_allclose(left_composed.dense(backend="numpy"), expected_left)
+    np.testing.assert_allclose(right_composed.dense(backend="numpy"), expected_right)
+    np.testing.assert_allclose(left_composed.matvec(x), expected_left @ x)
+    np.testing.assert_allclose(right_composed.rmatvec(y), expected_right.conj().T @ y)
+
+
+def test_diagonal_composition_falls_back_for_flat_only_shape_match():
+    """Flat-only diagonal shape matches stay on generic composition."""
+    rng = np.random.default_rng(12)
+    matrix = rng.normal(size=(6, 4))
+    diagonal = diagonal_linear_map(
+        rng.normal(size=6),
+        output_shape=(6,),
+        input_shape=(6,),
+    )
+    shaped_matrix = as_linear_map(
+        matrix,
+        output_shape=(2, 3),
+        input_shape=(4,),
+    )
+
+    composed = diagonal @ shaped_matrix
+
+    assert composed._einsum_map is None
+    np.testing.assert_allclose(composed.dense(backend="numpy"), diagonal.dense() @ matrix)
+
+
+def test_dense_chain_then_einsum_composition_fuses_later():
+    """Dense-only chains remain available for later fusion."""
+    rng = np.random.default_rng(8)
+    left_tensor = rng.normal(size=(2, 3, 4))
+    middle_tensor = rng.normal(size=(4, 5))
+    right_tensor = rng.normal(size=(5, 6))
+    left = as_linear_map(
+        left_tensor.reshape(6, 4),
+        output_shape=(2, 3),
+        input_shape=(4,),
+    )
+    middle = as_linear_map(
+        middle_tensor,
+        output_shape=(4,),
+        input_shape=(5,),
+    )
+    right = einsum_linear_map(
+        component_tensors=[right_tensor],
+        einsum_string_dense="ij->ij",
+        einsum_string_matvec="ij,j->i",
+        einsum_string_rmatvec="i,ij->j",
+        output_shape=(5,),
+        input_shape=(6,),
+    )
+    dense_chain = left @ middle
+    expected_dense = left_tensor.reshape(6, 4) @ middle_tensor @ right_tensor
+
+    assert dense_chain._einsum_map is not None
+    composed = dense_chain @ right
+
+    assert composed._einsum_map is not None
+    np.testing.assert_allclose(composed.dense(backend="numpy"), expected_dense)
+
+
+def test_einsum_then_dense_chain_composition_fuses_later():
+    """Einsum maps can fuse through a precomposed dense chain."""
+    rng = np.random.default_rng(9)
+    left_tensor = rng.normal(size=(2, 3, 4))
+    middle_tensor = rng.normal(size=(4, 5))
+    right_tensor = rng.normal(size=(5, 6))
+    left = einsum_linear_map(
+        component_tensors=[left_tensor],
+        einsum_string_dense="abi->abi",
+        einsum_string_matvec="abi,i->ab",
+        einsum_string_rmatvec="ab,abi->i",
+        output_shape=(2, 3),
+        input_shape=(4,),
+    )
+    middle = as_linear_map(
+        middle_tensor,
+        output_shape=(4,),
+        input_shape=(5,),
+    )
+    right = as_linear_map(
+        right_tensor,
+        output_shape=(5,),
+        input_shape=(6,),
+    )
+    dense_chain = middle @ right
+    expected_dense = left_tensor.reshape(6, 4) @ middle_tensor @ right_tensor
+
+    assert dense_chain._einsum_map is not None
+    composed = left @ dense_chain
+
+    assert composed._einsum_map is not None
+    np.testing.assert_allclose(composed.dense(backend="numpy"), expected_dense)
+
+
+def test_four_factor_structured_chains_fuse_for_all_groupings():
+    """Four-factor structured chains fuse for all groupings."""
+    rng = np.random.default_rng(10)
+    shapes = [((2, 3), (4,)), ((4,), (4,)), ((4,), (5,)), ((5,), (5,))]
+    matrices = [
+        rng.normal(size=(int(np.prod(output_shape)), int(np.prod(input_shape))))
+        for output_shape, input_shape in shapes
+    ]
+
+    def make_dense(index):
+        output_shape, input_shape = shapes[index]
+        matrix = matrices[index]
+        return (
+            matrix,
+            as_linear_map(
+                matrix,
+                output_shape=output_shape,
+                input_shape=input_shape,
+            ),
+        )
+
+    def make_einsum(index):
+        output_shape, input_shape = shapes[index]
+        matrix = matrices[index]
+        tensor = matrix.reshape(output_shape + input_shape)
+        labels = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        output_labels = labels[: len(output_shape)]
+        input_labels = labels[
+            len(output_shape) : len(output_shape) + len(input_shape)
+        ]
+        all_labels = output_labels + input_labels
+        return (
+            matrix,
+            einsum_linear_map(
+                component_tensors=[tensor],
+                einsum_string_dense=f"{all_labels}->{all_labels}",
+                einsum_string_matvec=(
+                    f"{all_labels},{input_labels}->{output_labels}"
+                ),
+                einsum_string_rmatvec=(
+                    f"{output_labels},{all_labels}->{input_labels}"
+                ),
+                output_shape=output_shape,
+                input_shape=input_shape,
+            ),
+        )
+
+    def make_diagonal(index):
+        output_shape, input_shape = shapes[index]
+        if output_shape != input_shape:
+            return make_dense(index)
+        diagonal = rng.normal(size=int(np.prod(output_shape)))
+        return (
+            np.diag(diagonal),
+            diagonal_linear_map(
+                diagonal,
+                output_shape=output_shape,
+                input_shape=input_shape,
+            ),
+        )
+
+    def make_factor(kind, index):
+        if kind == "E":
+            return make_einsum(index)
+        if kind == "G":
+            return make_diagonal(index)
+        return make_dense(index)
+
+    def grouped(maps, grouping):
+        first, second, third, fourth = maps
+        if grouping == 0:
+            return ((first @ second) @ third) @ fourth
+        if grouping == 1:
+            return (first @ (second @ third)) @ fourth
+        if grouping == 2:
+            return (first @ second) @ (third @ fourth)
+        if grouping == 3:
+            return first @ ((second @ third) @ fourth)
+        return first @ (second @ (third @ fourth))
+
+    for kinds in product("DEG", repeat=4):
+        matrices_for_kinds = []
+        maps = []
+        for index, kind in enumerate(kinds):
+            matrix, linear_map = make_factor(kind, index)
+            matrices_for_kinds.append(matrix)
+            maps.append(linear_map)
+        expected_dense = (
+            matrices_for_kinds[0]
+            @ matrices_for_kinds[1]
+            @ matrices_for_kinds[2]
+            @ matrices_for_kinds[3]
+        )
+        for grouping in range(5):
+            composed = grouped(maps, grouping)
+            assert composed._einsum_map is not None
+            np.testing.assert_allclose(composed.dense(backend="numpy"), expected_dense)
+
+
+def test_four_factor_structured_chain_regroups_independently():
+    """Grouping does not affect four-factor structured chains."""
+    rng = np.random.default_rng(13)
+    shapes = [((2, 3), (4,)), ((4,), (4,)), ((4,), (5,)), ((5,), (5,))]
+    factors = []
+    matrices = []
+    for index, (output_shape, input_shape) in enumerate(shapes):
+        matrix = rng.normal(size=(int(np.prod(output_shape)), int(np.prod(input_shape))))
+        if index in (1, 3):
+            diagonal = rng.normal(size=int(np.prod(output_shape)))
+            matrix = np.diag(diagonal)
+            linear_map = diagonal_linear_map(
+                diagonal,
+                output_shape=output_shape,
+                input_shape=input_shape,
+            )
+        elif index == 2:
+            tensor = matrix.reshape(output_shape + input_shape)
+            linear_map = einsum_linear_map(
+                component_tensors=[tensor],
+                einsum_string_dense="ij->ij",
+                einsum_string_matvec="ij,j->i",
+                einsum_string_rmatvec="i,ij->j",
+                output_shape=output_shape,
+                input_shape=input_shape,
+            )
+        else:
+            linear_map = as_linear_map(
+                matrix,
+                output_shape=output_shape,
+                input_shape=input_shape,
+            )
+        matrices.append(matrix)
+        factors.append(linear_map)
+
+    expected_dense = matrices[0] @ matrices[1] @ matrices[2] @ matrices[3]
+    groupings = [
+        ((factors[0] @ factors[1]) @ factors[2]) @ factors[3],
+        (factors[0] @ (factors[1] @ factors[2])) @ factors[3],
+        (factors[0] @ factors[1]) @ (factors[2] @ factors[3]),
+        factors[0] @ ((factors[1] @ factors[2]) @ factors[3]),
+        factors[0] @ (factors[1] @ (factors[2] @ factors[3])),
+    ]
+
+    for composed in groupings:
+        assert composed._einsum_map is not None
+        np.testing.assert_allclose(composed.dense(backend="numpy"), expected_dense)
+
+
+def test_einsum_linear_map_composition_falls_back_for_flat_only_match():
+    """Flat-compatible compositions do not fuse for different axes."""
+    rng = np.random.default_rng(4)
+    left_tensor = rng.normal(size=(2, 2, 3, 2))
+    right_tensor = rng.normal(size=(6, 5))
+    left = einsum_linear_map(
+        component_tensors=[left_tensor],
+        einsum_string_dense="abij->abij",
+        einsum_string_matvec="abij,ij->ab",
+        einsum_string_rmatvec="ab,abij->ij",
+        output_shape=(2, 2),
+        input_shape=(3, 2),
+    )
+    right = einsum_linear_map(
+        component_tensors=[right_tensor],
+        einsum_string_dense="ij->ij",
+        einsum_string_matvec="ij,j->i",
+        einsum_string_rmatvec="i,ij->j",
+        output_shape=(6,),
+        input_shape=(5,),
+    )
+
+    composed = left @ right
+
+    assert composed._einsum_map is None
+    np.testing.assert_allclose(
+        composed.dense(backend="numpy"),
+        left.dense(backend="numpy") @ right.dense(backend="numpy"),
+    )
 
 
 def test_einsum_linear_map_from_matvec_derives_adjoint_and_dense():

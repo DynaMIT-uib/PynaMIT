@@ -18,7 +18,7 @@ from pynamit.primitives.coefficient_field import CoefficientField
 from pynamit.math import einsum_linear_map_from_matvec
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver, get_default_least_squares_solver
-from pynamit.math.linear_map import LinearMap, as_linear_map, diagonal_linear_map
+from pynamit.math.linear_map import LinearMap, as_linear_map, identity_linear_map
 from pynamit.math.backend import (
     block_after_jax_linalg,
     get_array_module,
@@ -328,7 +328,7 @@ class State:
             reg_ops, reg_weights = [], []
             if self.m_imp_regularization_lambda > 0:
                 n = self.basis.index_length
-                reg_ops.append(diagonal_linear_map(np.ones(n)))
+                reg_ops.append(identity_linear_map((n,)))
                 reg_weights.append(self.m_imp_regularization_lambda)
 
             self._m_imp_problem = LeastSquaresProblem(

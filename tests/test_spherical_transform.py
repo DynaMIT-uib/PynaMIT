@@ -83,6 +83,53 @@ def test_basis_evaluator_is_spherical_transform_alias():
     )
 
 
+def test_spherical_transform_regularization_uses_diagonal_operators():
+    """Degree regularization stays structured in least-squares."""
+    basis = SHBasis(4, 2, mean_free=True)
+    transform = SphericalTransform(basis, _regular_grid(), reg_lambda=1.0)
+    n = np.asarray(basis.n)
+    helmholtz_weights = np.stack(
+        [
+            n * (n + 1) / (2 * n + 1),
+            (n + 1) / 2,
+        ],
+        axis=0,
+    )
+    helmholtz_coeffs = np.vstack(
+        [
+            np.linspace(0.0, 1.0, basis.index_length),
+            np.linspace(1.0, 2.0, basis.index_length),
+        ]
+    )
+    scalar_coeffs = np.linspace(0.0, 1.0, basis.index_length)
+
+    scalar_regularization = transform.scalar_least_squares_problem.regularization_matrices[
+        0
+    ]
+    helmholtz_regularization = (
+        transform.helmholtz_least_squares_problem.regularization_matrices[0]
+    )
+
+    np.testing.assert_allclose(transform.L, np.diag(n))
+    np.testing.assert_allclose(
+        transform.L_helmholtz.reshape(2 * basis.index_length, 2 * basis.index_length),
+        np.diag(helmholtz_weights.reshape(-1)),
+    )
+    np.testing.assert_allclose(scalar_regularization.diagonal(backend="numpy"), n)
+    np.testing.assert_allclose(
+        helmholtz_regularization.diagonal(backend="numpy"),
+        helmholtz_weights.reshape(-1),
+    )
+    np.testing.assert_allclose(
+        transform.helmholtz_regularization_term(helmholtz_coeffs),
+        helmholtz_weights * helmholtz_coeffs,
+    )
+    np.testing.assert_allclose(
+        transform.scalar_regularization_term(scalar_coeffs),
+        np.dot(scalar_coeffs, n * scalar_coeffs),
+    )
+
+
 def test_spherical_transform_projects_tangential_grid_values():
     """Tangential projection recovers Helmholtz coefficients."""
     basis = SHBasis(3, 2, mean_free=True)

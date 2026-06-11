@@ -16,7 +16,7 @@ from pynamit.math.linear_map import (
     DenseBackend,
     LinearMap,
     as_linear_map,
-    diagonal_linear_map,
+    identity_linear_map,
 )
 
 if TYPE_CHECKING:
@@ -93,12 +93,7 @@ class StateOperators:
     def _create_direct_E_to_total_E(self) -> LinearMap:
         """Construct direct-E to total-E map with m_imp feedback."""
         n = self.state.basis.index_length
-        flat_E_size = 2 * n
-        identity = diagonal_linear_map(
-            np.ones(flat_E_size),
-            input_shape=(2, n),
-            output_shape=(2, n),
-        )
+        identity = identity_linear_map((2, n))
 
         if not self.state.connect_hemispheres or self.state._E_map_constraint is None:
             return identity

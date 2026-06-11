@@ -13,7 +13,7 @@ import numpy as np
 import xarray as xr
 
 from pynamit.math.constants import mu0
-from pynamit.math import as_linear_map, diagonal_linear_map
+from pynamit.math import as_linear_map, diagonal_linear_map, identity_linear_map
 from pynamit.math.backend import block_until_ready, get_array_module, to_jax, to_numpy, use_jax
 from pynamit.sphere import Grid, SolidHarmonics, SurfaceOperators
 from pynamit.sphere.spherical_transform import SphericalTransform, resolve_sqrt_weights
@@ -282,7 +282,7 @@ class Geometry:
         coefficients; for the SH path it is the identity.
         """
         if self.solid_harmonics.basis.coefficients_are_compatible_with(self.basis):
-            return diagonal_linear_map(np.ones(self.basis.index_length))
+            return identity_linear_map((self.basis.index_length,))
         solid_to_grid = self.solid_harmonic_transform.scalar_coeffs_to_grid
         horizontal_to_grid = self.spherical_transform.scalar_coeffs_to_grid
         grid_to_solid = weighted_tensor_pinv(
@@ -299,7 +299,7 @@ class Geometry:
     def _build_solid_harmonic_to_horizontal_operator(self):
         """Project solid-harmonic coefficients to horizontal space."""
         if self.solid_harmonics.basis.coefficients_are_compatible_with(self.basis):
-            return diagonal_linear_map(np.ones(self.basis.index_length))
+            return identity_linear_map((self.basis.index_length,))
         horizontal_to_grid = self.spherical_transform.scalar_coeffs_to_grid
         solid_to_grid = self.solid_harmonic_transform.scalar_coeffs_to_grid
         grid_to_horizontal = weighted_tensor_pinv(
