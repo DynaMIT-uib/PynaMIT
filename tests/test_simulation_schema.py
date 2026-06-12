@@ -20,6 +20,7 @@ def _settings(**attrs):
         "vector_Br": 1,
         "vector_conductance": 1,
         "vector_u": 1,
+        "vector_Q_eff": 1,
     }
     defaults.update(attrs)
     return xr.Dataset(attrs=defaults)
@@ -42,12 +43,14 @@ def test_sh_schema_uses_mean_free_sh_inputs_and_outputs():
     assert schema.input_field_spaces["jr"].representation is schema.sh_basis_mean_free
     assert schema.input_field_spaces["Br"].representation is schema.sh_basis_mean_free
     assert schema.input_field_spaces["u"].representation is schema.sh_basis_mean_free
+    assert schema.input_field_spaces["Q_eff"].representation is schema.sh_basis_mean_free
     assert schema.input_field_spaces["conductance"].representation is schema.sh_basis
     assert schema.output_field_spaces["state"].representation is schema.horizontal_basis
 
     assert schema.input_field_spaces["jr"].mean_free
     assert schema.input_field_spaces["Br"].mean_free
     assert schema.input_field_spaces["u"].mean_free
+    assert schema.input_field_spaces["Q_eff"].mean_free
     assert not schema.input_field_spaces["conductance"].mean_free
     assert schema.output_field_spaces["state"].mean_free
 
@@ -79,7 +82,13 @@ def test_cs_schema_uses_full_length_storage_with_mean_free_intent():
 def test_schema_respects_vector_input_flags_for_sh_projection_basis():
     """Projection bases stay independent from storage bases."""
     schema = build_simulation_schema(
-        _settings(vector_jr=0, vector_Br=0, vector_conductance=0, vector_u=0),
+        _settings(
+            vector_jr=0,
+            vector_Br=0,
+            vector_conductance=0,
+            vector_u=0,
+            vector_Q_eff=0,
+        ),
         "SH",
     )
 

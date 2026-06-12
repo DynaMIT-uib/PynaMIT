@@ -96,6 +96,40 @@ def test_state_update_uses_coefficient_field_for_wind(tmp_path):
     )
 
 
+def test_set_Q_eff_accepts_helmholtz_input_basis_coefficients(tmp_path):
+    """Q_eff Helmholtz coefficients are stored directly."""
+    dynamics = _small_dynamics(tmp_path)
+    n_coeffs = dynamics.input_field_spaces["Q_eff"].index_length
+    cf_coeffs = np.arange(n_coeffs, dtype=float) + 2.0
+    df_coeffs = -np.arange(n_coeffs, dtype=float) - 3.0
+
+    dynamics.set_Q_eff(cf_coeffs, df_coeffs, time=3.0, coefficients=True)
+
+    dataset = dynamics.input_timeseries.datasets["Q_eff"]
+    np.testing.assert_allclose(
+        dataset["SH_Q_eff"].isel(time=0).values,
+        np.concatenate([cf_coeffs, df_coeffs]),
+    )
+    np.testing.assert_allclose(dataset.time.values, [3.0])
+
+
+def test_state_update_uses_coefficient_field_for_Q_eff(tmp_path):
+    """Q_eff state storage keeps canonical coefficient shape."""
+    dynamics = _small_dynamics(tmp_path)
+    n_coeffs = dynamics.input_field_spaces["Q_eff"].index_length
+    cf_coeffs = np.arange(n_coeffs, dtype=float) + 2.0
+    df_coeffs = -np.arange(n_coeffs, dtype=float) - 3.0
+
+    dynamics.set_Q_eff(cf_coeffs, df_coeffs, time=3.0, coefficients=True)
+    dynamics.state.update(dynamics.input_timeseries, time=3.0)
+
+    assert isinstance(dynamics.state.Q_eff, CoefficientField)
+    np.testing.assert_allclose(
+        dynamics.state.Q_eff.coeffs,
+        np.vstack([cf_coeffs, df_coeffs]),
+    )
+
+
 def test_set_resistance_accepts_input_basis_coefficients(tmp_path):
     """Pedersen and Hall resistance coefficients are stored directly."""
     dynamics = _small_dynamics(tmp_path)

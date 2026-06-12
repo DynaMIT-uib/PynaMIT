@@ -107,6 +107,51 @@ def test_u_coeffs_to_E_coeffs_is_linear_map_on_jax():
     np.testing.assert_allclose(np.asarray(result), expected)
 
 
+def test_Q_eff_coeffs_to_E_coeffs_uses_conductance_tensor_operator():
+    """Q_eff maps through the conductance tensor before E analysis."""
+    n = 3
+    n_grid = 4
+    helmholtz_analysis = np.arange(2 * n * 2 * n_grid, dtype=float).reshape(
+        2, n, 2, n_grid
+    ) / 10.0
+    M_total = np.arange(2 * 2 * n_grid, dtype=float).reshape(2, 2, n_grid) / 20.0
+    M_total += np.array([[[2.0], [0.0]], [[0.0], [3.0]]])
+    synthesis = np.arange(2 * n_grid * 2 * n, dtype=float).reshape(
+        2, n_grid, 2, n
+    ) / 30.0
+    coeffs = np.arange(2 * n, dtype=float).reshape(2, n) / 40.0
+
+    q_on_grid = np.einsum("qgrs,rs->qg", synthesis, coeffs, optimize=True)
+    E_on_grid = np.einsum("pqg,qg->pg", M_total, q_on_grid, optimize=True)
+    expected = np.einsum("cmpg,pg->cm", helmholtz_analysis, E_on_grid, optimize=True)
+
+    q_representation = SimpleNamespace(
+        get_helmholtz_synthesis_operator=lambda grid: as_linear_map(
+            synthesis,
+            input_shape=(2, n),
+            output_shape=(2, n_grid),
+        )
+    )
+    state = object.__new__(State)
+    state.basis = SimpleNamespace(index_length=n)
+    state.geometry = SimpleNamespace(
+        grid=SimpleNamespace(size=n_grid),
+        helmholtz_analysis_matrix=helmholtz_analysis,
+    )
+    state.Q_eff = SimpleNamespace(representation=q_representation)
+    state._Q_eff_synthesis_operator_cache = {}
+    state._Q_eff_to_E_coeffs_cache = None
+    state._M_total_on_grid = M_total
+
+    operator = state.Q_eff_to_E_coeffs
+    result = State._apply_operator(None, operator, coeffs, (2, n))
+
+    assert isinstance(operator, LinearMap)
+    assert operator.output_shape == (2, n)
+    assert operator.input_shape == (2, n)
+    np.testing.assert_allclose(result, expected)
+
+
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
 def test_induction_matrix_assembly_stays_on_jax(monkeypatch):
     """Dense induction assembly should not bounce through NumPy."""

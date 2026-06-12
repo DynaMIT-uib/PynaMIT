@@ -460,7 +460,7 @@ def test_dense_linear_map_materializes_once_per_backend():
         output_shape=(2,),
         input_shape=(2,),
     )
-    assert linear_map.cache_matrix() is linear_map
+    np.testing.assert_allclose(linear_map.array, matrix)
 
     x = np.array([7.0, 11.0])
     block = np.eye(2)

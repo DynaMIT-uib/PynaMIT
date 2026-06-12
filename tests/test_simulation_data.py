@@ -17,6 +17,7 @@ def _settings(**attrs):
         "vector_Br": 1,
         "vector_conductance": 1,
         "vector_u": 1,
+        "vector_Q_eff": 1,
     }
     defaults.update(attrs)
     return xr.Dataset(attrs=defaults)
