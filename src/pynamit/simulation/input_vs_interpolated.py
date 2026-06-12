@@ -9,7 +9,7 @@ import cartopy.crs as ccrs
 
 from pynamit.sphere import Grid
 from pynamit.sphere.spherical_transform import SphericalTransform
-from pynamit.primitives.coefficient_field import CoefficientField
+from pynamit.primitives.field_coefficients import FieldCoefficients
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.primitives.io import IO
 from pynamit.primitives.timeseries import Timeseries
@@ -35,7 +35,7 @@ def _evaluate_scalar_coeffs_to_grid(coeffs, field_space, plot_evaluator, target_
     """Evaluate scalar coefficients to a grid."""
     if coeffs is None:
         return np.full(target_shape, np.nan)
-    field = CoefficientField(field_space, coeffs=coeffs)
+    field = FieldCoefficients(field_space, coeffs=coeffs)
     return plot_evaluator.synthesize_scalar(field).reshape(target_shape)
 
 
@@ -45,7 +45,7 @@ def _evaluate_tangential_coeffs_to_grid_components(
     """Evaluate tangential coefficients to grid components."""
     if coeffs is None:
         return np.full(target_shape, np.nan), np.full(target_shape, np.nan)
-    field = CoefficientField(field_space, coeffs=coeffs.reshape((2, -1)))
+    field = FieldCoefficients(field_space, coeffs=coeffs.reshape((2, -1)))
     field_grid_components = plot_evaluator.synthesize_helmholtz(field)
     field_t_2d = field_grid_components[0].reshape(target_shape)
     field_p_2d = field_grid_components[1].reshape(target_shape)

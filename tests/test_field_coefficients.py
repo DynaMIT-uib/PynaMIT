@@ -1,20 +1,20 @@
-"""Tests for coefficient-backed field values."""
+"""Tests for field coefficient values."""
 
 import numpy as np
 import pytest
 
-from pynamit.primitives.coefficient_field import CoefficientField
+from pynamit.primitives.field_coefficients import FieldCoefficients
 from pynamit.primitives.field_space import FieldSpace
 from pynamit.sphere import CSBasis, Grid, SHBasis
 
 
-def test_coefficient_field_applies_scalar_mean_free_projection():
-    """CoefficientField applies scalar mean-free semantics."""
+def test_field_coefficients_applies_scalar_mean_free_projection():
+    """FieldCoefficients applies scalar mean-free semantics."""
     basis = CSBasis(4)
     field_space = FieldSpace(basis, field_type="scalar", mean_free=True)
     coeffs = np.linspace(0.0, 1.0, basis.index_length) + 2.0
 
-    field = CoefficientField(field_space, coeffs)
+    field = FieldCoefficients(field_space, coeffs)
 
     assert field.field_space is field_space
     assert field.representation is basis
@@ -25,7 +25,7 @@ def test_coefficient_field_applies_scalar_mean_free_projection():
     np.testing.assert_allclose(field.to_vector(), field.array.reshape(-1))
 
 
-def test_coefficient_field_preserves_tangential_shape():
+def test_field_coefficients_preserves_tangential_shape():
     """Tangential coefficient fields keep their two-component layout."""
     basis = CSBasis(4)
     field_space = FieldSpace(basis, field_type="tangential", mean_free=True)
@@ -36,7 +36,7 @@ def test_coefficient_field_preserves_tangential_shape():
         ]
     )
 
-    field = CoefficientField(field_space, coeffs)
+    field = FieldCoefficients(field_space, coeffs)
 
     assert field.field_type == "tangential"
     assert field.coeffs.shape == (2, basis.index_length)
@@ -47,13 +47,13 @@ def test_coefficient_field_preserves_tangential_shape():
     )
 
 
-def test_coefficient_field_canonicalizes_flat_tangential_coefficients():
+def test_field_coefficients_canonicalizes_flat_tangential_coefficients():
     """Flat tangential input is stored as component x coefficient."""
     basis = SHBasis(3, 2)
     field_space = FieldSpace(basis, field_type="tangential")
     coeffs = np.arange(2 * basis.index_length)
 
-    field = CoefficientField(field_space, coeffs)
+    field = FieldCoefficients(field_space, coeffs)
 
     assert field.coefficient_shape == (2, basis.index_length)
     assert field.array.shape == field.coefficient_shape
@@ -61,20 +61,20 @@ def test_coefficient_field_canonicalizes_flat_tangential_coefficients():
     np.testing.assert_array_equal(field.to_vector(), coeffs)
 
 
-def test_coefficient_field_validates_coefficient_length():
-    """CoefficientField rejects wrong coefficient lengths."""
+def test_field_coefficients_validates_coefficient_length():
+    """FieldCoefficients rejects wrong coefficient lengths."""
     basis = SHBasis(3, 2, mean_free=True)
     field_space = FieldSpace(basis, field_type="scalar")
 
-    with pytest.raises(ValueError, match="CoefficientField.coeffs"):
-        CoefficientField(field_space, np.zeros(basis.index_length + 1))
+    with pytest.raises(ValueError, match="FieldCoefficients.coeffs"):
+        FieldCoefficients(field_space, np.zeros(basis.index_length + 1))
 
 
 def test_field_space_accepts_grid_representation():
     """Grid samples define a field space without becoming a basis."""
     grid = Grid(theta=[30.0, 60.0], phi=[0.0, 90.0])
     field_space = FieldSpace.from_representation(grid)
-    field = CoefficientField(field_space, [1.0, 2.0])
+    field = FieldCoefficients(field_space, [1.0, 2.0])
 
     assert field.representation is grid
     assert field_space.index_names == ("point",)

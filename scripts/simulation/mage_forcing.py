@@ -121,7 +121,7 @@ for step in range(0, nstep):
         lon = phi
         pynamit.globalplot(lon, lat, delta_Br, cmap=plt.cm.bwr, extend="both")
 
-    Br_field = pynamit.CoefficientField(
+    Br_field = pynamit.FieldCoefficients(
         state_field_space,
         Br_spherical_transform.analyze_scalar(delta_Br.flatten()),
     )

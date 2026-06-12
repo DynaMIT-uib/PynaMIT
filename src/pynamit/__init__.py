@@ -14,7 +14,7 @@ CSBasis : class
     Class for cubed sphere projections.
 Dynamics : class
     Class for simulating ionospheric dynamics.
-CoefficientField : class
+FieldCoefficients : class
     Class for storing validated field coefficients.
 FieldEvaluator : class
     Class for evaluating fields.
@@ -52,7 +52,7 @@ from .sphere import (
     is_sh_basis,
 )
 from .primitives.basis_evaluator import BasisEvaluator
-from .primitives.coefficient_field import CoefficientField
+from .primitives.field_coefficients import FieldCoefficients
 from .primitives.field_evaluator import FieldEvaluator
 from .primitives.field_space import FieldSpace
 from .simulation.dynamics import Dynamics
@@ -92,7 +92,7 @@ __all__ = [
     "BasisView",
     "BasisEvaluator",
     "CSBasis",
-    "CoefficientField",
+    "FieldCoefficients",
     "Dynamics",
     "FieldEvaluator",
     "FieldSpace",

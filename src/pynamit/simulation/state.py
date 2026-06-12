@@ -14,7 +14,7 @@ import numpy as np
 from scipy.integrate import solve_ivp
 from scipy.linalg import expm
 
-from pynamit.primitives.coefficient_field import CoefficientField
+from pynamit.primitives.field_coefficients import FieldCoefficients
 from pynamit.math import einsum_linear_map_from_matvec
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver, get_default_least_squares_solver
@@ -83,12 +83,12 @@ class State:
         )
 
         # Initialize state variables
-        self.u: Optional[CoefficientField] = None
-        self.Q_eff: Optional[CoefficientField] = None
-        self.Br: Optional[CoefficientField] = None
-        self.jr: Optional[CoefficientField] = None
-        self.etaP: Optional[CoefficientField] = None
-        self.etaH: Optional[CoefficientField] = None
+        self.u: Optional[FieldCoefficients] = None
+        self.Q_eff: Optional[FieldCoefficients] = None
+        self.Br: Optional[FieldCoefficients] = None
+        self.jr: Optional[FieldCoefficients] = None
+        self.etaP: Optional[FieldCoefficients] = None
+        self.etaH: Optional[FieldCoefficients] = None
 
         # Invalidate all caches
         self._invalidate_caches()
@@ -531,18 +531,18 @@ class State:
             field_space = input_timeseries.get_storage_spec(key)
             if key == "conductance":
                 conductance_updated = True
-                self.etaP = CoefficientField(field_space, coeffs=updated_input["etaP"])
-                self.etaH = CoefficientField(field_space, coeffs=updated_input["etaH"])
+                self.etaP = FieldCoefficients(field_space, coeffs=updated_input["etaP"])
+                self.etaH = FieldCoefficients(field_space, coeffs=updated_input["etaH"])
             elif key == "jr":
-                self.jr = CoefficientField(field_space, coeffs=updated_input["jr"])
+                self.jr = FieldCoefficients(field_space, coeffs=updated_input["jr"])
             elif key == "Br":
                 if self.RM is None:
                     raise ValueError("Br input can only be set if RM is not None.")
-                self.Br = CoefficientField(field_space, coeffs=updated_input["Br"])
+                self.Br = FieldCoefficients(field_space, coeffs=updated_input["Br"])
             elif key == "u":
-                self.u = CoefficientField(field_space, coeffs=updated_input["u"])
+                self.u = FieldCoefficients(field_space, coeffs=updated_input["u"])
             elif key == "Q_eff":
-                self.Q_eff = CoefficientField(field_space, coeffs=updated_input["Q_eff"])
+                self.Q_eff = FieldCoefficients(field_space, coeffs=updated_input["Q_eff"])
 
         if conductance_updated:
             logger.info("Conductance updated: invalidating caches and problem definition.")

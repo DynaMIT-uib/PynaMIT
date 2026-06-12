@@ -1,4 +1,4 @@
-"""Coefficient-backed field values."""
+"""Field coefficient values."""
 
 from typing import Any
 
@@ -7,12 +7,13 @@ import numpy as np
 from pynamit.primitives.field_space import FieldSpace
 
 
-class CoefficientField:
+class FieldCoefficients:
     """Realized field coefficients in a ``FieldSpace``.
 
     This is the value-carrying counterpart to ``FieldSpace``. It checks
-    coefficient length and applies the field-space coefficient policy.
-    It does not own grid projection or grid evaluation.
+    coefficient length, stores the canonical coefficient shape, and
+    applies the field-space coefficient policy. It does not own grid
+    projection or grid evaluation.
     """
 
     def __init__(
@@ -22,9 +23,9 @@ class CoefficientField:
         *,
         name: str | None = None,
     ):
-        """Initialize a coefficient-backed field."""
+        """Initialize field coefficients."""
         if not isinstance(field_space, FieldSpace):
-            raise TypeError("CoefficientField requires a FieldSpace.")
+            raise TypeError("FieldCoefficients requires a FieldSpace.")
         self.field_space = field_space
         field_name = name or f"{self.__class__.__name__}.coeffs"
         coeffs = self.field_space.validate_coefficients(coeffs, name=field_name)

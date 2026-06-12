@@ -14,7 +14,7 @@ from dipole import Dipole
 from polplot import Polarplot
 import datetime
 from pynamit.sphere import Grid
-from pynamit.primitives.coefficient_field import CoefficientField
+from pynamit.primitives.field_coefficients import FieldCoefficients
 from pynamit.primitives.field_space import FieldSpace
 from pynamit.primitives.io import IO
 from pynamit.sphere import CSBasis, SHBasis, SolidHarmonics
@@ -304,7 +304,7 @@ class PynamEye(object):
         )
 
         self.u_coeffs = np.array([self.m_u_cf, self.m_u_df])
-        self.u = CoefficientField(
+        self.u = FieldCoefficients(
             self.tangential_field_space,
             coeffs=self.u_coeffs,
         )
@@ -580,7 +580,7 @@ class PynamEye(object):
                 kwargs[key] = self.joule_defaults[key]
 
         # Calculate electric field.
-        e_coeffs = CoefficientField(
+        e_coeffs = FieldCoefficients(
             self.tangential_field_space,
             coeffs=np.array([self.m_Phi, self.m_W]),
         )

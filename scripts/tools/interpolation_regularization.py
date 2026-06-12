@@ -211,7 +211,7 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
             else input_spherical_transform.scalar_regularization_term
         )
 
-        input_sh = pynamit.CoefficientField(
+        input_sh = pynamit.FieldCoefficients(
             field_space,
             analyze_input(input_grid_values),
         )
@@ -242,7 +242,7 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
             print("   Relative grid error = %e" % (relative_grid_errors[-1]))
 
         if SH_COMPARISON:
-            cs_interpolated_output_sh = pynamit.CoefficientField(
+            cs_interpolated_output_sh = pynamit.FieldCoefficients(
                 field_space,
                 analyze_output(interpolated_data),
             )

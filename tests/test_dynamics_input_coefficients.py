@@ -3,7 +3,7 @@
 import numpy as np
 
 from pynamit.math.constants import RE
-from pynamit.primitives.coefficient_field import CoefficientField
+from pynamit.primitives.field_coefficients import FieldCoefficients
 from pynamit.simulation.dynamics import Dynamics
 
 
@@ -79,7 +79,7 @@ def test_set_u_uses_neutral_wind_api_without_set_wind(tmp_path):
     )
 
 
-def test_state_update_uses_coefficient_field_for_wind(tmp_path):
+def test_state_update_uses_field_coefficients_for_wind(tmp_path):
     """State coefficient storage does not need grid expansion."""
     dynamics = _small_dynamics(tmp_path)
     n_coeffs = dynamics.input_field_spaces["u"].index_length
@@ -89,7 +89,7 @@ def test_state_update_uses_coefficient_field_for_wind(tmp_path):
     dynamics.set_neutral_wind(cf_coeffs, df_coeffs, time=3.0, coefficients=True)
     dynamics.state.update(dynamics.input_timeseries, time=3.0)
 
-    assert isinstance(dynamics.state.u, CoefficientField)
+    assert isinstance(dynamics.state.u, FieldCoefficients)
     np.testing.assert_allclose(
         dynamics.state.u.coeffs,
         np.vstack([cf_coeffs, df_coeffs]),
@@ -113,7 +113,7 @@ def test_set_Q_eff_accepts_helmholtz_input_basis_coefficients(tmp_path):
     np.testing.assert_allclose(dataset.time.values, [3.0])
 
 
-def test_state_update_uses_coefficient_field_for_Q_eff(tmp_path):
+def test_state_update_uses_field_coefficients_for_Q_eff(tmp_path):
     """Q_eff state storage keeps canonical coefficient shape."""
     dynamics = _small_dynamics(tmp_path)
     n_coeffs = dynamics.input_field_spaces["Q_eff"].index_length
@@ -123,7 +123,7 @@ def test_state_update_uses_coefficient_field_for_Q_eff(tmp_path):
     dynamics.set_Q_eff(cf_coeffs, df_coeffs, time=3.0, coefficients=True)
     dynamics.state.update(dynamics.input_timeseries, time=3.0)
 
-    assert isinstance(dynamics.state.Q_eff, CoefficientField)
+    assert isinstance(dynamics.state.Q_eff, FieldCoefficients)
     np.testing.assert_allclose(
         dynamics.state.Q_eff.coeffs,
         np.vstack([cf_coeffs, df_coeffs]),

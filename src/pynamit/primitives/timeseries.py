@@ -10,7 +10,7 @@ the simulation.
 import numpy as np
 import pandas as pd
 import xarray as xr
-from pynamit.primitives.coefficient_field import CoefficientField
+from pynamit.primitives.field_coefficients import FieldCoefficients
 from pynamit.primitives.field_space import FieldSpace
 
 FLOAT_ERROR_MARGIN = 1e-6  # Safety margin for floating point errors
@@ -157,7 +157,7 @@ class Timeseries:
 
         data_vars = {}
         for var in data:
-            values = CoefficientField(
+            values = FieldCoefficients(
                 self.field_spaces[key],
                 data[var],
                 name=f"{key}.{var}",
