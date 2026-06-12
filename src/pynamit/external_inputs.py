@@ -384,8 +384,8 @@ def get_wind_inputs(
             ut=date.hour + date.minute / 60.0,
             day=date.timetuple().tm_yday,
         )
-        u_theta = -model.Vwind.flatten()
-        u_phi = model.Uwind.flatten()
+        u_theta = -model.Vwind.reshape(-1)
+        u_phi = model.Uwind.reshape(-1)
         lat_grid, lon_grid = np.meshgrid(model.glatbins, model.glonbins, indexing="ij")
         u_theta = _expand_time_series(u_theta, time)
         u_phi = _expand_time_series(u_phi, time)
@@ -413,8 +413,8 @@ def get_wind_inputs(
             ut=date.hour + date.minute / 60.0,
             day=date.timetuple().tm_yday,
         )
-        u_theta_native = -model.Vwind.flatten()
-        u_phi_native = model.Uwind.flatten()
+        u_theta_native = -model.Vwind.reshape(-1)
+        u_phi_native = model.Uwind.reshape(-1)
         lat_grid, lon_grid = np.meshgrid(model.glatbins, model.glonbins, indexing="ij")
         u_theta_native = _expand_time_series(u_theta_native, time)
         u_phi_native = _expand_time_series(u_phi_native, time)
@@ -446,8 +446,8 @@ def get_wind_inputs(
                 ut=date.hour + date.minute / 60.0,
                 day=date.timetuple().tm_yday,
             )
-            u_theta_native = -model.Vwind[:, :-1].flatten()
-            u_phi_native = model.Uwind[:, :-1].flatten()
+            u_theta_native = -model.Vwind[:, :-1].reshape(-1)
+            u_phi_native = model.Uwind[:, :-1].reshape(-1)
             lat_grid, lon_grid = np.meshgrid(model.glatbins, model.glonbins[:-1], indexing="ij")
             lat_flat = lat_grid.reshape(-1)
             lon_flat = lon_grid.reshape(-1)

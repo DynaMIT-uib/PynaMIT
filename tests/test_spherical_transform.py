@@ -16,7 +16,7 @@ def _regular_grid():
     lat = np.linspace(-70.0, 70.0, 11)
     lon = np.linspace(0.0, 330.0, 12)
     lat_grid, lon_grid = np.meshgrid(lat, lon, indexing="ij")
-    return Grid(lat=lat_grid.ravel(), lon=lon_grid.ravel())
+    return Grid(lat=lat_grid.reshape(-1), lon=lon_grid.reshape(-1))
 
 
 def test_spherical_transform_projects_scalar_grid_values():

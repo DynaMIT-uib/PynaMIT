@@ -49,7 +49,7 @@ def cs_interpolate(projection, inlat, inlon, values, outlat, outlon, **kwargs):
     outlon, outlat = np.broadcast_arrays(outlon, outlat)
     # Get the shape so we can reshape the result in the end.
     shape = outlon.shape
-    outlon, outlat = outlon.flatten(), outlat.flatten()
+    outlon, outlat = outlon.reshape(-1), outlat.reshape(-1)
 
     result = np.zeros_like(outlon) - 1
 
@@ -230,9 +230,13 @@ def _solid_harmonic_poloidal_to_sheet_current(geometry, transform):
     )
 
 
-def _horizontal_poloidal_to_sheet_current(geometry, transform):
+def _horizontal_poloidal_to_sheet_current(geometry, transform, solid_scale=None):
     """Return horizontal poloidal coefficients to sheet current."""
     solid_to_sheet = _solid_harmonic_poloidal_to_sheet_current(geometry, transform)
+    if solid_scale is not None:
+        solid_to_sheet = solid_to_sheet * np.asarray(solid_scale).reshape(1, 1, -1)
+    if geometry.horizontal_solid_projection_is_identity:
+        return solid_to_sheet.copy()
     return np.tensordot(
         solid_to_sheet,
         np.asarray(geometry.horizontal_to_solid_harmonic),
@@ -240,9 +244,14 @@ def _horizontal_poloidal_to_sheet_current(geometry, transform):
     )
 
 
-def _diagonal_values(operator):
-    """Return diagonal values from a diagonal LinearMap."""
-    return np.asarray(operator.diagonal(backend="numpy"))
+def _coefficient_scale_values(values):
+    """Return a one-dimensional coefficient-space scale."""
+    array = np.asarray(values)
+    if array.ndim != 1:
+        raise ValueError(
+            f"coefficient scale must be one-dimensional; got shape {array.shape}."
+        )
+    return array
 
 
 def evaluate_sheet_current(dynamics, transform, *, key=None):
@@ -270,21 +279,17 @@ def evaluate_sheet_current(dynamics, transform, *, key=None):
     if geometry.RM is None:
         m_ind_to_sheet = poloidal_to_sheet
     else:
-        regular_shift = _diagonal_values(
+        regular_shift = _coefficient_scale_values(
             geometry.solid_harmonics.regular_reference_shift(geometry.RM, geometry.RI)
         )
-        irregular_shift = _diagonal_values(
+        irregular_shift = _coefficient_scale_values(
             geometry.solid_harmonics.irregular_reference_shift(geometry.RI, geometry.RM)
         )
         denominator = 1.0 - regular_shift * irregular_shift
-        m_ind_to_solid = (
-            1.0 + regular_shift * irregular_shift / denominator
-        ).reshape(-1, 1) * np.asarray(geometry.horizontal_to_solid_harmonic)
-        solid_to_sheet = _solid_harmonic_poloidal_to_sheet_current(geometry, transform)
-        m_ind_to_sheet = np.tensordot(
-            solid_to_sheet,
-            m_ind_to_solid,
-            axes=([2], [0]),
+        m_ind_to_sheet = _horizontal_poloidal_to_sheet_current(
+            geometry,
+            transform,
+            solid_scale=1.0 + regular_shift * irregular_shift / denominator,
         )
 
     sheet_current += np.tensordot(m_ind_to_sheet, m_ind, axes=([2], [0]))
@@ -502,7 +507,7 @@ def compare_AMPS_jr_and_CF_currents(dynamics, a, d, date, lon0):
     lat, lon = np.meshgrid(lat, lon)
     pltshape = lat.shape
 
-    paxes = [polplot.Polarplot(ax) for ax in axes.flatten()]
+    paxes = [polplot.Polarplot(ax) for ax in axes.reshape(-1)]
 
     ju_amps = a.get_upward_current()
     je_amps, jn_amps = a.get_curl_free_current()
@@ -601,7 +606,7 @@ def plot_AMPS_Br(a):
     """
     Blevels = np.linspace(-300, 300, 22) * 1e-9  # Color levels for Br
     _, axes = plt.subplots(ncols=2, figsize=(10, 5))
-    paxes = [polplot.Polarplot(ax) for ax in axes.flatten()]
+    paxes = [polplot.Polarplot(ax) for ax in axes.reshape(-1)]
 
     mlat, mlt = a.scalargrid
     mlatn, mltn = np.split(mlat, 2)[0], np.split(mlt, 2)[0]
@@ -800,25 +805,8 @@ def time_dependent_plot(
 
     Phi = evaluate_Phi(dynamics, plt_state_evaluator) * 1e-3
 
-    # W = evaluate_W(dynamics, plt_state_evaluator) * 1e-3
-    nnn = plt_grid.lat.flatten() > 50
-    sss = plt_grid.lat.flatten() < -50
-    # paxn.contour(
-    #    plt_grid.lat.flatten()[nnn],
-    #    (plt_grid.lon.flatten() - lon0)[nnn] / 15,
-    #    W[nnn],
-    #    colors="black",
-    #    levels=Wlevels,
-    #    linewidths=0.5,
-    # )
-    # paxs.contour(
-    #    plt_grid.lat.flatten()[sss],
-    #    (plt_grid.lon.flatten() - lon0)[sss] / 15,
-    #    W[sss],
-    #    colors="black",
-    #    levels=Wlevels,
-    #    linewidths=0.5,
-    # )
+    nnn = plt_grid.lat.reshape(-1) > 50
+    sss = plt_grid.lat.reshape(-1) < -50
     paxn.contour(
         plt_grid.lat[nnn],
         (plt_grid.lon - lon0)[nnn] / 15,

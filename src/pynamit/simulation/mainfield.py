@@ -375,4 +375,4 @@ class Mainfield(object):
             # Calculate latitude of evenly spaced points.
             lat, lon, _ = self.apx.apex2geo(90 - theta, mlon, self.apx.refh)
             # Interpolate to phi.
-            return (np.interp(phi.flatten(), lon % 360, 90 - lat, period=360)).reshape(phi.shape)
+            return (np.interp(phi.reshape(-1), lon % 360, 90 - lat, period=360)).reshape(phi.shape)

@@ -182,36 +182,69 @@ class State:
             eta_stacked = xp.stack(
                 [xp.asarray(self.etaP.coeffs), xp.asarray(self.etaH.coeffs)], axis=0
             )
-            conductance_synthesis = xp.asarray(self._conductance_synthesis_matrix())
+            conductance_synthesis = self._conductance_synthesis_operator()
+            conductance_on_grid = xp.asarray(
+                conductance_synthesis.matmat(xp.swapaxes(eta_stacked, 0, 1))
+            )
+            conductance_on_grid = xp.swapaxes(conductance_on_grid, 0, 1)
             b_stacked = xp.stack(
                 [xp.asarray(self.geometry.bP), xp.asarray(self.geometry.bH)], axis=0
             )
             self._M_total_on_grid = xp.einsum(
-                "sijk,kp,sp->ijk",
+                "sijk,sk->ijk",
                 b_stacked,
-                conductance_synthesis,
-                eta_stacked,
+                conductance_on_grid,
                 optimize=True,
             )
         return self._M_total_on_grid
 
-    def _conductance_synthesis_matrix(self):
-        """Return stored-conductance synthesis to the model grid."""
+    def _conductance_storage_basis(self):
+        """Return the shared conductance storage basis."""
         basis = self.etaP.representation
-        if basis.coefficients_are_compatible_with(self.basis):
-            return self.geometry.spherical_transform.scalar_coeffs_to_grid
+        hall_basis = self.etaH.representation
+        if hall_basis is not basis:
+            compatible = getattr(hall_basis, "coefficients_are_compatible_with", None)
+            if not callable(compatible) or not compatible(basis):
+                raise ValueError(
+                    "Pedersen and Hall conductance storage bases must be "
+                    "coefficient-compatible."
+                )
+        return basis
 
-        zero_added_basis = self.geometry.spherical_transform_zero_added.source
-        if basis.coefficients_are_compatible_with(zero_added_basis):
-            return self.geometry.spherical_transform_zero_added.scalar_coeffs_to_grid
+    def _compatible_conductance_transform(self, basis) -> Optional[Any]:
+        """Return a synthesis transform compatible with basis."""
+        if basis.coefficients_are_compatible_with(self.basis):
+            return self.geometry.spherical_transform
+
+        zero_added_transform = self.geometry.spherical_transform_zero_added
+        if basis.coefficients_are_compatible_with(zero_added_transform.source):
+            return zero_added_transform
+
+        return None
+
+    def _conductance_synthesis_operator(self) -> LinearMap:
+        """Return stored-conductance synthesis to the model grid."""
+        basis = self._conductance_storage_basis()
+
+        get_operator = getattr(basis, "get_scalar_evaluation_operator", None)
+        if callable(get_operator):
+            return get_operator(self.geometry.grid)
+
+        transform = self._compatible_conductance_transform(basis)
+        if transform is not None:
+            return transform.scalar_coeffs_to_grid_operator
 
         get_matrix = getattr(basis, "get_scalar_evaluation_matrix", None)
         if callable(get_matrix):
-            return get_matrix(self.geometry.grid)
+            return as_linear_map(get_matrix(self.geometry.grid))
 
         raise ValueError(
             "Conductance storage basis cannot be evaluated on the state/model grid."
         )
+
+    def _conductance_synthesis_matrix(self):
+        """Return explicit conductance synthesis to the model grid."""
+        return self._conductance_synthesis_operator().to_matrix()
 
     def _create_E_coeffs_operator(
         self, source_to_sheet_current: Optional[np.ndarray]
@@ -261,7 +294,7 @@ class State:
         """Return an E-coefficient operator for repeated applies."""
         if op is None:
             return None
-        return op.cache_dense()
+        return op.cache_matrix()
 
     @property
     def _m_ind_to_E_coeffs_runtime(self) -> Optional[LinearMap]:
@@ -436,7 +469,7 @@ class State:
                     raise ValueError("Br input can only be set if RM is not None.")
                 self.Br = CoefficientField(field_space, coeffs=updated_input["Br"])
             elif key == "u":
-                self.u = CoefficientField(field_space, coeffs=updated_input["u"].reshape((2, -1)))
+                self.u = CoefficientField(field_space, coeffs=updated_input["u"])
 
         if conductance_updated:
             logger.info("Conductance updated: invalidating caches and problem definition.")
@@ -546,7 +579,7 @@ class State:
     def _build_m_ind_to_E_df_matrix(self) -> None:
         """Construct the dense matrix for the induction operator."""
         logger.info("Building dense induction operator matrix (m_ind -> E_df)...")
-        self._m_ind_to_E_df_matrix = self.m_ind_to_E_df_operator.dense()
+        self._m_ind_to_E_df_matrix = self.m_ind_to_E_df_operator.to_matrix()
         logger.info("Dense induction operator built.")
 
     def _calculate_d_m_ind_dt(self, m_ind: np.ndarray, E_coeffs_noind: np.ndarray) -> np.ndarray:

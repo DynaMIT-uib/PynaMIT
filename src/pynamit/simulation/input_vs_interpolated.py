@@ -238,7 +238,7 @@ def plot_input_vs_interpolated(
                     calculated_input_data_2d = -u_n_h5
                 elif data_type_str == "u_phi":
                     calculated_input_data_2d = u_e_h5
-            all_data_for_scaling[data_type_str]["input"].append(calculated_input_data_2d.ravel())
+            all_data_for_scaling[data_type_str]["input"].append(calculated_input_data_2d.reshape(-1))
 
             calculated_interpolated_data_2d = np.full(target_shape_pass1, np.nan)
             timeseries_entry = input_timeseries.get_entry(
@@ -297,7 +297,7 @@ def plot_input_vs_interpolated(
                     elif data_type_str == "u_phi":
                         calculated_interpolated_data_2d = u_p_2d
             all_data_for_scaling[data_type_str]["interpolated"].append(
-                calculated_interpolated_data_2d.ravel()
+                calculated_interpolated_data_2d.reshape(-1)
             )
             cached_plot_data[(timestep, data_type_str)] = {
                 "input": calculated_input_data_2d,

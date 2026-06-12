@@ -84,16 +84,16 @@ class Grid(SphericalRepresentation):
         self.lat, self.lon = np.broadcast_arrays(self.lat, self.lon)
         self.theta, self.phi = np.broadcast_arrays(self.theta, self.phi)
 
-        self.lat = self.lat.flatten()
-        self.lon = self.lon.flatten()
-        self.theta = self.theta.flatten()
-        self.phi = self.phi.flatten()
+        self.lat = self.lat.reshape(-1)
+        self.lon = self.lon.reshape(-1)
+        self.theta = self.theta.reshape(-1)
+        self.phi = self.phi.reshape(-1)
 
         self.size = self.lon.size
         self._hash = None
 
         if area_weights is not None:
-            self.area_weights = np.asarray(area_weights, dtype=float).flatten()
+            self.area_weights = np.asarray(area_weights, dtype=float).reshape(-1)
             if self.area_weights.shape != (self.size,):
                 raise ValueError("area_weights must match the flattened grid size.")
 

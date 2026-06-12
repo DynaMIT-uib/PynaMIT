@@ -112,10 +112,10 @@ class PynamEye(object):
         self.vector_cs_basis = CSBasis(NCS_plot)
         k, i, j = self.vector_cs_basis.get_gridpoints(NCS_plot)
         # Crop to skip duplicate points.
-        arr_xi = self.vector_cs_basis.xi(i[:, :-1, :-1] + 0.5, NCS_plot).flatten()
-        arr_eta = self.vector_cs_basis.eta(j[:, :-1, :-1] + 0.5, NCS_plot).flatten()
+        arr_xi = self.vector_cs_basis.xi(i[:, :-1, :-1] + 0.5, NCS_plot).reshape(-1)
+        arr_eta = self.vector_cs_basis.eta(j[:, :-1, :-1] + 0.5, NCS_plot).reshape(-1)
         _, arr_theta, arr_phi = self.vector_cs_basis.cube2spherical(
-            arr_xi, arr_eta, k[:, :-1, :-1].flatten(), deg=True
+            arr_xi, arr_eta, k[:, :-1, :-1].reshape(-1), deg=True
         )
         self.global_vector_grid = Grid(theta=arr_theta, lon=arr_phi)
 
@@ -396,7 +396,7 @@ class PynamEye(object):
         self.m_u = np.vstack(
             np.split(self.datasets["u"].SH_u.sel(time=self.t, method="nearest").values, 2)
         )
-        self.m_u_df, self.m_u_cf = np.split(self.m_u.flatten(), 2)
+        self.m_u_df, self.m_u_cf = np.split(self.m_u.reshape(-1), 2)
 
         if np.any(np.isnan(self.m_ind)):
             print(f"induced magnetic field coefficients at t = {(t,):.2f} s are nans")

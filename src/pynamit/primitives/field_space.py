@@ -83,6 +83,13 @@ class FieldSpace:
         return self.component_count * self.index_length
 
     @property
+    def coefficient_shape(self):
+        """Return canonical coefficient array shape for one variable."""
+        if self.field_type == "scalar":
+            return (self.index_length,)
+        return (self.component_count, self.index_length)
+
+    @property
     def signature(self):
         """Return a stable-ish cache signature for this field space."""
         representation_signature = getattr(
@@ -104,7 +111,7 @@ class FieldSpace:
 
     def project_mean_free(self, coeffs):
         """Apply this space's mean-free coefficient policy."""
-        array = np.asarray(coeffs)
+        array = self.validate_coefficients(coeffs)
         if not self.mean_free:
             return array
 
@@ -126,4 +133,4 @@ class FieldSpace:
                 f"{self.coefficient_length} for {self.field_type} "
                 f"{self.kind} field space."
             )
-        return array
+        return array.reshape(self.coefficient_shape)

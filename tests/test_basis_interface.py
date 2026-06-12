@@ -314,8 +314,8 @@ def test_csbasis_native_grid_is_cell_centered_with_cell_areas():
     """Native CS coefficients live at cell centers with cell areas."""
     cs_basis = CSBasis(16)
     block, i, j = cs_basis.get_gridpoints(cs_basis.N)
-    expected_xi = cs_basis.xi(i[:, :-1, :-1] + 0.5, cs_basis.N).flatten()
-    expected_eta = cs_basis.eta(j[:, :-1, :-1] + 0.5, cs_basis.N).flatten()
+    expected_xi = cs_basis.xi(i[:, :-1, :-1] + 0.5, cs_basis.N).reshape(-1)
+    expected_eta = cs_basis.eta(j[:, :-1, :-1] + 0.5, cs_basis.N).reshape(-1)
     step = np.diff(cs_basis.xi(np.array([0, 1]), cs_basis.N))[0]
     midpoint_area = step**2 * np.sqrt(
         np.linalg.det(cs_basis.get_metric_tensor(expected_xi, expected_eta))
@@ -323,7 +323,7 @@ def test_csbasis_native_grid_is_cell_centered_with_cell_areas():
 
     np.testing.assert_allclose(cs_basis.arr_xi, expected_xi)
     np.testing.assert_allclose(cs_basis.arr_eta, expected_eta)
-    np.testing.assert_array_equal(cs_basis.arr_block, block[:, :-1, :-1].flatten())
+    np.testing.assert_array_equal(cs_basis.arr_block, block[:, :-1, :-1].reshape(-1))
     assert np.all(cs_basis.unit_area > 0.0)
     np.testing.assert_allclose(np.sum(cs_basis.unit_area), 4 * np.pi)
     assert np.all(np.isfinite(cs_basis.arr_theta))
@@ -540,6 +540,41 @@ def test_spherical_transform_contract_scalar_coeffs_uses_operator_actions():
         ),
         _dense_array_func=fail_dense,
         input_shape=(3,),
+        output_shape=(cs_basis.index_length,),
+    )
+
+    np.testing.assert_allclose(
+        evaluator.contract_scalar_coeffs_to_grid(operator),
+        evaluator.scalar_coeffs_to_grid @ matrix,
+    )
+
+
+def test_spherical_transform_contract_scalar_coeffs_skips_diagonal_probe():
+    """Square non-diagonal maps should not densify."""
+    cs_basis = CSBasis(8)
+    evaluator = SphericalTransform(
+        cs_basis,
+        Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi),
+    )
+    rng = np.random.default_rng(2)
+    matrix = rng.normal(
+        size=(cs_basis.index_length, cs_basis.index_length)
+    ) + 1j * rng.normal(size=(cs_basis.index_length, cs_basis.index_length))
+
+    def fail_dense(_xp):
+        raise AssertionError("contract_scalar_coeffs_to_grid should not densify")
+
+    operator = LinearMap(
+        shape=matrix.shape,
+        dtype=matrix.dtype,
+        _matvec=lambda x: matrix @ np.asarray(x).reshape(cs_basis.index_length),
+        _rmatvec=lambda y: matrix.conj().T
+        @ np.asarray(y).reshape(cs_basis.index_length),
+        _matmat=lambda x: matrix @ np.asarray(x).reshape(cs_basis.index_length, -1),
+        _rmatmat=lambda y: matrix.conj().T
+        @ np.asarray(y).reshape(cs_basis.index_length, -1),
+        _dense_array_func=fail_dense,
+        input_shape=(cs_basis.index_length,),
         output_shape=(cs_basis.index_length,),
     )
 

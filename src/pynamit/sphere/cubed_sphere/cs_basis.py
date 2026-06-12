@@ -142,9 +142,9 @@ class CSBasis(SurfaceOperators):
             k, i, j = self.get_gridpoints(N)
 
             # Initialize native cell centers.
-            self.arr_xi = self.xi(i[:, :-1, :-1] + 0.5, N).flatten()
-            self.arr_eta = self.eta(j[:, :-1, :-1] + 0.5, N).flatten()
-            self.arr_block = k[:, :-1, :-1].flatten()
+            self.arr_xi = self.xi(i[:, :-1, :-1] + 0.5, N).reshape(-1)
+            self.arr_eta = self.eta(j[:, :-1, :-1] + 0.5, N).reshape(-1)
+            self.arr_block = k[:, :-1, :-1].reshape(-1)
 
             # Convert to spherical coordinates.
             _, self.arr_theta, self.arr_phi = self.cube2spherical(
@@ -312,9 +312,9 @@ class CSBasis(SurfaceOperators):
     def _cell_areas(self, N):
         """Return exact spherical quadrilateral areas for all cells."""
         k, i, j = self.get_gridpoints(N)
-        block = k[:, :-1, :-1].flatten()
-        i0, i1 = i[:, :-1, :-1].flatten(), i[:, 1:, :-1].flatten()
-        j0, j1 = j[:, :-1, :-1].flatten(), j[:, :-1, 1:].flatten()
+        block = k[:, :-1, :-1].reshape(-1)
+        i0, i1 = i[:, :-1, :-1].reshape(-1), i[:, 1:, :-1].reshape(-1)
+        j0, j1 = j[:, :-1, :-1].reshape(-1), j[:, :-1, 1:].reshape(-1)
 
         corners = [
             (self.xi(i0, N), self.eta(j0, N)),
@@ -668,7 +668,7 @@ class CSBasis(SurfaceOperators):
     @staticmethod
     def _safe_sin_theta(theta_deg):
         """Return sin(theta) with a pole-safe floor."""
-        sin_theta = np.sin(np.deg2rad(np.asarray(theta_deg).flatten()))
+        sin_theta = np.sin(np.deg2rad(np.asarray(theta_deg).reshape(-1)))
         return np.where(np.abs(sin_theta) < 1e-10, 1e-10, sin_theta)
 
     def _coordinate_derivatives(self):
@@ -756,7 +756,7 @@ class CSBasis(SurfaceOperators):
         h = self.xi(1, self.N) - self.xi(0, self.N)
         i = xi / h + (self.N - 1) / 2
         j = eta / h + (self.N - 1) / 2
-        return block.flatten(), i.flatten(), j.flatten()
+        return block.reshape(-1), i.reshape(-1), j.reshape(-1)
 
     def _scalar_interpolation_matrix(self, grid):
         """Return the built-in scalar interpolation as a matrix."""
@@ -958,7 +958,7 @@ class CSBasis(SurfaceOperators):
         """
         k, i, j = np.meshgrid(np.arange(6), np.arange(N + 1), np.arange(N + 1), indexing="ij")
         if flat:
-            return k.flatten(), i.flatten(), j.flatten()
+            return k.reshape(-1), i.reshape(-1), j.reshape(-1)
         else:
             return k, i, j
 
@@ -1810,7 +1810,7 @@ class CSBasis(SurfaceOperators):
         stacked_weights[j_is_float] = stacked_weights[j_is_float] * w_j * Ni
 
         D = coo_matrix(
-            (stacked_weights.flatten(), (stacked_rows.flatten(), stacked_cols.flatten())),
+            (stacked_weights.reshape(-1), (stacked_rows.reshape(-1), stacked_cols.reshape(-1))),
             shape=(rows.max() + 1, size),
         )
         # Get rid of duplicates (maybe this doesn't do anything?).
@@ -1850,7 +1850,7 @@ class CSBasis(SurfaceOperators):
         unique block assignment even for points near block boundaries.
         """
         lon, lat = np.broadcast_arrays(lon, lat)
-        lat, lon = lat.flatten(), lon.flatten()
+        lat, lon = lat.reshape(-1), lon.reshape(-1)
 
         # Convert to spherical coordinates in radians.
         th, ph = np.deg2rad(90 - lat), np.deg2rad(lon)
@@ -1931,7 +1931,7 @@ class CSBasis(SurfaceOperators):
         else:
             block = block * np.ones_like(lat)
 
-        block, lon, lat = block.flatten(), lon.flatten(), lat.flatten()
+        block, lon, lat = block.reshape(-1), lon.reshape(-1), lat.reshape(-1)
 
         # Prepare parameters.
         X, Y, xi, eta = np.empty(N), np.empty(N), np.empty(N), np.empty(N)
@@ -2005,11 +2005,11 @@ class CSBasis(SurfaceOperators):
         target_shape = theta_target.shape
         xi, eta, block = self.geo2cube(phi_target, 90 - theta_target)
         # xi, eta, block = np.broadcast_arrays(xi, eta, block)
-        xi, eta, block = xi.flatten(), eta.flatten(), block.flatten()
+        xi, eta, block = xi.reshape(-1), eta.reshape(-1), block.reshape(-1)
 
         theta, phi = np.broadcast_arrays(theta, phi)
         source_shape = theta.shape
-        theta, phi = theta.flatten(), phi.flatten()
+        theta, phi = theta.reshape(-1), phi.reshape(-1)
 
         u_east = np.asarray(u_east)
         u_north = np.asarray(u_north)
@@ -2028,11 +2028,11 @@ class CSBasis(SurfaceOperators):
                 phi.reshape(source_shape),
             )
             value_shape = ()
-            u_east_values = u_east_values.flatten()
-            u_north_values = u_north_values.flatten()
-            u_r_values = u_r_values.flatten()
-            theta = theta_b.flatten()
-            phi = phi_b.flatten()
+            u_east_values = u_east_values.reshape(-1)
+            u_north_values = u_north_values.reshape(-1)
+            u_r_values = u_r_values.reshape(-1)
+            theta = theta_b.reshape(-1)
+            phi = phi_b.reshape(-1)
 
         # Define vectors that point to all the original points.
         th, ph = np.deg2rad(theta), np.deg2rad(phi)
@@ -2119,11 +2119,11 @@ class CSBasis(SurfaceOperators):
         target_shape = theta_target.shape
         xi, eta, block = self.geo2cube(phi_target, 90 - theta_target)
         # xi, eta, block = np.broadcast_arrays(xi, eta, block)
-        xi, eta, block = xi.flatten(), eta.flatten(), block.flatten()
+        xi, eta, block = xi.reshape(-1), eta.reshape(-1), block.reshape(-1)
 
         theta, phi = np.broadcast_arrays(theta, phi)
         source_shape = theta.shape
-        theta, phi = theta.flatten(), phi.flatten()
+        theta, phi = theta.reshape(-1), phi.reshape(-1)
 
         scalar = np.asarray(scalar)
         if scalar.shape[: len(source_shape)] == source_shape:
@@ -2134,9 +2134,9 @@ class CSBasis(SurfaceOperators):
                 scalar, theta.reshape(source_shape), phi.reshape(source_shape)
             )
             value_shape = ()
-            scalar_values = scalar_values.flatten()
-            theta = theta_broadcast.flatten()
-            phi = phi_broadcast.flatten()
+            scalar_values = scalar_values.reshape(-1)
+            theta = theta_broadcast.reshape(-1)
+            phi = phi_broadcast.reshape(-1)
 
         # Define vectors that point to all the original points.
         th, ph = np.deg2rad(theta), np.deg2rad(phi)

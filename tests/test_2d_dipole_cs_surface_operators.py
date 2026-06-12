@@ -44,29 +44,38 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
     )
     assert dynamics.output_field_spaces["state"].representation is dynamics.horizontal_basis
 
-    spherical_transform = dynamics.state.geometry.spherical_transform
+    geometry = dynamics.state.geometry
+    spherical_transform = geometry.spherical_transform
     expected_helmholtz = dynamics.horizontal_basis.get_helmholtz_synthesis_matrix(
-        dynamics.state.geometry.grid
+        geometry.grid
     )
     np.testing.assert_allclose(
         spherical_transform.helmholtz_coeffs_to_gridded_vector,
         expected_helmholtz,
     )
     np.testing.assert_allclose(
-        dynamics.state.geometry.surface_laplacian_operator.dense(backend="numpy"),
+        geometry.surface_laplacian_operator.to_matrix(backend="numpy"),
         dynamics.horizontal_basis.get_surface_laplacian_matrix(
-            dynamics.state.geometry.RI
+            geometry.RI
         ),
     )
+    assert geometry._poloidal_to_boundary_potential_jump_factor is None
+    assert geometry._horizontal_to_boundary_potential_jump_factor is None
     expected_boundary_potential_jump_factor = (
         np.diag(dynamics.solid_harmonics.poloidal_to_boundary_potential_jump_factor)
-        @ dynamics.state.geometry.horizontal_to_solid_harmonic
+        @ geometry.horizontal_to_solid_harmonic
     )
     np.testing.assert_allclose(
-        dynamics.state.geometry.horizontal_to_boundary_potential_jump_factor_operator.dense(
-            backend="numpy"
-        ),
+        geometry.horizontal_to_boundary_potential_jump_factor_operator.to_matrix(backend="numpy"),
         expected_boundary_potential_jump_factor,
+    )
+    np.testing.assert_allclose(
+        geometry.horizontal_to_boundary_potential_jump_factor,
+        expected_boundary_potential_jump_factor,
+    )
+    np.testing.assert_allclose(
+        geometry.poloidal_to_boundary_potential_jump_factor,
+        np.diag(dynamics.solid_harmonics.poloidal_to_boundary_potential_jump_factor),
     )
 
     state = dynamics.output_timeseries.datasets["state"]

@@ -123,9 +123,9 @@ def test_projection():
     xi, eta = np.meshgrid(
         np.linspace(-np.pi / 4, np.pi / 4, N), np.linspace(-np.pi / 4, np.pi / 4, N), indexing="ij"
     )
-    ones = np.ones_like(xi).flatten()
-    zeros = np.zeros_like(eta).flatten()
-    rs = np.zeros_like(eta).flatten()
+    ones = np.ones_like(xi).reshape(-1)
+    zeros = np.zeros_like(eta).reshape(-1)
+    rs = np.zeros_like(eta).reshape(-1)
     Axis = np.vstack((ones, zeros, rs)).T
     Aetas = np.vstack((zeros, ones, rs)).T
 
@@ -136,10 +136,10 @@ def test_projection():
         # Plot spherical coordinates using cartopy.
         r, theta, phi = p.cube2spherical(xi, eta, block=i)
         lo, la = np.rad2deg(phi), 90 - np.rad2deg(theta)
-        lon, lat = np.rad2deg(phi).flatten(), 90 - np.rad2deg(theta).flatten()
+        lon, lat = np.rad2deg(phi).reshape(-1), 90 - np.rad2deg(theta).reshape(-1)
         Ps_inv = p.get_Ps(xi, eta, r=1, block=i, inverse=True)
         # Multiply Ps_inv by Q to get normalized vector components.
-        Q = p.get_Q(lat, r.flatten())
+        Q = p.get_Q(lat, r.reshape(-1))
         Ps_normalized = np.einsum("nij, njk -> nik", Q, Ps_inv)
 
         # Project in xi-direction.
@@ -148,7 +148,7 @@ def test_projection():
         # norms = np.sqrt(Aeast**2 + Anorth**2)
 
         Ae_pc, An_pc = Geocentric_to_PlateCarree_vector_components(
-            Aeast.flatten(), Anorth.flatten(), lat
+            Aeast.reshape(-1), Anorth.reshape(-1), lat
         )
         axg1.quiver(lon, lat, Ae_pc, An_pc, transform=ccrs.PlateCarree(), color=C)
         axg2.quiver(lon, lat, Ae_pc, An_pc, transform=ccrs.PlateCarree(), color=C)
@@ -158,7 +158,7 @@ def test_projection():
         assert np.all(np.isclose(Ar, 0))
 
         Ae_pc, An_pc = Geocentric_to_PlateCarree_vector_components(
-            Aeast.flatten(), Anorth.flatten(), lat
+            Aeast.reshape(-1), Anorth.reshape(-1), lat
         )
         axg3.quiver(lon % 360, lat, Ae_pc, An_pc, transform=ccrs.PlateCarree(), color=C)
         axg4.quiver(lon % 360, lat, Ae_pc, An_pc, transform=ccrs.PlateCarree(), color=C)
@@ -168,16 +168,16 @@ def test_projection():
 
             for k in range(N):
                 ax.plot(
-                    lo[k, :].flatten(),
-                    la[k, :].flatten(),
+                    lo[k, :].reshape(-1),
+                    la[k, :].reshape(-1),
                     color=C,
                     linewidth=0.5,
                     linestyle="--",
                     transform=ccrs.Geodetic(),
                 )
                 ax.plot(
-                    lo[:, k].flatten(),
-                    la[:, k].flatten(),
+                    lo[:, k].reshape(-1),
+                    la[:, k].reshape(-1),
                     color=C,
                     linewidth=0.5,
                     linestyle="--",
@@ -191,10 +191,28 @@ def test_projection():
         Pc = p.get_Pc(xi, eta, r=1, block=i, inverse=True)
 
         Ax, Ay, Az = np.einsum("nij, nj -> ni", Pc, Axis).T
-        axxyz1.quiver(x.flatten(), y.flatten(), z.flatten(), Ax, Ay, Az, length=1e-1, color=C)
+        axxyz1.quiver(
+            x.reshape(-1),
+            y.reshape(-1),
+            z.reshape(-1),
+            Ax,
+            Ay,
+            Az,
+            length=1e-1,
+            color=C,
+        )
 
         Ax, Ay, Az = np.einsum("nij, nj -> ni", Pc, Aetas).T
-        axxyz2.quiver(x.flatten(), y.flatten(), z.flatten(), Ax, Ay, Az, length=1e-1, color=C)
+        axxyz2.quiver(
+            x.reshape(-1),
+            y.reshape(-1),
+            z.reshape(-1),
+            Ax,
+            Ay,
+            Az,
+            length=1e-1,
+            color=C,
+        )
 
     # Make Cartesian plots prettier.
     for ax in [axxyz1, axxyz2]:
@@ -259,8 +277,8 @@ def test_projection():
         axes[0, block].scatter(xi, eta, c="grey", zorder=1, s=5)
         axes[1, block].scatter(xi, eta, c="grey", zorder=1, s=5)
 
-        axes[0, block].quiver(xi.flatten(), eta.flatten(), Ae[0], Ae[1], scale=15)
-        axes[1, block].quiver(xi.flatten(), eta.flatten(), An[0], An[1], scale=15)
+        axes[0, block].quiver(xi.reshape(-1), eta.reshape(-1), Ae[0], Ae[1], scale=15)
+        axes[1, block].quiver(xi.reshape(-1), eta.reshape(-1), An[0], An[1], scale=15)
 
         axes[0, block].set_title("block " + str(block) + ", eastward")
         axes[1, block].set_title("block " + str(block) + ", northward")
@@ -291,7 +309,7 @@ def test_projection():
                 xi_, eta_, _ = p.geo2cube(lo_, la_, block)
                 ax.plot(xi_, eta_, zorder=0, linewidth=1, color="lightgrey")
 
-    for ax in axes.flatten():
+    for ax in axes.reshape(-1):
         ax.set_axis_off()
         ax.set_aspect("equal")
         ax.set_xlim(-np.pi / 4, np.pi / 4)
@@ -325,16 +343,16 @@ def test_projection():
 
         for k in range(N):
             ax.plot(
-                lo[k, :].flatten(),
-                la[k, :].flatten(),
+                lo[k, :].reshape(-1),
+                la[k, :].reshape(-1),
                 color=C,
                 linewidth=0.5,
                 linestyle="--",
                 transform=ccrs.Geodetic(),
             )
             ax.plot(
-                lo[:, k].flatten(),
-                la[:, k].flatten(),
+                lo[:, k].reshape(-1),
+                la[:, k].reshape(-1),
                 color=C,
                 linewidth=0.5,
                 linestyle="--",
@@ -345,16 +363,16 @@ def test_projection():
     lo, la = np.rad2deg(phi), 90 - np.rad2deg(theta)
     for k in range(0, N + 2 * N_extra):
         ax.plot(
-            lo[k, :].flatten(),
-            la[k, :].flatten(),
+            lo[k, :].reshape(-1),
+            la[k, :].reshape(-1),
             color="C0",
             linewidth=1,
             linestyle="-",
             transform=ccrs.Geodetic(),
         )
         ax.plot(
-            lo[:, k].flatten(),
-            la[:, k].flatten(),
+            lo[:, k].reshape(-1),
+            la[:, k].reshape(-1),
             color="C0",
             linewidth=1,
             linestyle="-",

@@ -1,8 +1,8 @@
 """Simulation operator accessors.
 
-This module keeps runtime operator composition separate from dense
+This module keeps runtime operator composition separate from explicit
 matrix extraction.  Simulation code can use ``LinearMap`` objects
-directly, while diagnostics and scripts can request dense matrices from
+directly, while diagnostics and scripts can request matrices from
 the same definitions.
 """
 
@@ -13,8 +13,8 @@ from typing import Any, Optional, TYPE_CHECKING
 import numpy as np
 
 from pynamit.math.linear_map import (
-    DenseBackend,
     LinearMap,
+    MatrixBackend,
     as_linear_map,
     identity_linear_map,
 )
@@ -86,27 +86,46 @@ class StateOperators:
         """Map direct E coefficients to total E_df forcing."""
         if getattr(self.state, "_direct_E_coeffs_to_E_df_operator", None) is None:
             self.state._direct_E_coeffs_to_E_df_operator = (
-                self.E_coeffs_to_E_df @ self.direct_E_to_total_E
+                self._create_direct_E_to_E_df()
             )
         return self.state._direct_E_coeffs_to_E_df_operator
+
+    def _direct_E_feedback_maps(self) -> Optional[tuple[LinearMap, LinearMap]]:
+        """Return maps for direct-E feedback through m_imp."""
+        if not self.state.connect_hemispheres or self.state._E_map_constraint is None:
+            return None
+
+        E_direct_to_m_imp = self.E_direct_to_m_imp
+        if E_direct_to_m_imp is None:
+            return None
+
+        m_imp_to_E = self.state.m_imp_to_E_coeffs
+        if m_imp_to_E is None:
+            raise RuntimeError("m_imp_to_E_coeffs is not available.")
+        return m_imp_to_E, E_direct_to_m_imp
 
     def _create_direct_E_to_total_E(self) -> LinearMap:
         """Construct direct-E to total-E map with m_imp feedback."""
         n = self.state.basis.index_length
         identity = identity_linear_map((2, n))
 
-        if not self.state.connect_hemispheres or self.state._E_map_constraint is None:
+        feedback = self._direct_E_feedback_maps()
+        if feedback is None:
             return identity
 
-        E_direct_to_m_imp = self.E_direct_to_m_imp
-        if E_direct_to_m_imp is None:
-            return identity
-
-        m_imp_to_E = self.state.m_imp_to_E_coeffs
-        if m_imp_to_E is None:
-            raise RuntimeError("m_imp_to_E_coeffs is not available.")
-
+        m_imp_to_E, E_direct_to_m_imp = feedback
         return identity + (m_imp_to_E @ E_direct_to_m_imp)
+
+    def _create_direct_E_to_E_df(self) -> LinearMap:
+        """Construct direct-E to divergence-free E map."""
+        feedback = self._direct_E_feedback_maps()
+        if feedback is None:
+            return self.E_coeffs_to_E_df
+
+        m_imp_to_E, E_direct_to_m_imp = feedback
+        return self.E_coeffs_to_E_df + (
+            self.E_coeffs_to_E_df @ m_imp_to_E @ E_direct_to_m_imp
+        )
 
     def E_df(self, *, include_Br: bool = True) -> dict[str, LinearMap]:
         """Return named input/state to total E_df operators."""
@@ -137,21 +156,21 @@ class StateOperators:
             for key, operator in self.E_df(include_Br=include_Br).items()
         }
 
-    def E_df_dense(
-        self, *, include_Br: bool = True, backend: DenseBackend | None = None
+    def E_df_matrices(
+        self, *, include_Br: bool = True, backend: MatrixBackend | None = None
     ) -> dict[str, Any]:
-        """Return E_df maps as dense arrays on the requested backend."""
+        """Return E_df maps as explicit matrices."""
         return {
-            key: operator.dense(backend=backend)
+            key: operator.to_matrix(backend=backend)
             for key, operator in self.E_df(include_Br=include_Br).items()
         }
 
-    def rates_dense(
-        self, *, include_Br: bool = True, backend: DenseBackend | None = None
+    def rates_matrices(
+        self, *, include_Br: bool = True, backend: MatrixBackend | None = None
     ) -> dict[str, Any]:
-        """Return d(m_ind)/dt maps as dense backend arrays."""
+        """Return d(m_ind)/dt maps as explicit matrices."""
         return {
-            key: operator.dense(backend=backend)
+            key: operator.to_matrix(backend=backend)
             for key, operator in self.rates(include_Br=include_Br).items()
         }
 
@@ -163,16 +182,16 @@ class StateOperators:
             return self.E_df(include_Br=include_Br)
         return self.rates(include_Br=include_Br)
 
-    def model_dense(
+    def model_matrices(
         self,
         *,
         df_only: bool = False,
         include_Br: bool = True,
-        backend: DenseBackend | None = None,
+        backend: MatrixBackend | None = None,
     ) -> dict[str, Any]:
-        """Return dense simulation model maps."""
+        """Return simulation model maps as explicit matrices."""
         return {
-            key: operator.dense(backend=backend)
+            key: operator.to_matrix(backend=backend)
             for key, operator in self.model(
                 df_only=df_only, include_Br=include_Br
             ).items()

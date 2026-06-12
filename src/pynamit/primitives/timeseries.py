@@ -161,10 +161,10 @@ class Timeseries:
                 self.field_spaces[key],
                 data[var],
                 name=f"{key}.{var}",
-            ).coeffs
+            )
             data_vars[self.get_data_var_name(key, var)] = (
                 ["time", "i"],
-                values.reshape((1, -1)),
+                values.to_vector().reshape((1, -1)),
             )
 
         dataset = xr.Dataset(
@@ -276,7 +276,7 @@ class Timeseries:
             for var in self.variables[key]:
                 current_data[var] = dataset_before[
                     self.get_data_var_name(key, var)
-                ].values.flatten()
+                ].values.reshape(-1)
 
             # If requested, add linear interpolation correction.
             if interpolation and np.any(
@@ -292,10 +292,10 @@ class Timeseries:
                         * (
                             dataset_after[
                                 self.get_data_var_name(key, var)
-                            ].values.flatten()
+                            ].values.reshape(-1)
                             - dataset_before[
                                 self.get_data_var_name(key, var)
-                            ].values.flatten()
+                            ].values.reshape(-1)
                         )
                     )
 

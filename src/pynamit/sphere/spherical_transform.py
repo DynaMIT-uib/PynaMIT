@@ -6,7 +6,7 @@ spherical-basis coefficients and grid values.
 
 import numpy as np
 
-from pynamit.math.backend import get_array_module
+from pynamit.math.backend import get_array_module, to_numpy
 from pynamit.math.linear_map import (
     LinearMap,
     as_linear_map,
@@ -268,7 +268,9 @@ class SphericalTransform:
             if self.reg_lambda is None:
                 self._L = None
             else:
-                self._L = np.asarray(self.L_operator.dense(backend="numpy"))
+                self._L = np.asarray(
+                    self.L_operator.to_matrix(backend="numpy")
+                )
         return self._L
 
     @property
@@ -296,11 +298,7 @@ class SphericalTransform:
             if self.reg_lambda is None:
                 self._L_helmholtz = None
             else:
-                self._L_helmholtz = np.asarray(
-                    self.L_helmholtz_operator.dense(backend="numpy")
-                ).reshape(
-                    (2, self.source.index_length, 2, self.source.index_length)
-                )
+                self._L_helmholtz = to_numpy(self.L_helmholtz_operator.array)
         return self._L_helmholtz
 
     @property
@@ -548,12 +546,6 @@ class SphericalTransform:
 
         xp = get_array_module(self.scalar_coeffs_to_grid, *op.backend_context)
         scalar_coeffs_to_grid = xp.asarray(self.scalar_coeffs_to_grid)
-        if op.shape[0] == op.shape[1]:
-            try:
-                diagonal = xp.asarray(op.diagonal()).reshape((1, -1))
-                return scalar_coeffs_to_grid * diagonal
-            except ValueError:
-                pass
         product_adjoint = op.rmatmat(
             xp.swapaxes(xp.conjugate(scalar_coeffs_to_grid), -2, -1)
         )

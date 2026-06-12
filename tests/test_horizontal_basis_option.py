@@ -7,6 +7,7 @@ from pynamit.default_run import run_pynamit
 from pynamit.math.constants import RE
 from pynamit.math.tensor_operations import tensor_pinv, weighted_tensor_pinv
 from pynamit.simulation.dynamics import Dynamics
+from pynamit.simulation.visualization import _horizontal_poloidal_to_sheet_current
 
 
 def test_default_horizontal_basis_is_sh(tmp_path):
@@ -22,6 +23,22 @@ def test_default_horizontal_basis_is_sh(tmp_path):
 
     assert dynamics.settings.attrs["horizontal_basis_kind"] == "SH"
     assert dynamics.horizontal_basis is dynamics.solid_harmonics.basis
+    geometry = dynamics.state.geometry
+    assert geometry.horizontal_solid_projection_is_identity
+    assert geometry._horizontal_to_solid_harmonic is None
+    assert geometry._solid_harmonic_to_horizontal is None
+    np.testing.assert_allclose(
+        geometry.horizontal_potential_to_gridded_JS,
+        geometry.solid_harmonic_poloidal_to_gridded_sheet_current,
+    )
+    np.testing.assert_allclose(
+        _horizontal_poloidal_to_sheet_current(
+            geometry,
+            geometry.spherical_transform,
+        ),
+        geometry.solid_harmonic_poloidal_to_gridded_sheet_current,
+    )
+    assert geometry._horizontal_to_solid_harmonic is None
 
 
 def test_horizontal_basis_kind_is_persisted(tmp_path):
@@ -194,6 +211,33 @@ def test_cs_horizontal_basis_supports_connected_hemispheres(tmp_path):
         np.isfinite(geometry.cp_spherical_transform.helmholtz_coeffs_to_gridded_vector)
     )
     assert np.all(np.isfinite(geometry.E_coeffs_to_E_apex_ll_diff))
+
+
+def test_connected_E_apex_constraint_operator_is_lazy(tmp_path):
+    """Connected E-apex constraint stays operator-backed."""
+    dynamics = Dynamics(
+        run_directory=str(tmp_path / "run"),
+        Nmax=2,
+        Mmax=1,
+        Ncs=8,
+        ignore_PFAC=True,
+        connect_hemispheres=True,
+        artifact_storage="netcdf",
+    )
+
+    geometry = dynamics.state.geometry
+    operator = geometry.E_coeffs_to_E_apex_ll_diff_operator
+    assert operator is not None
+    assert geometry._E_coeffs_to_E_apex_ll_diff is None
+
+    rng = np.random.default_rng(20260612)
+    coeffs = rng.standard_normal(operator.input_shape)
+
+    actual = operator.matvec(coeffs).reshape(operator.output_shape)
+    explicit = geometry.E_coeffs_to_E_apex_ll_diff
+    expected = np.tensordot(explicit, coeffs, axes=([2, 3], [0, 1]))
+
+    np.testing.assert_allclose(actual, expected)
 
 
 def test_cs_horizontal_basis_combines_pfac_rm_and_connected_terms(tmp_path):

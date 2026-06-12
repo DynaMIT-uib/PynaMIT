@@ -21,11 +21,11 @@ from pynamit.math.backend import (
 
 MatrixShape: TypeAlias = tuple[int, int]
 VectorizedMapFunc: TypeAlias = Callable[[Any], Any]
-DenseBackend: TypeAlias = Literal["numpy", "jax"]
+MatrixBackend: TypeAlias = Literal["numpy", "jax"]
 
 
-def _array_module_for_dense_backend(backend: DenseBackend | None = None) -> Any:
-    """Return the array module for explicit dense materialization."""
+def _array_module_for_matrix_backend(backend: MatrixBackend | None = None) -> Any:
+    """Return the array module for explicit matrix materialization."""
     if backend is None:
         return None
     if not isinstance(backend, str):
@@ -41,7 +41,7 @@ def _array_module_for_dense_backend(backend: DenseBackend | None = None) -> Any:
 
         return jnp
     raise ValueError(
-        f"Unknown dense backend {backend!r}. "
+        f"Unknown matrix backend {backend!r}. "
         "Use None, 'numpy', or 'jax'."
     )
 
@@ -72,6 +72,9 @@ class LinearMap:
     output_shape: Optional[tuple[int, ...]] = None
     input_shape: Optional[tuple[int, ...]] = None
     _dense_cache: dict[str, Any] = field(
+        default_factory=dict, init=False, repr=False, compare=False
+    )
+    _array_cache: dict[str, Any] = field(
         default_factory=dict, init=False, repr=False, compare=False
     )
 
@@ -109,6 +112,14 @@ class LinearMap:
     def _store_dense(self, xp: Any, dense: Any) -> None:
         """Store dense materialization for ``xp``."""
         self._dense_cache[self._dense_cache_key(xp)] = dense
+
+    def _cached_array(self, xp: Any) -> Optional[Any]:
+        """Return cached shaped materialization for ``xp``."""
+        return self._array_cache.get(self._dense_cache_key(xp))
+
+    def _store_array(self, xp: Any, array: Any) -> None:
+        """Store shaped materialization for ``xp``."""
+        self._array_cache[self._dense_cache_key(xp)] = array
 
     def matvec(self, x: Any) -> Any:
         """Apply this map to one flattened vector."""
@@ -164,11 +175,17 @@ class LinearMap:
         return xp.stack(outputs, axis=1)
 
     def _dense_array(self, xp: Any = None) -> Any:
-        """Materialize this map as a dense array on ``xp``."""
+        """Materialize this map as a dense 2-D matrix on ``xp``."""
         xp = self.array_module() if xp is None else xp
         cached = self._cached_dense(xp)
         if cached is not None:
             return cached
+
+        cached_array = self._cached_array(xp)
+        if cached_array is not None:
+            dense = xp.reshape(cached_array, self.shape)
+            self._store_dense(xp, dense)
+            return dense
 
         if self._dense_array_func is not None:
             dense = self._dense_array_func(xp)
@@ -182,19 +199,36 @@ class LinearMap:
         self._store_dense(xp, dense)
         return dense
 
-    def dense(self, *, backend: DenseBackend | None = None) -> Any:
-        """Materialize this map as a dense array on one backend."""
-        xp = _array_module_for_dense_backend(backend)
+    def _explicit_array(self, xp: Any = None) -> Any:
+        """Materialize this map as a shaped dense array on ``xp``."""
+        xp = self.array_module() if xp is None else xp
+        cached = self._cached_array(xp)
+        if cached is not None:
+            return cached
+        dense = self._dense_array(xp)
+        array = xp.reshape(dense, self.output_shape + self.input_shape)
+        self._store_array(xp, array)
+        return array
+
+    def to_matrix(self, *, backend: MatrixBackend | None = None) -> Any:
+        """Materialize this map as an explicit flat 2-D matrix."""
+        xp = _array_module_for_matrix_backend(backend)
+        self._explicit_array(xp)
         return block_until_ready(self._dense_array(xp))
 
-    def cache_dense(self, *, backend: DenseBackend | None = None) -> "LinearMap":
+    @property
+    def array(self) -> Any:
+        """Lazily materialized shaped operator array."""
+        return block_until_ready(self._explicit_array())
+
+    def cache_matrix(self, *, backend: MatrixBackend | None = None) -> "LinearMap":
         """Materialize and cache this map, then return it."""
-        self.dense(backend=backend)
+        self.to_matrix(backend=backend)
         return self
 
-    def diagonal(self, *, backend: DenseBackend | None = None) -> Any:
+    def diagonal(self, *, backend: MatrixBackend | None = None) -> Any:
         """Return diagonal scale values for a diagonal map."""
-        xp = _array_module_for_dense_backend(backend)
+        xp = _array_module_for_matrix_backend(backend)
         return block_until_ready(self._diagonal_array(xp))
 
     def _diagonal_array(self, xp: Any = None) -> Any:
@@ -205,7 +239,7 @@ class LinearMap:
         if self.shape[0] != self.shape[1]:
             raise ValueError("Diagonal values require a square operator.")
 
-        dense = np.asarray(self.dense(backend="numpy"))
+        dense = np.asarray(self.to_matrix(backend="numpy"))
         diagonal = np.diag(dense)
         if not np.allclose(dense, np.diag(diagonal), rtol=0.0, atol=0.0):
             raise ValueError("Operator is not diagonal.")
@@ -221,7 +255,7 @@ class LinearMap:
             self._cached_dense(np) is not None
             or self._dense_array_func is not None
         ):
-            dense = np.asarray(self.dense(backend="numpy"))
+            dense = np.asarray(self.to_matrix(backend="numpy"))
             return np.sum(np.abs(dense) ** 2, axis=0)
         return _normal_matrix_diag_from_matmat(self.shape, self.dtype, self.matmat)
 
@@ -777,6 +811,215 @@ def identity_linear_map(
     )
 
 
+def pointwise_matrix_linear_map(matrix: Any) -> LinearMap:
+    """Return a pointwise component map.
+
+    ``matrix`` has shape
+    ``(n_output_components, n_input_components, *points)`` and maps
+    arrays shaped ``(n_input_components, *points)`` to
+    ``(n_output_components, *points)``.
+    """
+    matrix_array = _dense_array_candidate(matrix)
+    if matrix_array.ndim < 2:
+        raise ValueError("pointwise matrix must have at least two component axes.")
+
+    output_components = int(matrix_array.shape[0])
+    input_components = int(matrix_array.shape[1])
+    point_shape = tuple(int(dim) for dim in matrix_array.shape[2:])
+    input_shape = (input_components,) + point_shape
+    output_shape = (output_components,) + point_shape
+    input_size = int(math.prod(input_shape))
+    output_size = int(math.prod(output_shape))
+    dtype = matrix_array.dtype
+
+    def matvec(vec: Any) -> Any:
+        xp = _runtime_array_module(matrix_array, vec)
+        values = xp.asarray(vec).reshape(input_shape)
+        result = xp.einsum(
+            "ab...,b...->a...",
+            xp.asarray(matrix_array),
+            values,
+            optimize=True,
+        )
+        return result.reshape(-1)
+
+    def rmatvec(vec: Any) -> Any:
+        xp = _runtime_array_module(matrix_array, vec)
+        values = xp.asarray(vec).reshape(output_shape)
+        result = xp.einsum(
+            "ab...,a...->b...",
+            xp.conjugate(xp.asarray(matrix_array)),
+            values,
+            optimize=True,
+        )
+        return result.reshape(-1)
+
+    def matmat(block: Any) -> Any:
+        xp = _runtime_array_module(matrix_array, block)
+        values = xp.asarray(block).reshape(input_shape + (-1,))
+        result = xp.einsum(
+            "ab...,b...h->a...h",
+            xp.asarray(matrix_array),
+            values,
+            optimize=True,
+        )
+        return result.reshape(output_size, -1)
+
+    def rmatmat(block: Any) -> Any:
+        xp = _runtime_array_module(matrix_array, block)
+        values = xp.asarray(block).reshape(output_shape + (-1,))
+        result = xp.einsum(
+            "ab...,a...h->b...h",
+            xp.conjugate(xp.asarray(matrix_array)),
+            values,
+            optimize=True,
+        )
+        return result.reshape(input_size, -1)
+
+    def normal_matrix_diag() -> np.ndarray:
+        return np.sum(np.abs(to_numpy(matrix_array)) ** 2, axis=0).reshape(-1)
+
+    def dense_array(xp: Any) -> Any:
+        point_size = int(math.prod(point_shape))
+        matrix_values = xp.asarray(matrix_array).reshape(
+            output_components,
+            input_components,
+            point_size,
+        )
+        dense = xp.zeros((output_size, input_size), dtype=dtype)
+        point_indices = xp.arange(point_size)
+        for output_component in range(output_components):
+            output_rows = output_component * point_size + point_indices
+            for input_component in range(input_components):
+                input_cols = input_component * point_size + point_indices
+                values = matrix_values[
+                    output_component,
+                    input_component,
+                ]
+                if hasattr(dense, "at"):
+                    dense = dense.at[output_rows, input_cols].set(values)
+                else:
+                    dense[output_rows, input_cols] = values
+        return dense
+
+    return LinearMap(
+        shape=(output_size, input_size),
+        dtype=dtype,
+        _matvec=matvec,
+        _rmatvec=rmatvec,
+        _matmat=matmat,
+        _rmatmat=rmatmat,
+        _dense_array_func=dense_array,
+        _normal_matrix_diag=normal_matrix_diag,
+        _backend_context=(matrix_array,),
+        input_shape=input_shape,
+        output_shape=output_shape,
+    )
+
+
+def take_linear_map(
+    input_shape: tuple[int, ...],
+    indices: Any,
+    *,
+    axis: int = -1,
+    dtype: Any = np.float64,
+) -> LinearMap:
+    """Return a map selecting ``indices`` along one shaped axis."""
+    input_shape = tuple(int(dim) for dim in input_shape)
+    if not input_shape:
+        raise ValueError("input_shape must have at least one axis.")
+    axis = int(axis)
+    if axis < 0:
+        axis += len(input_shape)
+    if axis < 0 or axis >= len(input_shape):
+        raise ValueError(f"axis {axis} is outside input_shape {input_shape}.")
+
+    index_array = np.asarray(indices)
+    if index_array.dtype == np.bool_:
+        if index_array.shape != (input_shape[axis],):
+            raise ValueError(
+                "Boolean indices must match the selected input axis length."
+            )
+        index_array = np.flatnonzero(index_array)
+    index_array = np.asarray(index_array, dtype=int).reshape(-1)
+    if np.any(index_array < 0) or np.any(index_array >= input_shape[axis]):
+        raise IndexError("take_linear_map indices are outside input_shape.")
+
+    output_shape = list(input_shape)
+    output_shape[axis] = int(index_array.size)
+    output_shape = tuple(output_shape)
+    input_size = int(math.prod(input_shape))
+    output_size = int(math.prod(output_shape))
+    dtype = np.dtype(dtype)
+
+    def _indexer(xp: Any, *, batched: bool = False):
+        idx = xp.asarray(index_array)
+        indexer = [slice(None)] * (len(input_shape) + int(batched))
+        indexer[axis] = idx
+        return tuple(indexer)
+
+    def matvec(vec: Any) -> Any:
+        xp = get_array_module(vec)
+        values = xp.asarray(vec).reshape(input_shape)
+        return xp.take(values, xp.asarray(index_array), axis=axis).reshape(-1)
+
+    def rmatvec(vec: Any) -> Any:
+        xp = get_array_module(vec)
+        values = xp.asarray(vec).reshape(output_shape)
+        result = xp.zeros(input_shape, dtype=values.dtype)
+        indexer = _indexer(xp)
+        if hasattr(result, "at"):
+            return result.at[indexer].add(values).reshape(-1)
+        np.add.at(result, indexer, values)
+        return result.reshape(-1)
+
+    def matmat(block: Any) -> Any:
+        xp = get_array_module(block)
+        values = xp.asarray(block).reshape(input_shape + (-1,))
+        selected = xp.take(values, xp.asarray(index_array), axis=axis)
+        return selected.reshape(output_size, -1)
+
+    def rmatmat(block: Any) -> Any:
+        xp = get_array_module(block)
+        values = xp.asarray(block).reshape(output_shape + (-1,))
+        result = xp.zeros(input_shape + (values.shape[-1],), dtype=values.dtype)
+        indexer = _indexer(xp, batched=True)
+        if hasattr(result, "at"):
+            return result.at[indexer].add(values).reshape(input_size, -1)
+        np.add.at(result, indexer, values)
+        return result.reshape(input_size, -1)
+
+    def normal_matrix_diag() -> np.ndarray:
+        diagonal = np.zeros(input_shape, dtype=dtype)
+        indexer = [slice(None)] * len(input_shape)
+        indexer[axis] = index_array
+        np.add.at(diagonal, tuple(indexer), 1.0)
+        return diagonal.reshape(-1)
+
+    def dense_array(xp: Any) -> Any:
+        input_indices = xp.arange(input_size).reshape(input_shape)
+        selected = xp.take(input_indices, xp.asarray(index_array), axis=axis).reshape(-1)
+        dense = xp.zeros((output_size, input_size), dtype=dtype)
+        rows = xp.arange(output_size)
+        if hasattr(dense, "at"):
+            return dense.at[rows, selected].set(1)
+        dense[rows, selected] = 1
+        return dense
+
+    return LinearMap(
+        shape=(output_size, input_size),
+        dtype=dtype,
+        _matvec=matvec,
+        _rmatvec=rmatvec,
+        _matmat=matmat,
+        _rmatmat=rmatmat,
+        _dense_array_func=dense_array,
+        _normal_matrix_diag=normal_matrix_diag,
+        input_shape=input_shape,
+        output_shape=output_shape,
+    )
+
+
 def is_noop_linear_map(
     value: Any,
     *,
@@ -839,8 +1082,9 @@ def vstack_linear_maps(
 
         def rmatmat(block: Any) -> Any:
             xp = get_array_module(block)
-            block_arr = xp.asarray(block).reshape(0, -1)
-            return xp.zeros((input_size, block_arr.shape[1]), dtype=block_arr.dtype)
+            block_arr = xp.asarray(block)
+            num_rhs = 1 if block_arr.ndim == 1 else block_arr.shape[1]
+            return xp.zeros((input_size, num_rhs), dtype=block_arr.dtype)
 
         def dense_array(xp: Any) -> Any:
             return xp.zeros((0, input_size))
@@ -897,11 +1141,11 @@ def vstack_linear_maps(
 
     def matvec(vec: Any) -> Any:
         xp = array_module_for(vec)
-        return matmat(xp.asarray(vec).reshape(input_size, 1)).ravel()
+        return matmat(xp.asarray(vec).reshape(input_size, 1)).reshape(-1)
 
     def rmatvec(vec: Any) -> Any:
         xp = array_module_for(vec)
-        return rmatmat(xp.asarray(vec).reshape(output_size, 1)).ravel()
+        return rmatmat(xp.asarray(vec).reshape(output_size, 1)).reshape(-1)
 
     def dense_array(xp: Any) -> Any:
         return xp.vstack([xp.asarray(row_map._dense_array(xp)) for row_map in row_maps])
@@ -1011,7 +1255,7 @@ def _linear_map_from_scipy_sparse(
         return xp.asarray(sparse.toarray())
 
     def normal_matrix_diag() -> np.ndarray:
-        return np.asarray(sparse.multiply(sparse.conjugate()).sum(axis=0)).ravel().real
+        return np.asarray(sparse.multiply(sparse.conjugate()).sum(axis=0)).reshape(-1).real
 
     return LinearMap(
         shape=shape,
@@ -1060,6 +1304,17 @@ def _linear_map_from_jax_sparse(
     def dense_array(xp: Any) -> Any:
         return xp.asarray(op.todense())
 
+    def normal_matrix_diag() -> np.ndarray:
+        data = to_numpy(getattr(op, "data", None))
+        indices = to_numpy(getattr(op, "indices", None))
+        if data.ndim != 1 or indices.ndim != 2 or indices.shape[1] != 2:
+            return _normal_matrix_diag_from_matmat(shape, dtype, matmat)
+        sparse = scipy.sparse.coo_matrix(
+            (data, (indices[:, 0], indices[:, 1])),
+            shape=shape,
+        ).tocsr()
+        return np.asarray(sparse.multiply(sparse.conjugate()).sum(axis=0)).reshape(-1).real
+
     return LinearMap(
         shape=shape,
         dtype=dtype,
@@ -1068,6 +1323,7 @@ def _linear_map_from_jax_sparse(
         _matmat=matmat,
         _rmatmat=rmatmat,
         _dense_array_func=dense_array,
+        _normal_matrix_diag=normal_matrix_diag,
         _backend_context=backend_context,
         output_shape=out_shape,
         input_shape=in_shape,

@@ -98,7 +98,7 @@ def sph_to_sph(lat, lon, x_lat, x_lon, z_lat, z_lon, deg=True):
         A tuple containing the transformed latitude and longitude in the
         new coordinate system.
     """
-    lat, lon = lat.flatten(), lon.flatten()
+    lat, lon = lat.reshape(-1), lon.reshape(-1)
     conv = 1.0 if not deg else d2r
     xyz = np.vstack(
         (
@@ -122,7 +122,7 @@ def sph_to_sph(lat, lon, x_lat, x_lon, z_lat, z_lon, deg=True):
         ]
     )
     new_y = np.cross(new_z, new_x)
-    new_x, new_y, new_z = new_x.flatten(), new_y.flatten(), new_z.flatten()
+    new_x, new_y, new_z = new_x.reshape(-1), new_y.reshape(-1), new_z.reshape(-1)
     if not np.isclose(np.linalg.norm(new_y), 1):
         raise ValueError("x and z coordinates do not define orthogonal directions")
     r = np.vstack((new_x, new_y, new_z))
@@ -231,12 +231,12 @@ def tangent_vector(lat1, lon1, lat2, lon2, degrees=True):
     if degrees:
 
         def converter(x):
-            return x.flatten() * np.pi / 180.0
+            return x.reshape(-1) * np.pi / 180.0
 
     else:
 
         def converter(x):
-            return x.flatten()
+            return x.reshape(-1)
 
     lat1, lon1, lat2, lon2 = list(map(converter, (lat1, lon1, lat2, lon2)))
 
@@ -321,10 +321,10 @@ def geo2local(lat, lon, Ae, An, lon0, lat0, inverse=False):
     try:
         lat, lon, Ae, An = np.broadcast_arrays(lat, lon, Ae, An)
         shape = lat.shape
-        lat, lon, Ae, An = (lat.flatten(), lon.flatten(), Ae.flatten(), An.flatten())
+        lat, lon, Ae, An = (lat.reshape(-1), lon.reshape(-1), Ae.reshape(-1), An.reshape(-1))
     except ValueError:
         raise Exception("Input arrays have inconsistent shapes")
-    lat, lon = lat.flatten(), lon.flatten()
+    lat, lon = lat.reshape(-1), lon.reshape(-1)
     # Make matrix that rotates from geo to local.
     Z = np.array(
         [
