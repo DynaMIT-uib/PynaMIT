@@ -221,11 +221,6 @@ class LinearMap:
         """Lazily materialized shaped operator array."""
         return block_until_ready(self._explicit_array())
 
-    def cache_matrix(self, *, backend: MatrixBackend | None = None) -> "LinearMap":
-        """Materialize and cache this map, then return it."""
-        self.to_matrix(backend=backend)
-        return self
-
     def diagonal(self, *, backend: MatrixBackend | None = None) -> Any:
         """Return diagonal scale values for a diagonal map."""
         xp = _array_module_for_matrix_backend(backend)

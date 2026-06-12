@@ -62,6 +62,7 @@ class Dynamics(object):
         vector_Br=True,
         vector_conductance=True,
         vector_u=True,
+        vector_Q_eff=True,
         t0="2020-01-01 00:00:00",
         save_steady_states=True,
         integrator="euler",
@@ -114,6 +115,8 @@ class Dynamics(object):
             Use vector representation for conductances.
         vector_u : bool, optional
             Use vector representation for neutral wind.
+        vector_Q_eff : bool, optional
+            Use vector representation for effective wind current.
         t0 : str, optional
             Start time in UTC format.
         save_steady_states : bool, optional
@@ -176,6 +179,7 @@ class Dynamics(object):
                 "vector_Br": int(vector_Br),
                 "vector_conductance": int(vector_conductance),
                 "vector_u": int(vector_u),
+                "vector_Q_eff": int(vector_Q_eff),
                 "horizontal_basis_kind": horizontal_basis_kind,
                 "area_weighted_least_squares": int(area_weighted_least_squares),
                 "project_conductance": int(project_conductance),
@@ -847,10 +851,270 @@ class Dynamics(object):
         """Set neutral wind velocities using the historical API name."""
         return self.set_neutral_wind(*args, **kwargs)
 
+    def set_Q_eff(
+        self,
+        Q_theta,
+        Q_phi,
+        lat=None,
+        lon=None,
+        theta=None,
+        phi=None,
+        time=None,
+        sqrt_weights=None,
+        reg_lambda=None,
+        pinv_rtol=1e-15,
+        *,
+        coefficients=False,
+    ):
+        """Set effective wind-current input.
+
+        ``Q_eff`` is a tangential sheet-current proxy for the neutral
+        wind ``u x B`` term. It is added to the sheet current before
+        the conductance/resistance tensor maps currents to the electric
+        field.
+
+        Parameters
+        ----------
+        Q_theta : array-like
+            Southward effective-current component in A/m, or
+            curl-free storage-basis coefficients if
+            ``coefficients=True``.
+        Q_phi : array-like
+            Eastward effective-current component in A/m, or
+            divergence-free storage-basis coefficients if
+            ``coefficients=True``.
+        lat, lon : array-like, optional
+            Latitude/longitude coordinates in degrees.
+        theta, phi : array-like, optional
+            Colatitude/azimuth coordinates in degrees.
+        time : array-like, optional
+            Time points for the Q_eff data.
+        sqrt_weights : array-like, optional
+            sqrt_weights for the Q_eff data points.
+        reg_lambda : float, optional
+            Regularization parameter.
+        pinv_rtol : float, optional
+            Relative tolerance for the pseudo-inverse.
+        coefficients : bool, optional
+            If True, ``Q_theta`` and ``Q_phi`` are interpreted as the
+            curl-free and divergence-free Helmholtz coefficients,
+            respectively, and stored directly without interpolation or
+            projection.
+        """
+        input_data = self._tangential_input_data("Q_eff", Q_theta, Q_phi)
+
+        if coefficients:
+            self._add_input_coefficients("Q_eff", input_data, time)
+            return
+
+        self._project_and_add_input(
+            "Q_eff",
+            input_data,
+            lat=lat,
+            lon=lon,
+            theta=theta,
+            phi=phi,
+            time=time,
+            sqrt_weights=sqrt_weights,
+            reg_lambda=reg_lambda,
+            pinv_rtol=pinv_rtol,
+        )
+
+    def set_Q_eff_from_neutral_wind(
+        self,
+        u_theta,
+        u_phi,
+        lat=None,
+        lon=None,
+        theta=None,
+        phi=None,
+        time=None,
+        sqrt_weights=None,
+        wind_reg_lambda=None,
+        Q_eff_reg_lambda=None,
+        pinv_rtol=1e-15,
+        *,
+        fit_coefficients=True,
+    ):
+        """Compute and store Q_eff from neutral wind and conductance."""
+        if fit_coefficients:
+            input_time, wind_coeff_rows = self._project_neutral_wind_coefficients(
+                u_theta,
+                u_phi,
+                lat=lat,
+                lon=lon,
+                theta=theta,
+                phi=phi,
+                time=time,
+                sqrt_weights=sqrt_weights,
+                reg_lambda=wind_reg_lambda,
+                pinv_rtol=pinv_rtol,
+            )
+            q_coeff_rows = self._fit_Q_eff_coefficients_from_wind(
+                input_time,
+                wind_coeff_rows,
+                reg_lambda=Q_eff_reg_lambda,
+                pinv_rtol=pinv_rtol,
+            )
+            self._add_input_coefficients(
+                "Q_eff",
+                {"Q_eff": q_coeff_rows},
+                input_time,
+            )
+            return
+
+        Q_theta, Q_phi, Q_lat, Q_lon = self.calculate_Q_eff_from_neutral_wind(
+            u_theta,
+            u_phi,
+            lat=lat,
+            lon=lon,
+            theta=theta,
+            phi=phi,
+            time=time,
+            sqrt_weights=sqrt_weights,
+            reg_lambda=wind_reg_lambda,
+            pinv_rtol=pinv_rtol,
+        )
+        self.set_Q_eff(
+            Q_theta,
+            Q_phi,
+            lat=Q_lat,
+            lon=Q_lon,
+            time=time,
+            reg_lambda=Q_eff_reg_lambda,
+            pinv_rtol=pinv_rtol,
+        )
+
+    def calculate_Q_eff_from_neutral_wind(
+        self,
+        u_theta,
+        u_phi,
+        lat=None,
+        lon=None,
+        theta=None,
+        phi=None,
+        time=None,
+        sqrt_weights=None,
+        reg_lambda=None,
+        pinv_rtol=1e-15,
+    ):
+        """Return model-grid Q_eff equivalent to wind forcing."""
+        if "conductance" not in self.input_timeseries.datasets:
+            raise RuntimeError("Conductance must be set before calculating Q_eff from wind.")
+
+        input_time, wind_coeff_rows = self._project_neutral_wind_coefficients(
+            u_theta,
+            u_phi,
+            lat=lat,
+            lon=lon,
+            theta=theta,
+            phi=phi,
+            time=time,
+            sqrt_weights=sqrt_weights,
+            reg_lambda=reg_lambda,
+            pinv_rtol=pinv_rtol,
+        )
+        wind_synthesis = self.input_field_spaces[
+            "u"
+        ].representation.get_helmholtz_synthesis_operator(self.state.geometry.grid)
+        Q_eff_values = []
+        for time_value, wind_coeffs in zip(input_time, wind_coeff_rows):
+            self.state.update(self.input_timeseries, time_value)
+            wind_on_grid = np.asarray(wind_synthesis.matvec(wind_coeffs)).reshape(
+                (2, self.state.geometry.grid.size)
+            )
+            E_wind_on_grid = np.einsum(
+                "abg,bg->ag",
+                np.asarray(self.state.geometry.bu),
+                wind_on_grid,
+                optimize=True,
+            )
+            M = np.asarray(self.state.M_total_on_grid)
+            point_matrices = np.moveaxis(M, -1, 0)
+            Q_eff_on_grid = np.linalg.solve(
+                point_matrices,
+                E_wind_on_grid.T[..., np.newaxis],
+            )[..., 0].T
+            Q_eff_values.append(Q_eff_on_grid)
+
+        Q_eff_values = np.asarray(Q_eff_values)
+        grid = self.state.geometry.grid
+        return Q_eff_values[:, 0, :], Q_eff_values[:, 1, :], grid.lat, grid.lon
+
+    def _project_neutral_wind_coefficients(
+        self,
+        u_theta,
+        u_phi,
+        *,
+        lat=None,
+        lon=None,
+        theta=None,
+        phi=None,
+        time=None,
+        sqrt_weights=None,
+        reg_lambda=None,
+        pinv_rtol=1e-15,
+    ):
+        """Project wind samples to stored Helmholtz coefficients."""
+        input_data = self._wind_input_data(u_theta, u_phi)
+        input_time = self.adapt_input_time(time, input_data)
+        input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
+        wind_coeff_rows = self.input_transforms["u"].project_helmholtz(
+            input_data["u"],
+            input_grid=input_grid,
+            projection_basis=self.input_projection_bases["u"],
+            sqrt_weights=sqrt_weights,
+            reg_lambda=reg_lambda,
+            pinv_rtol=pinv_rtol,
+        )
+        if wind_coeff_rows.shape[0] != input_time.size:
+            raise ValueError(
+                f"u has {wind_coeff_rows.shape[0]} projected time slices, "
+                f"but {input_time.size} time values were supplied."
+            )
+        return input_time, wind_coeff_rows
+
+    def _fit_Q_eff_coefficients_from_wind(
+        self,
+        input_time,
+        wind_coeff_rows,
+        *,
+        reg_lambda=None,
+        pinv_rtol=1e-15,
+    ):
+        """Fit Q_eff coefficients to reproduce wind E coefficients."""
+        q_field_space = self.input_field_spaces["Q_eff"]
+        q_coeff_rows = []
+        for time_value, wind_coeffs in zip(input_time, wind_coeff_rows):
+            self.state.update(self.input_timeseries, time_value)
+            E_wind_coeffs = self.state.u_coeffs_to_E_coeffs.matvec(wind_coeffs)
+            q_to_E = self.state.Q_eff_to_E_coeffs_for_field_space(q_field_space)
+            matrix = np.asarray(q_to_E.to_matrix(backend="numpy"))
+            rhs = np.asarray(E_wind_coeffs).reshape(-1)
+            if reg_lambda is not None and float(reg_lambda) > 0.0:
+                weight = float(reg_lambda)
+                matrix = np.vstack(
+                    [matrix, weight * np.eye(matrix.shape[1], dtype=matrix.dtype)]
+                )
+                rhs = np.concatenate([rhs, np.zeros(matrix.shape[1], dtype=rhs.dtype)])
+            q_coeffs, *_ = np.linalg.lstsq(matrix, rhs, rcond=pinv_rtol)
+            q_coeff_rows.append(
+                q_field_space.validate_coefficients(q_coeffs, name="Q_eff coefficients")
+            )
+        return np.asarray(q_coeff_rows)
+
     def _wind_input_data(self, u_theta, u_phi):
         """Return wind input data with time before component."""
-        input_data = {"u": np.array([np.atleast_2d(u_theta), np.atleast_2d(u_phi)])}
-        input_data["u"] = np.moveaxis(input_data["u"], [0, 1], [1, 0])
+        return self._tangential_input_data("u", u_theta, u_phi)
+
+    def _tangential_input_data(self, key, theta_component, phi_component):
+        """Return tangential input data with time before component."""
+        input_data = {
+            key: np.array(
+                [np.atleast_2d(theta_component), np.atleast_2d(phi_component)]
+            )
+        }
+        input_data[key] = np.moveaxis(input_data[key], [0, 1], [1, 0])
         return input_data
 
     def _project_and_add_input(

@@ -5,6 +5,7 @@ import pynamit
 import dipole
 import datetime
 import h5py as h5
+from pynamit.simulation.input_vs_interpolated import local_time_longitude_to_geographic
 
 RE = 6381e3
 RI = 6.5e6
@@ -16,6 +17,11 @@ BR_LAMBDA = 0.1
 CONDUCTANCE_LAMBDA = 2.5
 JR_LAMBDA = 0.1
 U_LAMBDA = 0.1
+
+# The MAGE/REMIX Br longitude array is local-time-like, not Earth-fixed
+# geographic longitude. Kaipy's REMIX polar plots place raw longitude 0
+# at noon, so rotate that meridian into geographic noon.
+MAGE_BR_LOCAL_NOON_LONGITUDE = 0.0
 
 
 def dipole_radial_sampling(r_min, r_max, n_steps):
@@ -49,11 +55,13 @@ Nmax, Mmax, Ncs = 80, 60, 60
 # rk = RI / np.cos(np.deg2rad(np.r_[0:70:2])) ** 2
 rk, _ = dipole_radial_sampling(RI, 1.5 * RI, n_steps=40)
 
-noon_lon = 0
 dt = 10
 
 date = datetime.datetime(2011, 10, 24, 18)
 d = dipole.Dipole(date.year)
+noon_mlon = d.mlt2mlon(12, date)
+_, noon_lon = d.mag2geo(0, noon_mlon)
+noon_lon = float((noon_lon + 180.0) % 360.0 - 180.0)
 
 file = h5.File("mage_2011/data_H_int.h5", "r")
 
@@ -66,7 +74,11 @@ ionosphere_lon = file["glon"][:]
 ionosphere_grid = pynamit.Grid(lat=ionosphere_lat, lon=ionosphere_lon)
 
 magnetosphere_lat = file["Blat"][:]
-magnetosphere_lon = file["Blon"][:]
+magnetosphere_lon = local_time_longitude_to_geographic(
+    file["Blon"][:],
+    noon_longitude=noon_lon,
+    local_noon_longitude=MAGE_BR_LOCAL_NOON_LONGITUDE,
+)
 
 magnetosphere_grid = pynamit.Grid(lat=magnetosphere_lat, lon=magnetosphere_lon)
 
@@ -227,7 +239,8 @@ if PLOT:
         timesteps_to_plot=timesteps_for_figure,
         data_types_to_plot=data_types_for_figure,
         input_dt=10,
-        noon_longitude=0,
+        noon_longitude=noon_lon,
+        magnetosphere_local_noon_longitude=MAGE_BR_LOCAL_NOON_LONGITUDE,
         vmin_percentile=0,
         vmax_percentile=95,
         output_filename="input_vs_fitted_comparison.png",  # Optional

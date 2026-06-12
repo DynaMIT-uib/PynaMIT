@@ -16,6 +16,7 @@ INPUT_VARIABLES = {
     "Br": ("Br",),
     "conductance": ("etaP", "etaH"),
     "u": ("u",),
+    "Q_eff": ("Q_eff",),
 }
 
 INPUT_FIELD_TYPES = {
@@ -23,6 +24,7 @@ INPUT_FIELD_TYPES = {
     "Br": "scalar",
     "conductance": "scalar",
     "u": "tangential",
+    "Q_eff": "tangential",
 }
 
 OUTPUT_VARIABLES = {
@@ -128,12 +130,14 @@ def build_simulation_schema(settings: Any, horizontal_basis_kind: str) -> Simula
             "Br": cs_basis,
             "conductance": cs_basis,
             "u": cs_basis,
+            "Q_eff": cs_basis,
         }
         input_mean_free = {
             "jr": True,
             "Br": True,
             "conductance": False,
             "u": True,
+            "Q_eff": True,
         }
         input_projection_bases = dict(input_bases)
     else:
@@ -142,6 +146,7 @@ def build_simulation_schema(settings: Any, horizontal_basis_kind: str) -> Simula
             "Br": sh_basis_mean_free,
             "conductance": sh_basis if project_conductance else cs_basis,
             "u": sh_basis_mean_free,
+            "Q_eff": sh_basis_mean_free,
         }
         input_mean_free = None
         input_projection_bases = {
@@ -153,6 +158,11 @@ def build_simulation_schema(settings: Any, horizontal_basis_kind: str) -> Simula
                 else cs_basis
             ),
             "u": sh_basis_mean_free if bool(_setting(settings, "vector_u")) else cs_basis,
+            "Q_eff": (
+                sh_basis_mean_free
+                if bool(_setting(settings, "vector_Q_eff", _setting(settings, "vector_u")))
+                else cs_basis
+            ),
         }
 
     output_bases = {

@@ -19,6 +19,18 @@ from pynamit.simulation.mainfield import Mainfield
 from pynamit.math.constants import RE
 
 
+def _wrap_longitude_degrees(lon):
+    """Wrap longitudes to [-180, 180) degrees."""
+    return (np.asarray(lon) + 180.0) % 360.0 - 180.0
+
+
+def local_time_longitude_to_geographic(lon, *, noon_longitude, local_noon_longitude):
+    """Convert local-time longitude degrees to geographic degrees."""
+    return _wrap_longitude_degrees(
+        np.asarray(lon) - float(local_noon_longitude) + float(noon_longitude)
+    )
+
+
 def _evaluate_scalar_coeffs_to_grid(coeffs, field_space, plot_evaluator, target_shape):
     """Evaluate scalar coefficients to a grid."""
     if coeffs is None:
@@ -75,6 +87,7 @@ def plot_input_vs_interpolated(
     strictly_positive_scale_type="linear",
     time_row_h_frac_user=0.015,
     cbars_labels_col_w_frac_user=0.11,
+    magnetosphere_local_noon_longitude=None,
 ):
     """Plot input vs interpolated data from HDF5 file."""
     try:
@@ -125,12 +138,14 @@ def plot_input_vs_interpolated(
         "Br": ("Br",),
         "conductance": ("etaP", "etaH"),
         "u": ("u",),
+        "Q_eff": ("Q_eff",),
     }
     input_bases = {
         "jr": sh_basis_mean_free,
         "Br": sh_basis_mean_free,
         "conductance": sh_basis,
         "u": sh_basis_mean_free,
+        "Q_eff": sh_basis_mean_free,
     }
     pynamit_timeseries_key_map = {
         "Br": "Br",
@@ -196,6 +211,12 @@ def plot_input_vs_interpolated(
 
     ionosphere_lat, ionosphere_lon = h5file["glat"][:], h5file["glon"][:]
     magnetosphere_lat, magnetosphere_lon = h5file["Blat"][:], h5file["Blon"][:]
+    if magnetosphere_local_noon_longitude is not None:
+        magnetosphere_lon = local_time_longitude_to_geographic(
+            magnetosphere_lon,
+            noon_longitude=noon_longitude,
+            local_noon_longitude=magnetosphere_local_noon_longitude,
+        )
     ionosphere_grid = Grid(lat=ionosphere_lat, lon=ionosphere_lon)
     ionosphere_b_evaluator = FieldEvaluator(mainfield, ionosphere_grid, ri_value)
     ionosphere_br_2d = ionosphere_b_evaluator.br.reshape(ionosphere_lat.shape)
