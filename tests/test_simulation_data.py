@@ -13,11 +13,6 @@ def _settings(**attrs):
         "Nmax": 3,
         "Mmax": 2,
         "Ncs": 4,
-        "vector_jr": 1,
-        "vector_Br": 1,
-        "vector_conductance": 1,
-        "vector_u": 1,
-        "vector_Q_eff": 1,
     }
     defaults.update(attrs)
     return xr.Dataset(attrs=defaults)
@@ -35,13 +30,11 @@ def _state_payload(n_coeffs):
 def test_simulation_data_owns_schema_io_and_timeseries(tmp_path):
     """SimulationData creates and reloads the persisted run context."""
     run_dir = tmp_path / "run"
-    settings = _settings()
+    settings = _settings(horizontal_basis_kind="CS", area_weighted_least_squares=1)
     data = SimulationData.create(
         settings,
         run_directory=run_dir,
         artifact_storage="netcdf",
-        horizontal_basis_kind="CS",
-        area_weighted_least_squares=True,
     )
 
     assert data.run_directory == str(run_dir.resolve())
@@ -68,8 +61,6 @@ def test_simulation_data_owns_schema_io_and_timeseries(tmp_path):
         settings,
         run_directory=run_dir,
         artifact_storage="netcdf",
-        horizontal_basis_kind="CS",
-        area_weighted_least_squares=True,
     )
 
     assert reloaded.settings_from_file
@@ -91,7 +82,6 @@ def test_simulation_data_rejects_saved_settings_mismatch(tmp_path):
         settings,
         run_directory=run_dir,
         artifact_storage="netcdf",
-        horizontal_basis_kind="SH",
     )
     data.save_settings_if_missing()
 
@@ -99,6 +89,18 @@ def test_simulation_data_rejects_saved_settings_mismatch(tmp_path):
         SimulationData.create(
             _settings(Nmax=4),
             run_directory=run_dir,
+            artifact_storage="netcdf",
+        )
+
+
+def test_simulation_data_rejects_setting_override_mismatch(tmp_path):
+    """Explicit schema overrides must agree with stored settings."""
+    settings = _settings(horizontal_basis_kind="CS")
+
+    with pytest.raises(ValueError, match="horizontal_basis_kind"):
+        SimulationData.create(
+            settings,
+            run_directory=tmp_path / "run",
             artifact_storage="netcdf",
             horizontal_basis_kind="SH",
         )

@@ -4,7 +4,6 @@ This module contains the PynamEye class for visualizing simulation
 results.
 """
 
-import os
 import warnings
 import numpy as np
 import cartopy.crs as ccrs
@@ -17,14 +16,23 @@ from pynamit.sphere import Grid
 from pynamit.primitives.field_coefficients import FieldCoefficients
 from pynamit.primitives.field_space import FieldSpace
 from pynamit.primitives.io import IO
-from pynamit.sphere import CSBasis, SHBasis, SolidHarmonics
+from pynamit.sphere import CSBasis
 from pynamit.sphere.spherical_transform import SphericalTransform
+from pynamit.simulation.geometry import Geometry
 from pynamit.simulation.mainfield import Mainfield
+from pynamit.simulation.schema import build_simulation_schema, setting_value
 from pynamit.primitives.field_evaluator import FieldEvaluator
-from pynamit.math.constants import RE, mu0
+from pynamit.math.constants import RE
+from pynamit.visualization.map_coordinates import MapCoordinateContext
+from pynamit.visualization.grid_evaluation import resistance_to_conductance
+from pynamit.visualization.state_fields import (
+    evaluate_Br_coefficients,
+    evaluate_equivalent_current_coefficients,
+    evaluate_jr_coefficients,
+)
 
 
-class PynamEye(object):
+class PynamEye:
     """Class for visualizing simulation results.
 
     Attributes
@@ -74,16 +82,21 @@ class PynamEye(object):
         steady_state : bool, optional
             Whether to use steady state data.
         """
-        keys = ["settings", "conductance", "state", "u"]
+        required_keys = ["settings", "conductance", "state"]
+        optional_keys = ["u", "Q_eff"]
         io = IO(run_directory)
 
         # Load all datasets specified in keys.
         self.datasets = {}
-        for key in keys:
+        for key in required_keys:
             dataset = io.load_dataset(key)
             if dataset is None:
                 raise ValueError(f"No saved {key!r} dataset exists at {run_directory!r}")
             self.datasets[key] = dataset
+        for key in optional_keys:
+            dataset = io.load_dataset(key)
+            if dataset is not None:
+                self.datasets[key] = dataset
 
         if steady_state:
             steady_state_dataset = io.load_dataset("steady_state")
@@ -99,13 +112,14 @@ class PynamEye(object):
 
         self.mlatlim = mlatlim
         settings = self.datasets["settings"]
-        self.RI = settings.RI
+        self.settings = settings
+        self.RI = float(setting_value(settings, "RI"))
 
         # Define mainfield.
         self.mainfield = Mainfield(
-            kind=settings.mainfield_kind,
-            epoch=settings.mainfield_epoch,
-            hI=(settings.RI - RE) * 1e-3,
+            kind=setting_value(settings, "mainfield_kind"),
+            epoch=setting_value(settings, "mainfield_epoch"),
+            hI=(self.RI - RE) * 1e-3,
         )
 
         # Set up cubed sphere grid for vector plotting.
@@ -120,117 +134,139 @@ class PynamEye(object):
         self.global_vector_grid = Grid(theta=arr_theta, lon=arr_phi)
 
         # Define t0 and set up dipole object.
-        self.t0 = datetime.datetime.strptime(settings.t0, "%Y-%m-%d %H:%M:%S")
+        self.t0 = datetime.datetime.strptime(
+            setting_value(settings, "t0"),
+            "%Y-%m-%d %H:%M:%S",
+        )
         self.dp = Dipole(self.t0.year)
 
-        full_basis = SHBasis(settings.Nmax, settings.Mmax, mean_free=False)
-        self.basis = full_basis.with_mean_free(True)
-        self.solid_harmonics = SolidHarmonics(self.basis)
-
-        cNmax = int(self.datasets["conductance"].n.max())
-        cMmax = int(self.datasets["conductance"].m.max())
-        self.conductance_basis = SHBasis(cNmax, cMmax, mean_free=False)
-        self.scalar_field_space = FieldSpace.from_representation(self.basis, field_type="scalar")
-        self.tangential_field_space = FieldSpace.from_representation(
-            self.basis, field_type="tangential"
+        self.schema = build_simulation_schema(
+            settings,
+            setting_value(settings, "horizontal_basis_kind", "SH"),
         )
-        self.conductance_field_space = FieldSpace.from_representation(
-            self.conductance_basis, field_type="scalar"
+        self.cs_basis = self.schema.cs_basis
+        self.sh_basis = self.schema.sh_basis
+        self.sh_basis_mean_free = self.schema.sh_basis_mean_free
+        self.basis = self.schema.horizontal_basis
+        self.solid_harmonics = self.schema.solid_harmonics
+        self.input_field_spaces = self.schema.input_field_spaces
+        self.output_field_spaces = self.schema.output_field_spaces
+
+        self.conductance_field_space = self.input_field_spaces["conductance"]
+        self.scalar_field_space = self.output_field_spaces["state"]
+        self.tangential_field_space = FieldSpace.from_representation(
+            self.basis,
+            field_type="tangential",
+            mean_free=self.scalar_field_space.mean_free,
+        )
+        self.geometry = Geometry(
+            basis=self.basis,
+            cs_basis=self.cs_basis,
+            mainfield=self.mainfield,
+            settings=settings,
+            PFAC_matrix=pfac_matrix,
+            solid_harmonics=self.solid_harmonics,
         )
 
         # Set up global grid and spherical transforms.
         self.transforms = {}
         self.conductance_transforms = {}
+        self.solid_harmonic_transforms = {}
         lat, lon = np.linspace(-89.9, 89.9, Nlat), np.linspace(-180, 180, Nlon)
         self.lat, self.lon = np.meshgrid(lat, lon)
         self.global_grid = Grid(lat=self.lat, lon=self.lon)
-        self.transforms["global"] = SphericalTransform(
-            self.basis, self.global_grid
-        )
-        self.conductance_transforms["global"] = SphericalTransform(
-            self.conductance_basis, self.global_grid
-        )
-        self.transforms["global_vector"] = SphericalTransform(
-            self.basis, self.global_vector_grid
-        )
-        self.conductance_transforms["global_vector"] = SphericalTransform(
-            self.conductance_basis, self.global_vector_grid
-        )
+        self._add_transforms("global", self.global_grid)
+        self._add_transforms("global_vector", self.global_vector_grid)
 
         # Set up polar grids and spherical transforms.
         self.mlat, self.mlon = np.meshgrid(
             np.linspace(mlatlim, 89.9, Nlat // 2), np.linspace(-180, 180, Nlon)
         )
-        if settings.mainfield_kind.lower() == "igrf":
+        if str(setting_value(settings, "mainfield_kind")).lower() == "igrf":
             # Define a grid, then mask depending on mlatmin.
-            self.apx = apexpy.Apex(self.t0.year, refh=(settings.RI - RE) * 1e-3)
+            self.apx = apexpy.Apex(self.t0.year, refh=(self.RI - RE) * 1e-3)
             self.lat_n, self.lon_n, _ = self.apx.apex2geo(
-                self.mlat, self.mlon, (settings.RI - RE) * 1e-3
+                self.mlat, self.mlon, (self.RI - RE) * 1e-3
             )
             self.lat_s, self.lon_s, _ = self.apx.apex2geo(
-                -self.mlat, self.mlon, (settings.RI - RE) * 1e-3
+                -self.mlat, self.mlon, (self.RI - RE) * 1e-3
             )
             self.polar_grid_n = Grid(lat=self.lat_n, lon=self.lon_n)
             self.polar_grid_s = Grid(lat=self.lat_s, lon=self.lon_s)
-            self.transforms["north"] = SphericalTransform(
-                self.basis, self.polar_grid_n
-            )
-            self.transforms["south"] = SphericalTransform(
-                self.basis, self.polar_grid_s
-            )
-            self.conductance_transforms["north"] = SphericalTransform(
-                self.conductance_basis, self.polar_grid_n
-            )
-            self.conductance_transforms["south"] = SphericalTransform(
-                self.conductance_basis, self.polar_grid_s
-            )
+            self._add_transforms("north", self.polar_grid_n)
+            self._add_transforms("south", self.polar_grid_s)
         else:
             # Assume simulations are done in magnetic coordinates.
             self.polar_grid = Grid(lat=self.mlat, lon=self.mlon)
-            self.transforms["north"] = SphericalTransform(
-                self.basis, self.polar_grid
-            )
+            self._add_transforms("north", self.polar_grid)
             self.transforms["south"] = self.transforms["north"]
-            self.conductance_transforms["north"] = SphericalTransform(
-                self.conductance_basis, self.polar_grid
-            )
             self.conductance_transforms["south"] = self.conductance_transforms["north"]
+            self.solid_harmonic_transforms["south"] = self.solid_harmonic_transforms[
+                "north"
+            ]
 
         self.B_parameters_calculated = False
 
         # Prepare conversion factors for electromagnetic quantities.
-        surface_laplacian = np.asarray(self.basis.get_surface_laplacian_matrix(self.RI))
-        self.m_ind_to_Br = -(self.RI**2) * surface_laplacian
-        self.m_imp_to_jr = self.RI / mu0 * surface_laplacian
-        self.W_to_dBr_dt = 1 / self.RI
-        self.poloidal_to_boundary_potential_jump_factor = (
-            self.solid_harmonics.poloidal_to_boundary_potential_jump_factor
+        self.m_ind_to_Br_operator = self.geometry.m_ind_to_Br_operator
+        self.m_imp_to_jr_operator = self.geometry.m_imp_to_jr_operator
+        self.m_ind_to_Br = np.asarray(
+            self.m_ind_to_Br_operator.to_matrix(backend="numpy")
         )
-        self.m_ind_to_Jeq = -self.RI / mu0 * self.poloidal_to_boundary_potential_jump_factor
-
-        # Calculate matrices to calculate current.
-        self.B_pol_to_gridded_JS = {}
-        self.B_tor_to_gridded_JS = {}
+        self.m_imp_to_jr = np.asarray(
+            self.m_imp_to_jr_operator.to_matrix(backend="numpy")
+        )
+        self.W_to_dBr_dt = 1 / self.RI
+        # Cache maps needed by Joule heating and E-from-B derivation.
         self.m_ind_to_gridded_JS = {}
         self.m_imp_to_gridded_JS = {}
         for region in ["global", "north", "south"]:
-            self.B_pol_to_gridded_JS[region] = (
-                -self.transforms[region].scalar_coeffs_to_gridded_rhat_cross_gradient
-                * self.poloidal_to_boundary_potential_jump_factor
-                / mu0
+            self.m_ind_to_gridded_JS[region] = (
+                self.geometry.m_ind_to_gridded_sheet_current(
+                    self.transforms[region],
+                    solid_transform=self.solid_harmonic_transforms[region],
+                )
             )
-            self.B_tor_to_gridded_JS[region] = (
-                -self.transforms[region].scalar_coeffs_to_gridded_gradient / mu0
-            )
-            self.m_ind_to_gridded_JS[region] = self.B_pol_to_gridded_JS[region]
-            self.m_imp_to_gridded_JS[region] = self.B_tor_to_gridded_JS[
-                region
-            ] + np.tensordot(
-                self.B_pol_to_gridded_JS[region], self.T_to_Ve, 1
+            self.m_imp_to_gridded_JS[region] = (
+                self.geometry.m_imp_to_gridded_sheet_current(
+                    self.transforms[region],
+                    solid_transform=self.solid_harmonic_transforms[region],
+                )
             )
 
         self._define_defaults()
-        self.set_time(t)
+        self.set_time(t, steady_state=steady_state)
+
+    def _add_transforms(self, region, grid):
+        """Add region transforms."""
+        self.transforms[region] = SphericalTransform(self.basis, grid)
+        self.conductance_transforms[region] = SphericalTransform(
+            self.conductance_field_space.representation,
+            grid,
+        )
+        self.solid_harmonic_transforms[region] = self.geometry.solid_transform_for(
+            self.transforms[region]
+        )
+
+    @property
+    def conductance_basis(self):
+        """Return the conductance coefficient representation."""
+        return self.conductance_field_space.representation
+
+    @staticmethod
+    def _data_var_name(field_space, var):
+        """Return the persisted dataset variable name."""
+        return f"{field_space.kind}_{var}"
+
+    def _select_values(self, dataset, field_space, var):
+        """Select one coefficient row from a saved dataset."""
+        name = self._data_var_name(field_space, var)
+        if name not in dataset:
+            raise KeyError(
+                f"Dataset is missing {name!r}; available variables are "
+                f"{sorted(dataset.data_vars)}."
+            )
+        return dataset[name].sel(time=self.t, method="nearest").values.reshape(-1)
 
     def derive_E_from_B(self):
         """Derive E coefficients from B coefficients.
@@ -239,20 +275,14 @@ class PynamEye(object):
         meaningful effect. Calling this function can be expensive with
         high resolutions due to matrix inversion.
         """
-        print("does not work. Rewrite")
+        if self.m_u is None:
+            raise RuntimeError("No saved 'u' dataset is available for E derivation.")
         if not self.B_parameters_calculated:
-            PFAC = self.datasets["settings"].PFAC_matrix
-            nn = int(np.sqrt(PFAC.size))
-            self.T_to_Ve = PFAC.reshape((nn, nn))
-
             # Reproduce numerical grid used in the simulation.
-            self.cs_basis = CSBasis(self.datasets["settings"].Ncs)
-            self.state_grid = Grid(theta=self.cs_basis.arr_theta, phi=self.cs_basis.arr_phi)
+            state_cs_basis = self.schema.cs_basis
+            self.state_grid = Grid(theta=state_cs_basis.arr_theta, phi=state_cs_basis.arr_phi)
 
-            self.transforms["num"] = SphericalTransform(self.basis, self.state_grid)
-            self.conductance_transforms["num"] = SphericalTransform(
-                self.conductance_basis, self.state_grid
-            )
+            self._add_transforms("num", self.state_grid)
 
             # Evaluate elelctric field on that grid.
             self.b_evaluator = FieldEvaluator(self.mainfield, self.state_grid, self.RI)
@@ -264,42 +294,40 @@ class PynamEye(object):
             self.bH_01 = self.b_evaluator.br
             self.bH_10 = -self.b_evaluator.br
 
-            self.B_pol_to_gridded_JS = (
-                -self.transforms["num"].scalar_coeffs_to_gridded_rhat_cross_gradient
-                * self.poloidal_to_boundary_potential_jump_factor
-                / mu0
+            self.m_ind_to_gridded_JS["num"] = (
+                self.geometry.m_ind_to_gridded_sheet_current(
+                    self.transforms["num"],
+                    solid_transform=self.solid_harmonic_transforms["num"],
+                )
             )
-            self.B_tor_to_gridded_JS = (
-                -self.transforms["num"].scalar_coeffs_to_gridded_gradient / mu0
-            )
-            self.m_ind_to_gridded_JS = self.B_pol_to_gridded_JS
-            self.m_imp_to_gridded_JS = self.B_tor_to_gridded_JS + (
-                self.B_pol_to_gridded_JS.dot(self.T_to_Ve)
+            self.m_imp_to_gridded_JS["num"] = (
+                self.geometry.m_imp_to_gridded_sheet_current(
+                    self.transforms["num"],
+                    solid_transform=self.solid_harmonic_transforms["num"],
+                )
             )
 
             self.B_parameters_calculated = True
 
         # Calculate electric field values on state_grid.
         Js_ind, Je_ind = np.split(
-            self.m_ind_to_gridded_JS.dot(self.m_ind), 2, axis=0
+            self.m_ind_to_gridded_JS["num"].dot(self.m_ind), 2, axis=0
         )
         Js_imp, Je_imp = np.split(
-            self.m_imp_to_gridded_JS.dot(self.m_imp), 2, axis=0
+            self.m_imp_to_gridded_JS["num"].dot(self.m_imp), 2, axis=0
         )
+        Js_ind, Je_ind = Js_ind[0], Je_ind[0]
+        Js_imp, Je_imp = Js_imp[0], Je_imp[0]
 
         Jth, Jph = Js_ind + Js_imp, Je_ind + Je_imp
 
         etaP_on_grid = self.conductance_transforms["num"].synthesize_scalar(self.m_etaP)
-        # etaH_on_grid = self.conductance_transforms[
-        #     "num"
-        # ].synthesize_scalar(
-        #    self.m_etaH
-        # )
+        etaH_on_grid = self.conductance_transforms["num"].synthesize_scalar(self.m_etaH)
 
-        Eth = etaP_on_grid * (self.bP_00 * Jth + self.bP_01 * Jph) + self.etaH_on_grid * (
+        Eth = etaP_on_grid * (self.bP_00 * Jth + self.bP_01 * Jph) + etaH_on_grid * (
             self.bH_01 * Jph
         )
-        Eph = etaP_on_grid * (self.bP_10 * Jth + self.bP_11 * Jph) + self.etaH_on_grid * (
+        Eph = etaP_on_grid * (self.bP_10 * Jth + self.bP_11 * Jph) + etaH_on_grid * (
             self.bH_10 * Jth
         )
 
@@ -308,9 +336,9 @@ class PynamEye(object):
             self.tangential_field_space,
             coeffs=self.u_coeffs,
         )
-        self.u_theta_on_grid, self.u_phi_on_grid = np.split(
-            self.transforms["num"].synthesize_helmholtz(self.u), 2
-        )
+        self.u_theta_on_grid, self.u_phi_on_grid = self.transforms[
+            "num"
+        ].synthesize_helmholtz(self.u)
 
         uxB_theta = self.u_phi_on_grid * self.b_evaluator.Br
         uxB_phi = -self.u_theta_on_grid * self.b_evaluator.Br
@@ -357,6 +385,12 @@ class PynamEye(object):
         self.Phi_defaults = {"colors": "black", "levels": np.r_[-211.5:220:3] * 1e3}
         self.W_defaults = {"colors": "orange", "levels": self.Phi_defaults["levels"]}
 
+    @staticmethod
+    def _fill_plot_defaults(kwargs, defaults):
+        """Fill missing plotting keyword arguments in-place."""
+        for key, value in defaults.items():
+            kwargs.setdefault(key, value)
+
     def set_time(self, t, steady_state=False):
         """Set time for PynamEye object in seconds.
 
@@ -372,36 +406,61 @@ class PynamEye(object):
 
         #
         for ds in ["state", "u", "conductance"]:
+            if ds not in self.datasets:
+                continue
             if not np.any(np.isclose(self.t - np.atleast_1d(self.datasets[ds].time.values), 0)):
                 new_time = sorted(list(self.datasets[ds].time.values) + [self.t])
                 self.datasets[ds] = self.datasets[ds].reindex(time=new_time).ffill(dim="time")
 
-        if steady_state:  # use the steady-state version of state dataset
+        if steady_state and "steady_state" in self.datasets:
             print("using steady state dataset")
             state_ds = self.datasets["steady_state"]
         else:
             state_ds = self.datasets["state"]
 
-        self.m_ind = state_ds.SH_m_ind.sel(time=self.t, method="nearest").values
-        self.m_imp = state_ds.SH_m_imp.sel(time=self.t, method="nearest").values
-        self.m_W = state_ds.SH_W.sel(time=self.t, method="nearest").values * self.RI
-        self.m_Phi = state_ds.SH_Phi.sel(time=self.t, method="nearest").values * self.RI
+        state_field_space = self.output_field_spaces["state"]
+        self.m_ind = self._select_values(state_ds, state_field_space, "m_ind")
+        self.m_imp = self._select_values(state_ds, state_field_space, "m_imp")
+        self.m_W = self._select_values(state_ds, state_field_space, "W") * self.RI
+        self.m_Phi = self._select_values(state_ds, state_field_space, "Phi") * self.RI
 
-        self.m_etaP = (
-            self.datasets["conductance"].SH_etaP.sel(time=self.t, method="nearest").values
+        self.m_etaP = self._select_values(
+            self.datasets["conductance"],
+            self.input_field_spaces["conductance"],
+            "etaP",
         )
-        self.m_etaH = (
-            self.datasets["conductance"].SH_etaH.sel(time=self.t, method="nearest").values
+        self.m_etaH = self._select_values(
+            self.datasets["conductance"],
+            self.input_field_spaces["conductance"],
+            "etaH",
         )
-        self.m_u = np.vstack(
-            np.split(self.datasets["u"].SH_u.sel(time=self.t, method="nearest").values, 2)
-        )
-        self.m_u_df, self.m_u_cf = np.split(self.m_u.reshape(-1), 2)
+        if "u" in self.datasets:
+            self.u = FieldCoefficients(
+                self.input_field_spaces["u"],
+                self._select_values(self.datasets["u"], self.input_field_spaces["u"], "u"),
+            )
+            self.m_u = self.u.array
+            self.m_u_df, self.m_u_cf = np.split(self.m_u.reshape(-1), 2)
+        else:
+            self.u = None
+            self.m_u = None
+            self.m_u_df = None
+            self.m_u_cf = None
 
         if np.any(np.isnan(self.m_ind)):
-            print(f"induced magnetic field coefficients at t = {(t,):.2f} s are nans")
+            print(f"induced magnetic field coefficients at t = {t:.2f} s are nans")
 
         return self
+
+    def get_magnetic_coordinate_context(self):
+        """Return the magnetic local-time context."""
+        return MapCoordinateContext.magnetic(self.time, self.dp)
+
+    def get_global_coordinate_context(self):
+        """Return the coordinate context for global map plots."""
+        if str(setting_value(self.settings, "mainfield_kind")).lower() == "igrf":
+            return MapCoordinateContext.magnetic(self.time, self.dp, apex=self.apx)
+        return self.get_magnetic_coordinate_context()
 
     def get_global_projection(self):
         """Get the global projection for plotting.
@@ -411,15 +470,15 @@ class PynamEye(object):
         ccrs.PlateCarree
             The global projection for plotting.
         """
-        noon_longitude = self.dp.mlt2mlon(12, self.time)
+        return self.get_global_coordinate_context().projection()
 
-        if self.datasets["settings"].mainfield_kind == "igrf":
-            # Convert to geographic coordinates.
-            _, noon_longitude, _ = self.apx.apex2geo(0, noon_longitude, 0)
-
-        return ccrs.PlateCarree(central_longitude=noon_longitude)
-
-    def jazz_global_plot(self, ax, draw_labels=True, draw_coastlines=True):
+    def jazz_global_plot(
+        self,
+        ax,
+        draw_labels=True,
+        draw_coastlines=True,
+        local_time_labels=False,
+    ):
         """Add coastlines and coordinates to the global plot.
 
         Parameters
@@ -430,6 +489,8 @@ class PynamEye(object):
             Whether to draw labels.
         draw_coastlines : bool, optional
             Whether to draw coastlines.
+        local_time_labels : bool, optional
+            Whether to label longitudes using the global context.
         """
         if draw_coastlines:
             ax.coastlines(zorder=2, color="grey")
@@ -437,15 +498,17 @@ class PynamEye(object):
         gridlines = ax.gridlines(draw_labels=draw_labels)
         gridlines.right_labels = False
         gridlines.top_labels = False
+        if local_time_labels:
+            self.get_global_coordinate_context().apply_grid_labels(gridlines)
 
         ll = np.linspace(-180, 180, 200)
         dip_lat = 90 - self.mainfield.dip_equator(ll)
 
         lbn = 90 - self.mainfield.dip_equator(
-            ll, theta=90 - self.datasets["settings"].latitude_boundary
+            ll, theta=90 - setting_value(self.settings, "latitude_boundary")
         )
         lbs = 90 - self.mainfield.dip_equator(
-            ll, theta=90 + self.datasets["settings"].latitude_boundary
+            ll, theta=90 + setting_value(self.settings, "latitude_boundary")
         )
 
         ax.plot(
@@ -470,7 +533,9 @@ class PynamEye(object):
         """
         if region in ["south", "north"]:
             assert isinstance(ax, Polarplot)
-            mlt = self.dp.mlon2mlt(self.mlon, self.time)  # Magnetic local time
+            mlt = self.get_magnetic_coordinate_context().longitude_to_local_time(
+                self.mlon
+            )
             xx, yy = ax._latlt2xy(self.mlat, mlt)
             with warnings.catch_warnings():
                 warnings.filterwarnings(
@@ -509,7 +574,9 @@ class PynamEye(object):
         """
         if region in ["south", "north"]:
             assert isinstance(ax, Polarplot)
-            mlt = self.dp.mlon2mlt(self.mlon, self.time)  # Magnetic local time
+            mlt = self.get_magnetic_coordinate_context().longitude_to_local_time(
+                self.mlon
+            )
             xx, yy = ax._latlt2xy(self.mlat, mlt)
             with warnings.catch_warnings():
                 warnings.filterwarnings(
@@ -573,11 +640,7 @@ class PynamEye(object):
         **kwargs
             Additional keyword arguments passed to contourf.
         """
-        # Populate kwargs with default values if not specificed in
-        # function call.
-        for key in self.conductance_defaults:
-            if key not in kwargs.keys():
-                kwargs[key] = self.joule_defaults[key]
+        self._fill_plot_defaults(kwargs, self.joule_defaults)
 
         # Calculate electric field.
         e_coeffs = FieldCoefficients(
@@ -585,12 +648,11 @@ class PynamEye(object):
             coeffs=np.array([self.m_Phi, self.m_W]),
         )
         E = self.transforms[region].synthesize_helmholtz(e_coeffs) / self.RI
-        print("todo: is the scaling as expected?")
 
         # Calculate current.
         JS_imp = self.m_imp_to_gridded_JS[region].dot(self.m_imp)
         JS_ind = self.m_ind_to_gridded_JS[region].dot(self.m_ind)
-        JS = np.split(JS_imp + JS_ind, 2)
+        JS = np.asarray(JS_imp + JS_ind).reshape(2, -1)
 
         # Calculate Joule heating.
         Q = JS[0] * E[0] + JS[1] * E[1]
@@ -615,19 +677,16 @@ class PynamEye(object):
         **kwargs
             Additional keyword arguments passed to contourf.
         """
-        # Populate kwargs with default values if not specificed in
-        # function call.
-        for key in self.conductance_defaults:
-            if key not in kwargs.keys():
-                kwargs[key] = self.conductance_defaults[key]
+        self._fill_plot_defaults(kwargs, self.conductance_defaults)
 
         etaP_on_grid = self.conductance_transforms[region].synthesize_scalar(self.m_etaP)
         etaH_on_grid = self.conductance_transforms[region].synthesize_scalar(self.m_etaH)
+        SigmaP, SigmaH = resistance_to_conductance(etaP_on_grid, etaH_on_grid)
 
         if hp == "h":
-            Sigma = etaH_on_grid / (etaP_on_grid**2 + etaH_on_grid**2)
+            Sigma = SigmaH
         elif hp == "p":
-            Sigma = etaP_on_grid / (etaP_on_grid**2 + etaH_on_grid**2)
+            Sigma = SigmaP
         else:
             raise ValueError("hp must be h or p")
 
@@ -645,12 +704,10 @@ class PynamEye(object):
         **kwargs
             Additional keyword arguments passed to quiver.
         """
-        # Populate kwargs with default values if not specificed in
-        # function call.
-        for key in self.wind_defaults:
-            if key not in kwargs.keys():
-                kwargs[key] = self.wind_defaults[key]
+        self._fill_plot_defaults(kwargs, self.wind_defaults)
 
+        if self.m_u is None:
+            raise RuntimeError("No saved 'u' dataset is available for wind plotting.")
         utheta, uphi = self.transforms["global_vector"].synthesize_helmholtz(self.m_u)
 
         return self._quiver(uphi, -utheta, ax, region, **kwargs)
@@ -667,13 +724,13 @@ class PynamEye(object):
         **kwargs
             Additional keyword arguments passed to contourf.
         """
-        # Populate kwargs with default values if not specificed in
-        # function call.
-        for key in self.Br_defaults:
-            if key not in kwargs.keys():
-                kwargs[key] = self.Br_defaults[key]
+        self._fill_plot_defaults(kwargs, self.Br_defaults)
 
-        Br = self.transforms[region].synthesize_scalar(self.m_ind_to_Br @ self.m_ind)
+        Br = evaluate_Br_coefficients(
+            self.geometry,
+            self.m_ind,
+            self.transforms[region],
+        )
 
         return self._plot_filled_contour(Br, ax, region, **kwargs)
 
@@ -689,13 +746,13 @@ class PynamEye(object):
         **kwargs
             Additional keyword arguments passed to contour.
         """
-        # Populate kwargs with default values if not specificed in
-        # function call.
-        for key in self.eqJ_defaults:
-            if key not in kwargs.keys():
-                kwargs[key] = self.eqJ_defaults[key]
+        self._fill_plot_defaults(kwargs, self.eqJ_defaults)
 
-        Jeq = self.transforms[region].synthesize_scalar(self.m_ind * self.m_ind_to_Jeq)
+        Jeq = evaluate_equivalent_current_coefficients(
+            self.geometry,
+            self.m_ind,
+            self.transforms[region],
+        )
 
         return self._plot_contour(Jeq, ax, region, **kwargs)
 
@@ -711,13 +768,13 @@ class PynamEye(object):
         **kwargs
             Additional keyword arguments passed to contourf.
         """
-        # Populate kwargs with default values if not specificed in
-        # function call.
-        for key in self.jr_defaults:
-            if key not in kwargs.keys():
-                kwargs[key] = self.jr_defaults[key]
+        self._fill_plot_defaults(kwargs, self.jr_defaults)
 
-        jr = self.transforms[region].synthesize_scalar(self.m_imp_to_jr @ self.m_imp)
+        jr = evaluate_jr_coefficients(
+            self.geometry,
+            self.m_imp,
+            self.transforms[region],
+        )
 
         return self._plot_filled_contour(jr, ax, region, **kwargs)
 
@@ -735,12 +792,10 @@ class PynamEye(object):
         **kwargs
             Additional keyword arguments passed to contour.
         """
-        # Populate kwargs with default values if not specificed in
-        # function call.
-        for key in self.Phi_defaults:
-            if key not in kwargs.keys():
-                kwargs[key] = self.Phi_defaults[key]
+        self._fill_plot_defaults(kwargs, self.Phi_defaults)
 
+        if from_B:
+            self.derive_E_from_B()
         Phi = self.transforms[region].synthesize_scalar(self.m_Phi)
 
         return self._plot_contour(Phi, ax, region, **kwargs)
@@ -757,11 +812,7 @@ class PynamEye(object):
         **kwargs
             Additional keyword arguments passed to contour.
         """
-        # Populate kwargs with default values if not specificed in
-        # function call.
-        for key in self.W_defaults:
-            if key not in kwargs.keys():
-                kwargs[key] = self.W_defaults[key]
+        self._fill_plot_defaults(kwargs, self.W_defaults)
 
         W = self.transforms[region].synthesize_scalar(self.m_W)
 
@@ -822,14 +873,3 @@ class PynamEye(object):
         plt.tight_layout()
 
         return fig
-
-
-if __name__ == "__main__":
-    fn = (
-        "/".join(os.path.abspath(__file__).split("/")[:-1]) + "/../../../scripts/simulation/hdtest"
-    )
-    a = PynamEye(fn).set_time(14.92)
-
-    a.make_multipanel_output_figure()
-
-    plt.show()

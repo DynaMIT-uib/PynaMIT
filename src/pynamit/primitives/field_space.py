@@ -5,6 +5,8 @@ from typing import Any
 
 import numpy as np
 
+from pynamit.math.backend import get_array_module
+
 
 @dataclass(frozen=True)
 class FieldSpace:
@@ -12,9 +14,9 @@ class FieldSpace:
 
     ``FieldSpace`` deliberately carries no values and does not evaluate
     fields on grids. It is the structural metadata shared by time-series
-    storage: the spherical representation, whether the field is scalar
-    or tangential, and whether stored coefficients should satisfy a
-    mean-free gauge.
+    storage: the coefficient representation, whether the field is scalar
+    or tangential, and whether stored values should satisfy a mean-free
+    gauge.
     """
 
     representation: Any
@@ -31,7 +33,7 @@ class FieldSpace:
 
     @classmethod
     def from_representation(cls, representation, field_type="scalar", mean_free=None):
-        """Construct a field space from a spherical representation."""
+        """Construct a field space from a coefficient representation."""
         if isinstance(representation, cls):
             if representation.field_type != field_type:
                 raise ValueError(
@@ -109,9 +111,9 @@ class FieldSpace:
             np.tile(values, self.component_count) for values in self.index_arrays
         ]
 
-    def project_mean_free(self, coeffs):
+    def project_mean_free(self, coeffs, *, name="coefficients"):
         """Apply this space's mean-free coefficient policy."""
-        array = self.validate_coefficients(coeffs)
+        array = self.validate_coefficients(coeffs, name=name)
         if not self.mean_free:
             return array
 
@@ -126,7 +128,8 @@ class FieldSpace:
 
     def validate_coefficients(self, coeffs, *, name="coefficients"):
         """Return coefficients as an array after length validation."""
-        array = np.asarray(coeffs)
+        xp = get_array_module(coeffs)
+        array = xp.asarray(coeffs)
         if array.size != self.coefficient_length:
             raise ValueError(
                 f"{name} has {array.size} coefficients, expected "

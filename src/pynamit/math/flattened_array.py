@@ -7,7 +7,7 @@ multidimensional arrays in flattened form.
 import math
 
 
-class FlattenedArray(object):
+class FlattenedArray:
     """Class for representing multidimensional arrays in flattened form.
 
     Encapsulates a multidimensional array in flattened form while

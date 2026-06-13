@@ -5,7 +5,8 @@ import pynamit
 import dipole
 import datetime
 import h5py as h5
-from pynamit.simulation.input_vs_interpolated import local_time_longitude_to_geographic
+from pynamit.visualization.map_coordinates import MapCoordinateContext
+from pynamit.visualization.input_vs_interpolated import plot_input_vs_interpolated
 
 RE = 6381e3
 RI = 6.5e6
@@ -62,6 +63,13 @@ d = dipole.Dipole(date.year)
 noon_mlon = d.mlt2mlon(12, date)
 _, noon_lon = d.mag2geo(0, noon_mlon)
 noon_lon = float((noon_lon + 180.0) % 360.0 - 180.0)
+mage_coordinate_context = MapCoordinateContext.from_noon_longitude(
+    noon_lon,
+    longitude_kind="geographic",
+    local_time_kind="magnetic",
+    label="MLT",
+    reference_time=date,
+)
 
 file = h5.File("mage_2011/data_H_int.h5", "r")
 
@@ -74,9 +82,8 @@ ionosphere_lon = file["glon"][:]
 ionosphere_grid = pynamit.Grid(lat=ionosphere_lat, lon=ionosphere_lon)
 
 magnetosphere_lat = file["Blat"][:]
-magnetosphere_lon = local_time_longitude_to_geographic(
+magnetosphere_lon = mage_coordinate_context.local_time_longitude_to_coordinate(
     file["Blon"][:],
-    noon_longitude=noon_lon,
     local_noon_longitude=MAGE_BR_LOCAL_NOON_LONGITUDE,
 )
 
@@ -233,13 +240,13 @@ if PLOT:
     timesteps_for_figure = [0, 80, 160, 240, 320]
     data_types_for_figure = ["Br", "jr", "u_mag", "SP", "SH"]
 
-    pynamit.plot_input_vs_interpolated(
+    plot_input_vs_interpolated(
         h5_filepath="mage_2011/data_H_int.h5",
         interpolated_run_directory="results_mage_2011",
         timesteps_to_plot=timesteps_for_figure,
         data_types_to_plot=data_types_for_figure,
         input_dt=10,
-        noon_longitude=noon_lon,
+        coordinate_context=mage_coordinate_context,
         magnetosphere_local_noon_longitude=MAGE_BR_LOCAL_NOON_LONGITUDE,
         vmin_percentile=0,
         vmax_percentile=95,

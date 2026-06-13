@@ -11,9 +11,9 @@ import numpy as np
 def test_steady_state_init_grid():
     """Test grid-based simulation with steady state initialization."""
     # Arrange.
-    expected_coeff_norm = 1.3116741266438326e-08
-    expected_coeff_max = 1.715597619760354e-09
-    expected_coeff_min = -4.859489437731163e-09
+    expected_coeff_norm = 1.280826141291756e-08
+    expected_coeff_max = 1.6017239273640306e-09
+    expected_coeff_min = -4.9262902792884675e-09
     expected_n_coeffs = 228
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
@@ -34,9 +34,9 @@ def test_steady_state_init_grid():
         latitude_boundary=50,
         use_wind=True,
         steady_state_initialization=True,
-        vector_jr=False,
-        vector_conductance=False,
-        vector_u=False,
+        jr_projection_basis="CS",
+        conductance_projection_basis="CS",
+        u_projection_basis="CS",
     )
 
     # Assert.
@@ -51,6 +51,7 @@ def test_steady_state_init_grid():
     actual_coeff_max = np.max(coeff_array)
     actual_coeff_min = np.min(coeff_array)
     actual_n_coeffs = coeff_array.shape[0]
+    conductance = dynamics.input_timeseries.datasets["conductance"]
 
     print("actual_coeff_norm: ", actual_coeff_norm)
     print("actual_coeff_max: ", actual_coeff_max)
@@ -62,3 +63,5 @@ def test_steady_state_init_grid():
     assert actual_coeff_max == pytest.approx(expected_coeff_max, abs=0.0, rel=1e-5)
     assert actual_coeff_min == pytest.approx(expected_coeff_min, abs=0.0, rel=1e-5)
     assert actual_n_coeffs == pytest.approx(expected_n_coeffs, abs=0.0, rel=1e-5)
+    assert "CS_etaP" in conductance
+    assert "CS_etaH" in conductance

@@ -43,6 +43,14 @@ def resolve_sqrt_weights(grid, sqrt_weights=None, area_weighted=False, vector=Fa
     return xp.tile(weights, (2, 1)) if vector else weights
 
 
+def _representation_signature(representation):
+    """Return a cache key for an evaluable representation."""
+    signature = getattr(representation, "signature", None)
+    if signature is not None:
+        return signature
+    return getattr(representation, "coefficient_space_signature", id(representation))
+
+
 class SphericalTransform:
     """Two-way transform between a spherical basis and a grid.
 
@@ -88,7 +96,7 @@ class SphericalTransform:
 
         self._scalar_least_squares_problem = None
         self._helmholtz_least_squares_problem = None
-        self._input_transform = None
+        self._input_transforms = {}
 
     def _evaluate_source_on_target(self, derivative=None):
         """Evaluate the source on the target grid."""
@@ -505,18 +513,28 @@ class SphericalTransform:
 
     def _coefficient_array(self, coeffs, *, helmholtz=False, preserve_backend=False):
         """Return validated coefficient values."""
-        values = getattr(coeffs, "coeffs", coeffs)
-        shape = (2, self.source.index_length) if helmholtz else (self.source.index_length,)
-        array = np.asarray(values)
-        if array.size != int(np.prod(shape)):
+        values = getattr(coeffs, "array", coeffs)
+        shape = (
+            (2, self.source.index_length)
+            if helmholtz
+            else (self.source.index_length,)
+        )
+        expected_size = int(np.prod(shape))
+        size = getattr(values, "size", None)
+        if size is None:
+            array = np.asarray(values)
+            size = array.size
+        if int(size) != expected_size:
             field_type = "Helmholtz" if helmholtz else "scalar"
             raise ValueError(
-                f"{field_type} coefficients have length {array.size}, "
-                f"expected {int(np.prod(shape))}."
+                f"{field_type} coefficients have length {int(size)}, "
+                f"expected {expected_size}."
             )
-        if preserve_backend and "jax" in type(values).__module__:
-            return get_array_module(values).asarray(values).reshape(shape)
-        return array.reshape(shape)
+        if preserve_backend:
+            xp = get_array_module(values)
+            if xp is not np:
+                return xp.asarray(values).reshape(shape)
+        return np.asarray(values).reshape(shape)
 
     def _coefficients_to_grid(self, coeffs, derivative=None, helmholtz=False):
         """Transform basis coefficients to grid values."""
@@ -628,49 +646,32 @@ class SphericalTransform:
         pinv_rtol=1e-15,
     ):
         """Return transform for direct input-grid projection."""
-        transform = self._input_transform
-        if transform is not None and self._input_transform_matches(
-            transform,
-            projection_basis,
-            input_grid,
-            sqrt_weights=sqrt_weights,
-            reg_lambda=reg_lambda,
-            pinv_rtol=pinv_rtol,
-        ):
-            return transform
+        if sqrt_weights is not None:
+            return SphericalTransform(
+                projection_basis,
+                input_grid,
+                sqrt_weights=sqrt_weights,
+                reg_lambda=reg_lambda,
+                pinv_rtol=pinv_rtol,
+                area_weighted=self.area_weighted,
+            )
 
-        transform = SphericalTransform(
-            projection_basis,
-            input_grid,
-            sqrt_weights=sqrt_weights,
-            reg_lambda=reg_lambda,
-            pinv_rtol=pinv_rtol,
-            area_weighted=self.area_weighted,
+        cache_key = (
+            _representation_signature(projection_basis),
+            input_grid.signature,
+            reg_lambda,
+            pinv_rtol,
+            self.area_weighted,
         )
-        self._input_transform = transform
-        return transform
-
-    def _input_transform_matches(
-        self,
-        transform,
-        projection_basis,
-        input_grid,
-        *,
-        sqrt_weights=None,
-        reg_lambda=None,
-        pinv_rtol=1e-15,
-    ):
-        """Return whether a cached input transform can be reused."""
-        if transform.source is not projection_basis:
-            return False
-        if sqrt_weights is not None or transform.explicit_sqrt_weights:
-            return False
-        return (
-            input_grid.same_as(transform.target)
-            and transform.reg_lambda == reg_lambda
-            and transform.pinv_rtol == pinv_rtol
-            and transform.area_weighted == self.area_weighted
-        )
+        if cache_key not in self._input_transforms:
+            self._input_transforms[cache_key] = SphericalTransform(
+                projection_basis,
+                input_grid,
+                reg_lambda=reg_lambda,
+                pinv_rtol=pinv_rtol,
+                area_weighted=self.area_weighted,
+            )
+        return self._input_transforms[cache_key]
 
     def _grid_remap_operator(self, method_name, input_grid, *, input_shape, output_shape):
         """Return the required grid-remap operator."""

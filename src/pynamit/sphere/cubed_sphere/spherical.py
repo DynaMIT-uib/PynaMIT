@@ -322,8 +322,8 @@ def geo2local(lat, lon, Ae, An, lon0, lat0, inverse=False):
         lat, lon, Ae, An = np.broadcast_arrays(lat, lon, Ae, An)
         shape = lat.shape
         lat, lon, Ae, An = (lat.reshape(-1), lon.reshape(-1), Ae.reshape(-1), An.reshape(-1))
-    except ValueError:
-        raise Exception("Input arrays have inconsistent shapes")
+    except ValueError as exc:
+        raise ValueError("Input arrays have inconsistent shapes") from exc
     lat, lon = lat.reshape(-1), lon.reshape(-1)
     # Make matrix that rotates from geo to local.
     Z = np.array(

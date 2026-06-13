@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from pynamit.sphere import CSBasis, SHBasis
+from pynamit.sphere import CSBasis, Grid, SHBasis, SphericalTransform
 from pynamit.default_run import run_pynamit
 
 
@@ -25,9 +25,9 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
         steady_state_initialization=False,
         use_wind=False,
         run_directory=str(tmp_path / "run"),
-        vector_jr=False,
-        vector_conductance=False,
-        vector_u=False,
+        jr_projection_basis="CS",
+        conductance_projection_basis="CS",
+        u_projection_basis="CS",
         least_squares_solver="normal_pinv",
         horizontal_basis_kind="CS",
         artifact_storage="netcdf",
@@ -77,6 +77,29 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
         geometry.poloidal_to_boundary_potential_jump_factor,
         np.diag(dynamics.solid_harmonics.poloidal_to_boundary_potential_jump_factor),
     )
+    np.testing.assert_allclose(
+        geometry.horizontal_poloidal_to_gridded_sheet_current(),
+        geometry.horizontal_potential_to_gridded_JS,
+    )
+    np.testing.assert_allclose(
+        geometry.m_ind_to_gridded_sheet_current(),
+        geometry.m_ind_to_gridded_JS,
+    )
+    np.testing.assert_allclose(
+        geometry.m_imp_to_gridded_sheet_current(),
+        geometry.m_imp_to_gridded_JS,
+    )
+
+    plot_grid = Grid(theta=geometry.grid.theta[:10], phi=geometry.grid.phi[:10])
+    plot_transform = SphericalTransform(dynamics.horizontal_basis, plot_grid)
+    assert geometry.solid_transform_for(plot_transform) is geometry.solid_transform_for(
+        plot_transform
+    )
+    assert geometry.m_ind_to_gridded_sheet_current(plot_transform).shape == (
+        2,
+        plot_grid.size,
+        dynamics.horizontal_basis.index_length,
+    )
 
     state = dynamics.output_timeseries.datasets["state"]
     assert "CS_m_ind" in state
@@ -105,6 +128,6 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
         assert dynamics.horizontal_basis.scalar_mean(state[f"CS_{name}"].values[-1]) == (
             pytest.approx(0.0, abs=1e-18)
         )
-    assert dynamics.horizontal_basis.scalar_mean(dynamics.state.jr.coeffs) == (
+    assert dynamics.horizontal_basis.scalar_mean(dynamics.state.jr.array) == (
         pytest.approx(0.0, abs=1e-18)
     )

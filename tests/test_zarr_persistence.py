@@ -45,7 +45,7 @@ def _build_state_timeseries() -> Timeseries:
 
 
 def _add_state(ts: Timeseries, time: float, scale: float) -> None:
-    n_coeffs = ts.get_storage_spec("state").index_length
+    n_coeffs = ts.get_field_space("state").index_length
     values = np.arange(n_coeffs, dtype=float) + scale
     ts.add_entry(
         "state",
@@ -188,7 +188,7 @@ def test_timeseries_rewrites_zarr_for_same_time_replacement(tmp_path):
 
     assert calls == [("state", None, 1), ("state", None, 1)]
     loaded = io.load_dataset("state")
-    n_coeffs = ts.get_storage_spec("state").index_length
+    n_coeffs = ts.get_field_space("state").index_length
     np.testing.assert_allclose(
         loaded["SH_m_ind"].values[0], np.arange(n_coeffs, dtype=float) + 10.0
     )

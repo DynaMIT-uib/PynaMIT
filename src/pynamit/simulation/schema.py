@@ -4,6 +4,7 @@ This module centralizes the basis and ``FieldSpace`` choices used by
 ``Dynamics`` for persisted input and output time series.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -37,6 +38,9 @@ OUTPUT_FIELD_TYPES = {
     "steady_state": "scalar",
 }
 
+INDEPENDENT_PROJECTION_BASIS_KEYS = ("jr", "Br", "conductance", "u")
+PROJECTION_BASIS_KEYS = INDEPENDENT_PROJECTION_BASIS_KEYS + ("Q_eff",)
+
 
 @dataclass(frozen=True)
 class SimulationSchema:
@@ -61,6 +65,14 @@ class SimulationSchema:
 _MISSING = object()
 
 
+def _plain_setting_value(value: Any) -> Any:
+    """Return plain scalar values from xarray or NumPy wrappers."""
+    values = getattr(value, "values", value)
+    if getattr(values, "shape", None) == ():
+        return values.item()
+    return values
+
+
 def normalize_horizontal_basis_kind(kind: str) -> str:
     """Normalize a simulation horizontal-basis kind."""
     normalized = str(kind).strip().upper()
@@ -69,13 +81,25 @@ def normalize_horizontal_basis_kind(kind: str) -> str:
     return normalized
 
 
-def _setting(settings: Any, name: str, default: Any = _MISSING) -> Any:
+def normalize_projection_basis_kind(kind: str, *, name: str = "projection_basis") -> str:
+    """Normalize an input projection-basis kind."""
+    normalized = str(kind).strip().upper()
+    if normalized not in {"SH", "CS"}:
+        raise ValueError(f"{name} must be one of ['CS', 'SH'].")
+    return normalized
+
+
+def setting_value(settings: Any, name: str, default: Any = _MISSING) -> Any:
     """Return one setting from an xarray dataset or object."""
     attrs = getattr(settings, "attrs", None)
     if attrs is not None and name in attrs:
-        return attrs[name]
+        return _plain_setting_value(attrs[name])
+    if name in getattr(settings, "data_vars", {}):
+        return _plain_setting_value(settings[name])
+    if isinstance(settings, Mapping) and name in settings:
+        return _plain_setting_value(settings[name])
     if hasattr(settings, name):
-        return getattr(settings, name)
+        return _plain_setting_value(getattr(settings, name))
     if default is not _MISSING:
         return default
     raise AttributeError(name)
@@ -84,6 +108,50 @@ def _setting(settings: Any, name: str, default: Any = _MISSING) -> Any:
 def _copy_variable_schema(schema: dict[str, tuple[str, ...]]) -> dict[str, tuple[str, ...]]:
     """Return a shallow copy of variable-name schema tuples."""
     return {key: tuple(variables) for key, variables in schema.items()}
+
+
+def _projection_basis_kind(settings: Any, key: str, default: str) -> str:
+    """Return normalized projection-basis setting for one input key."""
+    name = f"{key}_projection_basis"
+    return normalize_projection_basis_kind(
+        setting_value(settings, name, default),
+        name=name,
+    )
+
+
+def resolve_projection_basis_settings(
+    settings: Any,
+    horizontal_basis_kind: str,
+) -> dict[str, str]:
+    """Return normalized input projection-basis settings."""
+    horizontal_basis_kind = normalize_horizontal_basis_kind(horizontal_basis_kind)
+    projection_settings = {
+        f"{key}_projection_basis": _projection_basis_kind(
+            settings,
+            key,
+            horizontal_basis_kind,
+        )
+        for key in INDEPENDENT_PROJECTION_BASIS_KEYS
+    }
+    projection_settings["Q_eff_projection_basis"] = _projection_basis_kind(
+        settings,
+        "Q_eff",
+        projection_settings["u_projection_basis"],
+    )
+
+    if horizontal_basis_kind == "CS":
+        invalid = [
+            name
+            for name, value in projection_settings.items()
+            if value != "CS"
+        ]
+        if invalid:
+            raise ValueError(
+                ", ".join(invalid)
+                + " must be 'CS' when horizontal_basis_kind is 'CS'."
+            )
+
+    return projection_settings
 
 
 def field_spaces_from_bases(
@@ -113,16 +181,28 @@ def build_simulation_schema(settings: Any, horizontal_basis_kind: str) -> Simula
     """Build the basis and storage schema for one ``Dynamics``."""
     horizontal_basis_kind = normalize_horizontal_basis_kind(horizontal_basis_kind)
 
-    sh_basis = SHBasis(_setting(settings, "Nmax"), _setting(settings, "Mmax"), mean_free=False)
+    sh_basis = SHBasis(
+        setting_value(settings, "Nmax"),
+        setting_value(settings, "Mmax"),
+        mean_free=False,
+    )
     sh_basis_mean_free = sh_basis.with_mean_free(True)
-    cs_basis = CSBasis(_setting(settings, "Ncs"))
+    cs_basis = CSBasis(setting_value(settings, "Ncs"))
     horizontal_basis = cs_basis if horizontal_basis_kind == "CS" else sh_basis_mean_free
     solid_harmonics = SolidHarmonics(sh_basis_mean_free)
 
     input_vars = _copy_variable_schema(INPUT_VARIABLES)
     output_vars = _copy_variable_schema(OUTPUT_VARIABLES)
 
-    project_conductance = bool(_setting(settings, "project_conductance", True))
+    projection_settings = resolve_projection_basis_settings(
+        settings,
+        horizontal_basis_kind,
+    )
+    projection_basis_kinds = {
+        key: projection_settings[f"{key}_projection_basis"]
+        for key in PROJECTION_BASIS_KEYS
+    }
+    conductance_projection_basis = projection_basis_kinds["conductance"]
 
     if horizontal_basis_kind == "CS":
         input_bases = {
@@ -141,28 +221,28 @@ def build_simulation_schema(settings: Any, horizontal_basis_kind: str) -> Simula
         }
         input_projection_bases = dict(input_bases)
     else:
+        projection_bases = {
+            "SH": sh_basis_mean_free,
+            "CS": cs_basis,
+        }
         input_bases = {
             "jr": sh_basis_mean_free,
             "Br": sh_basis_mean_free,
-            "conductance": sh_basis if project_conductance else cs_basis,
+            "conductance": (
+                sh_basis if conductance_projection_basis == "SH" else cs_basis
+            ),
             "u": sh_basis_mean_free,
             "Q_eff": sh_basis_mean_free,
         }
         input_mean_free = None
         input_projection_bases = {
-            "jr": sh_basis_mean_free if bool(_setting(settings, "vector_jr")) else cs_basis,
-            "Br": sh_basis_mean_free if bool(_setting(settings, "vector_Br")) else cs_basis,
+            "jr": projection_bases[projection_basis_kinds["jr"]],
+            "Br": projection_bases[projection_basis_kinds["Br"]],
             "conductance": (
-                sh_basis
-                if project_conductance and bool(_setting(settings, "vector_conductance"))
-                else cs_basis
+                sh_basis if conductance_projection_basis == "SH" else cs_basis
             ),
-            "u": sh_basis_mean_free if bool(_setting(settings, "vector_u")) else cs_basis,
-            "Q_eff": (
-                sh_basis_mean_free
-                if bool(_setting(settings, "vector_Q_eff", _setting(settings, "vector_u")))
-                else cs_basis
-            ),
+            "u": projection_bases[projection_basis_kinds["u"]],
+            "Q_eff": projection_bases[projection_basis_kinds["Q_eff"]],
         }
 
     output_bases = {

@@ -25,11 +25,11 @@ def run_pynamit(
     steady_state_initialization=True,
     run_inductive=True,
     run_steady_state=True,
-    vector_jr=True,
-    vector_Br=True,
-    vector_conductance=True,
-    vector_u=True,
-    vector_Q_eff=True,
+    jr_projection_basis=None,
+    Br_projection_basis=None,
+    conductance_projection_basis=None,
+    u_projection_basis=None,
+    Q_eff_projection_basis=None,
     integrator="euler",
     jr_lambda=None,
     conductance_lambda=None,
@@ -42,7 +42,6 @@ def run_pynamit(
     artifact_storage="auto",
     horizontal_basis_kind="SH",
     area_weighted_least_squares=False,
-    project_conductance=True,
 ):
     """Run a default PynaMIT simulation with the given parameters.
 
@@ -84,16 +83,22 @@ def run_pynamit(
     run_steady_state : bool, optional
         Whether to calculate and save the algebraic steady-state
         solution.
-    vector_jr : bool, optional
-        Whether to use vector representation for radial current.
-    vector_Br : bool, optional
-        Whether to use vector representation for magnetic field.
-    vector_conductance : bool, optional
-        Whether to use vector representation for conductance.
-    vector_u : bool, optional
-        Whether to use vector representation for wind.
-    vector_Q_eff : bool, optional
-        Whether to use vector representation for effective wind current.
+    jr_projection_basis : {'SH', 'CS'}, optional
+        Basis route used when projecting radial-current inputs. Defaults
+        to ``horizontal_basis_kind``.
+    Br_projection_basis : {'SH', 'CS'}, optional
+        Basis route used when projecting radial magnetic-field inputs.
+        Defaults to ``horizontal_basis_kind``.
+    conductance_projection_basis : {'SH', 'CS'}, optional
+        Conductance storage/projection basis. ``'CS'`` stores
+        resistance values on the cubed-sphere grid; matching model-grid
+        inputs are a no-op. Defaults to ``horizontal_basis_kind``.
+    u_projection_basis : {'SH', 'CS'}, optional
+        Basis route used when projecting neutral-wind inputs. Defaults
+        to ``horizontal_basis_kind``.
+    Q_eff_projection_basis : {'SH', 'CS'}, optional
+        Basis route used when projecting effective wind-current inputs.
+        Defaults to ``u_projection_basis``.
     integrator : {'euler', 'exponential'}, optional
         Integrator type for time evolution.
     jr_lambda : float, optional
@@ -122,11 +127,6 @@ def run_pynamit(
     area_weighted_least_squares : bool, optional
         Use surface-area weights for least-squares projections when no
         explicit ``sqrt_weights`` are supplied.
-    project_conductance : bool, optional
-        If True, project conductance/resistance inputs into the
-        conductance storage basis. If False, require conductance inputs
-        on the state/model grid and store resistance values directly on
-        that grid.
 
     Returns
     -------
@@ -160,14 +160,13 @@ def run_pynamit(
         ignore_PFAC=ignore_PFAC,
         connect_hemispheres=connect_hemispheres,
         latitude_boundary=latitude_boundary,
-        vector_jr=vector_jr,
-        vector_Br=vector_Br,
-        vector_conductance=vector_conductance,
-        vector_u=vector_u,
-        vector_Q_eff=vector_Q_eff,
+        jr_projection_basis=jr_projection_basis,
+        Br_projection_basis=Br_projection_basis,
+        conductance_projection_basis=conductance_projection_basis,
+        u_projection_basis=u_projection_basis,
+        Q_eff_projection_basis=Q_eff_projection_basis,
         horizontal_basis_kind=horizontal_basis_kind,
         area_weighted_least_squares=area_weighted_least_squares,
-        project_conductance=project_conductance,
         save_steady_states=run_steady_state,
         integrator=integrator,
         least_squares_solver=least_squares_solver,

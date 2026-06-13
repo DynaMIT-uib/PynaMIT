@@ -12,7 +12,7 @@ from datetime import datetime
 from pynamit.math.constants import RE
 
 
-class Mainfield(object):
+class Mainfield:
     """Class for representing the main magnetic field.
 
     Provides implementations of different magnetic field models,
@@ -86,7 +86,7 @@ class Mainfield(object):
                 return ((RE / r) ** 2 * B0, r * 0, r * 0)
 
         else:
-            raise Exception("impossible")
+            raise RuntimeError("unreachable main-field kind")
 
         self._Bfunc = _Bfunc
 

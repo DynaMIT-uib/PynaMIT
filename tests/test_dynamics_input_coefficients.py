@@ -19,6 +19,16 @@ def _small_dynamics(tmp_path, **kwargs):
     )
 
 
+def test_dynamics_reuses_input_transforms_for_shared_representations(tmp_path):
+    """Input transforms are shared by representation and grid."""
+    dynamics = _small_dynamics(tmp_path)
+
+    assert dynamics.input_transforms["jr"] is dynamics.input_transforms["Br"]
+    assert dynamics.input_transforms["jr"] is dynamics.input_transforms["u"]
+    assert dynamics.input_transforms["jr"] is dynamics.input_transforms["Q_eff"]
+    assert dynamics.input_transforms["conductance"] is not dynamics.input_transforms["jr"]
+
+
 def test_set_jr_accepts_input_basis_coefficients(tmp_path):
     """Radial current coefficients are stored directly."""
     dynamics = _small_dynamics(tmp_path)
@@ -91,7 +101,7 @@ def test_state_update_uses_field_coefficients_for_wind(tmp_path):
 
     assert isinstance(dynamics.state.u, FieldCoefficients)
     np.testing.assert_allclose(
-        dynamics.state.u.coeffs,
+        dynamics.state.u.array,
         np.vstack([cf_coeffs, df_coeffs]),
     )
 
@@ -125,7 +135,7 @@ def test_state_update_uses_field_coefficients_for_Q_eff(tmp_path):
 
     assert isinstance(dynamics.state.Q_eff, FieldCoefficients)
     np.testing.assert_allclose(
-        dynamics.state.Q_eff.coeffs,
+        dynamics.state.Q_eff.array,
         np.vstack([cf_coeffs, df_coeffs]),
     )
 
@@ -145,9 +155,9 @@ def test_set_resistance_accepts_input_basis_coefficients(tmp_path):
     np.testing.assert_allclose(dataset.time.values, [5.0])
 
 
-def test_set_resistance_can_store_native_grid_values_without_projection(tmp_path):
-    """No-projection conductance stores CS grid values."""
-    dynamics = _small_dynamics(tmp_path, project_conductance=False)
+def test_set_resistance_can_store_native_cs_grid_values(tmp_path):
+    """CS conductance basis stores native grid values."""
+    dynamics = _small_dynamics(tmp_path, conductance_projection_basis="CS")
     grid = dynamics.state.geometry.grid
     etaP = np.linspace(0.1, 0.3, grid.size)
     etaH = np.linspace(-0.2, 0.2, grid.size)
@@ -160,34 +170,40 @@ def test_set_resistance_can_store_native_grid_values_without_projection(tmp_path
     np.testing.assert_allclose(dataset.time.values, [6.0])
 
     dynamics.state.update(dynamics.input_timeseries, time=6.0)
-    np.testing.assert_allclose(dynamics.state.etaP.coeffs, etaP)
-    np.testing.assert_allclose(dynamics.state.etaH.coeffs, etaH)
+    np.testing.assert_allclose(dynamics.state.etaP.array, etaP)
+    np.testing.assert_allclose(dynamics.state.etaH.array, etaH)
     np.testing.assert_allclose(
-        dynamics.state._conductance_synthesis_matrix(),
+        dynamics.state._conductance_synthesis_operator().to_matrix(backend="numpy"),
         np.eye(grid.size),
         atol=1e-12,
     )
 
 
-def test_set_resistance_without_projection_requires_matching_grid(tmp_path):
-    """Direct grid conductance rejects non-model grids."""
-    dynamics = _small_dynamics(tmp_path, project_conductance=False)
+def test_set_resistance_cs_basis_remaps_non_model_grid(tmp_path):
+    """CS conductance basis can remap values from another grid."""
+    dynamics = _small_dynamics(tmp_path, conductance_projection_basis="CS")
     grid = dynamics.state.geometry.grid
     etaP = np.ones(grid.size)
     etaH = np.zeros(grid.size)
 
-    with np.testing.assert_raises_regex(ValueError, "input grid to match"):
-        dynamics.set_resistance(
-            etaP,
-            etaH,
-            lat=grid.lat + np.linspace(0.0, 1e-3, grid.size),
-            lon=grid.lon,
-        )
+    dynamics.set_resistance(
+        etaP,
+        etaH,
+        lat=grid.lat + np.linspace(0.0, 1e-3, grid.size),
+        lon=grid.lon,
+        time=6.0,
+    )
+
+    dataset = dynamics.input_timeseries.datasets["conductance"]
+    assert "CS_etaP" in dataset
+    assert "CS_etaH" in dataset
+    assert np.all(np.isfinite(dataset["CS_etaP"].isel(time=0).values))
+    assert np.all(np.isfinite(dataset["CS_etaH"].isel(time=0).values))
 
 
-def test_set_resistance_without_projection_rejects_projection_options(tmp_path):
-    """Direct grid conductance rejects projection controls."""
-    dynamics = _small_dynamics(tmp_path, project_conductance=False)
+def test_set_resistance_cs_basis_rejects_least_squares_options(tmp_path):
+    """CS conductance storage rejects least-squares controls."""
+    dynamics = _small_dynamics(tmp_path, conductance_projection_basis="CS")
     grid = dynamics.state.geometry.grid
     etaP = np.ones(grid.size)
     etaH = np.zeros(grid.size)

@@ -14,7 +14,14 @@ from polplot import Polarplot
 from pynamit.sphere import Grid
 from pynamit.sphere.spherical_transform import SphericalTransform
 from pynamit.primitives.field_evaluator import FieldEvaluator
-from pynamit.math.constants import mu0
+from pynamit.visualization.map_coordinates import MapCoordinateContext
+from pynamit.visualization.state_fields import (
+    evaluate_Br,
+    evaluate_Phi,
+    evaluate_equivalent_current_function,
+    evaluate_jr,
+    evaluate_sheet_current,
+)
 
 
 def cs_interpolate(projection, inlat, inlon, values, outlat, outlon, **kwargs):
@@ -71,8 +78,8 @@ def cs_interpolate(projection, inlat, inlon, values, outlat, outlon, **kwargs):
     return result.reshape(shape)
 
 
-def globalplot(lon, lat, data, noon_longitude=0, scatter=False, **kwargs):
-    """Create global map visualization of field data.
+def plot_global_polar_map(lon, lat, data, noon_longitude=0, scatter=False, **kwargs):
+    """Create global and polar map panels for field data.
 
     Parameters
     ----------
@@ -97,21 +104,16 @@ def globalplot(lon, lat, data, noon_longitude=0, scatter=False, **kwargs):
     """
     fig = plt.figure(figsize=(10, 10))
 
-    if "title" in kwargs.keys():
-        title = kwargs.pop("title")
-    else:
-        title = None
-    if "save" in kwargs.keys():
-        save = kwargs.pop("save")
-    else:
-        save = None
+    title = kwargs.pop("title", None)
+    save = kwargs.pop("save", None)
+    returnplot = kwargs.pop("returnplot", False)
+    coordinate_context = kwargs.pop("coordinate_context", None)
+    if coordinate_context is None:
+        coordinate_context = MapCoordinateContext.from_noon_longitude(
+            noon_longitude,
+        )
 
-    if "returnplot" in kwargs.keys():
-        returnplot = kwargs.pop("returnplot")
-    else:
-        returnplot = False
-
-    global_projection = ccrs.PlateCarree(central_longitude=noon_longitude)
+    global_projection = coordinate_context.projection()
     ax = fig.add_subplot(2, 1, 2, projection=global_projection)
     ax.coastlines(zorder=2, color="grey")
     if scatter:
@@ -125,20 +127,23 @@ def globalplot(lon, lat, data, noon_longitude=0, scatter=False, **kwargs):
     pax1 = polplot.Polarplot(fig.add_subplot(2, 2, 1), minlat=50)
     pax2 = polplot.Polarplot(fig.add_subplot(2, 2, 2), minlat=50)
 
-    lon = lon - noon_longitude + 180  # rotate so that noon is up
+    mlt = coordinate_context.longitude_to_local_time(
+        lon,
+        wrap=False,
+    )
 
     iii = lat > 50
     if scatter:
-        pax1.scatter(lat[iii], lon[iii] / 15, c=data[iii], **kwargs)
+        pax1.scatter(lat[iii], mlt[iii], c=data[iii], **kwargs)
     else:
-        pax1.contourf(lat[iii], lon[iii] / 15, data[iii], **kwargs)
+        pax1.contourf(lat[iii], mlt[iii], data[iii], **kwargs)
     pax1.ax.set_title("North")
 
     iii = lat < -50
     if scatter:
-        pax2.scatter(lat[iii], lon[iii] / 15, c=data[iii], **kwargs)
+        pax2.scatter(lat[iii], mlt[iii], c=data[iii], **kwargs)
     else:
-        pax2.contourf(lat[iii], lon[iii] / 15, data[iii], **kwargs)
+        pax2.contourf(lat[iii], mlt[iii], data[iii], **kwargs)
     pax2.ax.set_title("South")
 
     plt.tight_layout()
@@ -154,167 +159,13 @@ def globalplot(lon, lat, data, noon_longitude=0, scatter=False, **kwargs):
     plt.close()
 
 
-def _current_output_key(dynamics, preferred=None):
-    """Return the available output key to visualize."""
-    datasets = dynamics.output_timeseries.datasets
-    if preferred is not None:
-        if preferred not in datasets:
-            raise ValueError(f"No output dataset named {preferred!r} is available.")
-        return preferred
-    if "state" in datasets:
-        return "state"
-    if "steady_state" in datasets:
-        return "steady_state"
-    raise RuntimeError("No state or steady_state output is available to visualize.")
-
-
-def _current_output_entry(dynamics, key=None):
-    """Return current output coefficients from a ``Dynamics`` object."""
-    key = _current_output_key(dynamics, preferred=key)
-    entry = dynamics.output_timeseries.get_entry(key, dynamics.current_time)
-    if entry is None:
-        raise RuntimeError(
-            f"No {key!r} output is available at t={float(dynamics.current_time):.3f}."
-        )
-    return entry
-
-
-def _transform_for_source(source, transform):
-    """Return ``transform`` or an equivalent one for ``source``."""
-    if transform.source.coefficients_are_compatible_with(source):
-        return transform
-    return SphericalTransform(source, transform.target)
-
-
-def evaluate_Br(dynamics, transform, *, key=None):
-    """Evaluate radial magnetic perturbation on ``transform.target``."""
-    entry = _current_output_entry(dynamics, key=key)
-    geometry = dynamics.state.geometry
-    coeffs = geometry.m_ind_to_Br_operator.matvec(entry["m_ind"])
-    return _transform_for_source(geometry.basis, transform).synthesize_scalar(coeffs)
-
-
-def evaluate_jr(dynamics, transform, *, key=None):
-    """Evaluate radial current density on ``transform.target``."""
-    entry = _current_output_entry(dynamics, key=key)
-    geometry = dynamics.state.geometry
-    coeffs = geometry.m_imp_to_jr_operator.matvec(entry["m_imp"])
-    return _transform_for_source(geometry.basis, transform).synthesize_scalar(coeffs)
-
-
-def evaluate_equivalent_current_function(dynamics, transform, *, key=None):
-    """Evaluate the equivalent-current stream function."""
-    entry = _current_output_entry(dynamics, key=key)
-    geometry = dynamics.state.geometry
-    coeffs = (
-        -geometry.RI
-        / mu0
-        * geometry.horizontal_to_boundary_potential_jump_factor_operator.matvec(
-            entry["m_ind"]
-        )
-    )
-    solid_transform = _transform_for_source(geometry.solid_harmonics.basis, transform)
-    return solid_transform.synthesize_scalar(coeffs)
-
-
-def _solid_harmonic_poloidal_to_sheet_current(geometry, transform):
-    """Return solid-harmonic poloidal coefficients to sheet current."""
-    solid_transform = _transform_for_source(geometry.solid_harmonics.basis, transform)
-    jump_factor = np.asarray(
-        geometry.solid_harmonics.poloidal_to_boundary_potential_jump_factor
-    ).reshape(1, 1, -1)
-    return (
-        -np.asarray(solid_transform.scalar_coeffs_to_gridded_rhat_cross_gradient)
-        * jump_factor
-        / mu0
-    )
-
-
-def _horizontal_poloidal_to_sheet_current(geometry, transform, solid_scale=None):
-    """Return horizontal poloidal coefficients to sheet current."""
-    solid_to_sheet = _solid_harmonic_poloidal_to_sheet_current(geometry, transform)
-    if solid_scale is not None:
-        solid_to_sheet = solid_to_sheet * np.asarray(solid_scale).reshape(1, 1, -1)
-    if geometry.horizontal_solid_projection_is_identity:
-        return solid_to_sheet.copy()
-    return np.tensordot(
-        solid_to_sheet,
-        np.asarray(geometry.horizontal_to_solid_harmonic),
-        axes=([2], [0]),
-    )
-
-
-def _coefficient_scale_values(values):
-    """Return a one-dimensional coefficient-space scale."""
-    array = np.asarray(values)
-    if array.ndim != 1:
-        raise ValueError(
-            f"coefficient scale must be one-dimensional; got shape {array.shape}."
-        )
-    return array
-
-
-def evaluate_sheet_current(dynamics, transform, *, key=None):
-    """Evaluate total horizontal sheet current."""
-    entry = _current_output_entry(dynamics, key=key)
-    geometry = dynamics.state.geometry
-    horizontal_transform = _transform_for_source(geometry.basis, transform)
-
-    m_imp = np.asarray(entry["m_imp"])
-    m_ind = np.asarray(entry["m_ind"])
-
-    toroidal_to_sheet = (
-        -np.asarray(horizontal_transform.scalar_coeffs_to_gridded_gradient) / mu0
-    )
-    poloidal_to_sheet = _horizontal_poloidal_to_sheet_current(geometry, transform)
-
-    sheet_current = np.tensordot(toroidal_to_sheet, m_imp, axes=([2], [0]))
-    horizontal_poloidal = np.asarray(geometry.T_to_Ve.values) @ m_imp
-    sheet_current += np.tensordot(
-        poloidal_to_sheet,
-        horizontal_poloidal,
-        axes=([2], [0]),
-    )
-
-    if geometry.RM is None:
-        m_ind_to_sheet = poloidal_to_sheet
-    else:
-        regular_shift = _coefficient_scale_values(
-            geometry.solid_harmonics.regular_reference_shift(geometry.RM, geometry.RI)
-        )
-        irregular_shift = _coefficient_scale_values(
-            geometry.solid_harmonics.irregular_reference_shift(geometry.RI, geometry.RM)
-        )
-        denominator = 1.0 - regular_shift * irregular_shift
-        m_ind_to_sheet = _horizontal_poloidal_to_sheet_current(
-            geometry,
-            transform,
-            solid_scale=1.0 + regular_shift * irregular_shift / denominator,
-        )
-
-    sheet_current += np.tensordot(m_ind_to_sheet, m_ind, axes=([2], [0]))
-    return sheet_current
-
-
-def evaluate_Phi(dynamics, transform, *, key=None):
-    """Evaluate electric curl-free potential in volts."""
-    entry = _current_output_entry(dynamics, key=key)
-    geometry = dynamics.state.geometry
-    return geometry.RI * _transform_for_source(geometry.basis, transform).synthesize_scalar(
-        entry["Phi"]
-    )
-
-
-def evaluate_W(dynamics, transform, *, key=None):
-    """Evaluate electric divergence-free potential in volts."""
-    entry = _current_output_entry(dynamics, key=key)
-    geometry = dynamics.state.geometry
-    return geometry.RI * _transform_for_source(geometry.basis, transform).synthesize_scalar(
-        entry["W"]
-    )
-
-
-def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
+def plot_state_diagnostics(
+    dynamics,
+    title=None,
+    filename=None,
+    noon_longitude=0,
+    coordinate_context=None,
+):
     """Generate diagnostic plots of simulation state.
 
     Creates visualizations of radial magnetic field, field-aligned
@@ -330,6 +181,8 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
         If provided, save plot to this file.
     noon_longitude : float, optional
         Longitude of local noon meridian.
+    coordinate_context : MapCoordinateContext, optional
+        Map coordinate context for projection and local-time axes.
 
     Notes
     -----
@@ -348,8 +201,12 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
         "levels": np.linspace(-0.95, 0.95, 22) / 2 * 1e-6,
         "extend": "both",
     }
+    if coordinate_context is None:
+        coordinate_context = MapCoordinateContext.from_noon_longitude(
+            noon_longitude,
+        )
 
-    global_projection = ccrs.PlateCarree(central_longitude=noon_longitude)
+    global_projection = coordinate_context.projection()
 
     fig = plt.figure(figsize=(15, 10))
 
@@ -410,7 +267,10 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     )
 
     # Make polar plots.
-    mlt = (lon - noon_longitude + 180) / 15  # rotate so that noon is up
+    mlt = coordinate_context.longitude_to_local_time(
+        lon,
+        wrap=False,
+    )
 
     # Make north plot.
     iii = lat > 50
@@ -441,43 +301,6 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
         plt.show()
 
     plt.close()
-
-
-if __name__ == "__main__":
-    # import cubedsphere submodule
-    import os
-    import sys
-
-    cs_path = os.path.join(os.path.dirname(__file__), "cubedsphere")
-    sys.path.insert(0, cs_path)
-    import cubed_sphere
-
-    Ncs = 30
-    cs_basis = cubed_sphere.CSBasis(Ncs)
-    k, i, j = cs_basis.get_gridpoints(Ncs)
-    xi, eta = cs_basis.xi(i, Ncs), cs_basis.eta(j, Ncs)
-    _, theta, phi = cs_basis.cube2spherical(xi, eta, k, deg=True)
-
-    lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
-    lat, lon = np.meshgrid(lat, lon)
-
-    from lompe import conductance
-    import dipole
-    import datetime
-
-    # Specify a time and Kp (for conductance).
-    date = datetime.datetime(2001, 5, 12, 21, 45)
-    Kp = 5
-    d = dipole.Dipole(date.year)
-
-    lon0 = d.mlt2mlon(12, date)  # Noon longitude
-
-    hall, pedersen = conductance.hardy_EUV(phi, 90 - theta, Kp, date, starlight=1, dipole=True)
-
-    hall_plt = cs_interpolate(cs_basis, 90 - theta, phi, hall, lat, lon)
-    pede_plt = cs_interpolate(cs_basis, 90 - theta, phi, pedersen, lat, lon)
-
-    globalplot(lon, lat, hall_plt, noon_longitude=lon0, levels=np.linspace(0, 20, 100))
 
 
 def compare_AMPS_jr_and_CF_currents(dynamics, a, d, date, lon0):
@@ -586,7 +409,7 @@ def compare_AMPS_jr_and_CF_currents(dynamics, a, d, date, lon0):
     )
     jr = evaluate_jr(dynamics, plt_state_evaluator)
 
-    globalplot(
+    plot_global_polar_map(
         plt_grid.lon.reshape(pltshape),
         plt_grid.lat.reshape(pltshape),
         jr.reshape(pltshape) * 1e6,
@@ -667,7 +490,7 @@ def show_jr_and_conductance(dynamics, conductance_grid, hall, pedersen, lon0):
         plt_grid.lon,
     )
 
-    globalplot(
+    plot_global_polar_map(
         plt_grid.lon.reshape(pltshape),
         plt_grid.lat.reshape(pltshape),
         hall_plt.reshape(pltshape),
@@ -675,7 +498,7 @@ def show_jr_and_conductance(dynamics, conductance_grid, hall, pedersen, lon0):
         levels=c_levels,
         save="hall.png",
     )
-    globalplot(
+    plot_global_polar_map(
         plt_grid.lon.reshape(pltshape),
         plt_grid.lat.reshape(pltshape),
         pede_plt.reshape(pltshape),
@@ -688,7 +511,7 @@ def show_jr_and_conductance(dynamics, conductance_grid, hall, pedersen, lon0):
         dynamics.horizontal_basis, plt_grid
     )
     jr = evaluate_jr(dynamics, plt_state_evaluator)
-    globalplot(
+    plot_global_polar_map(
         plt_grid.lon.reshape(pltshape),
         plt_grid.lat.reshape(pltshape),
         jr.reshape(pltshape),
@@ -791,7 +614,7 @@ def time_dependent_plot(
 
     Br = evaluate_Br(dynamics, plt_state_evaluator)
 
-    _, paxn, paxs, _ = globalplot(
+    _, paxn, paxs, _ = plot_global_polar_map(
         plt_grid.lon.reshape(pltshape),
         plt_grid.lat.reshape(pltshape),
         Br.reshape(pltshape),

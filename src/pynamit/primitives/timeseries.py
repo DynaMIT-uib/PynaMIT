@@ -1,11 +1,4 @@
-"""Timeseries Class.
-
-This module contains the Timeseries class, which is responsible for
-handling input and output operations in the simulation. It manages
-the reading and writing of datasets, including time series data,
-and provides methods for setting input data and selecting data for
-the simulation.
-"""
+"""Time-series storage for field coefficients."""
 
 import numpy as np
 import pandas as pd
@@ -17,13 +10,7 @@ FLOAT_ERROR_MARGIN = 1e-6  # Safety margin for floating point errors
 
 
 class Timeseries:
-    """Timeseries Class.
-
-    Class for handling input and output operations in the simulation.
-    This class manages the reading and writing of datasets, including
-    time series data, and provides methods for setting input data and
-    selecting data for the simulation.
-    """
+    """Persist and select time-indexed field coefficients."""
 
     def __init__(
         self,
@@ -56,9 +43,9 @@ class Timeseries:
         self._full_save_required: dict[str, bool] = {}
         self._storage_kinds: dict[str, str] = {}
 
-        self.basis_multiindices = {}
+        self.coefficient_multiindices = {}
         for key in self.variables.keys():
-            self.basis_multiindices[key] = pd.MultiIndex.from_arrays(
+            self.coefficient_multiindices[key] = pd.MultiIndex.from_arrays(
                 self.field_spaces[key].multiindex_arrays(),
                 names=self.field_spaces[key].index_names,
             )
@@ -88,13 +75,13 @@ class Timeseries:
             normalized[key] = field_space
         return normalized
 
-    def get_storage_spec(self, key):
+    def get_field_space(self, key):
         """Return the field-space descriptor for one stored series."""
         return self.field_spaces[key]
 
     def get_data_var_name(self, key, var):
         """Return the xarray variable name for one series variable."""
-        return f"{self.get_storage_spec(key).kind}_{var}"
+        return f"{self.get_field_space(key).kind}_{var}"
 
     def load_all(self, io):
         """Load all persisted timeseries datasets."""
@@ -113,17 +100,17 @@ class Timeseries:
         dataset = io.load_dataset(key)
 
         if dataset is not None:
-            storage_representation = self.get_storage_spec(key).representation
-            basis_multiindex = pd.MultiIndex.from_arrays(
+            storage_representation = self.get_field_space(key).representation
+            coefficient_multiindex = pd.MultiIndex.from_arrays(
                 [
                     dataset[storage_representation.index_names[i]].values
                     for i in range(len(storage_representation.index_names))
                 ],
                 names=storage_representation.index_names,
             )
-            coords = xr.Coordinates.from_pandas_multiindex(basis_multiindex, dim="i").merge(
-                {"time": dataset.time.values}
-            )
+            coords = xr.Coordinates.from_pandas_multiindex(
+                coefficient_multiindex, dim="i"
+            ).merge({"time": dataset.time.values})
             self.datasets[key] = dataset.drop_vars(
                 storage_representation.index_names
             ).assign_coords(coords)
@@ -170,7 +157,7 @@ class Timeseries:
         dataset = xr.Dataset(
             data_vars=data_vars,
             coords=xr.Coordinates.from_pandas_multiindex(
-                self.basis_multiindices[key], dim="i"
+                self.coefficient_multiindices[key], dim="i"
             ).merge({"time": [time]}),
         )
 
@@ -224,24 +211,20 @@ class Timeseries:
         current_data = self.get_entry(key, time, interpolation=interpolation)
 
         if current_data is not None:
-            # Check if the data has changed since the last time.
-            if not all([var in self.previous_data.keys() for var in self.variables[key]]) or (
-                not all(
-                    [
-                        np.allclose(
-                            current_data[var],
-                            self.previous_data[var],
-                            rtol=FLOAT_ERROR_MARGIN,
-                            atol=0.0,
-                        )
-                        for var in self.variables[key]
-                    ]
+            previous_keys = [(key, var) for var in self.variables[key]]
+            has_previous = all(item in self.previous_data for item in previous_keys)
+            changed = not has_previous or not all(
+                np.allclose(
+                    current_data[var],
+                    self.previous_data[(key, var)],
+                    rtol=FLOAT_ERROR_MARGIN,
+                    atol=0.0,
                 )
-            ):
-                # Update the previous data with the current data.
+                for var in self.variables[key]
+            )
+            if changed:
                 for var in self.variables[key]:
-                    self.previous_data[var] = current_data[var]
-
+                    self.previous_data[(key, var)] = current_data[var]
                 return current_data
 
         # No new data available.

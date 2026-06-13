@@ -12,7 +12,32 @@ import xarray as xr
 
 from pynamit.primitives.io import IO
 from pynamit.primitives.timeseries import Timeseries
-from pynamit.simulation.schema import SimulationSchema, build_simulation_schema
+from pynamit.simulation.schema import (
+    SimulationSchema,
+    build_simulation_schema,
+    normalize_horizontal_basis_kind,
+    setting_value,
+)
+
+
+def _resolve_setting_override(
+    settings,
+    name,
+    explicit,
+    *,
+    default,
+    normalize=lambda value: value,
+):
+    """Return a setting, rejecting explicit values that conflict."""
+    stored = setting_value(settings, name, None)
+    if explicit is None:
+        value = default if stored is None else stored
+        return normalize(value)
+
+    normalized_explicit = normalize(explicit)
+    if stored is not None and normalized_explicit != normalize(stored):
+        raise ValueError(f"{name} argument does not match settings.")
+    return normalized_explicit
 
 
 @dataclass
@@ -37,8 +62,8 @@ class SimulationData:
         *,
         run_directory=None,
         artifact_storage="auto",
-        horizontal_basis_kind="SH",
-        area_weighted_least_squares=False,
+        horizontal_basis_kind=None,
+        area_weighted_least_squares=None,
         print_info=False,
     ) -> "SimulationData":
         """Create persisted-run context and load saved artifacts."""
@@ -56,6 +81,20 @@ class SimulationData:
             raise ValueError("Mismatch between Dynamics object arguments and settings on file.")
 
         pfac_matrix = io.load_dataarray("PFAC_matrix", print_info=print_info)
+        horizontal_basis_kind = _resolve_setting_override(
+            settings,
+            "horizontal_basis_kind",
+            horizontal_basis_kind,
+            default="SH",
+            normalize=normalize_horizontal_basis_kind,
+        )
+        area_weighted_least_squares = _resolve_setting_override(
+            settings,
+            "area_weighted_least_squares",
+            area_weighted_least_squares,
+            default=False,
+            normalize=bool,
+        )
         schema = build_simulation_schema(settings, horizontal_basis_kind)
 
         input_timeseries = Timeseries(

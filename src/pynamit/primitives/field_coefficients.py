@@ -27,10 +27,9 @@ class FieldCoefficients:
         if not isinstance(field_space, FieldSpace):
             raise TypeError("FieldCoefficients requires a FieldSpace.")
         self.field_space = field_space
-        field_name = name or f"{self.__class__.__name__}.coeffs"
-        coeffs = self.field_space.validate_coefficients(coeffs, name=field_name)
-        self.coeffs = self.field_space.validate_coefficients(
-            self.field_space.project_mean_free(coeffs),
+        field_name = name or f"{self.__class__.__name__}.array"
+        self._array = self.field_space.validate_coefficients(
+            self.field_space.project_mean_free(coeffs, name=field_name),
             name=field_name,
         )
 
@@ -72,11 +71,11 @@ class FieldCoefficients:
     @property
     def array(self):
         """Return coefficients in canonical shaped form."""
-        return self.coeffs
+        return self._array
 
     def to_vector(self):
         """Return coefficients as a flat operator-compatible vector."""
-        return np.asarray(self.coeffs).reshape(-1)
+        return self.array.reshape(-1)
 
     def __array__(self, dtype=None):
         """Return coefficients for NumPy coercion."""

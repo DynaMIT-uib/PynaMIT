@@ -222,9 +222,9 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
 
         if L_CURVE:
             reg_lambda_values.append(reg_lambda)
-            # sh_norms.append(np.linalg.norm(input_sh.coeffs))
+            # sh_norms.append(np.linalg.norm(input_sh.array))
             sh_norms.append(
-                np.linalg.norm(regularization_term(input_sh.coeffs))
+                np.linalg.norm(regularization_term(input_sh.array))
             )
             input_sh_on_input_grid = synthesize_input(input_sh)
             sh_resiudal_norms.append(
@@ -247,8 +247,8 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
                 analyze_output(interpolated_data),
             )
             relative_coeff_errors.append(
-                np.linalg.norm(cs_interpolated_output_sh.coeffs - input_sh.coeffs)
-                / np.linalg.norm(cs_interpolated_output_sh.coeffs)
+                np.linalg.norm(cs_interpolated_output_sh.array - input_sh.array)
+                / np.linalg.norm(cs_interpolated_output_sh.array)
             )
             print("   Relative coefficient error = %e" % (relative_coeff_errors[-1]))
 
@@ -306,8 +306,8 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
 
             if SH_COMPARISON:
                 coeff_fig, (coeff_cs_ax, coeff_sh_ax) = plt.subplots(1, 2, figsize=(20, 5))
-                abs_coeff_cs = np.abs(cs_interpolated_output_sh.coeffs)
-                abs_coeff_sh = np.abs(input_sh.coeffs)
+                abs_coeff_cs = np.abs(cs_interpolated_output_sh.array)
+                abs_coeff_sh = np.abs(input_sh.array)
 
                 coeff_cs_ax.set_title("Cubed sphere coefficient magnitudes")
                 coeff_sh_ax.set_title("Spherical harmonics coefficient magnitudes")

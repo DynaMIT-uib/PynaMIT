@@ -10,6 +10,7 @@ import pyamps
 import matplotlib.pyplot as plt
 from lompe import conductance
 import os
+from pynamit.visualization.results import plot_global_polar_map
 
 COMPARE_TO_SECS = True
 SIMULATE_DYNAMIC_RESPONSE = False
@@ -77,11 +78,11 @@ plt_state_evaluator = pynamit.SphericalTransform(
 )
 
 G_Br = plt_state_evaluator.contract_scalar_coeffs_to_grid(dynamics.state.m_ind_to_Br)
-Br = G_Br.dot(dynamics.state.geometry.T_to_Ve.dot(dynamics.state.m_imp.coeffs))
+Br = G_Br.dot(dynamics.state.geometry.T_to_Ve.dot(dynamics.state.m_imp.array))
 
 
 if SIMULATE_DYNAMIC_RESPONSE:
-    fig, paxn, paxs, axg = pynamit.globalplot(
+    fig, paxn, paxs, axg = plot_global_polar_map(
         plt_grid.lon,
         plt_grid.lat,
         Br.reshape(plt_grid.lat.shape),
@@ -111,22 +112,22 @@ if SIMULATE_DYNAMIC_RESPONSE:
     while True:
         dynamics.state.evolve_Br(dt)
         time = time + dt
-        coeffs.append(dynamics.state.m_ind.coeffs)
+        coeffs.append(dynamics.state.m_ind.array)
         count += 1
         # print(
         #     count,
         #     time,
-        #     (dynamics.state.m_ind.coeffs
+        #     (dynamics.state.m_ind.array
         #      * dynamics.state.m_ind_to_Br)[:3],
         # )
 
         if count % plotsteps == 0:
-            print(count, time, (dynamics.state.m_ind.coeffs * dynamics.state.m_ind_to_Br)[:3])
+            print(count, time, (dynamics.state.m_ind.array * dynamics.state.m_ind_to_Br)[:3])
             fn = os.path.join(fig_directory, "PFAC_" + str(filecount).zfill(3) + ".png")
             filecount += 1
             title = "t = {:.3} s".format(time)
             Br = dynamics.state.get_Br(plt_state_evaluator)
-            fig, paxn, paxs, axg = pynamit.globalplot(
+            fig, paxn, paxs, axg = plot_global_polar_map(
                 plt_grid.lon,
                 plt_grid.lat,
                 Br.reshape(plt_grid.lat.shape),
@@ -165,7 +166,7 @@ if COMPARE_TO_SECS:
 
     Br_SECS = Gu.dot(secsI)
 
-    fig, paxn, paxs, axg = pynamit.globalplot(
+    fig, paxn, paxs, axg = plot_global_polar_map(
         plt_grid.lon,
         plt_grid.lat,
         Br_SECS.reshape(plt_grid.lat.shape),

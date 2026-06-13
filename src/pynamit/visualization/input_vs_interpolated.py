@@ -9,56 +9,32 @@ import cartopy.crs as ccrs
 
 from pynamit.sphere import Grid
 from pynamit.sphere.spherical_transform import SphericalTransform
-from pynamit.primitives.field_coefficients import FieldCoefficients
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.primitives.io import IO
 from pynamit.primitives.timeseries import Timeseries
-from pynamit.sphere import SHBasis
-from pynamit.simulation.schema import INPUT_FIELD_TYPES, field_spaces_from_bases
+from pynamit.simulation.schema import build_simulation_schema, setting_value
 from pynamit.simulation.mainfield import Mainfield
 from pynamit.math.constants import RE
-
-
-def _wrap_longitude_degrees(lon):
-    """Wrap longitudes to [-180, 180) degrees."""
-    return (np.asarray(lon) + 180.0) % 360.0 - 180.0
-
-
-def local_time_longitude_to_geographic(lon, *, noon_longitude, local_noon_longitude):
-    """Convert local-time longitude degrees to geographic degrees."""
-    return _wrap_longitude_degrees(
-        np.asarray(lon) - float(local_noon_longitude) + float(noon_longitude)
-    )
-
-
-def _evaluate_scalar_coeffs_to_grid(coeffs, field_space, plot_evaluator, target_shape):
-    """Evaluate scalar coefficients to a grid."""
-    if coeffs is None:
-        return np.full(target_shape, np.nan)
-    field = FieldCoefficients(field_space, coeffs=coeffs)
-    return plot_evaluator.synthesize_scalar(field).reshape(target_shape)
-
-
-def _evaluate_tangential_coeffs_to_grid_components(
-    coeffs, field_space, plot_evaluator, target_shape
-):
-    """Evaluate tangential coefficients to grid components."""
-    if coeffs is None:
-        return np.full(target_shape, np.nan), np.full(target_shape, np.nan)
-    field = FieldCoefficients(field_space, coeffs=coeffs.reshape((2, -1)))
-    field_grid_components = plot_evaluator.synthesize_helmholtz(field)
-    field_t_2d = field_grid_components[0].reshape(target_shape)
-    field_p_2d = field_grid_components[1].reshape(target_shape)
-    return field_t_2d, field_p_2d
+from pynamit.coordinates import local_time_longitude_to_geographic
+from pynamit.visualization.input_projection import evaluate_projected_input
+from pynamit.visualization.plot_helpers import style_global_input_axis
 
 
 def plot_scalar_map_on_ax(
-    ax, lon_coords_2d, lat_coords_2d, data_2d_arr, title="", cmap="viridis", norm=None
+    ax,
+    lon_coords_2d,
+    lat_coords_2d,
+    data_2d_arr,
+    title="",
+    cmap="viridis",
+    norm=None,
+    coordinate_context=None,
+    left_labels=True,
+    bottom_labels=True,
 ):
     """Plot a scalar map with specified coordinates and data."""
     if norm is None:
         raise ValueError("Norm object must be provided to plot_scalar_map_on_ax.")
-    ax.coastlines(color="grey", zorder=3, linewidth=0.5)
     data_to_plot_masked = np.ma.masked_invalid(data_2d_arr)
     im = ax.pcolormesh(
         lon_coords_2d,
@@ -70,6 +46,15 @@ def plot_scalar_map_on_ax(
         shading="auto",
         zorder=1,
     )
+    if coordinate_context is None:
+        ax.coastlines(color="grey", zorder=3, linewidth=0.5)
+    else:
+        style_global_input_axis(
+            ax,
+            coordinate_context=coordinate_context,
+            left_labels=left_labels,
+            bottom_labels=bottom_labels,
+        )
     ax.set_title(title, fontsize=9)
     return im
 
@@ -88,6 +73,7 @@ def plot_input_vs_interpolated(
     time_row_h_frac_user=0.015,
     cbars_labels_col_w_frac_user=0.11,
     magnetosphere_local_noon_longitude=None,
+    coordinate_context=None,
 ):
     """Plot input vs interpolated data from HDF5 file."""
     try:
@@ -122,31 +108,22 @@ def plot_input_vs_interpolated(
         h5file.close()
         raise ValueError("Settings dataset not found.")
 
-    ri_value = float(settings.RI)
+    ri_value = float(setting_value(settings, "RI"))
     mainfield = Mainfield(
-        kind=str(settings.mainfield_kind),
-        epoch=int(settings.mainfield_epoch),
+        kind=str(setting_value(settings, "mainfield_kind")),
+        epoch=int(setting_value(settings, "mainfield_epoch")),
         hI=(ri_value - RE) * 1e-3,
-        B0=None if float(settings.mainfield_B0) == 0 else float(settings.mainfield_B0),
+        B0=(
+            None
+            if float(setting_value(settings, "mainfield_B0")) == 0
+            else float(setting_value(settings, "mainfield_B0"))
+        ),
     )
 
-    sh_basis = SHBasis(int(settings.Nmax), int(settings.Mmax), mean_free=False)
-    sh_basis_mean_free = sh_basis.with_mean_free(True)
-
-    input_vars_pynamit = {
-        "jr": ("jr",),
-        "Br": ("Br",),
-        "conductance": ("etaP", "etaH"),
-        "u": ("u",),
-        "Q_eff": ("Q_eff",),
-    }
-    input_bases = {
-        "jr": sh_basis_mean_free,
-        "Br": sh_basis_mean_free,
-        "conductance": sh_basis,
-        "u": sh_basis_mean_free,
-        "Q_eff": sh_basis_mean_free,
-    }
+    horizontal_basis_kind = setting_value(settings, "horizontal_basis_kind", "SH")
+    schema = build_simulation_schema(settings, horizontal_basis_kind)
+    input_vars_pynamit = schema.input_vars
+    input_field_spaces = schema.input_field_spaces
     pynamit_timeseries_key_map = {
         "Br": "Br",
         "jr": "jr",
@@ -205,18 +182,25 @@ def plot_input_vs_interpolated(
         },
     }
 
-    input_field_spaces = field_spaces_from_bases(input_bases, INPUT_FIELD_TYPES)
     input_timeseries = Timeseries(input_field_spaces, input_vars_pynamit)
     input_timeseries.load_all(io)
 
     ionosphere_lat, ionosphere_lon = h5file["glat"][:], h5file["glon"][:]
     magnetosphere_lat, magnetosphere_lon = h5file["Blat"][:], h5file["Blon"][:]
+    if coordinate_context is not None:
+        noon_longitude = coordinate_context.noon_longitude
     if magnetosphere_local_noon_longitude is not None:
-        magnetosphere_lon = local_time_longitude_to_geographic(
-            magnetosphere_lon,
-            noon_longitude=noon_longitude,
-            local_noon_longitude=magnetosphere_local_noon_longitude,
-        )
+        if coordinate_context is None:
+            magnetosphere_lon = local_time_longitude_to_geographic(
+                magnetosphere_lon,
+                noon_longitude=noon_longitude,
+                local_noon_longitude=magnetosphere_local_noon_longitude,
+            )
+        else:
+            magnetosphere_lon = coordinate_context.local_time_longitude_to_coordinate(
+                magnetosphere_lon,
+                local_noon_longitude=magnetosphere_local_noon_longitude,
+            )
     ionosphere_grid = Grid(lat=ionosphere_lat, lon=ionosphere_lon)
     ionosphere_b_evaluator = FieldEvaluator(mainfield, ionosphere_grid, ri_value)
     ionosphere_br_2d = ionosphere_b_evaluator.br.reshape(ionosphere_lat.shape)
@@ -262,61 +246,60 @@ def plot_input_vs_interpolated(
             all_data_for_scaling[data_type_str]["input"].append(calculated_input_data_2d.reshape(-1))
 
             calculated_interpolated_data_2d = np.full(target_shape_pass1, np.nan)
-            timeseries_entry = input_timeseries.get_entry(
-                pynamit_ts_key, time_val, interpolation=False
-            )
-            if timeseries_entry:
-                field_space = input_timeseries.get_storage_spec(pynamit_ts_key)
+            if pynamit_ts_key in input_timeseries.datasets:
+                field_space = input_timeseries.get_field_space(pynamit_ts_key)
                 if pynamit_ts_key not in plot_evaluators:
                     plot_evaluators[pynamit_ts_key] = SphericalTransform(
                         field_space.representation,
                         Grid(lat=current_lat_coords_pass1, lon=current_lon_coords_pass1),
                     )
                 current_plot_evaluator = plot_evaluators[pynamit_ts_key]
+                try:
+                    projected_input = evaluate_projected_input(
+                        input_timeseries,
+                        pynamit_ts_key,
+                        time_val,
+                        transform=current_plot_evaluator,
+                    )
+                except ValueError:
+                    projected_input = {}
                 if pynamit_ts_key == "Br":
-                    coeffs = timeseries_entry.get("Br")
-                    calculated_interpolated_data_2d = _evaluate_scalar_coeffs_to_grid(
-                        coeffs, field_space, current_plot_evaluator, target_shape_pass1
-                    )
+                    calculated_interpolated_data_2d = projected_input.get(
+                        "Br",
+                        calculated_interpolated_data_2d,
+                    ).reshape(target_shape_pass1)
                 elif pynamit_ts_key == "jr":
-                    coeffs = timeseries_entry.get("jr")
-                    calculated_interpolated_data_2d = _evaluate_scalar_coeffs_to_grid(
-                        coeffs, field_space, current_plot_evaluator, target_shape_pass1
-                    )
+                    calculated_interpolated_data_2d = projected_input.get(
+                        "jr",
+                        calculated_interpolated_data_2d,
+                    ).reshape(target_shape_pass1)
                 elif pynamit_ts_key == "conductance":
-                    etaP_coeffs, etaH_coeffs = (
-                        timeseries_entry.get("etaP"),
-                        timeseries_entry.get("etaH"),
-                    )
-                    etaP_f = _evaluate_scalar_coeffs_to_grid(
-                        etaP_coeffs, field_space, current_plot_evaluator, target_shape_pass1
-                    )
-                    etaH_f = _evaluate_scalar_coeffs_to_grid(
-                        etaH_coeffs, field_space, current_plot_evaluator, target_shape_pass1
-                    )
-                    den = etaP_f**2 + etaH_f**2
-                    sH_f, sP_f = np.full_like(etaH_f, np.nan), np.full_like(etaP_f, np.nan)
-                    valid = den > 1e-12
-                    if np.any(valid):
-                        sH_f[valid], sP_f[valid] = (
-                            etaH_f[valid] / den[valid],
-                            etaP_f[valid] / den[valid],
-                        )
                     if data_type_str == "SH":
-                        calculated_interpolated_data_2d = sH_f
+                        calculated_interpolated_data_2d = projected_input.get(
+                            "SigmaH",
+                            calculated_interpolated_data_2d,
+                        ).reshape(target_shape_pass1)
                     elif data_type_str == "SP":
-                        calculated_interpolated_data_2d = sP_f
+                        calculated_interpolated_data_2d = projected_input.get(
+                            "SigmaP",
+                            calculated_interpolated_data_2d,
+                        ).reshape(target_shape_pass1)
                 elif pynamit_ts_key == "u":
-                    coeffs = timeseries_entry.get("u")
-                    u_t_2d, u_p_2d = _evaluate_tangential_coeffs_to_grid_components(
-                        coeffs, field_space, current_plot_evaluator, target_shape_pass1
-                    )
                     if data_type_str == "u_mag":
-                        calculated_interpolated_data_2d = np.sqrt(u_t_2d**2 + u_p_2d**2)
+                        calculated_interpolated_data_2d = projected_input.get(
+                            "u_mag",
+                            calculated_interpolated_data_2d,
+                        ).reshape(target_shape_pass1)
                     elif data_type_str == "u_theta":
-                        calculated_interpolated_data_2d = u_t_2d
+                        calculated_interpolated_data_2d = projected_input.get(
+                            "u_theta",
+                            calculated_interpolated_data_2d,
+                        ).reshape(target_shape_pass1)
                     elif data_type_str == "u_phi":
-                        calculated_interpolated_data_2d = u_p_2d
+                        calculated_interpolated_data_2d = projected_input.get(
+                            "u_phi",
+                            calculated_interpolated_data_2d,
+                        ).reshape(target_shape_pass1)
             all_data_for_scaling[data_type_str]["interpolated"].append(
                 calculated_interpolated_data_2d.reshape(-1)
             )
@@ -528,6 +511,8 @@ def plot_input_vs_interpolated(
     else:
         map_axes = map_axes_flat
 
+    coordinate_labels_enabled = coordinate_context is not None
+
     # Layout for sfig_BL_cbars_and_labels (num_dt rows, 3 columns):
     # Column 0: DataType Label
     # Column 1: Colorbar
@@ -611,6 +596,12 @@ def plot_input_vs_interpolated(
                 title="",
                 cmap=cmap_use,
                 norm=norm_use,
+                coordinate_context=coordinate_context if coordinate_labels_enabled else None,
+                left_labels=coordinate_labels_enabled and ts_idx == 0,
+                bottom_labels=(
+                    coordinate_labels_enabled
+                    and row_idx_input_map == num_plot_rows_maps - 1
+                ),
             )
             if current_mappable_this_dt is None and not np.all(np.isnan(retrieved_input_data)):
                 current_mappable_this_dt = im_input
@@ -622,6 +613,12 @@ def plot_input_vs_interpolated(
                 title="",
                 cmap=cmap_use,
                 norm=norm_use,
+                coordinate_context=coordinate_context if coordinate_labels_enabled else None,
+                left_labels=coordinate_labels_enabled and ts_idx == 0,
+                bottom_labels=(
+                    coordinate_labels_enabled
+                    and row_idx_fitted_map == num_plot_rows_maps - 1
+                ),
             )
             if current_mappable_this_dt is None and not np.all(
                 np.isnan(retrieved_interpolated_data)

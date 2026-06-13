@@ -145,9 +145,9 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
             1 / plt_b_evaluator.br.reshape((-1, 1))
         )
     ).dot(
-        dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr
+        dynamics.state.m_imp.array * dynamics.state.m_imp_to_jr
     )
-    jr_mod = plt_state_evaluator.G.dot(dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr)
+    jr_mod = plt_state_evaluator.G.dot(dynamics.state.m_imp.array * dynamics.state.m_imp_to_jr)
     eq_current_function = dynamics.state.get_Jeq(plt_state_evaluator)
 
     # Make global plots.
@@ -192,8 +192,8 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     ax_1.set_xlabel("Input ")
 
     # Scatter plot FACs at conjugate points.
-    j_par_ll = dynamics.state.G_par_ll.dot(dynamics.state.m_imp.coeffs)
-    j_par_cp = dynamics.state.G_par_cp.dot(dynamics.state.m_imp.coeffs)
+    j_par_ll = dynamics.state.G_par_ll.dot(dynamics.state.m_imp.array)
+    j_par_cp = dynamics.state.G_par_cp.dot(dynamics.state.m_imp.array)
     j_par_max = np.max(np.abs(j_par_ll))
     ax_2.scatter(j_par_ll, j_par_cp)
     ax_2.plot([-j_par_max, j_par_max], [-j_par_max, j_par_max], "k-")
@@ -230,10 +230,10 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
         + dynamics.state.etaH_cp * dynamics.state.aeH_ind_cp
     )
 
-    c_ll = cu_ll + A_ind_ll.dot(dynamics.state.m_ind.coeffs)
-    c_cp = cu_cp + A_ind_cp.dot(dynamics.state.m_ind.coeffs)
-    Ed1_ll, Ed2_ll = np.split(c_ll + A_imp_ll.dot(dynamics.state.m_imp.coeffs), 2)
-    Ed1_cp, Ed2_cp = np.split(c_cp + A_imp_cp.dot(dynamics.state.m_imp.coeffs), 2)
+    c_ll = cu_ll + A_ind_ll.dot(dynamics.state.m_ind.array)
+    c_cp = cu_cp + A_ind_cp.dot(dynamics.state.m_ind.array)
+    Ed1_ll, Ed2_ll = np.split(c_ll + A_imp_ll.dot(dynamics.state.m_imp.array), 2)
+    Ed1_cp, Ed2_cp = np.split(c_cp + A_imp_cp.dot(dynamics.state.m_imp.array), 2)
     ax_3.scatter(Ed1_ll, Ed1_cp, label="$E_{d_1}$")
     ax_3.scatter(Ed2_ll, Ed2_cp, label="$E_{d_2}$")
     ax_3.set_xlabel("$E_{d_i}$")

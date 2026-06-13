@@ -34,9 +34,9 @@ def test_multi_data_dop853():
         latitude_boundary=50,
         use_wind=True,
         steady_state_initialization=True,
-        vector_jr=True,
-        vector_conductance=True,
-        vector_u=True,
+        jr_projection_basis="SH",
+        conductance_projection_basis="SH",
+        u_projection_basis="SH",
         integrator="DOP853",
         multi_data=True,
     )

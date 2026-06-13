@@ -35,6 +35,7 @@ from pynamit.math.backend import (
 from pynamit.sphere import CSBasis, SolidHarmonics, SurfaceOperators
 from pynamit.simulation.geometry import Geometry
 from pynamit.simulation.operators import StateOperators
+from pynamit.simulation.schema import setting_value
 
 logger = logging.getLogger(__name__)
 
@@ -97,17 +98,30 @@ class State:
 
     def _init_settings(self, settings: Any) -> None:
         """Extract and store configuration from the settings object."""
-        self.solver_type = getattr(
+        self.solver_type = setting_value(
             settings, "least_squares_solver", get_default_least_squares_solver()
         )
-        self.preconditioner = getattr(settings, "least_squares_preconditioner", "pinv")
-        self.static_preconditioner = getattr(settings, "static_preconditioner", False)
-        self.integrator = settings.integrator
-        self.m_imp_regularization_lambda = getattr(settings, "m_imp_regularization_lambda", 0.0)
-        self.RI = settings.RI
-        self.RM = None if settings.RM == 0 else settings.RM
-        self.ih_constraint_scaling = settings.ih_constraint_scaling
-        self.connect_hemispheres = bool(settings.connect_hemispheres)
+        self.preconditioner = setting_value(
+            settings,
+            "least_squares_preconditioner",
+            "pinv",
+        )
+        self.static_preconditioner = setting_value(
+            settings,
+            "static_preconditioner",
+            False,
+        )
+        self.integrator = setting_value(settings, "integrator")
+        self.m_imp_regularization_lambda = setting_value(
+            settings,
+            "m_imp_regularization_lambda",
+            0.0,
+        )
+        self.RI = setting_value(settings, "RI")
+        rm = setting_value(settings, "RM")
+        self.RM = None if rm == 0 else rm
+        self.ih_constraint_scaling = setting_value(settings, "ih_constraint_scaling")
+        self.connect_hemispheres = bool(setting_value(settings, "connect_hemispheres"))
 
     @staticmethod
     def _project_scalar_with_basis(basis: Any, coeffs: Any) -> Any:
@@ -241,7 +255,7 @@ class State:
                     "Conductance must be set before accessing conductance-dependent properties."
                 )
             eta_stacked = xp.stack(
-                [xp.asarray(self.etaP.coeffs), xp.asarray(self.etaH.coeffs)], axis=0
+                [xp.asarray(self.etaP.array), xp.asarray(self.etaH.array)], axis=0
             )
             conductance_synthesis = self._conductance_synthesis_operator()
             conductance_on_grid = xp.asarray(
@@ -302,10 +316,6 @@ class State:
         raise ValueError(
             "Conductance storage basis cannot be evaluated on the state/model grid."
         )
-
-    def _conductance_synthesis_matrix(self):
-        """Return explicit conductance synthesis to the model grid."""
-        return self._conductance_synthesis_operator().to_matrix()
 
     def _create_E_coeffs_operator(
         self, source_to_sheet_current: Optional[np.ndarray]
@@ -528,7 +538,7 @@ class State:
             if updated_input is None:
                 continue
 
-            field_space = input_timeseries.get_storage_spec(key)
+            field_space = input_timeseries.get_field_space(key)
             if key == "conductance":
                 conductance_updated = True
                 self.etaP = FieldCoefficients(field_space, coeffs=updated_input["etaP"])
@@ -582,20 +592,20 @@ class State:
     def calculate_noind_coeffs(self) -> Tuple[np.ndarray, np.ndarray]:
         """Calculate E-field coefficients without induction effects."""
         E_shape = (2, self.basis.index_length)
-        u_coeffs = 0 if self.u is None else xp.asarray(self.u.coeffs)
+        u_coeffs = 0 if self.u is None else xp.asarray(self.u.array)
         E_direct = self._apply_operator(self.u_coeffs_to_E_coeffs, u_coeffs, E_shape)
         if self.Br is not None:
             E_direct += self._apply_operator(
-                self._Br_to_E_coeffs_runtime, xp.asarray(self.Br.coeffs), E_shape
+                self._Br_to_E_coeffs_runtime, xp.asarray(self.Br.array), E_shape
             )
         if getattr(self, "Q_eff", None) is not None:
             E_direct += self._apply_operator(
                 self._Q_eff_to_E_coeffs_runtime,
-                xp.asarray(self.Q_eff.coeffs),
+                xp.asarray(self.Q_eff.array),
                 E_shape,
             )
 
-        jr_coeffs = None if self.jr is None else xp.asarray(self.jr.coeffs)
+        jr_coeffs = None if self.jr is None else xp.asarray(self.jr.array)
         return self._calculate_total_E_field(E_direct, jr_coeffs)
 
     def calculate_ind_coeffs(self, m_ind: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:

@@ -385,8 +385,8 @@ def test_M_total_on_grid_uses_conductance_synthesis_operator_without_matrix():
         bP=bP,
         bH=bH,
     )
-    state.etaP = SimpleNamespace(coeffs=etaP, representation=conductance_basis)
-    state.etaH = SimpleNamespace(coeffs=etaH, representation=conductance_basis)
+    state.etaP = SimpleNamespace(array=etaP, representation=conductance_basis)
+    state.etaH = SimpleNamespace(array=etaH, representation=conductance_basis)
     state._M_total_on_grid = None
 
     conductance_on_grid = synthesis @ np.stack([etaP, etaH], axis=1)
@@ -424,11 +424,11 @@ def test_M_total_on_grid_rejects_incompatible_conductance_bases():
     state.basis = object()
     state.geometry = SimpleNamespace(grid=object(), bP=np.ones((2, 2, n_grid)), bH=0.0)
     state.etaP = SimpleNamespace(
-        coeffs=np.ones(n_coeffs),
+        array=np.ones(n_coeffs),
         representation=ConductanceBasis("pedersen"),
     )
     state.etaH = SimpleNamespace(
-        coeffs=np.ones(n_coeffs),
+        array=np.ones(n_coeffs),
         representation=ConductanceBasis("hall"),
     )
     state._M_total_on_grid = None

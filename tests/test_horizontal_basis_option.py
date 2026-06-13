@@ -7,7 +7,6 @@ from pynamit.default_run import run_pynamit
 from pynamit.math.constants import RE
 from pynamit.math.tensor_operations import tensor_pinv, weighted_tensor_pinv
 from pynamit.simulation.dynamics import Dynamics
-from pynamit.simulation.visualization import _horizontal_poloidal_to_sheet_current
 
 
 def test_default_horizontal_basis_is_sh(tmp_path):
@@ -32,9 +31,8 @@ def test_default_horizontal_basis_is_sh(tmp_path):
         geometry.solid_harmonic_poloidal_to_gridded_sheet_current,
     )
     np.testing.assert_allclose(
-        _horizontal_poloidal_to_sheet_current(
-            geometry,
-            geometry.spherical_transform,
+        geometry.horizontal_poloidal_to_gridded_sheet_current(
+            geometry.spherical_transform
         ),
         geometry.solid_harmonic_poloidal_to_gridded_sheet_current,
     )
@@ -101,9 +99,9 @@ def test_cs_horizontal_basis_runs_with_cs_outputs(tmp_path):
         Ncs=8,
         ignore_PFAC=True,
         use_wind=False,
-        vector_jr=False,
-        vector_conductance=False,
-        vector_u=False,
+        jr_projection_basis="CS",
+        conductance_projection_basis="CS",
+        u_projection_basis="CS",
         run_directory=str(tmp_path / "run"),
         horizontal_basis_kind="CS",
         artifact_storage="netcdf",
@@ -127,9 +125,9 @@ def test_cs_horizontal_basis_runs_with_pfac(tmp_path):
         Ncs=8,
         ignore_PFAC=False,
         use_wind=False,
-        vector_jr=False,
-        vector_conductance=False,
-        vector_u=False,
+        jr_projection_basis="CS",
+        conductance_projection_basis="CS",
+        u_projection_basis="CS",
         run_directory=str(tmp_path / "run"),
         horizontal_basis_kind="CS",
         artifact_storage="netcdf",
@@ -186,9 +184,9 @@ def test_cs_horizontal_basis_supports_connected_hemispheres(tmp_path):
         ignore_PFAC=True,
         connect_hemispheres=True,
         use_wind=False,
-        vector_jr=False,
-        vector_conductance=False,
-        vector_u=False,
+        jr_projection_basis="CS",
+        conductance_projection_basis="CS",
+        u_projection_basis="CS",
         run_directory=str(tmp_path / "run"),
         horizontal_basis_kind="CS",
         artifact_storage="netcdf",
@@ -252,10 +250,10 @@ def test_cs_horizontal_basis_combines_pfac_rm_and_connected_terms(tmp_path):
         ignore_PFAC=False,
         connect_hemispheres=True,
         use_wind=False,
-        vector_jr=False,
-        vector_Br=False,
-        vector_conductance=False,
-        vector_u=False,
+        jr_projection_basis="CS",
+        Br_projection_basis="CS",
+        conductance_projection_basis="CS",
+        u_projection_basis="CS",
         run_directory=str(tmp_path / "run"),
         horizontal_basis_kind="CS",
         artifact_storage="netcdf",

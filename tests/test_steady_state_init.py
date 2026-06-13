@@ -34,9 +34,9 @@ def test_steady_state_init():
         latitude_boundary=50,
         use_wind=True,
         steady_state_initialization=True,
-        vector_jr=True,
-        vector_conductance=True,
-        vector_u=True,
+        jr_projection_basis="SH",
+        conductance_projection_basis="SH",
+        u_projection_basis="SH",
     )
 
     # Assert.
@@ -81,9 +81,9 @@ def test_impose_steady_state_at_current_time(tmp_path, monkeypatch):
         latitude_boundary=50,
         use_wind=True,
         steady_state_initialization=False,
-        vector_jr=True,
-        vector_conductance=True,
-        vector_u=True,
+        jr_projection_basis="SH",
+        conductance_projection_basis="SH",
+        u_projection_basis="SH",
     )
 
     steady_state_m_ind = dynamics.impose_steady_state(quiet=True)
@@ -108,9 +108,9 @@ def test_impose_steady_state_matches_steady_state_initialization(tmp_path, monke
         connect_hemispheres=True,
         latitude_boundary=50,
         use_wind=True,
-        vector_jr=True,
-        vector_conductance=True,
-        vector_u=True,
+        jr_projection_basis="SH",
+        conductance_projection_basis="SH",
+        u_projection_basis="SH",
     )
 
     init_dir = tmp_path / "initialized"

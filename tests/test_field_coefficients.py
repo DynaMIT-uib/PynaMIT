@@ -19,8 +19,8 @@ def test_field_coefficients_applies_scalar_mean_free_projection():
     assert field.field_space is field_space
     assert field.representation is basis
     assert field.mean_free
-    np.testing.assert_allclose(basis.scalar_mean(field.coeffs), 0.0, atol=1e-12)
-    assert field.coeffs.shape == coeffs.shape
+    np.testing.assert_allclose(basis.scalar_mean(field.array), 0.0, atol=1e-12)
+    assert field.array.shape == coeffs.shape
     assert field.array.shape == (basis.index_length,)
     np.testing.assert_allclose(field.to_vector(), field.array.reshape(-1))
 
@@ -39,11 +39,10 @@ def test_field_coefficients_preserves_tangential_shape():
     field = FieldCoefficients(field_space, coeffs)
 
     assert field.field_type == "tangential"
-    assert field.coeffs.shape == (2, basis.index_length)
     assert field.array.shape == (2, basis.index_length)
     np.testing.assert_allclose(field.to_vector(), field.array.reshape(-1))
     np.testing.assert_allclose(
-        basis.scalar_mean(field.coeffs), np.zeros(2), atol=1e-12
+        basis.scalar_mean(field.array), np.zeros(2), atol=1e-12
     )
 
 
@@ -66,7 +65,7 @@ def test_field_coefficients_validates_coefficient_length():
     basis = SHBasis(3, 2, mean_free=True)
     field_space = FieldSpace(basis, field_type="scalar")
 
-    with pytest.raises(ValueError, match="FieldCoefficients.coeffs"):
+    with pytest.raises(ValueError, match="FieldCoefficients.array"):
         FieldCoefficients(field_space, np.zeros(basis.index_length + 1))
 
 
