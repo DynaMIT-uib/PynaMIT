@@ -13,6 +13,10 @@ _LAZY_EXPORTS = {
         "pynamit.visualization.grid_evaluation",
         "build_sheet_current_operators",
     ),
+    "build_percentile_color_scale": (
+        "pynamit.visualization.plot_helpers",
+        "build_percentile_color_scale",
+    ),
     "compute_conversion_factors": (
         "pynamit.visualization.grid_evaluation",
         "compute_conversion_factors",
@@ -48,6 +52,26 @@ _LAZY_EXPORTS = {
         "pynamit.visualization.state_fields",
         "evaluate_equivalent_current_function",
     ),
+    "evaluate_conductance_coefficients": (
+        "pynamit.visualization.field_maps",
+        "evaluate_conductance_coefficients",
+    ),
+    "evaluate_conductance_values": (
+        "pynamit.visualization.field_maps",
+        "evaluate_conductance_values",
+    ),
+    "evaluate_electric_field_coefficients": (
+        "pynamit.visualization.field_maps",
+        "evaluate_electric_field_coefficients",
+    ),
+    "evaluate_joule_from_coefficients": (
+        "pynamit.visualization.field_maps",
+        "evaluate_joule_from_coefficients",
+    ),
+    "evaluate_joule_from_fields": (
+        "pynamit.visualization.field_maps",
+        "evaluate_joule_from_fields",
+    ),
     "evaluate_jr": ("pynamit.visualization.state_fields", "evaluate_jr"),
     "evaluate_jr_coefficients": (
         "pynamit.visualization.state_fields",
@@ -60,6 +84,18 @@ _LAZY_EXPORTS = {
     "evaluate_sheet_current_coefficients": (
         "pynamit.visualization.state_fields",
         "evaluate_sheet_current_coefficients",
+    ),
+    "evaluate_sheet_current_from_maps": (
+        "pynamit.visualization.field_maps",
+        "evaluate_sheet_current_from_maps",
+    ),
+    "evaluate_tangential_coefficients": (
+        "pynamit.visualization.field_maps",
+        "evaluate_tangential_coefficients",
+    ),
+    "evaluate_wind_coefficients": (
+        "pynamit.visualization.field_maps",
+        "evaluate_wind_coefficients",
     ),
     "format_contour_interval": (
         "pynamit.visualization.plot_helpers",
@@ -127,6 +163,7 @@ _LAZY_EXPORTS = {
         "pynamit.visualization.grid_evaluation",
         "resistance_to_conductance",
     ),
+    "SavedRunView": ("pynamit.visualization.saved_run", "SavedRunView"),
     "resolve_xarray_artifact_path": (
         "pynamit.visualization.artifacts",
         "resolve_xarray_artifact_path",
@@ -150,6 +187,10 @@ _LAZY_EXPORTS = {
     "style_global_input_axis": (
         "pynamit.visualization.plot_helpers",
         "style_global_input_axis",
+    ),
+    "suppress_empty_contour_warnings": (
+        "pynamit.visualization.plot_helpers",
+        "suppress_empty_contour_warnings",
     ),
     "symmetric_contour_levels_without_zero": (
         "pynamit.visualization.plot_helpers",
@@ -183,53 +224,4 @@ def __dir__():
     return sorted(set(globals()) | set(__all__))
 
 
-__all__ = [
-    "evaluate_Br",
-    "evaluate_Br_coefficients",
-    "evaluate_Phi",
-    "evaluate_Phi_coefficients",
-    "evaluate_W",
-    "evaluate_W_coefficients",
-    "evaluate_equivalent_current_coefficients",
-    "evaluate_equivalent_current_function",
-    "evaluate_jr",
-    "evaluate_jr_coefficients",
-    "evaluate_sheet_current",
-    "evaluate_sheet_current_coefficients",
-    "evaluate_projected_input",
-    "add_panel_label",
-    "apply_local_time_grid_labels",
-    "artifact_path",
-    "build_evaluator",
-    "build_plot_grid",
-    "build_sheet_current_operators",
-    "compute_conversion_factors",
-    "contour_kwargs_for_display",
-    "datetime_to_utc_hours",
-    "format_contour_interval",
-    "format_local_time_longitude_label",
-    "get_ticks_from_levels",
-    "load_dataarray_artifact",
-    "load_dataset_artifact",
-    "load_settings_and_basis",
-    "local_noon_longitude",
-    "local_time_grid_longitudes",
-    "local_time_hours_to_longitude",
-    "local_time_longitude_to_geographic",
-    "longitude_to_local_time_from_noon_longitude",
-    "longitude_to_local_time_hours",
-    "make_local_time_longitude_formatter",
-    "MapCoordinateContext",
-    "PynamEye",
-    "remove_artists",
-    "resistance_to_conductance",
-    "resolve_xarray_artifact_path",
-    "set_contour_edges_to_face",
-    "stabilize_polarplot",
-    "style_global_axis",
-    "style_global_comparison_axis",
-    "style_global_input_axis",
-    "symmetric_contour_levels_without_zero",
-    "wrap_longitude_180",
-    "xarray_artifact_exists",
-]
+__all__ = sorted(_LAZY_EXPORTS)

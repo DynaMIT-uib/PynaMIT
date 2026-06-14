@@ -3,7 +3,8 @@
 import numpy as np
 
 from pynamit.math.constants import mu0
-from pynamit.sphere.spherical_transform import SphericalTransform
+from pynamit.visualization.field_maps import evaluate_sheet_current_from_maps
+from pynamit.visualization.grid_evaluation import transform_for_source
 
 
 def current_output_key(dynamics, preferred=None):
@@ -29,20 +30,6 @@ def current_output_entry(dynamics, key=None):
             f"No {key!r} output is available at t={float(dynamics.current_time):.3f}."
         )
     return entry
-
-
-def transform_for_source(source, transform):
-    """Return ``transform`` or an equivalent one for ``source``."""
-    if transform.source.coefficients_are_compatible_with(source):
-        return transform
-    return SphericalTransform(
-        source,
-        transform.target,
-        sqrt_weights=transform.sqrt_weights if transform.explicit_sqrt_weights else None,
-        reg_lambda=transform.reg_lambda,
-        pinv_rtol=transform.pinv_rtol,
-        area_weighted=transform.area_weighted,
-    )
 
 
 def evaluate_Br_coefficients(geometry, m_ind, transform):
@@ -97,10 +84,11 @@ def evaluate_sheet_current_coefficients(geometry, m_imp, m_ind, transform):
     horizontal_transform = transform_for_source(geometry.basis, transform)
     m_imp_to_sheet = geometry.m_imp_to_gridded_sheet_current(horizontal_transform)
     m_ind_to_sheet = geometry.m_ind_to_gridded_sheet_current(horizontal_transform)
-    return np.tensordot(m_imp_to_sheet, m_imp, axes=([2], [0])) + np.tensordot(
-        m_ind_to_sheet,
+    return evaluate_sheet_current_from_maps(
+        m_imp,
         m_ind,
-        axes=([2], [0]),
+        m_imp_to_sheet=m_imp_to_sheet,
+        m_ind_to_sheet=m_ind_to_sheet,
     )
 
 
@@ -116,7 +104,7 @@ def evaluate_sheet_current(dynamics, transform, *, key=None):
 
 
 def evaluate_Phi_coefficients(geometry, Phi, transform):
-    """Evaluate electric curl-free potential coefficients in volts."""
+    """Evaluate saved curl-free E coefficients as potential in volts."""
     return geometry.RI * transform_for_source(
         geometry.basis,
         transform,
@@ -130,7 +118,7 @@ def evaluate_Phi(dynamics, transform, *, key=None):
 
 
 def evaluate_W_coefficients(geometry, W, transform):
-    """Evaluate divergence-free potential coefficients in volts."""
+    """Evaluate divergence-free E coefficients as potential in volts."""
     return geometry.RI * transform_for_source(
         geometry.basis,
         transform,
@@ -158,5 +146,4 @@ __all__ = [
     "evaluate_jr_coefficients",
     "evaluate_sheet_current",
     "evaluate_sheet_current_coefficients",
-    "transform_for_source",
 ]

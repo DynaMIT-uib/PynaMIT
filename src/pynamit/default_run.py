@@ -38,6 +38,8 @@ def run_pynamit(
     multi_data=False,
     least_squares_solver=None,
     least_squares_preconditioner="pinv",
+    static_preconditioner=False,
+    m_imp_regularization_lambda=0.0,
     run_directory=None,
     artifact_storage="auto",
     horizontal_basis_kind="SH",
@@ -113,6 +115,10 @@ def run_pynamit(
         Least-squares solver used by state feedback solves.
     least_squares_preconditioner : {'jacobi', 'pinv', None}, optional
         Preconditioner used by iterative least-squares state solves.
+    static_preconditioner : bool, optional
+        Keep a reusable iterative-solver preconditioner when valid.
+    m_imp_regularization_lambda : float, optional
+        Regularization strength for imposed-potential solves.
     run_directory : str, optional
         Directory for one persisted run. If omitted, a unique
         timestamped run directory is created under ``simulation/``.
@@ -171,6 +177,8 @@ def run_pynamit(
         integrator=integrator,
         least_squares_solver=least_squares_solver,
         least_squares_preconditioner=least_squares_preconditioner,
+        static_preconditioner=static_preconditioner,
+        m_imp_regularization_lambda=m_imp_regularization_lambda,
         artifact_storage=artifact_storage,
     )
 

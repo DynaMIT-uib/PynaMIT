@@ -6,7 +6,8 @@ import numpy as np
 
 import pynamit.coordinates as coordinates
 import pynamit.visualization as visualization
-from pynamit.math.constants import mu0
+from pynamit.math.constants import RE, mu0
+from pynamit.simulation.dynamics import Dynamics
 from pynamit.sphere import SHBasis
 from pynamit.sphere import SolidHarmonics
 from pynamit.coordinates import (
@@ -29,9 +30,11 @@ from pynamit.visualization.grid_evaluation import build_sheet_current_operators
 from pynamit.visualization.grid_evaluation import resistance_to_conductance
 from pynamit.visualization.local_time import local_time_grid_longitudes
 from pynamit.visualization.plot_helpers import (
+    build_percentile_color_scale,
     contour_kwargs_for_display,
     format_contour_interval,
     get_ticks_from_levels,
+    style_global_axis,
     symmetric_contour_levels_without_zero,
 )
 
@@ -65,7 +68,7 @@ def test_local_time_longitude_helpers_are_vectorized():
 
 
 def test_noon_meridian_local_time_helper_preserves_plot_coordinate():
-    """The shared helper covers globalplot's polar formula."""
+    """The shared helper covers the polar local-time formula."""
     lon = np.array([-180.0, -100.0, 80.0, 180.0])
     noon_longitude = -100.0
 
@@ -138,6 +141,87 @@ def test_plot_helper_functions_match_notebook_behaviour():
     ) == {"levels": levels}
 
 
+def test_percentile_color_scale_handles_diverging_data_symmetrically():
+    """Diverging data use a symmetric percentile limit."""
+    scale = build_percentile_color_scale(
+        [np.array([-1.0, 0.0, 2.0, 100.0, np.nan])],
+        strictly_positive=False,
+        vmax_percentile=75.0,
+    )
+
+    assert scale["strictly_positive"] is False
+    assert scale["scale_type"] == "linear"
+    np.testing.assert_allclose(scale["vmin"], -26.5)
+    np.testing.assert_allclose(scale["vmax"], 26.5)
+    assert scale["norm"].vmin == scale["vmin"]
+    assert scale["norm"].vmax == scale["vmax"]
+
+
+def test_percentile_color_scale_handles_positive_linear_and_log_data():
+    """Positive fields can use linear or log percentile scales."""
+    values = np.array([0.0, 1.0, 10.0, 100.0, np.nan])
+
+    linear = build_percentile_color_scale(
+        [values],
+        strictly_positive=True,
+        vmin_percentile=25.0,
+        vmax_percentile=75.0,
+    )
+    assert linear["vmin"] == 0.0
+    np.testing.assert_allclose(linear["vmax"], 32.5)
+
+    log = build_percentile_color_scale(
+        [values],
+        strictly_positive=True,
+        vmin_percentile=0.0,
+        vmax_percentile=100.0,
+        scale_type="log",
+    )
+    np.testing.assert_allclose(log["vmin"], 1.0)
+    np.testing.assert_allclose(log["vmax"], 100.0)
+    assert log["norm"].vmin == log["vmin"]
+    assert log["norm"].vmax == log["vmax"]
+
+
+def test_style_global_axis_centralizes_map_setup():
+    """Global-axis styling controls map decorations."""
+
+    class FakeGridliner:
+        pass
+
+    class FakeAxis:
+        def __init__(self):
+            self.global_called = False
+            self.coastline_kwargs = None
+            self.gridline_kwargs = None
+
+        def set_global(self):
+            self.global_called = True
+
+        def coastlines(self, **kwargs):
+            self.coastline_kwargs = kwargs
+
+        def gridlines(self, **kwargs):
+            self.gridline_kwargs = kwargs
+            return FakeGridliner()
+
+    ax = FakeAxis()
+    gridliner = style_global_axis(
+        ax,
+        draw_labels=False,
+        draw_coastlines=False,
+        set_global=False,
+    )
+
+    assert not ax.global_called
+    assert ax.coastline_kwargs is None
+    assert ax.gridline_kwargs["draw_labels"] is False
+    assert gridliner.left_labels is False
+    assert gridliner.bottom_labels is False
+    assert gridliner.top_labels is False
+    assert gridliner.right_labels is False
+
+
 def test_grid_and_conductance_helpers_are_importable_from_visualization():
     """Grid/evaluation helpers are available through the package."""
     lat, lon, grid = build_plot_grid(nlat=3, nlon=4)
@@ -206,4 +290,39 @@ def test_sheet_current_operator_bundle_matches_core_formulas():
     np.testing.assert_allclose(
         operators["G_Br_to_JS"],
         poloidal_to_sheet * (-regular_shift / (denominator * m_ind_to_br)),
+    )
+
+
+def test_sheet_current_operator_bundle_matches_geometry(tmp_path):
+    """Notebook helper matches Geometry sheet-current conventions."""
+    dynamics = Dynamics(
+        run_directory=str(tmp_path / "run"),
+        Nmax=2,
+        Mmax=1,
+        Ncs=8,
+        RM=4 * RE,
+        ignore_PFAC=True,
+        artifact_storage="netcdf",
+    )
+    geometry = dynamics.state.geometry
+    _, _, grid = build_plot_grid(nlat=4, nlon=5)
+    transform = build_evaluator(dynamics.horizontal_basis, grid)
+    operators = build_sheet_current_operators(
+        dynamics.settings,
+        dynamics.horizontal_basis,
+        transform,
+        T_to_Ve=geometry.T_to_Ve.values,
+    )
+
+    np.testing.assert_allclose(
+        operators["G_m_ind_to_JS"],
+        geometry.m_ind_to_gridded_sheet_current(transform),
+    )
+    np.testing.assert_allclose(
+        operators["G_m_imp_to_JS"],
+        geometry.m_imp_to_gridded_sheet_current(transform),
+    )
+    np.testing.assert_allclose(
+        operators["G_Br_to_JS"],
+        geometry.Br_to_gridded_sheet_current(transform),
     )

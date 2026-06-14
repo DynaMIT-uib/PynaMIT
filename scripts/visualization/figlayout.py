@@ -88,8 +88,8 @@ dynamics.update_jr()
 dynamics.state.update_m_imp()
 
 
-def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
-    """Debug plotting for the model object.
+def plot_state_debug_summary(dynamics, title=None, filename=None, noon_longitude=0):
+    """Plot a state diagnostic summary for the model object.
 
     Parameters
     ----------
@@ -173,21 +173,43 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     mlt = (lon - noon_longitude + 180) / 15  # rotate so that noon is up
 
     # Make north polar plots.
-    iii = lat > 50
-    paxn_B.contourf(lat[iii], mlt[iii], Br[iii], **B_kwargs)
-    paxn_j.contour(lat[iii], mlt[iii], eq_current_function[iii], **eqJ_kwargs)
-    paxn_j.contourf(lat[iii], mlt[iii], FAC[iii], **FAC_kwargs)
+    north_mask = lat > 50
+    paxn_B.contourf(lat[north_mask], mlt[north_mask], Br[north_mask], **B_kwargs)
+    paxn_j.contour(
+        lat[north_mask],
+        mlt[north_mask],
+        eq_current_function[north_mask],
+        **eqJ_kwargs,
+    )
+    paxn_j.contourf(
+        lat[north_mask],
+        mlt[north_mask],
+        FAC[north_mask],
+        **FAC_kwargs,
+    )
 
     # Make south polar plots.
-    iii = lat < -50
-    paxs_B.contourf(lat[iii], mlt[iii], Br[iii], **B_kwargs)
-    paxs_j.contour(lat[iii], mlt[iii], eq_current_function[iii], **eqJ_kwargs)
-    paxs_j.contourf(lat[iii], mlt[iii], FAC[iii], **FAC_kwargs)
+    south_mask = lat < -50
+    paxs_B.contourf(lat[south_mask], mlt[south_mask], Br[south_mask], **B_kwargs)
+    paxs_j.contour(
+        lat[south_mask],
+        mlt[south_mask],
+        eq_current_function[south_mask],
+        **eqJ_kwargs,
+    )
+    paxs_j.contourf(
+        lat[south_mask],
+        mlt[south_mask],
+        FAC[south_mask],
+        **FAC_kwargs,
+    )
 
     # Scatter plot high latitude jr.
-    iii = np.abs(dynamics.state.geometry.grid.lat) > dynamics.state.latitude_boundary
+    high_latitude_mask = (
+        np.abs(dynamics.state.geometry.grid.lat) > dynamics.state.latitude_boundary
+    )
     jrmax = np.max(np.abs(dynamics.state.jr))
-    ax_1.scatter(dynamics.state.jr, jr_mod[iii])
+    ax_1.scatter(dynamics.state.jr, jr_mod[high_latitude_mask])
     ax_1.plot([-jrmax, jrmax], [-jrmax, jrmax], "k-")
     ax_1.set_xlabel("Input ")
 
@@ -252,4 +274,9 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     plt.close()
 
 
-debugplot(dynamics, title="hoi!", filename=None, noon_longitude=noon_longitude)
+plot_state_debug_summary(
+    dynamics,
+    title="State diagnostic summary",
+    filename=None,
+    noon_longitude=noon_longitude,
+)

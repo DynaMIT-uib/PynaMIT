@@ -40,6 +40,9 @@ def test_simulation_data_owns_schema_io_and_timeseries(tmp_path):
     assert data.run_directory == str(run_dir.resolve())
     assert not data.settings_from_file
     assert not data.pfac_matrix_from_file
+    assert data.config.horizontal_basis_kind == "CS"
+    assert data.settings.attrs["horizontal_basis_kind"] == "CS"
+    assert data.settings.attrs["jr_projection_basis"] == "CS"
     assert data.input_timeseries.area_weighted_least_squares
     assert data.output_timeseries.area_weighted_least_squares
 
@@ -122,3 +125,51 @@ def test_dynamics_delegates_persistence_to_simulation_data(tmp_path):
     assert dynamics.data.input_timeseries is dynamics.input_timeseries
     assert dynamics.data.output_timeseries is dynamics.output_timeseries
     assert dynamics.data.pfac_matrix is not None
+
+
+def test_dynamics_from_directory_uses_saved_configuration(tmp_path):
+    """Saved settings seed restart construction."""
+    run_dir = tmp_path / "run"
+    original = Dynamics(
+        run_directory=str(run_dir),
+        Nmax=2,
+        Mmax=1,
+        Ncs=8,
+        horizontal_basis_kind="CS",
+        ignore_PFAC=True,
+        artifact_storage="netcdf",
+    )
+
+    reloaded = Dynamics.from_directory(
+        str(run_dir),
+        horizontal_basis_kind=None,
+        artifact_storage="netcdf",
+    )
+
+    assert reloaded.config.Nmax == original.config.Nmax
+    assert reloaded.config.Mmax == original.config.Mmax
+    assert reloaded.config.horizontal_basis_kind == "CS"
+    assert reloaded.schema.horizontal_basis is not original.schema.horizontal_basis
+    assert reloaded.schema.horizontal_basis.index_length == (
+        original.schema.horizontal_basis.index_length
+    )
+
+
+def test_dynamics_from_directory_rejects_conflicting_override(tmp_path):
+    """Explicit restart overrides must match saved settings."""
+    run_dir = tmp_path / "run"
+    Dynamics(
+        run_directory=str(run_dir),
+        Nmax=2,
+        Mmax=1,
+        Ncs=8,
+        ignore_PFAC=True,
+        artifact_storage="netcdf",
+    )
+
+    with pytest.raises(ValueError, match="Mismatch"):
+        Dynamics.from_directory(
+            str(run_dir),
+            Nmax=3,
+            artifact_storage="netcdf",
+        )

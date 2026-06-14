@@ -5,7 +5,7 @@ from pathlib import Path
 
 import xarray as xr
 
-from pynamit.primitives.io import IO
+from pynamit.primitives.io import IO, ZARR_OPEN_KWARGS
 
 
 def resolve_xarray_artifact_path(path):
@@ -37,7 +37,7 @@ def load_dataset_artifact(path):
     resolved = resolve_xarray_artifact_path(path)
     if resolved.endswith(".zarr"):
         with IO._zarr_config_context():
-            return xr.open_zarr(resolved)
+            return xr.open_zarr(resolved, **ZARR_OPEN_KWARGS)
     return xr.load_dataset(resolved)
 
 
@@ -46,7 +46,7 @@ def load_dataarray_artifact(path):
     resolved = resolve_xarray_artifact_path(path)
     if resolved.endswith(".zarr"):
         with IO._zarr_config_context():
-            dataset = xr.open_zarr(resolved)
+            dataset = xr.open_zarr(resolved, **ZARR_OPEN_KWARGS)
         data_vars = list(dataset.data_vars)
         if len(data_vars) != 1:
             raise ValueError(

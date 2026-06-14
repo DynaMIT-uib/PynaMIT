@@ -15,6 +15,7 @@ from pynamit.sphere import Grid
 from pynamit.sphere.spherical_transform import SphericalTransform
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.visualization.map_coordinates import MapCoordinateContext
+from pynamit.visualization.plot_helpers import style_global_axis
 from pynamit.visualization.state_fields import (
     evaluate_Br,
     evaluate_Phi,
@@ -45,7 +46,7 @@ def cs_interpolate(projection, inlat, inlon, values, outlat, outlon, **kwargs):
         Additional arguments for griddata interpolation.
     """
     inlat, inlon, values = map(np.ravel, np.broadcast_arrays(inlat, inlon, values))
-    in_r = np.vstack(
+    input_radius_vectors = np.vstack(
         (
             np.cos(np.deg2rad(inlat)) * np.cos(np.deg2rad(inlon)),
             np.cos(np.deg2rad(inlat)) * np.sin(np.deg2rad(inlon)),
@@ -54,28 +55,40 @@ def cs_interpolate(projection, inlat, inlon, values, outlat, outlon, **kwargs):
     )
 
     outlon, outlat = np.broadcast_arrays(outlon, outlat)
-    # Get the shape so we can reshape the result in the end.
-    shape = outlon.shape
+    output_shape = outlon.shape
     outlon, outlat = outlon.reshape(-1), outlat.reshape(-1)
 
-    result = np.zeros_like(outlon) - 1
+    interpolated = np.zeros_like(outlon) - 1
 
-    xi_o, eta_o, block_o = projection.geo2cube(outlon, outlat)
+    output_xi, output_eta, output_block = projection.geo2cube(outlon, outlat)
 
-    # Go through each block.
-    for i in range(6):
-        jjj = block_o == i  # These are the points we want to specify
-
-        # Find the points that are on the right side.
-        _, th0, ph0 = projection.cube2spherical(0, 0, i)
-        r0 = np.array([np.sin(th0) * np.cos(ph0), np.sin(th0) * np.sin(ph0), np.cos(th0)])
-        iii = np.sum(r0.reshape((-1, 1)) * in_r, axis=0) > 0
-        xi_i, eta_i, _ = projection.geo2cube(inlon[iii], inlat[iii], block=i)
-        result[jjj] = griddata(
-            np.vstack((xi_i, eta_i)).T, values[iii], np.vstack((xi_o[jjj], eta_o[jjj])).T, **kwargs
+    for block in range(6):
+        target_mask = output_block == block
+        _, theta0, phi0 = projection.cube2spherical(0, 0, block)
+        block_center_vector = np.array(
+            [
+                np.sin(theta0) * np.cos(phi0),
+                np.sin(theta0) * np.sin(phi0),
+                np.cos(theta0),
+            ]
+        )
+        source_visible_mask = (
+            np.sum(block_center_vector.reshape((-1, 1)) * input_radius_vectors, axis=0)
+            > 0
+        )
+        source_xi, source_eta, _ = projection.geo2cube(
+            inlon[source_visible_mask],
+            inlat[source_visible_mask],
+            block=block,
+        )
+        interpolated[target_mask] = griddata(
+            np.vstack((source_xi, source_eta)).T,
+            values[source_visible_mask],
+            np.vstack((output_xi[target_mask], output_eta[target_mask])).T,
+            **kwargs,
         )
 
-    return result.reshape(shape)
+    return interpolated.reshape(output_shape)
 
 
 def plot_global_polar_map(lon, lat, data, noon_longitude=0, scatter=False, **kwargs):
@@ -114,42 +127,66 @@ def plot_global_polar_map(lon, lat, data, noon_longitude=0, scatter=False, **kwa
         )
 
     global_projection = coordinate_context.projection()
-    ax = fig.add_subplot(2, 1, 2, projection=global_projection)
-    ax.coastlines(zorder=2, color="grey")
+    global_axis = fig.add_subplot(2, 1, 2, projection=global_projection)
+    style_global_axis(
+        global_axis,
+        coordinate_context=coordinate_context,
+        coastline_color="grey",
+    )
     if scatter:
-        ax.scatter(lon, lat, c=data, transform=ccrs.PlateCarree(), **kwargs)
+        global_axis.scatter(lon, lat, c=data, transform=ccrs.PlateCarree(), **kwargs)
     else:
-        ax.contourf(lon, lat, data, transform=ccrs.PlateCarree(), **kwargs)
+        global_axis.contourf(lon, lat, data, transform=ccrs.PlateCarree(), **kwargs)
 
     if title is not None:
-        ax.set_title(title)
+        global_axis.set_title(title)
 
-    pax1 = polplot.Polarplot(fig.add_subplot(2, 2, 1), minlat=50)
-    pax2 = polplot.Polarplot(fig.add_subplot(2, 2, 2), minlat=50)
+    north_axis = polplot.Polarplot(fig.add_subplot(2, 2, 1), minlat=50)
+    south_axis = polplot.Polarplot(fig.add_subplot(2, 2, 2), minlat=50)
 
     mlt = coordinate_context.longitude_to_local_time(
         lon,
         wrap=False,
     )
 
-    iii = lat > 50
+    north_mask = lat > 50
     if scatter:
-        pax1.scatter(lat[iii], mlt[iii], c=data[iii], **kwargs)
+        north_axis.scatter(
+            lat[north_mask],
+            mlt[north_mask],
+            c=data[north_mask],
+            **kwargs,
+        )
     else:
-        pax1.contourf(lat[iii], mlt[iii], data[iii], **kwargs)
-    pax1.ax.set_title("North")
+        north_axis.contourf(
+            lat[north_mask],
+            mlt[north_mask],
+            data[north_mask],
+            **kwargs,
+        )
+    north_axis.ax.set_title("North")
 
-    iii = lat < -50
+    south_mask = lat < -50
     if scatter:
-        pax2.scatter(lat[iii], mlt[iii], c=data[iii], **kwargs)
+        south_axis.scatter(
+            lat[south_mask],
+            mlt[south_mask],
+            c=data[south_mask],
+            **kwargs,
+        )
     else:
-        pax2.contourf(lat[iii], mlt[iii], data[iii], **kwargs)
-    pax2.ax.set_title("South")
+        south_axis.contourf(
+            lat[south_mask],
+            mlt[south_mask],
+            data[south_mask],
+            **kwargs,
+        )
+    south_axis.ax.set_title("South")
 
     plt.tight_layout()
 
     if returnplot:
-        return (fig, pax1, pax2, ax)
+        return (fig, north_axis, south_axis, global_axis)
 
     if save is not None:
         plt.savefig(save)
@@ -194,9 +231,16 @@ def plot_state_diagnostics(
     - Field-aligned currents normalized by radial field.
     - Equivalent current function.
     """
-    B_kwargs = {"cmap": plt.cm.bwr, "levels": np.linspace(-100, 100, 22) * 1e-9, "extend": "both"}
-    eqJ_kwargs = {"colors": "black", "levels": np.r_[-210:220:20] * 1e3}
-    FAC_kwargs = {
+    br_kwargs = {
+        "cmap": plt.cm.bwr,
+        "levels": np.linspace(-100, 100, 22) * 1e-9,
+        "extend": "both",
+    }
+    equivalent_current_kwargs = {
+        "colors": "black",
+        "levels": np.r_[-210:220:20] * 1e3,
+    }
+    fac_kwargs = {
         "cmap": plt.cm.bwr,
         "levels": np.linspace(-0.95, 0.95, 22) / 2 * 1e-6,
         "extend": "both",
@@ -210,60 +254,87 @@ def plot_state_diagnostics(
 
     fig = plt.figure(figsize=(15, 10))
 
-    paxn_B = Polarplot(plt.subplot2grid((3, 4), (0, 0)))
-    paxs_B = Polarplot(plt.subplot2grid((3, 4), (0, 1)))
-    paxn_j = Polarplot(plt.subplot2grid((3, 4), (0, 2)))
-    paxs_j = Polarplot(plt.subplot2grid((3, 4), (0, 3)))
-    gax_B = plt.subplot2grid((3, 3), (1, 0), projection=global_projection, rowspan=2)
-    gax_j = plt.subplot2grid((3, 3), (1, 1), projection=global_projection, rowspan=2)
-    gax_eq = plt.subplot2grid((3, 3), (1, 2), projection=global_projection, rowspan=2)
+    north_br_axis = Polarplot(plt.subplot2grid((3, 4), (0, 0)))
+    south_br_axis = Polarplot(plt.subplot2grid((3, 4), (0, 1)))
+    north_current_axis = Polarplot(plt.subplot2grid((3, 4), (0, 2)))
+    south_current_axis = Polarplot(plt.subplot2grid((3, 4), (0, 3)))
+    global_br_axis = plt.subplot2grid(
+        (3, 3),
+        (1, 0),
+        projection=global_projection,
+        rowspan=2,
+    )
+    global_current_axis = plt.subplot2grid(
+        (3, 3),
+        (1, 1),
+        projection=global_projection,
+        rowspan=2,
+    )
+    global_equivalent_current_axis = plt.subplot2grid(
+        (3, 3),
+        (1, 2),
+        projection=global_projection,
+        rowspan=2,
+    )
 
-    for ax in [gax_B, gax_j, gax_eq]:
-        ax.coastlines(zorder=2, color="grey")
+    for ax in [
+        global_br_axis,
+        global_current_axis,
+        global_equivalent_current_axis,
+    ]:
+        style_global_axis(
+            ax,
+            coordinate_context=coordinate_context,
+            coastline_color="grey",
+        )
 
     # Set up plotting grid and evaluators.
     NLA, NLO = 50, 90
     lat, lon = np.linspace(-89.9, 89.9, NLA), np.linspace(-180, 180, NLO)
     lat, lon = map(np.ravel, np.meshgrid(lat, lon))
     plt_grid = Grid(lat=lat, lon=lon)
-    plt_state_evaluator = SphericalTransform(dynamics.state.basis, plt_grid)
-    plt_b_evaluator = FieldEvaluator(dynamics.mainfield, plt_grid, dynamics.state.RI)
+    state_transform = SphericalTransform(dynamics.state.basis, plt_grid)
+    mainfield_evaluator = FieldEvaluator(
+        dynamics.mainfield,
+        plt_grid,
+        dynamics.state.RI,
+    )
 
     # Calculate values to plot.
-    Br = evaluate_Br(dynamics, plt_state_evaluator)
-    FAC = evaluate_jr(dynamics, plt_state_evaluator) / plt_b_evaluator.br
+    br_values = evaluate_Br(dynamics, state_transform)
+    fac_values = evaluate_jr(dynamics, state_transform) / mainfield_evaluator.br
     eq_current_function = evaluate_equivalent_current_function(
-        dynamics, plt_state_evaluator
+        dynamics, state_transform
     )
 
     # Make global plots.
-    gax_B.contourf(
+    global_br_axis.contourf(
         lon.reshape((NLO, NLA)),
         lat.reshape((NLO, NLA)),
-        Br.reshape((NLO, NLA)),
+        br_values.reshape((NLO, NLA)),
         transform=ccrs.PlateCarree(),
-        **B_kwargs,
+        **br_kwargs,
     )
-    gax_j.contour(
+    global_current_axis.contour(
         lon.reshape((NLO, NLA)),
         lat.reshape((NLO, NLA)),
         eq_current_function.reshape((NLO, NLA)),
         transform=ccrs.PlateCarree(),
-        **eqJ_kwargs,
+        **equivalent_current_kwargs,
     )
-    gax_j.contourf(
+    global_current_axis.contourf(
         lon.reshape((NLO, NLA)),
         lat.reshape((NLO, NLA)),
-        FAC.reshape((NLO, NLA)),
+        fac_values.reshape((NLO, NLA)),
         transform=ccrs.PlateCarree(),
-        **FAC_kwargs,
+        **fac_kwargs,
     )
-    gax_eq.contour(
+    global_equivalent_current_axis.contour(
         lon.reshape((NLO, NLA)),
         lat.reshape((NLO, NLA)),
         eq_current_function.reshape((NLO, NLA)),
         transform=ccrs.PlateCarree(),
-        **eqJ_kwargs,
+        **equivalent_current_kwargs,
     )
 
     # Make polar plots.
@@ -272,20 +343,48 @@ def plot_state_diagnostics(
         wrap=False,
     )
 
-    # Make north plot.
-    iii = lat > 50
-    paxn_B.contourf(lat[iii], mlt[iii], Br[iii], **B_kwargs)
-    paxn_j.contour(lat[iii], mlt[iii], eq_current_function[iii], **eqJ_kwargs)
-    paxn_j.contourf(lat[iii], mlt[iii], FAC[iii], **FAC_kwargs)
+    north_mask = lat > 50
+    north_br_axis.contourf(
+        lat[north_mask],
+        mlt[north_mask],
+        br_values[north_mask],
+        **br_kwargs,
+    )
+    north_current_axis.contour(
+        lat[north_mask],
+        mlt[north_mask],
+        eq_current_function[north_mask],
+        **equivalent_current_kwargs,
+    )
+    north_current_axis.contourf(
+        lat[north_mask],
+        mlt[north_mask],
+        fac_values[north_mask],
+        **fac_kwargs,
+    )
 
-    # Make south plot.
-    iii = lat < -50
-    paxs_B.contourf(lat[iii], mlt[iii], Br[iii], **B_kwargs)
-    paxs_j.contour(lat[iii], mlt[iii], eq_current_function[iii], **eqJ_kwargs)
-    paxs_j.contourf(lat[iii], mlt[iii], FAC[iii], **FAC_kwargs)
+    south_mask = lat < -50
+    south_br_axis.contourf(
+        lat[south_mask],
+        mlt[south_mask],
+        br_values[south_mask],
+        **br_kwargs,
+    )
+    south_current_axis.contour(
+        lat[south_mask],
+        mlt[south_mask],
+        eq_current_function[south_mask],
+        **equivalent_current_kwargs,
+    )
+    south_current_axis.contourf(
+        lat[south_mask],
+        mlt[south_mask],
+        fac_values[south_mask],
+        **fac_kwargs,
+    )
 
     if title is not None:
-        gax_j.set_title(title)
+        global_current_axis.set_title(title)
 
     plt.subplots_adjust(
         top=0.89,
@@ -347,7 +446,11 @@ def compare_AMPS_jr_and_CF_currents(dynamics, a, d, date, lon0):
     mnv_grid = Grid(lat=mlatnv, lon=mltnv)
 
     paxes[0].contourf(
-        mn_grid.lat, mn_grid.lon, np.split(ju_amps, 2)[0], levels=levels, cmap=plt.cm.bwr
+        mn_grid.lat,
+        mn_grid.lon,
+        np.split(ju_amps, 2)[0],
+        levels=levels,
+        cmap=plt.cm.bwr,
     )
     paxes[0].quiver(
         mnv_grid.lat,
@@ -358,7 +461,11 @@ def compare_AMPS_jr_and_CF_currents(dynamics, a, d, date, lon0):
         color="black",
     )
     paxes[1].contourf(
-        mn_grid.lat, mn_grid.lon, np.split(ju_amps, 2)[1], levels=levels, cmap=plt.cm.bwr
+        mn_grid.lat,
+        mn_grid.lon,
+        np.split(ju_amps, 2)[1],
+        levels=levels,
+        cmap=plt.cm.bwr,
     )
     paxes[1].quiver(
         mnv_grid.lat,
@@ -437,10 +544,18 @@ def plot_AMPS_Br(a):
 
     Bu = a.get_ground_Buqd(height=a.height)
     paxes[0].contourf(
-        mn_grid.lat, mn_grid.lon, np.split(Bu, 2)[0], levels=Blevels * 1e9, cmap=plt.cm.bwr
+        mn_grid.lat,
+        mn_grid.lon,
+        np.split(Bu, 2)[0],
+        levels=Blevels * 1e9,
+        cmap=plt.cm.bwr,
     )
     paxes[1].contourf(
-        mn_grid.lat, mn_grid.lon, np.split(Bu, 2)[1], levels=Blevels * 1e9, cmap=plt.cm.bwr
+        mn_grid.lat,
+        mn_grid.lon,
+        np.split(Bu, 2)[1],
+        levels=Blevels * 1e9,
+        cmap=plt.cm.bwr,
     )
 
     plt.show()
@@ -606,44 +721,44 @@ def time_dependent_plot(
     """
     import os
 
-    Blevels = np.linspace(-300, 300, 22) * 1e-9  # Color levels for Br
-    Philevels = np.r_[-212.5:212.5:5]  # Color levels for Phi
+    br_levels = np.linspace(-300, 300, 22) * 1e-9
+    phi_levels = np.r_[-212.5:212.5:5]
 
     fn = os.path.join(fig_directory, "new_" + str(filecount).zfill(3) + ".png")
     title = "t = {:.3} s".format(dynamics.current_time)
 
-    Br = evaluate_Br(dynamics, plt_state_evaluator)
+    br_values = evaluate_Br(dynamics, plt_state_evaluator)
 
     _, paxn, paxs, _ = plot_global_polar_map(
         plt_grid.lon.reshape(pltshape),
         plt_grid.lat.reshape(pltshape),
-        Br.reshape(pltshape),
+        br_values.reshape(pltshape),
         title=title,
         returnplot=True,
-        levels=Blevels,
+        levels=br_levels,
         cmap="bwr",
         noon_longitude=lon0,
         extend="both",
     )
 
-    Phi = evaluate_Phi(dynamics, plt_state_evaluator) * 1e-3
+    phi_values = evaluate_Phi(dynamics, plt_state_evaluator) * 1e-3
 
-    nnn = plt_grid.lat.reshape(-1) > 50
-    sss = plt_grid.lat.reshape(-1) < -50
+    north_mask = plt_grid.lat.reshape(-1) > 50
+    south_mask = plt_grid.lat.reshape(-1) < -50
     paxn.contour(
-        plt_grid.lat[nnn],
-        (plt_grid.lon - lon0)[nnn] / 15,
-        Phi[nnn],
+        plt_grid.lat[north_mask],
+        (plt_grid.lon - lon0)[north_mask] / 15,
+        phi_values[north_mask],
         colors="black",
-        levels=Philevels,
+        levels=phi_levels,
         linewidths=0.5,
     )
     paxs.contour(
-        plt_grid.lat[sss],
-        (plt_grid.lon - lon0)[sss] / 15,
-        Phi[sss],
+        plt_grid.lat[south_mask],
+        (plt_grid.lon - lon0)[south_mask] / 15,
+        phi_values[south_mask],
         colors="black",
-        levels=Philevels,
+        levels=phi_levels,
         linewidths=0.5,
     )
     plt.savefig(fn)

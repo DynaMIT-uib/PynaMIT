@@ -3,7 +3,8 @@
 import numpy as np
 
 from pynamit.math.constants import mu0
-from pynamit.simulation.schema import setting_value
+from pynamit.simulation.config import setting_value
+from pynamit.simulation.sheet_current import sheet_current_operator_bundle
 from pynamit.sphere import Grid, SHBasis, SolidHarmonics, SphericalTransform
 from pynamit.visualization.artifacts import load_dataset_artifact
 
@@ -34,6 +35,22 @@ def build_evaluator(basis, grid, **kwargs):
     return SphericalTransform(basis, grid, **kwargs)
 
 
+def transform_for_source(source, transform):
+    """Return ``transform`` or an equivalent one for ``source``."""
+    if transform.source.coefficients_are_compatible_with(source):
+        return transform
+    return SphericalTransform(
+        source,
+        transform.target,
+        sqrt_weights=(
+            transform.sqrt_weights if transform.explicit_sqrt_weights else None
+        ),
+        reg_lambda=transform.reg_lambda,
+        pinv_rtol=transform.pinv_rtol,
+        area_weighted=transform.area_weighted,
+    )
+
+
 def compute_conversion_factors(settings, sh_basis):
     """Compute common SH coefficient conversion factors."""
     ri = float(setting_value(settings, "RI"))
@@ -54,46 +71,18 @@ def build_sheet_current_operators(settings, sh_basis, transform, T_to_Ve=None):
     This is the low-level matrix bundle used by notebook and script
     visualizations that operate directly on saved coefficient arrays.
     """
-    ri = float(setting_value(settings, "RI"))
-    solid_harmonics = SolidHarmonics(sh_basis)
-    ve_to_j_df_coeffs = (
-        -ri / mu0 * solid_harmonics.poloidal_to_boundary_potential_jump_factor
-    )
-    poloidal_to_sheet = (
-        transform.scalar_coeffs_to_gridded_rhat_cross_gradient
-        * (ve_to_j_df_coeffs / ri)
-    )
-    toroidal_to_sheet = -transform.scalar_coeffs_to_gridded_gradient * (1.0 / mu0)
-
-    m_imp_to_sheet = toroidal_to_sheet
-    if T_to_Ve is not None:
-        m_imp_to_sheet = m_imp_to_sheet + np.tensordot(
-            poloidal_to_sheet,
-            np.asarray(T_to_Ve),
-            axes=([2], [0]),
-        )
-
-    m_ind_to_sheet = poloidal_to_sheet
-    Br_to_sheet = np.zeros_like(m_ind_to_sheet)
     rm = setting_value(settings, "RM", None)
     if rm not in (None, 0, 0.0):
-        br_shift = solid_harmonics.regular_reference_shift(rm, ri)
-        vi_shift = solid_harmonics.irregular_reference_shift(ri, rm)
-        denominator = 1.0 - br_shift * vi_shift
-        safe_denominator = np.where(denominator == 0, np.nan, denominator)
-        m_ind_to_Br = -(ri**2) * sh_basis.laplacian(ri)
-        Br_to_sheet = poloidal_to_sheet * (
-            -br_shift / (safe_denominator * m_ind_to_Br)
-        )
-        m_ind_to_sheet = poloidal_to_sheet * (
-            1.0 + br_shift * vi_shift / safe_denominator
-        )
-
-    return {
-        "G_m_ind_to_JS": m_ind_to_sheet,
-        "G_m_imp_to_JS": m_imp_to_sheet,
-        "G_Br_to_JS": Br_to_sheet,
-    }
+        rm = float(rm)
+    else:
+        rm = None
+    return sheet_current_operator_bundle(
+        SolidHarmonics(sh_basis),
+        transform,
+        radius=float(setting_value(settings, "RI")),
+        boundary_radius=rm,
+        T_to_Ve=T_to_Ve,
+    )
 
 
 def resistance_to_conductance(etaP, etaH):
@@ -116,4 +105,5 @@ __all__ = [
     "compute_conversion_factors",
     "load_settings_and_basis",
     "resistance_to_conductance",
+    "transform_for_source",
 ]

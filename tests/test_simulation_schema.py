@@ -4,14 +4,13 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from pynamit.simulation.schema import (
-    build_simulation_schema,
-    field_spaces_from_bases,
+from pynamit.simulation.config import (
     normalize_horizontal_basis_kind,
     normalize_projection_basis_kind,
     resolve_projection_basis_settings,
     setting_value,
 )
+from pynamit.simulation.schema import build_simulation_schema, field_spaces_from_bases
 
 
 def _settings(**attrs):

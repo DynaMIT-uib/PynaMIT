@@ -5,15 +5,9 @@ coupling.
 """
 
 import numpy as np
-import xarray as xr
 from pynamit.math.constants import RE
-from pynamit.math.least_squares_solver import get_default_least_squares_solver
 from pynamit.primitives.field_evaluator import FieldEvaluator
-from pynamit.simulation.schema import (
-    normalize_horizontal_basis_kind,
-    resolve_projection_basis_settings,
-    setting_value,
-)
+from pynamit.simulation.config import SimulationConfig
 from pynamit.sphere.spherical_transform import SphericalTransform
 from pynamit.sphere import Grid
 from pynamit.primitives.io import IO
@@ -71,6 +65,8 @@ class Dynamics:
         integrator="euler",
         least_squares_solver=None,
         least_squares_preconditioner="pinv",
+        static_preconditioner=False,
+        m_imp_regularization_lambda=0.0,
         artifact_storage="auto",
         backend="auto",
         horizontal_basis_kind="SH",
@@ -137,6 +133,10 @@ class Dynamics:
         least_squares_preconditioner : {'jacobi', 'pinv', None},
             optional
             Preconditioner used by iterative least-squares state solves.
+        static_preconditioner : bool, optional
+            Keep a reusable iterative-solver preconditioner when valid.
+        m_imp_regularization_lambda : float, optional
+            Regularization strength for imposed-potential solves.
         artifact_storage : {'auto', 'netcdf', 'zarr'}, optional
             Preferred backend for new saved xarray artifacts. Existing
             artifacts keep their format on restart.
@@ -159,56 +159,45 @@ class Dynamics:
             use ``sin(theta)``.
         """
         self.backend = set_backend(backend)
-        horizontal_basis_kind = normalize_horizontal_basis_kind(horizontal_basis_kind)
-        raw_projection_settings = {
-            "jr_projection_basis": jr_projection_basis,
-            "Br_projection_basis": Br_projection_basis,
-            "conductance_projection_basis": conductance_projection_basis,
-            "u_projection_basis": u_projection_basis,
-            "Q_eff_projection_basis": Q_eff_projection_basis,
-        }
-        projection_settings = resolve_projection_basis_settings(
-            {
-                name: value
-                for name, value in raw_projection_settings.items()
-                if value is not None
-            },
-            horizontal_basis_kind,
+        self.config = SimulationConfig(
+            Nmax=Nmax,
+            Mmax=Mmax,
+            Ncs=Ncs,
+            RI=RI,
+            RM=RM,
+            latitude_boundary=latitude_boundary,
+            ignore_PFAC=ignore_PFAC,
+            connect_hemispheres=connect_hemispheres,
+            FAC_integration_steps=FAC_integration_steps,
+            ih_constraint_scaling=ih_constraint_scaling,
+            mainfield_kind=mainfield_kind,
+            mainfield_epoch=mainfield_epoch,
+            mainfield_B0=mainfield_B0,
+            jr_projection_basis=jr_projection_basis,
+            Br_projection_basis=Br_projection_basis,
+            conductance_projection_basis=conductance_projection_basis,
+            u_projection_basis=u_projection_basis,
+            Q_eff_projection_basis=Q_eff_projection_basis,
+            horizontal_basis_kind=horizontal_basis_kind,
+            area_weighted_least_squares=area_weighted_least_squares,
+            t0=t0,
+            save_steady_states=save_steady_states,
+            integrator=integrator,
+            least_squares_solver=least_squares_solver,
+            least_squares_preconditioner=least_squares_preconditioner,
+            static_preconditioner=static_preconditioner,
+            m_imp_regularization_lambda=m_imp_regularization_lambda,
         )
-
-        # Store setting arguments in xarray dataset.
-        self.settings = xr.Dataset(
-            attrs={
-                "Nmax": Nmax,
-                "Mmax": Mmax,
-                "Ncs": Ncs,
-                "RI": RI,
-                "RM": 0 if RM is None else RM,
-                "latitude_boundary": latitude_boundary,
-                "ignore_PFAC": int(ignore_PFAC),
-                "connect_hemispheres": int(connect_hemispheres),
-                "FAC_integration_steps": FAC_integration_steps,
-                "ih_constraint_scaling": ih_constraint_scaling,
-                "mainfield_kind": mainfield_kind,
-                "mainfield_epoch": mainfield_epoch,
-                "mainfield_B0": 0 if mainfield_B0 is None else mainfield_B0,
-                **projection_settings,
-                "horizontal_basis_kind": horizontal_basis_kind,
-                "area_weighted_least_squares": int(area_weighted_least_squares),
-                "t0": t0,
-                "save_steady_states": int(save_steady_states),
-                "integrator": integrator,
-                "least_squares_solver": least_squares_solver or get_default_least_squares_solver(),
-                "least_squares_preconditioner": least_squares_preconditioner,
-            }
-        )
+        self.settings = self.config.to_dataset()
 
         self.data = SimulationData.create(
-            self.settings,
+            self.config,
             run_directory=run_directory,
             artifact_storage=artifact_storage,
             print_info=True,
         )
+        self.config = self.data.config
+        self.settings = self.data.settings
         self.uses_temporary_run_directory = self.data.uses_temporary_run_directory
         self.io = self.data.io
         self.run_directory = self.data.run_directory
@@ -253,21 +242,15 @@ class Dynamics:
                     representation,
                     input_grid,
                     grid_remap_basis=self.cs_basis,
-                    area_weighted=bool(
-                        setting_value(self.settings, "area_weighted_least_squares")
-                    ),
+                    area_weighted=self.config.area_weighted_least_squares,
                 )
             self.input_transforms[key] = input_transform_cache[cache_key]
 
         self.mainfield = Mainfield(
-            kind=setting_value(self.settings, "mainfield_kind"),
-            epoch=setting_value(self.settings, "mainfield_epoch"),
-            hI=(setting_value(self.settings, "RI") - RE) * 1e-3,
-            B0=(
-                None
-                if setting_value(self.settings, "mainfield_B0") == 0
-                else setting_value(self.settings, "mainfield_B0")
-            ),
+            kind=self.config.mainfield_kind,
+            epoch=self.config.mainfield_epoch,
+            hI=(self.config.RI - RE) * 1e-3,
+            B0=self.config.mainfield_B0,
         )
 
         # Initialize the state of the ionosphere, restarting from the
@@ -293,7 +276,28 @@ class Dynamics:
     @classmethod
     def from_directory(cls, run_directory, **kwargs):
         """Construct a simulation from one run directory."""
-        return cls(run_directory=IO.discover_run_directory(run_directory), **kwargs)
+        run_directory = IO.discover_run_directory(run_directory)
+        artifact_storage = kwargs.get("artifact_storage", "auto")
+        settings = IO(
+            run_directory,
+            preferred_dataset_storage=artifact_storage,
+        ).load_dataset("settings")
+        if settings is None:
+            return cls(run_directory=run_directory, **kwargs)
+
+        config_kwargs = SimulationConfig.from_settings(settings).to_kwargs()
+        config_kwargs.update(
+            {
+                name: value
+                for name, value in kwargs.items()
+                if name in config_kwargs
+                and value is not None
+            }
+        )
+        extra_kwargs = {
+            name: value for name, value in kwargs.items() if name not in config_kwargs
+        }
+        return cls(run_directory=run_directory, **config_kwargs, **extra_kwargs)
 
     def evolve_to_time(
         self,
@@ -330,7 +334,7 @@ class Dynamics:
         """
         run_inductive = bool(run_inductive)
         if run_steady_state is None:
-            run_steady_state = bool(setting_value(self.settings, "save_steady_states"))
+            run_steady_state = self.config.save_steady_states
         else:
             run_steady_state = bool(run_steady_state)
 
@@ -381,8 +385,7 @@ class Dynamics:
                 sampling_step_interval * saving_sample_interval
             ) == 0
             needs_steady_state = (
-                run_inductive
-                and setting_value(self.settings, "integrator") == "exponential"
+                run_inductive and self.config.integrator == "exponential"
             ) or (run_steady_state and is_sample_step)
 
             if needs_steady_state:
@@ -447,13 +450,13 @@ class Dynamics:
 
         if save:
             self.add_state_to_timeseries("state", steady_state_m_ind, E_coeffs_noind, m_imp_noind)
-            if bool(setting_value(self.settings, "save_steady_states")):
+            if self.config.save_steady_states:
                 self.add_state_to_timeseries(
                     "steady_state", steady_state_m_ind, E_coeffs_noind, m_imp_noind
                 )
 
             self.data.save_output_dataset("state")
-            if bool(setting_value(self.settings, "save_steady_states")):
+            if self.config.save_steady_states:
                 self.data.save_output_dataset("steady_state")
 
             if not quiet:
@@ -537,7 +540,7 @@ class Dynamics:
         FAC_b_evaluator = FieldEvaluator(
             self.mainfield,
             Grid(lat=lat, lon=lon, theta=theta, phi=phi),
-            setting_value(self.settings, "RI"),
+            self.config.RI,
         )
 
         self.set_jr(
@@ -645,7 +648,7 @@ class Dynamics:
             If True, ``Br`` is already in the input storage basis and is
             stored directly without interpolation or projection.
         """
-        if setting_value(self.settings, "RM") == 0:
+        if self.config.RM is None:
             raise ValueError("Br can only be set if magnetospheric radius (RM) is set.")
 
         input_data = {"Br": np.atleast_2d(Br)}
@@ -716,7 +719,7 @@ class Dynamics:
             return
 
         if (
-            setting_value(self.settings, "conductance_projection_basis") == "CS"
+            self.config.conductance_projection_basis == "CS"
             and (sqrt_weights is not None or reg_lambda is not None)
         ):
             raise ValueError(
@@ -771,8 +774,8 @@ class Dynamics:
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
         """
-        Hall = np.atleast_2d(Hall)
-        Pedersen = np.atleast_2d(Pedersen)
+        Hall = np.atleast_2d(np.asarray(Hall, dtype=float))
+        Pedersen = np.atleast_2d(np.asarray(Pedersen, dtype=float))
 
         etaP = np.empty_like(Pedersen)
         etaH = np.empty_like(Hall)

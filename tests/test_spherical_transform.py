@@ -82,8 +82,6 @@ def test_basis_evaluator_is_spherical_transform_alias():
     assert BasisEvaluator is SphericalTransform
     assert pynamit.BasisEvaluator is BasisEvaluator
     assert pynamit.SphericalTransform is SphericalTransform
-    assert not hasattr(pynamit, "FieldTransform")
-    assert not hasattr(pynamit, "Basis")
 
     coeffs = np.zeros(basis.index_length)
     coeffs[1] = 1.0

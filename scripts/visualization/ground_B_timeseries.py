@@ -5,7 +5,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pynamit
 from pynamit.math.constants import RE
-from pynamit.math.constants import mu0
 from pynamit.primitives.io import IO
 import dipole
 import datetime
@@ -30,7 +29,6 @@ settings_list = [_load_period_dataset(p, "settings") for p in periods]
 
 RI = settings_list[0].RI
 sh_basis = pynamit.SHBasis(settings_list[0].Nmax, settings_list[0].Mmax)
-solid_harmonics = pynamit.SolidHarmonics(sh_basis)
 
 t0 = datetime.datetime.strptime(settings_list[0].t0, "%Y-%m-%d %H:%M:%S")
 d = dipole.Dipole(t0.year)
@@ -45,13 +43,6 @@ Ncols = mlt.shape[0]
 mlon = d.mlt2mlon(mlt, t0)
 glat, glon, _ = a.apex2geo(mlat, mlon, 0)
 glat, glon = glat.flatten(), glon.flatten()
-
-# Calculate conversion factors.
-m_ind_to_Br = -(RI**2) * sh_basis.laplacian(RI)
-m_imp_to_jr = RI / mu0 * sh_basis.laplacian(RI)
-W_to_dBr_dt = 1 / RI
-m_ind_to_Jeq = -RI / mu0 * solid_harmonics.poloidal_to_boundary_potential_jump_factor
-
 
 ground_grid = pynamit.Grid(lat=glat, lon=glon)
 ground_evaluator = pynamit.SphericalTransform(

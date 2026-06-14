@@ -6,7 +6,7 @@ import dipole
 import datetime
 import h5py as h5
 from pynamit.visualization.map_coordinates import MapCoordinateContext
-from pynamit.visualization.input_vs_interpolated import plot_input_vs_interpolated
+from pynamit.visualization.input_projection_comparison import plot_input_projection_comparison
 
 RE = 6381e3
 RI = 6.5e6
@@ -83,8 +83,7 @@ ionosphere_grid = pynamit.Grid(lat=ionosphere_lat, lon=ionosphere_lon)
 
 magnetosphere_lat = file["Blat"][:]
 magnetosphere_lon = mage_coordinate_context.local_time_longitude_to_coordinate(
-    file["Blon"][:],
-    local_noon_longitude=MAGE_BR_LOCAL_NOON_LONGITUDE,
+    file["Blon"][:], local_noon_longitude=MAGE_BR_LOCAL_NOON_LONGITUDE
 )
 
 magnetosphere_grid = pynamit.Grid(lat=magnetosphere_lat, lon=magnetosphere_lon)
@@ -115,9 +114,7 @@ FAC_b_evaluator = pynamit.FieldEvaluator(
 plt_lat, plt_lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)
 plt_lat, plt_lon = np.meshgrid(plt_lat, plt_lon)
 plt_grid = pynamit.Grid(lat=plt_lat, lon=plt_lon)
-plt_evaluator = pynamit.SphericalTransform(
-    dynamics.state.basis, plt_grid
-)
+plt_evaluator = pynamit.SphericalTransform(dynamics.state.basis, plt_grid)
 conductance_plt_evaluator = pynamit.SphericalTransform(
     dynamics.input_field_spaces["conductance"].representation, plt_grid
 )
@@ -240,9 +237,9 @@ if PLOT:
     timesteps_for_figure = [0, 80, 160, 240, 320]
     data_types_for_figure = ["Br", "jr", "u_mag", "SP", "SH"]
 
-    plot_input_vs_interpolated(
+    plot_input_projection_comparison(
         h5_filepath="mage_2011/data_H_int.h5",
-        interpolated_run_directory="results_mage_2011",
+        projected_run_directory="results_mage_2011",
         timesteps_to_plot=timesteps_for_figure,
         data_types_to_plot=data_types_for_figure,
         input_dt=10,
@@ -250,7 +247,7 @@ if PLOT:
         magnetosphere_local_noon_longitude=MAGE_BR_LOCAL_NOON_LONGITUDE,
         vmin_percentile=0,
         vmax_percentile=95,
-        output_filename="input_vs_fitted_comparison.png",  # Optional
+        output_filename="input_projection_comparison.png",  # Optional
     )
 
 

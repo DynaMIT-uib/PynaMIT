@@ -1,10 +1,12 @@
 """Inspect projected simulation inputs on plotting grids."""
 
-import numpy as np
-
 from pynamit.primitives.field_coefficients import FieldCoefficients
 from pynamit.sphere.spherical_transform import SphericalTransform
-from pynamit.visualization.grid_evaluation import resistance_to_conductance
+from pynamit.visualization.field_maps import (
+    evaluate_conductance_values,
+    evaluate_tangential_coefficients,
+)
+from pynamit.visualization.grid_evaluation import transform_for_source
 
 
 def _input_timeseries(source):
@@ -23,7 +25,7 @@ def _default_grid(source):
 def _make_transform(field_space, grid, transform):
     """Return a transform targeting ``grid`` for ``field_space``."""
     if transform is not None:
-        return transform
+        return transform_for_source(field_space.representation, transform)
     if grid is None:
         raise ValueError("A target grid or transform is required.")
     return SphericalTransform(field_space.representation, grid)
@@ -79,11 +81,15 @@ def evaluate_projected_input(
     if field_space.field_type == "tangential":
         for var, coeffs in entry.items():
             field = FieldCoefficients(field_space, coeffs=coeffs)
-            theta_component, phi_component = evaluator.synthesize_helmholtz(field)
-            values[f"{var}_theta"] = theta_component
-            values[f"{var}_phi"] = phi_component
+            components = evaluate_tangential_coefficients(
+                evaluator,
+                field,
+                include_magnitude=include_derived,
+            )
+            values[f"{var}_theta"] = components["theta"]
+            values[f"{var}_phi"] = components["phi"]
             if include_derived:
-                values[f"{var}_mag"] = np.sqrt(theta_component**2 + phi_component**2)
+                values[f"{var}_mag"] = components["magnitude"]
         return values
 
     for var, coeffs in entry.items():
@@ -91,9 +97,11 @@ def evaluate_projected_input(
         values[var] = evaluator.synthesize_scalar(field)
 
     if include_derived and key == "conductance" and {"etaP", "etaH"} <= set(values):
-        values["SigmaP"], values["SigmaH"] = resistance_to_conductance(
-            values["etaP"],
-            values["etaH"],
+        values.update(
+            evaluate_conductance_values(
+                values["etaP"],
+                values["etaH"],
+            )
         )
 
     return values

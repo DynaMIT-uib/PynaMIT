@@ -26,6 +26,33 @@ def test_evaluate_projected_scalar_input_on_model_grid(tmp_path):
     assert np.all(np.isfinite(values["jr"]))
 
 
+def test_evaluate_projected_input_corrects_explicit_transform_source(tmp_path):
+    """Explicit target transforms keep the input source basis."""
+    dynamics = pynamit.Dynamics(
+        run_directory=tmp_path,
+        Nmax=2,
+        Mmax=1,
+        Ncs=8,
+        ignore_PFAC=True,
+    )
+    coeffs = np.zeros(dynamics.input_field_spaces["jr"].coefficient_shape)
+    coeffs[0] = 1.0
+    dynamics.set_jr(coeffs, time=0.0, coefficients=True)
+
+    grid = dynamics.state.geometry.grid
+    wrong_source_transform = pynamit.SphericalTransform(dynamics.schema.sh_basis, grid)
+
+    corrected = evaluate_projected_input(
+        dynamics,
+        "jr",
+        0.0,
+        transform=wrong_source_transform,
+    )
+    default = evaluate_projected_input(dynamics, "jr", 0.0, grid=grid)
+
+    np.testing.assert_allclose(corrected["jr"], default["jr"])
+
+
 def test_evaluate_projected_conductance_returns_physical_conductance(tmp_path):
     """Conductance inspection includes SigmaP/SigmaH derived values."""
     dynamics = pynamit.Dynamics(

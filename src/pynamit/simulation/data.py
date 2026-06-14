@@ -12,32 +12,11 @@ import xarray as xr
 
 from pynamit.primitives.io import IO
 from pynamit.primitives.timeseries import Timeseries
+from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.schema import (
     SimulationSchema,
     build_simulation_schema,
-    normalize_horizontal_basis_kind,
-    setting_value,
 )
-
-
-def _resolve_setting_override(
-    settings,
-    name,
-    explicit,
-    *,
-    default,
-    normalize=lambda value: value,
-):
-    """Return a setting, rejecting explicit values that conflict."""
-    stored = setting_value(settings, name, None)
-    if explicit is None:
-        value = default if stored is None else stored
-        return normalize(value)
-
-    normalized_explicit = normalize(explicit)
-    if stored is not None and normalized_explicit != normalize(stored):
-        raise ValueError(f"{name} argument does not match settings.")
-    return normalized_explicit
 
 
 @dataclass
@@ -45,6 +24,7 @@ class SimulationData:
     """Persisted-run context for one simulation."""
 
     io: IO
+    config: SimulationConfig
     settings: xr.Dataset
     schema: SimulationSchema
     input_timeseries: Timeseries
@@ -58,7 +38,7 @@ class SimulationData:
     @classmethod
     def create(
         cls,
-        settings: xr.Dataset,
+        settings: Any,
         *,
         run_directory=None,
         artifact_storage="auto",
@@ -67,6 +47,13 @@ class SimulationData:
         print_info=False,
     ) -> "SimulationData":
         """Create persisted-run context and load saved artifacts."""
+        config = SimulationConfig.from_settings(
+            settings,
+            horizontal_basis_kind=horizontal_basis_kind,
+            area_weighted_least_squares=area_weighted_least_squares,
+        )
+        settings = config.to_dataset()
+
         uses_temporary_run_directory = run_directory is None
         if uses_temporary_run_directory:
             run_directory = IO.build_temporary_run_directory()
@@ -81,38 +68,25 @@ class SimulationData:
             raise ValueError("Mismatch between Dynamics object arguments and settings on file.")
 
         pfac_matrix = io.load_dataarray("PFAC_matrix", print_info=print_info)
-        horizontal_basis_kind = _resolve_setting_override(
-            settings,
-            "horizontal_basis_kind",
-            horizontal_basis_kind,
-            default="SH",
-            normalize=normalize_horizontal_basis_kind,
-        )
-        area_weighted_least_squares = _resolve_setting_override(
-            settings,
-            "area_weighted_least_squares",
-            area_weighted_least_squares,
-            default=False,
-            normalize=bool,
-        )
-        schema = build_simulation_schema(settings, horizontal_basis_kind)
+        schema = build_simulation_schema(config)
 
         input_timeseries = Timeseries(
             schema.input_field_spaces,
             schema.input_vars,
-            area_weighted_least_squares=bool(area_weighted_least_squares),
+            area_weighted_least_squares=config.area_weighted_least_squares,
         )
         input_timeseries.load_all(io)
 
         output_timeseries = Timeseries(
             schema.output_field_spaces,
             schema.output_vars,
-            area_weighted_least_squares=bool(area_weighted_least_squares),
+            area_weighted_least_squares=config.area_weighted_least_squares,
         )
         output_timeseries.load_all(io)
 
         return cls(
             io=io,
+            config=config,
             settings=settings,
             schema=schema,
             input_timeseries=input_timeseries,

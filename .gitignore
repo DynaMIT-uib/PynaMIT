@@ -169,3 +169,20 @@ scripts/visualization/figures
 
 *.ncdf
 *.png
+
+# Local simulation and notebook outputs
+/simulation/
+/8178574/
+/ABK_comparison_data.csv
+/notebooks/sim_dir/
+/notebooks/mag_data/
+/notebooks/movie_*.mp4
+/notebooks/full_*_report*.csv
+
+# Generated documentation outputs
+/docs/source/*.aux
+/docs/source/*.fdb_latexmk
+/docs/source/*.fls
+/docs/source/full_induction_first_principles_note.pdf
+/docs/source/modules.rst
+/docs/source/pynamit.rst

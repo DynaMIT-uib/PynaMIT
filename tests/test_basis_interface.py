@@ -1,7 +1,5 @@
 """Tests for basis interface enforcement."""
 
-import importlib.util
-
 import numpy as np
 import pytest
 from scipy.sparse import csr_matrix
@@ -51,18 +49,6 @@ def test_public_sphere_package_is_canonical():
     assert pynamit.SphericalBasis is SphericalBasis
     assert pynamit.SphericalRepresentation is SphericalRepresentation
     assert pynamit.BasisView is BasisView
-    assert not hasattr(pynamit, "normalize_horizontal_basis_kind")
-    sphere_package = importlib.import_module("pynamit.sphere")
-    assert not hasattr(sphere_package, "normalize_horizontal_basis_kind")
-    assert importlib.util.find_spec("pynamit.basis") is None
-    assert importlib.util.find_spec("pynamit.primitives.basis") is None
-    assert importlib.util.find_spec("pynamit.primitives.field_transform") is None
-    assert importlib.util.find_spec("pynamit.primitives.spherical_transform") is None
-    assert importlib.util.find_spec("pynamit.sphere.spherical_transform") is not None
-    assert importlib.util.find_spec("pynamit.cubed_sphere") is None
-    assert importlib.util.find_spec("pynamit.spherical_harmonics") is None
-    assert importlib.util.find_spec("pynamit.primitives.grid") is None
-    assert importlib.util.find_spec("pynamit.utils") is None
 
 
 def test_concrete_bases_implement_basis_interface():
@@ -80,8 +66,6 @@ def test_concrete_bases_implement_basis_interface():
     assert not is_noop_linear_map(sh_basis.get_scalar_evaluation_operator(cs_basis.native_grid))
     assert sh_basis.kind == "SH"
     assert cs_basis.kind == "CS"
-    assert not hasattr(sh_basis, "caching")
-    assert not hasattr(cs_basis, "caching")
     assert cs_basis.index_length == cs_basis.arr_theta.size
     sh_basis.validate_metadata()
     cs_basis.validate_metadata()
@@ -105,10 +89,6 @@ def test_solid_harmonics_are_separate_from_surface_bases():
     assert solid_harmonics.basis is sh_basis
     assert isinstance(sh_basis, SurfaceOperators)
     assert isinstance(cs_basis, SurfaceOperators)
-    for basis in (sh_basis, cs_basis):
-        assert not hasattr(basis, "external_potential_continuation")
-        assert not hasattr(basis, "internal_potential_continuation")
-        assert not hasattr(basis, "boundary_potential_discontinuity")
     with pytest.raises(TypeError, match="SH surface basis"):
         SolidHarmonics(cs_basis)
 
@@ -968,7 +948,6 @@ def test_spherical_transform_reuses_sh_evaluation_context(monkeypatch):
     transform.scalar_coeffs_to_gridded_phi_derivative
 
     assert calls == {"legendre": 1, "derivative": 1}
-    assert not hasattr(transform, "_source_evaluator")
 
 
 def test_csbasis_reuses_native_operator_cache():

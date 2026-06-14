@@ -4,11 +4,16 @@ This module centralizes the basis and ``FieldSpace`` choices used by
 ``Dynamics`` for persisted input and output time series.
 """
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
 from pynamit.primitives.field_space import FieldSpace
+from pynamit.simulation.config import (
+    PROJECTION_BASIS_KEYS,
+    normalize_horizontal_basis_kind,
+    resolve_projection_basis_settings,
+    setting_value,
+)
 from pynamit.sphere import CSBasis, SHBasis, SolidHarmonics
 
 
@@ -38,8 +43,12 @@ OUTPUT_FIELD_TYPES = {
     "steady_state": "scalar",
 }
 
-INDEPENDENT_PROJECTION_BASIS_KEYS = ("jr", "Br", "conductance", "u")
-PROJECTION_BASIS_KEYS = INDEPENDENT_PROJECTION_BASIS_KEYS + ("Q_eff",)
+
+__all__ = [
+    "SimulationSchema",
+    "build_simulation_schema",
+    "field_spaces_from_bases",
+]
 
 
 @dataclass(frozen=True)
@@ -62,96 +71,9 @@ class SimulationSchema:
     input_projection_bases: dict[str, Any]
 
 
-_MISSING = object()
-
-
-def _plain_setting_value(value: Any) -> Any:
-    """Return plain scalar values from xarray or NumPy wrappers."""
-    values = getattr(value, "values", value)
-    if getattr(values, "shape", None) == ():
-        return values.item()
-    return values
-
-
-def normalize_horizontal_basis_kind(kind: str) -> str:
-    """Normalize a simulation horizontal-basis kind."""
-    normalized = str(kind).strip().upper()
-    if normalized not in {"SH", "CS"}:
-        raise ValueError("horizontal_basis_kind must be one of ['CS', 'SH'].")
-    return normalized
-
-
-def normalize_projection_basis_kind(kind: str, *, name: str = "projection_basis") -> str:
-    """Normalize an input projection-basis kind."""
-    normalized = str(kind).strip().upper()
-    if normalized not in {"SH", "CS"}:
-        raise ValueError(f"{name} must be one of ['CS', 'SH'].")
-    return normalized
-
-
-def setting_value(settings: Any, name: str, default: Any = _MISSING) -> Any:
-    """Return one setting from an xarray dataset or object."""
-    attrs = getattr(settings, "attrs", None)
-    if attrs is not None and name in attrs:
-        return _plain_setting_value(attrs[name])
-    if name in getattr(settings, "data_vars", {}):
-        return _plain_setting_value(settings[name])
-    if isinstance(settings, Mapping) and name in settings:
-        return _plain_setting_value(settings[name])
-    if hasattr(settings, name):
-        return _plain_setting_value(getattr(settings, name))
-    if default is not _MISSING:
-        return default
-    raise AttributeError(name)
-
-
 def _copy_variable_schema(schema: dict[str, tuple[str, ...]]) -> dict[str, tuple[str, ...]]:
     """Return a shallow copy of variable-name schema tuples."""
     return {key: tuple(variables) for key, variables in schema.items()}
-
-
-def _projection_basis_kind(settings: Any, key: str, default: str) -> str:
-    """Return normalized projection-basis setting for one input key."""
-    name = f"{key}_projection_basis"
-    return normalize_projection_basis_kind(
-        setting_value(settings, name, default),
-        name=name,
-    )
-
-
-def resolve_projection_basis_settings(
-    settings: Any,
-    horizontal_basis_kind: str,
-) -> dict[str, str]:
-    """Return normalized input projection-basis settings."""
-    horizontal_basis_kind = normalize_horizontal_basis_kind(horizontal_basis_kind)
-    projection_settings = {
-        f"{key}_projection_basis": _projection_basis_kind(
-            settings,
-            key,
-            horizontal_basis_kind,
-        )
-        for key in INDEPENDENT_PROJECTION_BASIS_KEYS
-    }
-    projection_settings["Q_eff_projection_basis"] = _projection_basis_kind(
-        settings,
-        "Q_eff",
-        projection_settings["u_projection_basis"],
-    )
-
-    if horizontal_basis_kind == "CS":
-        invalid = [
-            name
-            for name, value in projection_settings.items()
-            if value != "CS"
-        ]
-        if invalid:
-            raise ValueError(
-                ", ".join(invalid)
-                + " must be 'CS' when horizontal_basis_kind is 'CS'."
-            )
-
-    return projection_settings
 
 
 def field_spaces_from_bases(
@@ -177,8 +99,13 @@ def field_spaces_from_bases(
     return field_spaces
 
 
-def build_simulation_schema(settings: Any, horizontal_basis_kind: str) -> SimulationSchema:
+def build_simulation_schema(
+    settings: Any,
+    horizontal_basis_kind: str | None = None,
+) -> SimulationSchema:
     """Build the basis and storage schema for one ``Dynamics``."""
+    if horizontal_basis_kind is None:
+        horizontal_basis_kind = setting_value(settings, "horizontal_basis_kind", "SH")
     horizontal_basis_kind = normalize_horizontal_basis_kind(horizontal_basis_kind)
 
     sh_basis = SHBasis(

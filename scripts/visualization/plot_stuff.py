@@ -24,7 +24,7 @@ if CONDUCTANCE_AND_WIND:
     ax = fig.add_subplot(111, projection=a.get_global_projection())
     a.plot_conductance(ax, region="global", extend="both")
     a.plot_wind(ax, color="lightgrey")
-    a.jazz_global_plot(ax)
+    a.style_global_axis(ax)
 
     ax.set_title("Hall conductance (EUV + Hardy)\nand wind (HWM2014)", size=18)
 
@@ -108,7 +108,7 @@ if LONG_TS:
         ax = fig.add_subplot(5, 4, i + 1, projection=a.get_global_projection())
         a.plot_Br(ax, region="global")
         a.plot_equivalent_current(ax, region="global")
-        a.jazz_global_plot(ax, draw_labels=True if i == 0 else False)
+        a.style_global_axis(ax, draw_labels=True if i == 0 else False)
         ax.set_title("t={} s".format(t))
 
     plt.tight_layout()

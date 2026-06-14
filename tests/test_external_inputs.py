@@ -21,6 +21,11 @@ from pynamit.external_inputs import (
 pytestmark = pytest.mark.requires_native_inputs
 
 
+def _utc_now():
+    """Return a timezone-aware UTC datetime for input-source calls."""
+    return datetime.datetime.now(datetime.UTC)
+
+
 @pytest.fixture
 def force_fallback():
     """Fixture to force the use of fallback external inputs."""
@@ -37,9 +42,7 @@ def test_fallback_conductance(force_fallback):
     lat = entry["lat"]
     lon = entry["lon"]
     time = None
-    hall, pedersen, out_lat, out_lon = get_conductance_inputs(
-        datetime.datetime.utcnow(), lat, lon, time
-    )
+    hall, pedersen, out_lat, out_lon = get_conductance_inputs(_utc_now(), lat, lon, time)
     assert hall.shape == (entry["hall"].size,)
     assert pedersen.shape == (entry["pedersen"].size,)
     np.testing.assert_allclose(out_lat, entry["lat"])
@@ -66,7 +69,7 @@ def test_fallback_multi_time_scaling(force_fallback):
     fallback = _load_fallback()
     key, entry = next(iter(fallback["conductance"].items()))
     hall, pedersen, *_ = get_conductance_inputs(
-        datetime.datetime.utcnow(), entry["lat"], entry["lon"], time
+        _utc_now(), entry["lat"], entry["lon"], time
     )
     assert hall.shape == (time.size, entry["hall"].size)
     assert pedersen.shape == (time.size, entry["pedersen"].size)
@@ -76,7 +79,7 @@ def test_fallback_currents(force_fallback):
     """Test that jr inputs are correctly loaded from fallback."""
     fallback = _load_fallback()
     key, entry = next(iter(fallback["jr"].items()))
-    jr, lat, lon = get_jr_inputs(datetime.datetime.utcnow(), entry["lat"], entry["lon"], None)
+    jr, lat, lon = get_jr_inputs(_utc_now(), entry["lat"], entry["lon"], None)
     np.testing.assert_allclose(lat, entry["lat"])
     np.testing.assert_allclose(lon, entry["lon"])
     assert jr.shape == (entry["jr"].size,)
@@ -84,7 +87,7 @@ def test_fallback_currents(force_fallback):
 
 def test_fallback_wind(force_fallback):
     """Test that wind inputs are correctly loaded from fallback."""
-    result = get_wind_inputs(datetime.datetime.utcnow(), use_wind=True, time=None)
+    result = get_wind_inputs(_utc_now(), use_wind=True, time=None)
     assert result is not None
     u_theta, u_phi, lat, lon, weights = result
     fallback = _load_fallback()
@@ -97,7 +100,7 @@ def test_fallback_wind(force_fallback):
 
 def test_wind_disabled(force_fallback):
     """Test that wind inputs are disabled when requested."""
-    assert get_wind_inputs(datetime.datetime.utcnow(), use_wind=False, time=None) is None
+    assert get_wind_inputs(_utc_now(), use_wind=False, time=None) is None
 
 
 def test_fallback_roundtrip(tmp_path):

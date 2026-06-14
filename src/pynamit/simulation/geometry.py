@@ -21,25 +21,19 @@ from pynamit.math import (
     pointwise_matrix_linear_map,
     take_linear_map,
 )
-from pynamit.math.backend import block_until_ready, get_array_module, to_jax, to_numpy, use_jax
+from pynamit.math.backend import block_until_ready, to_numpy
 from pynamit.sphere import Grid, SolidHarmonics, SurfaceOperators
 from pynamit.sphere.spherical_transform import SphericalTransform, resolve_sqrt_weights
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.math.tensor_operations import weighted_tensor_pinv
-from pynamit.simulation.schema import setting_value
+from pynamit.simulation.config import setting_value
+from pynamit.simulation import sheet_current as sheet_current_ops
+from pynamit.simulation.sheet_current import (
+    coefficient_scale_values as _coefficient_scale_values,
+)
 from pynamit.sphere import CSBasis, is_sh_basis
 
 logger = logging.getLogger(__name__)
-
-
-def _coefficient_scale_values(values):
-    """Return a one-dimensional coefficient-space scale."""
-    array = np.asarray(values)
-    if array.ndim != 1:
-        raise ValueError(
-            f"coefficient scale must be one-dimensional; got shape {array.shape}."
-        )
-    return array.copy()
 
 
 def _extended_scalar_basis_for_potential(basis, settings):
@@ -366,6 +360,12 @@ class Geometry:
         """Map solid-harmonic poloidal coefficients to sheet current."""
         return self.solid_poloidal_to_gridded_sheet_current()
 
+    def _horizontal_to_solid_harmonic_matrix(self):
+        """Return an explicit horizontal-to-solid map when needed."""
+        if self._horizontal_solid_projection_is_identity:
+            return None
+        return self.horizontal_to_solid_harmonic
+
     def solid_transform_for(self, transform: SphericalTransform) -> SphericalTransform:
         """Return a solid transform for ``transform.target``."""
         if self.solid_harmonics.basis.coefficients_are_compatible_with(
@@ -403,15 +403,10 @@ class Geometry:
                 if transform is None
                 else self.solid_transform_for(transform)
             )
-        scale = np.asarray(
-            self.solid_harmonics.poloidal_to_boundary_potential_jump_factor
-        )
-        if solid_scale is not None:
-            scale = scale * np.asarray(solid_scale)
-        return (
-            -solid_transform.scalar_coeffs_to_gridded_rhat_cross_gradient
-            * scale.reshape(1, 1, -1)
-            / mu0
+        return sheet_current_ops.solid_poloidal_to_gridded_sheet_current(
+            self.solid_harmonics,
+            solid_transform,
+            solid_scale=solid_scale,
         )
 
     def horizontal_poloidal_to_gridded_sheet_current(
@@ -422,17 +417,17 @@ class Geometry:
         solid_scale=None,
     ) -> np.ndarray:
         """Map horizontal poloidal coefficients to sheet current."""
-        sheet_current = self.solid_poloidal_to_gridded_sheet_current(
-            transform,
-            solid_transform=solid_transform,
+        if solid_transform is None:
+            solid_transform = (
+                self.solid_harmonic_transform
+                if transform is None
+                else self.solid_transform_for(transform)
+            )
+        return sheet_current_ops.horizontal_poloidal_to_gridded_sheet_current(
+            self.solid_harmonics,
+            solid_transform,
+            horizontal_to_solid_harmonic=self._horizontal_to_solid_harmonic_matrix(),
             solid_scale=solid_scale,
-        )
-        if self._horizontal_solid_projection_is_identity:
-            return sheet_current.copy()
-        return np.tensordot(
-            sheet_current,
-            self.horizontal_to_solid_harmonic,
-            axes=([2], [0]),
         )
 
     def m_ind_to_gridded_sheet_current(
@@ -442,22 +437,18 @@ class Geometry:
         solid_transform: Optional[SphericalTransform] = None,
     ) -> np.ndarray:
         """Map induced-potential coefficients to sheet current."""
-        if self.RM is None:
-            return self.horizontal_poloidal_to_gridded_sheet_current(
-                transform,
-                solid_transform=solid_transform,
+        if solid_transform is None:
+            solid_transform = (
+                self.solid_harmonic_transform
+                if transform is None
+                else self.solid_transform_for(transform)
             )
-        regular_shift = _coefficient_scale_values(
-            self.solid_harmonics.regular_reference_shift(self.RM, self.RI)
-        )
-        irregular_shift = _coefficient_scale_values(
-            self.solid_harmonics.irregular_reference_shift(self.RI, self.RM)
-        )
-        denominator = 1.0 - regular_shift * irregular_shift
-        return self.horizontal_poloidal_to_gridded_sheet_current(
-            transform,
-            solid_transform=solid_transform,
-            solid_scale=1.0 + regular_shift * irregular_shift / denominator,
+        return sheet_current_ops.m_ind_to_gridded_sheet_current(
+            self.solid_harmonics,
+            solid_transform,
+            radius=self.RI,
+            boundary_radius=self.RM,
+            horizontal_to_solid_harmonic=self._horizontal_to_solid_harmonic_matrix(),
         )
 
     def m_imp_to_gridded_sheet_current(
@@ -468,15 +459,14 @@ class Geometry:
     ) -> np.ndarray:
         """Map imposed-potential coefficients to sheet current."""
         transform = self.spherical_transform if transform is None else transform
-        toroidal = -transform.scalar_coeffs_to_gridded_gradient / mu0
-        poloidal = self.horizontal_poloidal_to_gridded_sheet_current(
+        if solid_transform is None:
+            solid_transform = self.solid_transform_for(transform)
+        return sheet_current_ops.m_imp_to_gridded_sheet_current(
+            self.solid_harmonics,
             transform,
             solid_transform=solid_transform,
-        )
-        return toroidal + np.tensordot(
-            poloidal,
-            self.T_to_Ve.values,
-            axes=([2], [0]),
+            horizontal_to_solid_harmonic=self._horizontal_to_solid_harmonic_matrix(),
+            T_to_Ve=self.T_to_Ve.values,
         )
 
     def _solid_to_horizontal_coefficients(self, values):
@@ -741,66 +731,42 @@ class Geometry:
     def m_imp_to_gridded_JS(self) -> np.ndarray:
         """Operator mapping m_imp to gridded sheet current."""
         if self._m_imp_to_gridded_JS is None:
-            if use_jax():
-                # Keep this on JAX. The result is consumed by JAX next,
-                # so a NumPy/OpenBLAS handoff would only add risk.
-                toroidal_to_gridded_JS = (
-                    -to_jax(self.spherical_transform.scalar_coeffs_to_gridded_gradient)
-                    / mu0
-                )
-                xp = get_array_module(toroidal_to_gridded_JS)
-                PFAC_to_JS = xp.einsum(
-                    "ijk,kl->ijl",
-                    to_jax(self.horizontal_potential_to_gridded_JS),
-                    to_jax(self.T_to_Ve.values),
-                    optimize=True,
-                )
-                self._m_imp_to_gridded_JS = block_until_ready(
-                    toroidal_to_gridded_JS + PFAC_to_JS
-                )
-            else:
-                toroidal_to_gridded_JS = (
-                    -to_numpy(self.spherical_transform.scalar_coeffs_to_gridded_gradient)
-                    / mu0
-                )
-                self._m_imp_to_gridded_JS = toroidal_to_gridded_JS + np.tensordot(
-                    to_numpy(self.horizontal_potential_to_gridded_JS),
-                    to_numpy(self.T_to_Ve.values),
-                    axes=([2], [0]),
-                )
+            self._m_imp_to_gridded_JS = block_until_ready(
+                self.m_imp_to_gridded_sheet_current()
+            )
         return self._m_imp_to_gridded_JS
 
     @property
     def m_ind_to_gridded_JS(self) -> np.ndarray:
         """Operator mapping m_ind to gridded sheet current."""
         if self._m_ind_to_gridded_JS is None:
-            m_ind_to_gridded_JS = self.horizontal_potential_to_gridded_JS.copy()
-            if self.RM is not None:
-                regular_shift = _coefficient_scale_values(
-                    self.solid_harmonics.regular_reference_shift(self.RM, self.RI)
-                )
-                irregular_shift = _coefficient_scale_values(
-                    self.solid_harmonics.irregular_reference_shift(self.RI, self.RM)
-                )
-                den = 1.0 - regular_shift * irregular_shift
-                solid_harmonic_m_ind_to_Br = _coefficient_scale_values(
-                    -(self.RI**2)
-                    * self.solid_harmonics.basis.laplacian(self.RI)
-                )
-                br_to_solid_harmonic_poloidal = (
-                    -regular_shift / den / solid_harmonic_m_ind_to_Br
-                )
-                self._Br_to_gridded_JS = self._sheet_current_from_horizontal_poloidal(
-                    br_to_solid_harmonic_poloidal
-                )
-                m_ind_to_solid_harmonic_poloidal = (
-                    1.0 + (regular_shift * irregular_shift / den)
-                )
-                m_ind_to_gridded_JS = self._sheet_current_from_horizontal_poloidal(
-                    m_ind_to_solid_harmonic_poloidal
-                )
-            self._m_ind_to_gridded_JS = m_ind_to_gridded_JS
+            self._m_ind_to_gridded_JS = block_until_ready(
+                self.m_ind_to_gridded_sheet_current()
+            )
         return self._m_ind_to_gridded_JS
+
+    def Br_to_gridded_sheet_current(
+        self,
+        transform: Optional[SphericalTransform] = None,
+        *,
+        solid_transform: Optional[SphericalTransform] = None,
+    ) -> Optional[np.ndarray]:
+        """Map boundary-Br coefficients to sheet current."""
+        if self.RM is None:
+            return None
+        if solid_transform is None:
+            solid_transform = (
+                self.solid_harmonic_transform
+                if transform is None
+                else self.solid_transform_for(transform)
+            )
+        return sheet_current_ops.Br_to_gridded_sheet_current(
+            self.solid_harmonics,
+            solid_transform,
+            radius=self.RI,
+            boundary_radius=self.RM,
+            horizontal_to_solid_harmonic=self._horizontal_to_solid_harmonic_matrix(),
+        )
 
     @property
     def Br_to_gridded_JS(self) -> Optional[np.ndarray]:
@@ -808,5 +774,7 @@ class Geometry:
         if self.RM is None:
             return None
         if self._Br_to_gridded_JS is None:
-            _ = self.m_ind_to_gridded_JS
+            self._Br_to_gridded_JS = block_until_ready(
+                self.Br_to_gridded_sheet_current()
+            )
         return self._Br_to_gridded_JS

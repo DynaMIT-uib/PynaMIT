@@ -35,8 +35,13 @@ cond = cond[["hall", "pedersen"]]
 
 ss = np.interp(r, cond.index, cond["pedersen"]).reshape(xx.shape)
 
-ccc = ax.contourf(
-    xx, yy, ss.reshape(xx.shape), cmap=plt.cm.Blues, levels=np.linspace(0, 1.5e-4, 100), zorder=0
+filled_contour = ax.contourf(
+    xx,
+    yy,
+    ss.reshape(xx.shape),
+    cmap=plt.cm.Blues,
+    levels=np.linspace(0, 1.5e-4, 100),
+    zorder=0,
 )
 
 a = np.linspace(0, np.pi / 2, 100)
@@ -148,8 +153,8 @@ ax.text(
 # )
 
 
-# for cc in ccc.collections:
-#     cc.remove()
+# for collection in filled_contour.collections:
+#     collection.remove()
 
 # ax.plot(RI * x, RI * np.cos(a), linewidth=5, color="C0")
 # ax.text(

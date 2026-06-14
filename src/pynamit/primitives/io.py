@@ -37,7 +37,8 @@ RUN_ARTIFACTS = frozenset(
     }
 )
 ZARR_AVAILABLE = importlib.util.find_spec("zarr") is not None
-ZARR_WRITE_KWARGS = {"write_empty_chunks": True}
+ZARR_WRITE_KWARGS = {"write_empty_chunks": True, "consolidated": False}
+ZARR_OPEN_KWARGS = {"consolidated": False}
 ZARR_READ_CONFIG = {"array.read_missing_chunks": False}
 
 
@@ -338,7 +339,7 @@ class IO:
 
         if storage_kind == "zarr":
             with self._zarr_config_context():
-                return xr.open_zarr(filename)
+                return xr.open_zarr(filename, **ZARR_OPEN_KWARGS)
         if filename.exists():
             return xr.load_dataset(filename)
         return None
@@ -355,7 +356,7 @@ class IO:
 
         if storage_kind == "zarr":
             with self._zarr_config_context():
-                dataset = xr.open_zarr(filename)
+                dataset = xr.open_zarr(filename, **ZARR_OPEN_KWARGS)
             data_var_names = list(dataset.data_vars)
             if len(data_var_names) != 1:
                 raise ValueError(

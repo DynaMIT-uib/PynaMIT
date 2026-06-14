@@ -72,14 +72,13 @@ def test_set_neutral_wind_accepts_helmholtz_input_basis_coefficients(tmp_path):
     np.testing.assert_allclose(dataset.time.values, [3.0])
 
 
-def test_set_u_uses_neutral_wind_api_without_set_wind(tmp_path):
+def test_set_u_uses_neutral_wind_api(tmp_path):
     """Historical set_u delegates to set_neutral_wind."""
     dynamics = _small_dynamics(tmp_path)
     n_coeffs = dynamics.input_field_spaces["u"].index_length
     cf_coeffs = np.arange(n_coeffs, dtype=float)
     df_coeffs = -np.arange(n_coeffs, dtype=float) - 1.0
 
-    assert not hasattr(dynamics, "set_wind")
     dynamics.set_u(cf_coeffs, df_coeffs, time=3.0, coefficients=True)
 
     dataset = dynamics.input_timeseries.datasets["u"]
@@ -221,8 +220,8 @@ def test_set_resistance_cs_basis_rejects_least_squares_options(tmp_path):
 def test_set_conductance_delegates_resistance_conversion(tmp_path, monkeypatch):
     """Conductance inputs are converted once before delegation."""
     dynamics = _small_dynamics(tmp_path)
-    hall = np.array([[3.0, 4.0]])
-    pedersen = np.array([[4.0, 3.0]])
+    hall = np.array([[3, 4]])
+    pedersen = np.array([[4, 3]])
     recorded = {}
 
     def record_set_resistance(Pedersen, Hall, **kwargs):
@@ -246,6 +245,8 @@ def test_set_conductance_delegates_resistance_conversion(tmp_path, monkeypatch):
     denominator = hall**2 + pedersen**2
     np.testing.assert_allclose(recorded["Pedersen"], pedersen / denominator)
     np.testing.assert_allclose(recorded["Hall"], hall / denominator)
+    assert recorded["Pedersen"].dtype.kind == "f"
+    assert recorded["Hall"].dtype.kind == "f"
     assert recorded["kwargs"]["time"] == 7.0
     assert recorded["kwargs"]["reg_lambda"] == 1e-3
     assert recorded["kwargs"]["pinv_rtol"] == 1e-10

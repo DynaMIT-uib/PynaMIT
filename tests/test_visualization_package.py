@@ -13,15 +13,6 @@ def test_visualization_package_exports_building_blocks():
     assert visualization.evaluate_Br is state_fields.evaluate_Br
     assert visualization.evaluate_jr is state_fields.evaluate_jr
     assert visualization.evaluate_sheet_current is state_fields.evaluate_sheet_current
-    for name in [
-        "debugplot",
-        "globalplot",
-        "plot_global_polar_map",
-        "plot_state_diagnostics",
-        "plot_input_vs_interpolated",
-    ]:
-        assert not hasattr(visualization, name)
-        assert not hasattr(pynamit, name)
 
 
 def test_pynameye_is_available_from_visualization():
@@ -29,14 +20,14 @@ def test_pynameye_is_available_from_visualization():
     visualization_pynameye = importlib.import_module("pynamit.visualization.pynameye")
 
     assert pynamit.PynamEye is visualization_pynameye.PynamEye
+    assert hasattr(pynamit.PynamEye, "style_global_axis")
 
 
-def test_input_vs_interpolated_is_module_recipe_not_package_api():
-    """Input diagnostic recipes stay out of the package-level API."""
-    diagnostics = importlib.import_module("pynamit.visualization.input_vs_interpolated")
+def test_input_projection_comparison_recipe_is_importable():
+    """Input diagnostic recipes are available from their module."""
+    diagnostics = importlib.import_module("pynamit.visualization.input_projection_comparison")
 
-    assert callable(diagnostics.plot_input_vs_interpolated)
-    assert not hasattr(pynamit, "plot_input_vs_interpolated")
+    assert callable(diagnostics.plot_input_projection_comparison)
 
 
 def test_map_coordinate_context_is_visualization_api():
@@ -54,3 +45,43 @@ def test_projected_input_inspector_is_visualization_api():
 
     assert visualization.evaluate_projected_input is input_projection.evaluate_projected_input
     assert pynamit.evaluate_projected_input is input_projection.evaluate_projected_input
+
+
+def test_saved_run_view_is_visualization_api():
+    """Saved-run view is exported from visualization."""
+    visualization = importlib.import_module("pynamit.visualization")
+    saved_run = importlib.import_module("pynamit.visualization.saved_run")
+
+    assert visualization.SavedRunView is saved_run.SavedRunView
+
+
+def test_field_maps_are_visualization_api():
+    """Shared field-map helpers are exported from visualization."""
+    visualization = importlib.import_module("pynamit.visualization")
+    field_maps = importlib.import_module("pynamit.visualization.field_maps")
+
+    assert (
+        visualization.evaluate_conductance_coefficients
+        is field_maps.evaluate_conductance_coefficients
+    )
+    assert visualization.evaluate_wind_coefficients is field_maps.evaluate_wind_coefficients
+    assert (
+        visualization.evaluate_joule_from_coefficients
+        is field_maps.evaluate_joule_from_coefficients
+    )
+    assert (
+        visualization.evaluate_sheet_current_from_maps
+        is field_maps.evaluate_sheet_current_from_maps
+    )
+
+
+def test_plot_setup_helpers_are_visualization_api():
+    """Shared plot setup helpers are exported from visualization."""
+    visualization = importlib.import_module("pynamit.visualization")
+    plot_helpers = importlib.import_module("pynamit.visualization.plot_helpers")
+
+    assert visualization.build_percentile_color_scale is plot_helpers.build_percentile_color_scale
+    assert (
+        visualization.suppress_empty_contour_warnings
+        is plot_helpers.suppress_empty_contour_warnings
+    )

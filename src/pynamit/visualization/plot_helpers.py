@@ -1,7 +1,10 @@
 """Small plotting helpers shared by visualization workflows."""
 
+from contextlib import contextmanager
+
 import numpy as np
 import cartopy.crs as ccrs
+import matplotlib.colors as mcolors
 
 from pynamit.visualization.local_time import apply_local_time_grid_labels
 
@@ -45,6 +48,104 @@ def contour_kwargs_for_display(plot_kwargs):
     }
 
 
+def _finite_concatenated_values(data_arrays):
+    flattened = []
+    for values in data_arrays:
+        array = np.asarray(values)
+        if array.size > 0:
+            flattened.append(array.reshape(-1))
+    if not flattened:
+        return np.array([])
+    values = np.concatenate(flattened)
+    return values[np.isfinite(values)]
+
+
+def build_percentile_color_scale(
+    data_arrays,
+    *,
+    strictly_positive=False,
+    vmin_percentile=0.2,
+    vmax_percentile=99.8,
+    scale_type="linear",
+    cmap=None,
+    minimum_positive=1e-12,
+    label="data",
+):
+    """Build a Matplotlib color scale from finite data percentiles."""
+    if scale_type not in {"linear", "log"}:
+        raise ValueError("scale_type must be 'linear' or 'log'.")
+    if not (0.0 <= float(vmin_percentile) <= 100.0):
+        raise ValueError("vmin_percentile must be between 0 and 100.")
+    if not (0.0 <= float(vmax_percentile) <= 100.0):
+        raise ValueError("vmax_percentile must be between 0 and 100.")
+    if float(vmin_percentile) > float(vmax_percentile):
+        raise ValueError("vmin_percentile cannot exceed vmax_percentile.")
+    if scale_type == "log" and not strictly_positive:
+        raise ValueError("Log color scales require strictly_positive=True.")
+
+    finite_values = _finite_concatenated_values(data_arrays)
+    if finite_values.size == 0:
+        raise ValueError(f"No finite data available for '{label}' color scale.")
+
+    if strictly_positive:
+        if np.any(finite_values < -1e-9):
+            raise ValueError(
+                f"Data for '{label}' is marked strictly positive but contains negative values."
+            )
+        percentile_values = finite_values[finite_values >= 0.0]
+        if scale_type == "log":
+            percentile_values = percentile_values[
+                percentile_values > float(minimum_positive)
+            ]
+            if percentile_values.size == 0:
+                raise ValueError(
+                    f"No data above {minimum_positive:g} for '{label}' log color scale."
+                )
+    else:
+        percentile_values = finite_values
+
+    if percentile_values.size == 0:
+        raise ValueError(f"No valid data available for '{label}' color scale.")
+
+    if strictly_positive:
+        vmin = float(np.percentile(percentile_values, vmin_percentile))
+        vmax = float(np.percentile(percentile_values, vmax_percentile))
+        if scale_type == "linear":
+            vmin = 0.0
+    else:
+        abs_max = float(np.percentile(np.abs(percentile_values), vmax_percentile))
+        vmin, vmax = -abs_max, abs_max
+
+    if scale_type == "log":
+        if not vmax > vmin:
+            center = max(float(vmax), float(minimum_positive) * 10.0)
+            vmin = max(center / np.sqrt(10.0), float(minimum_positive))
+            vmax = center * np.sqrt(10.0)
+        norm = mcolors.LogNorm(vmin=vmin, vmax=vmax, clip=True)
+    else:
+        if abs(vmax - vmin) < 1e-12:
+            epsilon = abs(vmax) * 0.05 if abs(vmax) > 1e-9 else 0.05
+            if vmin == vmax == 0.0:
+                vmax = epsilon
+                if not strictly_positive:
+                    vmin = -epsilon
+            else:
+                vmin -= epsilon
+                vmax += epsilon
+            if strictly_positive and vmin < 0.0:
+                vmin = 0.0
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax, clip=True)
+
+    return {
+        "vmin": vmin,
+        "vmax": vmax,
+        "cmap": cmap or ("viridis" if strictly_positive else "bwr"),
+        "norm": norm,
+        "scale_type": scale_type,
+        "strictly_positive": bool(strictly_positive),
+    }
+
+
 def set_contour_edges_to_face(contour):
     """Avoid hairline gaps in filled contour artists."""
     try:
@@ -78,11 +179,27 @@ def remove_artists(artist_list):
     artist_list.clear()
 
 
+@contextmanager
+def suppress_empty_contour_warnings():
+    """Suppress Matplotlib's no-contour-levels warning."""
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="No contour levels were found within the data range.",
+        )
+        yield
+
+
 def style_global_axis(
     ax,
     *,
     coordinate_context=None,
     local_time_reference=None,
+    draw_labels=True,
+    draw_coastlines=True,
+    set_global=True,
     left_labels=True,
     bottom_labels=True,
     coastline_color="0.45",
@@ -93,15 +210,17 @@ def style_global_axis(
     label_size=8,
 ):
     """Style a global Cartopy axis for PynaMIT map plots."""
-    ax.set_global()
-    ax.coastlines(
-        color=coastline_color,
-        linewidth=coastline_linewidth,
-        zorder=2,
-    )
+    if set_global:
+        ax.set_global()
+    if draw_coastlines:
+        ax.coastlines(
+            color=coastline_color,
+            linewidth=coastline_linewidth,
+            zorder=2,
+        )
     gridliner = ax.gridlines(
         crs=ccrs.PlateCarree(),
-        draw_labels=True,
+        draw_labels=draw_labels,
         linewidth=grid_linewidth,
         color=grid_color,
         alpha=grid_alpha,
@@ -110,8 +229,8 @@ def style_global_axis(
     )
     gridliner.top_labels = False
     gridliner.right_labels = False
-    gridliner.left_labels = bool(left_labels)
-    gridliner.bottom_labels = bool(bottom_labels)
+    gridliner.left_labels = bool(draw_labels and left_labels)
+    gridliner.bottom_labels = bool(draw_labels and bottom_labels)
     if coordinate_context is not None:
         coordinate_context.apply_grid_labels(gridliner)
     elif local_time_reference is not None:
@@ -132,6 +251,9 @@ def style_global_input_axis(
     *,
     coordinate_context=None,
     local_time_reference=None,
+    draw_labels=True,
+    draw_coastlines=True,
+    set_global=True,
     left_labels=True,
     bottom_labels=True,
 ):
@@ -140,6 +262,9 @@ def style_global_input_axis(
         ax,
         coordinate_context=coordinate_context,
         local_time_reference=local_time_reference,
+        draw_labels=draw_labels,
+        draw_coastlines=draw_coastlines,
+        set_global=set_global,
         left_labels=left_labels,
         bottom_labels=bottom_labels,
         coastline_color="0.45",
@@ -156,6 +281,9 @@ def style_global_comparison_axis(
     *,
     coordinate_context=None,
     local_time_reference=None,
+    draw_labels=True,
+    draw_coastlines=True,
+    set_global=True,
     left_labels=True,
     bottom_labels=True,
 ):
@@ -164,6 +292,9 @@ def style_global_comparison_axis(
         ax,
         coordinate_context=coordinate_context,
         local_time_reference=local_time_reference,
+        draw_labels=draw_labels,
+        draw_coastlines=draw_coastlines,
+        set_global=set_global,
         left_labels=left_labels,
         bottom_labels=bottom_labels,
         coastline_color="black",
@@ -198,6 +329,7 @@ def add_panel_label(ax, label):
 
 __all__ = [
     "add_panel_label",
+    "build_percentile_color_scale",
     "contour_kwargs_for_display",
     "format_contour_interval",
     "get_ticks_from_levels",
@@ -207,5 +339,6 @@ __all__ = [
     "style_global_axis",
     "style_global_comparison_axis",
     "style_global_input_axis",
+    "suppress_empty_contour_warnings",
     "symmetric_contour_levels_without_zero",
 ]

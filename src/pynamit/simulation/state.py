@@ -35,7 +35,7 @@ from pynamit.math.backend import (
 from pynamit.sphere import CSBasis, SolidHarmonics, SurfaceOperators
 from pynamit.simulation.geometry import Geometry
 from pynamit.simulation.operators import StateOperators
-from pynamit.simulation.schema import setting_value
+from pynamit.simulation.config import setting_value
 
 logger = logging.getLogger(__name__)
 

@@ -27,11 +27,11 @@ def test_projection():
         2 * np.random.random(N) - 1,
     )
     rr = np.sqrt(xx**2 + yy**2 + zz**2)
-    iii = rr <= 1
-    rr = rr[iii]
-    xx = xx[iii]
-    yy = yy[iii]
-    zz = zz[iii]
+    inside_unit_sphere = rr <= 1
+    rr = rr[inside_unit_sphere]
+    xx = xx[inside_unit_sphere]
+    yy = yy[inside_unit_sphere]
+    zz = zz[inside_unit_sphere]
 
     lon = np.rad2deg(np.arctan2(yy, xx))
     lat = np.rad2deg(np.arcsin(zz / rr))
