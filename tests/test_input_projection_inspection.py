@@ -17,7 +17,7 @@ def test_evaluate_projected_scalar_input_on_model_grid(tmp_path):
     )
     coeffs = np.zeros(dynamics.input_field_spaces["jr"].coefficient_shape)
     coeffs[0] = 1.0
-    dynamics.set_jr(coeffs, time=0.0, coefficients=True)
+    dynamics.set_jr(jr_coefficients=coeffs, time=0.0)
 
     values = evaluate_projected_input(dynamics, "jr", 0.0)
 
@@ -37,7 +37,7 @@ def test_evaluate_projected_input_corrects_explicit_transform_source(tmp_path):
     )
     coeffs = np.zeros(dynamics.input_field_spaces["jr"].coefficient_shape)
     coeffs[0] = 1.0
-    dynamics.set_jr(coeffs, time=0.0, coefficients=True)
+    dynamics.set_jr(jr_coefficients=coeffs, time=0.0)
 
     grid = dynamics.state.geometry.grid
     wrong_source_transform = pynamit.SphericalTransform(dynamics.schema.sh_basis, grid)
@@ -67,7 +67,11 @@ def test_evaluate_projected_conductance_returns_physical_conductance(tmp_path):
     etaH = np.zeros(coeff_shape)
     etaP[0] = 2.0
     etaH[0] = 1.0
-    dynamics.set_resistance(etaP, etaH, time=0.0, coefficients=True)
+    dynamics.set_resistance(
+        etaP_coefficients=etaP,
+        etaH_coefficients=etaH,
+        time=0.0,
+    )
 
     values = evaluate_projected_input(dynamics, "conductance", 0.0)
 
@@ -96,7 +100,7 @@ def test_evaluate_projected_tangential_input_returns_components(tmp_path):
     df_coeffs = np.zeros(coeff_length)
     cf_coeffs[0] = 1.0
     df_coeffs[0] = 0.5
-    dynamics.set_neutral_wind(cf_coeffs, df_coeffs, time=0.0, coefficients=True)
+    dynamics.set_neutral_wind(u_cf=cf_coeffs, u_df=df_coeffs, time=0.0)
 
     values = evaluate_projected_input(dynamics, "u", 0.0)
 

@@ -35,7 +35,7 @@ def test_set_jr_accepts_input_basis_coefficients(tmp_path):
     n_coeffs = dynamics.input_field_spaces["jr"].index_length
     jr_coeffs = np.arange(n_coeffs, dtype=float) + 0.25
 
-    dynamics.set_jr(jr_coeffs, time=4.0, coefficients=True)
+    dynamics.set_jr(jr_coefficients=jr_coeffs, time=4.0)
 
     dataset = dynamics.input_timeseries.datasets["jr"]
     np.testing.assert_allclose(dataset["SH_jr"].isel(time=0).values, jr_coeffs)
@@ -48,7 +48,7 @@ def test_set_Br_accepts_input_basis_coefficients(tmp_path):
     n_coeffs = dynamics.input_field_spaces["Br"].index_length
     br_coeffs = np.linspace(-1.0, 1.0, n_coeffs)
 
-    dynamics.set_Br(br_coeffs, time=2.0, coefficients=True)
+    dynamics.set_Br(Br_coefficients=br_coeffs, time=2.0)
 
     dataset = dynamics.input_timeseries.datasets["Br"]
     np.testing.assert_allclose(dataset["SH_Br"].isel(time=0).values, br_coeffs)
@@ -62,7 +62,7 @@ def test_set_neutral_wind_accepts_helmholtz_input_basis_coefficients(tmp_path):
     cf_coeffs = np.arange(n_coeffs, dtype=float)
     df_coeffs = -np.arange(n_coeffs, dtype=float) - 1.0
 
-    dynamics.set_neutral_wind(cf_coeffs, df_coeffs, time=3.0, coefficients=True)
+    dynamics.set_neutral_wind(u_cf=cf_coeffs, u_df=df_coeffs, time=3.0)
 
     dataset = dynamics.input_timeseries.datasets["u"]
     np.testing.assert_allclose(
@@ -79,7 +79,7 @@ def test_set_u_uses_neutral_wind_api(tmp_path):
     cf_coeffs = np.arange(n_coeffs, dtype=float)
     df_coeffs = -np.arange(n_coeffs, dtype=float) - 1.0
 
-    dynamics.set_u(cf_coeffs, df_coeffs, time=3.0, coefficients=True)
+    dynamics.set_u(u_cf=cf_coeffs, u_df=df_coeffs, time=3.0)
 
     dataset = dynamics.input_timeseries.datasets["u"]
     np.testing.assert_allclose(
@@ -95,7 +95,7 @@ def test_state_update_uses_field_coefficients_for_wind(tmp_path):
     cf_coeffs = np.arange(n_coeffs, dtype=float)
     df_coeffs = -np.arange(n_coeffs, dtype=float) - 1.0
 
-    dynamics.set_neutral_wind(cf_coeffs, df_coeffs, time=3.0, coefficients=True)
+    dynamics.set_neutral_wind(u_cf=cf_coeffs, u_df=df_coeffs, time=3.0)
     dynamics.state.update(dynamics.input_timeseries, time=3.0)
 
     assert isinstance(dynamics.state.u, FieldCoefficients)
@@ -112,7 +112,7 @@ def test_set_Q_eff_accepts_helmholtz_input_basis_coefficients(tmp_path):
     cf_coeffs = np.arange(n_coeffs, dtype=float) + 2.0
     df_coeffs = -np.arange(n_coeffs, dtype=float) - 3.0
 
-    dynamics.set_Q_eff(cf_coeffs, df_coeffs, time=3.0, coefficients=True)
+    dynamics.set_Q_eff(Q_eff_cf=cf_coeffs, Q_eff_df=df_coeffs, time=3.0)
 
     dataset = dynamics.input_timeseries.datasets["Q_eff"]
     np.testing.assert_allclose(
@@ -129,7 +129,7 @@ def test_state_update_uses_field_coefficients_for_Q_eff(tmp_path):
     cf_coeffs = np.arange(n_coeffs, dtype=float) + 2.0
     df_coeffs = -np.arange(n_coeffs, dtype=float) - 3.0
 
-    dynamics.set_Q_eff(cf_coeffs, df_coeffs, time=3.0, coefficients=True)
+    dynamics.set_Q_eff(Q_eff_cf=cf_coeffs, Q_eff_df=df_coeffs, time=3.0)
     dynamics.state.update(dynamics.input_timeseries, time=3.0)
 
     assert isinstance(dynamics.state.Q_eff, FieldCoefficients)
@@ -140,18 +140,63 @@ def test_state_update_uses_field_coefficients_for_Q_eff(tmp_path):
 
 
 def test_set_resistance_accepts_input_basis_coefficients(tmp_path):
-    """Pedersen and Hall resistance coefficients are stored directly."""
+    """EtaP and etaH resistance coefficients are stored directly."""
     dynamics = _small_dynamics(tmp_path)
     n_coeffs = dynamics.input_field_spaces["conductance"].index_length
     etaP_coeffs = np.arange(n_coeffs, dtype=float) + 1.0
     etaH_coeffs = np.arange(n_coeffs, dtype=float) - 2.0
 
-    dynamics.set_resistance(etaP_coeffs, etaH_coeffs, time=5.0, coefficients=True)
+    dynamics.set_resistance(
+        etaP_coefficients=etaP_coeffs,
+        etaH_coefficients=etaH_coeffs,
+        time=5.0,
+    )
 
     dataset = dynamics.input_timeseries.datasets["conductance"]
     np.testing.assert_allclose(dataset["SH_etaP"].isel(time=0).values, etaP_coeffs)
     np.testing.assert_allclose(dataset["SH_etaH"].isel(time=0).values, etaH_coeffs)
     np.testing.assert_allclose(dataset.time.values, [5.0])
+
+
+def test_coefficient_inputs_reject_projection_coordinates(tmp_path):
+    """Direct coefficients should not specify sample geometry."""
+    dynamics = _small_dynamics(tmp_path)
+    n_coeffs = dynamics.input_field_spaces["jr"].index_length
+    jr_coeffs = np.arange(n_coeffs, dtype=float)
+
+    with np.testing.assert_raises_regex(ValueError, "lat"):
+        dynamics.set_jr(
+            jr_coefficients=jr_coeffs,
+            lat=np.zeros(n_coeffs),
+            time=0.0,
+        )
+
+
+def test_tangential_coefficient_inputs_must_be_complete(tmp_path):
+    """Helmholtz coefficients require both cf and df components."""
+    dynamics = _small_dynamics(tmp_path)
+    n_coeffs = dynamics.input_field_spaces["u"].index_length
+    cf_coeffs = np.arange(n_coeffs, dtype=float)
+
+    with np.testing.assert_raises_regex(ValueError, "u_df"):
+        dynamics.set_neutral_wind(u_cf=cf_coeffs, time=0.0)
+
+
+def test_tangential_inputs_reject_mixed_samples_and_coefficients(tmp_path):
+    """Tangential setters should not mix samples with coefficients."""
+    dynamics = _small_dynamics(tmp_path)
+    n_coeffs = dynamics.input_field_spaces["Q_eff"].index_length
+    values = np.zeros(dynamics.state.geometry.grid.size)
+    coeffs = np.zeros(n_coeffs)
+
+    with np.testing.assert_raises_regex(ValueError, "sample values"):
+        dynamics.set_Q_eff(
+            Q_eff_theta=values,
+            Q_eff_phi=values,
+            Q_eff_cf=coeffs,
+            Q_eff_df=coeffs,
+            time=0.0,
+        )
 
 
 def test_set_resistance_can_store_native_cs_grid_values(tmp_path):
@@ -224,9 +269,9 @@ def test_set_conductance_delegates_resistance_conversion(tmp_path, monkeypatch):
     pedersen = np.array([[4, 3]])
     recorded = {}
 
-    def record_set_resistance(Pedersen, Hall, **kwargs):
-        recorded["Pedersen"] = Pedersen
-        recorded["Hall"] = Hall
+    def record_set_resistance(etaP, etaH, **kwargs):
+        recorded["etaP"] = etaP
+        recorded["etaH"] = etaH
         recorded["kwargs"] = kwargs
 
     monkeypatch.setattr(dynamics, "set_resistance", record_set_resistance)
@@ -243,10 +288,10 @@ def test_set_conductance_delegates_resistance_conversion(tmp_path, monkeypatch):
     )
 
     denominator = hall**2 + pedersen**2
-    np.testing.assert_allclose(recorded["Pedersen"], pedersen / denominator)
-    np.testing.assert_allclose(recorded["Hall"], hall / denominator)
-    assert recorded["Pedersen"].dtype.kind == "f"
-    assert recorded["Hall"].dtype.kind == "f"
+    np.testing.assert_allclose(recorded["etaP"], pedersen / denominator)
+    np.testing.assert_allclose(recorded["etaH"], hall / denominator)
+    assert recorded["etaP"].dtype.kind == "f"
+    assert recorded["etaH"].dtype.kind == "f"
     assert recorded["kwargs"]["time"] == 7.0
     assert recorded["kwargs"]["reg_lambda"] == 1e-3
     assert recorded["kwargs"]["pinv_rtol"] == 1e-10
