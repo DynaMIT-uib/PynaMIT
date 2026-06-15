@@ -70,15 +70,19 @@ def test_pynameye_uses_saved_run_view(tmp_path):
     etaP = np.zeros(conductance_shape)
     etaH = np.zeros(conductance_shape)
     etaP[0] = 1.0
-    dynamics.set_resistance(etaP, etaH, time=0.0, coefficients=True)
+    dynamics.set_resistance(
+        etaP_coefficients=etaP,
+        etaH_coefficients=etaH,
+        time=0.0,
+    )
 
     wind_shape = dynamics.input_field_spaces["u"].coefficient_shape
     u_cf = np.linspace(0.0, 1.0, wind_shape[1])
     u_df = np.linspace(2.0, 3.0, wind_shape[1])
-    dynamics.set_neutral_wind(u_cf, u_df, time=0.0, coefficients=True)
+    dynamics.set_neutral_wind(u_cf=u_cf, u_df=u_df, time=0.0)
 
     jr_shape = dynamics.input_field_spaces["jr"].coefficient_shape
-    dynamics.set_jr(np.zeros(jr_shape), time=0.0, coefficients=True)
+    dynamics.set_jr(jr_coefficients=np.zeros(jr_shape), time=0.0)
     dynamics.impose_steady_state(time=0.0, save=True, quiet=True)
 
     eye = PynamEye(
@@ -118,17 +122,21 @@ def test_pynameye_wind_plot_uses_wind_projection_basis(tmp_path):
     etaP = np.zeros(conductance_shape)
     etaH = np.zeros(conductance_shape)
     etaP[0] = 1.0
-    dynamics.set_resistance(etaP, etaH, time=0.0, coefficients=True)
+    dynamics.set_resistance(
+        etaP_coefficients=etaP,
+        etaH_coefficients=etaH,
+        time=0.0,
+    )
 
     wind_shape = dynamics.input_field_spaces["u"].coefficient_shape
     u_cf = np.zeros(wind_shape[1])
     u_df = np.zeros(wind_shape[1])
     u_cf[0] = 1.0
     u_df[1] = 0.5
-    dynamics.set_neutral_wind(u_cf, u_df, time=0.0, coefficients=True)
+    dynamics.set_neutral_wind(u_cf=u_cf, u_df=u_df, time=0.0)
 
     jr_shape = dynamics.input_field_spaces["jr"].coefficient_shape
-    dynamics.set_jr(np.zeros(jr_shape), time=0.0, coefficients=True)
+    dynamics.set_jr(jr_coefficients=np.zeros(jr_shape), time=0.0)
     dynamics.impose_steady_state(time=0.0, save=True, quiet=True)
 
     eye = PynamEye(

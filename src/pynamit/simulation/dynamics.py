@@ -557,7 +557,7 @@ class Dynamics:
 
     def set_jr(
         self,
-        jr,
+        jr=None,
         lat=None,
         lon=None,
         theta=None,
@@ -567,15 +567,16 @@ class Dynamics:
         reg_lambda=None,
         pinv_rtol=1e-15,
         *,
-        coefficients=False,
+        jr_coefficients=None,
     ):
         """Set radial current density input.
 
         Parameters
         ----------
         jr : array-like
-            Radial current density in A/m², or storage-basis
-            coefficients if ``coefficients=True``.
+            Radial current density in A/m².
+        jr_coefficients : array-like, optional
+            Radial-current coefficients in the input storage basis.
         lat, lon : array-like, optional
             Latitude/longitude coordinates in degrees.
         theta, phi : array-like, optional
@@ -588,16 +589,24 @@ class Dynamics:
             Regularization parameter.
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
-        coefficients : bool, optional
-            If True, ``jr`` is already in the input storage basis and is
-            stored directly without interpolation or projection.
         """
-        input_data = {"jr": np.atleast_2d(jr)}
-
-        if coefficients:
+        if jr_coefficients is not None:
+            self._validate_only_coefficients(
+                "jr_coefficients",
+                lat=lat,
+                lon=lon,
+                theta=theta,
+                phi=phi,
+                sqrt_weights=sqrt_weights,
+                reg_lambda=reg_lambda,
+            )
+            self._require_no_sample_values("jr_coefficients", jr=jr)
+            input_data = {"jr": np.atleast_2d(jr_coefficients)}
             self._add_input_coefficients("jr", input_data, time)
             return
 
+        self._require_sample_values("jr", jr=jr)
+        input_data = {"jr": np.atleast_2d(jr)}
         self._project_and_add_input(
             "jr",
             input_data,
@@ -613,7 +622,7 @@ class Dynamics:
 
     def set_Br(
         self,
-        Br,
+        Br=None,
         lat=None,
         lon=None,
         theta=None,
@@ -623,15 +632,17 @@ class Dynamics:
         reg_lambda=None,
         pinv_rtol=1e-15,
         *,
-        coefficients=False,
+        Br_coefficients=None,
     ):
         """Set radial component of magnetic field input.
 
         Parameters
         ----------
         Br : array-like
-            Radial component of magnetic field, or storage-basis
-            coefficients if ``coefficients=True``.
+            Radial component of magnetic field.
+        Br_coefficients : array-like, optional
+            Radial magnetic-field coefficients in the input storage
+            basis.
         lat, lon : array-like, optional
             Latitude/longitude coordinates in degrees.
         theta, phi : array-like, optional
@@ -644,19 +655,27 @@ class Dynamics:
             Regularization parameter.
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
-        coefficients : bool, optional
-            If True, ``Br`` is already in the input storage basis and is
-            stored directly without interpolation or projection.
         """
         if self.config.RM is None:
             raise ValueError("Br can only be set if magnetospheric radius (RM) is set.")
 
-        input_data = {"Br": np.atleast_2d(Br)}
-
-        if coefficients:
+        if Br_coefficients is not None:
+            self._validate_only_coefficients(
+                "Br_coefficients",
+                lat=lat,
+                lon=lon,
+                theta=theta,
+                phi=phi,
+                sqrt_weights=sqrt_weights,
+                reg_lambda=reg_lambda,
+            )
+            self._require_no_sample_values("Br_coefficients", Br=Br)
+            input_data = {"Br": np.atleast_2d(Br_coefficients)}
             self._add_input_coefficients("Br", input_data, time)
             return
 
+        self._require_sample_values("Br", Br=Br)
+        input_data = {"Br": np.atleast_2d(Br)}
         self._project_and_add_input(
             "Br",
             input_data,
@@ -672,8 +691,8 @@ class Dynamics:
 
     def set_resistance(
         self,
-        Pedersen,
-        Hall,
+        etaP=None,
+        etaH=None,
         lat=None,
         lon=None,
         theta=None,
@@ -683,18 +702,21 @@ class Dynamics:
         reg_lambda=None,
         pinv_rtol=1e-15,
         *,
-        coefficients=False,
+        etaP_coefficients=None,
+        etaH_coefficients=None,
     ):
-        """Set Pedersen and Hall resistance inputs.
+        """Set etaP and etaH resistance inputs.
 
         Parameters
         ----------
-        Pedersen : array-like
-            Pedersen resistance values, or storage-basis coefficients if
-            ``coefficients=True``.
-        Hall : array-like
-            Hall resistance values, or storage-basis coefficients if
-            ``coefficients=True``.
+        etaP : array-like
+            Pedersen resistance values, inverse-conductance tensor
+            component.
+        etaH : array-like
+            Hall resistance values, inverse-conductance tensor
+            component.
+        etaP_coefficients, etaH_coefficients : array-like, optional
+            Resistance coefficients in the input storage basis.
         lat, lon : array-like, optional
             Latitude/longitude coordinates in degrees.
         theta, phi : array-like, optional
@@ -707,17 +729,36 @@ class Dynamics:
             Regularization parameter.
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
-        coefficients : bool, optional
-            If True, ``Pedersen`` and ``Hall`` are already in the input
-            storage basis and are stored directly without interpolation
-            or projection.
         """
-        input_data = {"etaP": np.atleast_2d(Pedersen), "etaH": np.atleast_2d(Hall)}
-
-        if coefficients:
+        if etaP_coefficients is not None or etaH_coefficients is not None:
+            self._validate_only_coefficients(
+                "etaP_coefficients/etaH_coefficients",
+                lat=lat,
+                lon=lon,
+                theta=theta,
+                phi=phi,
+                sqrt_weights=sqrt_weights,
+                reg_lambda=reg_lambda,
+            )
+            self._require_complete_values(
+                "resistance coefficients",
+                etaP_coefficients=etaP_coefficients,
+                etaH_coefficients=etaH_coefficients,
+            )
+            self._require_no_sample_values(
+                "resistance coefficients",
+                etaP=etaP,
+                etaH=etaH,
+            )
+            input_data = {
+                "etaP": np.atleast_2d(etaP_coefficients),
+                "etaH": np.atleast_2d(etaH_coefficients),
+            }
             self._add_input_coefficients("conductance", input_data, time)
             return
 
+        self._require_complete_values("resistance samples", etaP=etaP, etaH=etaH)
+        input_data = {"etaP": np.atleast_2d(etaP), "etaH": np.atleast_2d(etaH)}
         if (
             self.config.conductance_projection_basis == "CS"
             and (sqrt_weights is not None or reg_lambda is not None)
@@ -754,6 +795,11 @@ class Dynamics:
         pinv_rtol=1e-15,
     ):
         """Set Hall and Pedersen conductance values.
+
+        Direct coefficient storage uses ``set_resistance`` with
+        ``etaP_coefficients`` and ``etaH_coefficients``.
+        Conductance values are converted pointwise to the stored
+        resistance variables before projection.
 
         Parameters
         ----------
@@ -802,8 +848,8 @@ class Dynamics:
 
     def set_neutral_wind(
         self,
-        u_theta,
-        u_phi,
+        u_theta=None,
+        u_phi=None,
         lat=None,
         lon=None,
         theta=None,
@@ -813,18 +859,20 @@ class Dynamics:
         reg_lambda=None,
         pinv_rtol=1e-15,
         *,
-        coefficients=False,
+        u_cf=None,
+        u_df=None,
     ):
         """Set neutral wind velocities.
 
         Parameters
         ----------
         u_theta : array-like
-            Meridional (south) wind velocity in m/s, or curl-free
-            storage-basis coefficients if ``coefficients=True``.
+            Meridional (south) wind velocity in m/s.
         u_phi : array-like
-            Zonal (east) wind velocity in m/s, or divergence-free
-            storage-basis coefficients if ``coefficients=True``.
+            Zonal (east) wind velocity in m/s.
+        u_cf, u_df : array-like, optional
+            Curl-free and divergence-free Helmholtz coefficients in the
+            input storage basis.
         lat, lon : array-like, optional
             Latitude/longitude coordinates in degrees.
         theta, phi : array-like, optional
@@ -837,18 +885,29 @@ class Dynamics:
             Regularization parameter.
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
-        coefficients : bool, optional
-            If True, ``u_theta`` and ``u_phi`` are interpreted as the
-            curl-free and divergence-free Helmholtz coefficients,
-            respectively, and stored directly without interpolation or
-            projection.
         """
-        input_data = self._wind_input_data(u_theta, u_phi)
-
-        if coefficients:
+        if u_cf is not None or u_df is not None:
+            self._validate_only_coefficients(
+                "u_cf/u_df",
+                lat=lat,
+                lon=lon,
+                theta=theta,
+                phi=phi,
+                sqrt_weights=sqrt_weights,
+                reg_lambda=reg_lambda,
+            )
+            self._require_complete_values("wind coefficients", u_cf=u_cf, u_df=u_df)
+            self._require_no_sample_values(
+                "wind coefficients",
+                u_theta=u_theta,
+                u_phi=u_phi,
+            )
+            input_data = self._wind_input_data(u_cf, u_df)
             self._add_input_coefficients("u", input_data, time)
             return
 
+        self._require_complete_values("wind samples", u_theta=u_theta, u_phi=u_phi)
+        input_data = self._wind_input_data(u_theta, u_phi)
         self._project_and_add_input(
             "u",
             input_data,
@@ -868,8 +927,8 @@ class Dynamics:
 
     def set_Q_eff(
         self,
-        Q_theta,
-        Q_phi,
+        Q_eff_theta=None,
+        Q_eff_phi=None,
         lat=None,
         lon=None,
         theta=None,
@@ -879,7 +938,8 @@ class Dynamics:
         reg_lambda=None,
         pinv_rtol=1e-15,
         *,
-        coefficients=False,
+        Q_eff_cf=None,
+        Q_eff_df=None,
     ):
         """Set effective wind-current input.
 
@@ -890,14 +950,13 @@ class Dynamics:
 
         Parameters
         ----------
-        Q_theta : array-like
-            Southward effective-current component in A/m, or
-            curl-free storage-basis coefficients if
-            ``coefficients=True``.
-        Q_phi : array-like
-            Eastward effective-current component in A/m, or
-            divergence-free storage-basis coefficients if
-            ``coefficients=True``.
+        Q_eff_theta : array-like
+            Southward effective-current component in A/m.
+        Q_eff_phi : array-like
+            Eastward effective-current component in A/m.
+        Q_eff_cf, Q_eff_df : array-like, optional
+            Curl-free and divergence-free Helmholtz coefficients in the
+            input storage basis.
         lat, lon : array-like, optional
             Latitude/longitude coordinates in degrees.
         theta, phi : array-like, optional
@@ -910,18 +969,41 @@ class Dynamics:
             Regularization parameter.
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
-        coefficients : bool, optional
-            If True, ``Q_theta`` and ``Q_phi`` are interpreted as the
-            curl-free and divergence-free Helmholtz coefficients,
-            respectively, and stored directly without interpolation or
-            projection.
         """
-        input_data = self._tangential_input_data("Q_eff", Q_theta, Q_phi)
-
-        if coefficients:
+        if Q_eff_cf is not None or Q_eff_df is not None:
+            self._validate_only_coefficients(
+                "Q_eff_cf/Q_eff_df",
+                lat=lat,
+                lon=lon,
+                theta=theta,
+                phi=phi,
+                sqrt_weights=sqrt_weights,
+                reg_lambda=reg_lambda,
+            )
+            self._require_complete_values(
+                "Q_eff coefficients",
+                Q_eff_cf=Q_eff_cf,
+                Q_eff_df=Q_eff_df,
+            )
+            self._require_no_sample_values(
+                "Q_eff coefficients",
+                Q_eff_theta=Q_eff_theta,
+                Q_eff_phi=Q_eff_phi,
+            )
+            input_data = self._tangential_input_data("Q_eff", Q_eff_cf, Q_eff_df)
             self._add_input_coefficients("Q_eff", input_data, time)
             return
 
+        self._require_complete_values(
+            "Q_eff samples",
+            Q_eff_theta=Q_eff_theta,
+            Q_eff_phi=Q_eff_phi,
+        )
+        input_data = self._tangential_input_data(
+            "Q_eff",
+            Q_eff_theta,
+            Q_eff_phi,
+        )
         self._project_and_add_input(
             "Q_eff",
             input_data,
@@ -978,7 +1060,7 @@ class Dynamics:
             )
             return
 
-        Q_theta, Q_phi, Q_lat, Q_lon = self.calculate_Q_eff_from_neutral_wind(
+        Q_eff_theta, Q_eff_phi, Q_lat, Q_lon = self.calculate_Q_eff_from_neutral_wind(
             u_theta,
             u_phi,
             lat=lat,
@@ -991,8 +1073,8 @@ class Dynamics:
             pinv_rtol=pinv_rtol,
         )
         self.set_Q_eff(
-            Q_theta,
-            Q_phi,
+            Q_eff_theta=Q_eff_theta,
+            Q_eff_phi=Q_eff_phi,
             lat=Q_lat,
             lon=Q_lon,
             time=time,
@@ -1117,6 +1199,61 @@ class Dynamics:
                 q_field_space.validate_coefficients(q_coeffs, name="Q_eff coefficients")
             )
         return np.asarray(q_coeff_rows)
+
+    def _require_sample_values(self, label, **values):
+        """Require all named sample values."""
+        if any(value is None for value in values.values()):
+            names = ", ".join(values)
+            raise TypeError(f"{label} samples require {names}.")
+
+    def _require_complete_values(self, label, **values):
+        """Require either all named values or none of them."""
+        supplied = [name for name, value in values.items() if value is not None]
+        if len(supplied) == len(values):
+            return
+        if supplied:
+            missing = ", ".join(name for name, value in values.items() if value is None)
+            raise ValueError(f"{label} are incomplete; missing {missing}.")
+        names = ", ".join(values)
+        raise TypeError(f"{label} require {names}.")
+
+    def _require_no_sample_values(self, label, **values):
+        """Reject sample values when coefficient values are supplied."""
+        supplied = [name for name, value in values.items() if value is not None]
+        if supplied:
+            raise ValueError(
+                f"{label} cannot be combined with sample values: {', '.join(supplied)}."
+            )
+
+    def _validate_only_coefficients(
+        self,
+        label,
+        *,
+        lat=None,
+        lon=None,
+        theta=None,
+        phi=None,
+        sqrt_weights=None,
+        reg_lambda=None,
+    ):
+        """Reject projection controls on direct coefficient inputs."""
+        supplied = [
+            name
+            for name, value in {
+                "lat": lat,
+                "lon": lon,
+                "theta": theta,
+                "phi": phi,
+                "sqrt_weights": sqrt_weights,
+                "reg_lambda": reg_lambda,
+            }.items()
+            if value is not None
+        ]
+        if supplied:
+            raise ValueError(
+                f"{label} are already projected coefficients and cannot be combined "
+                f"with {', '.join(supplied)}."
+            )
 
     def _wind_input_data(self, u_theta, u_phi):
         """Return wind input data with time before component."""
