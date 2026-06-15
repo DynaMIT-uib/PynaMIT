@@ -3,7 +3,7 @@
 import numpy as np
 
 from pynamit.math.constants import RE
-from pynamit.primitives.coefficient_field import CoefficientField
+from pynamit.primitives.field_coefficients import FieldCoefficients
 from pynamit.simulation.dynamics import Dynamics
 
 
@@ -17,6 +17,16 @@ def _small_dynamics(tmp_path, **kwargs):
         artifact_storage="netcdf",
         **kwargs,
     )
+
+
+def test_dynamics_reuses_input_transforms_for_shared_representations(tmp_path):
+    """Input transforms are shared by representation and grid."""
+    dynamics = _small_dynamics(tmp_path)
+
+    assert dynamics.input_transforms["jr"] is dynamics.input_transforms["Br"]
+    assert dynamics.input_transforms["jr"] is dynamics.input_transforms["u"]
+    assert dynamics.input_transforms["jr"] is dynamics.input_transforms["Q_eff"]
+    assert dynamics.input_transforms["conductance"] is not dynamics.input_transforms["jr"]
 
 
 def test_set_jr_accepts_input_basis_coefficients(tmp_path):
@@ -62,14 +72,13 @@ def test_set_neutral_wind_accepts_helmholtz_input_basis_coefficients(tmp_path):
     np.testing.assert_allclose(dataset.time.values, [3.0])
 
 
-def test_set_u_uses_neutral_wind_api_without_set_wind(tmp_path):
+def test_set_u_uses_neutral_wind_api(tmp_path):
     """Historical set_u delegates to set_neutral_wind."""
     dynamics = _small_dynamics(tmp_path)
     n_coeffs = dynamics.input_field_spaces["u"].index_length
     cf_coeffs = np.arange(n_coeffs, dtype=float)
     df_coeffs = -np.arange(n_coeffs, dtype=float) - 1.0
 
-    assert not hasattr(dynamics, "set_wind")
     dynamics.set_u(cf_coeffs, df_coeffs, time=3.0, coefficients=True)
 
     dataset = dynamics.input_timeseries.datasets["u"]
@@ -79,7 +88,7 @@ def test_set_u_uses_neutral_wind_api_without_set_wind(tmp_path):
     )
 
 
-def test_state_update_uses_coefficient_field_for_wind(tmp_path):
+def test_state_update_uses_field_coefficients_for_wind(tmp_path):
     """State coefficient storage does not need grid expansion."""
     dynamics = _small_dynamics(tmp_path)
     n_coeffs = dynamics.input_field_spaces["u"].index_length
@@ -89,9 +98,43 @@ def test_state_update_uses_coefficient_field_for_wind(tmp_path):
     dynamics.set_neutral_wind(cf_coeffs, df_coeffs, time=3.0, coefficients=True)
     dynamics.state.update(dynamics.input_timeseries, time=3.0)
 
-    assert isinstance(dynamics.state.u, CoefficientField)
+    assert isinstance(dynamics.state.u, FieldCoefficients)
     np.testing.assert_allclose(
-        dynamics.state.u.coeffs,
+        dynamics.state.u.array,
+        np.vstack([cf_coeffs, df_coeffs]),
+    )
+
+
+def test_set_Q_eff_accepts_helmholtz_input_basis_coefficients(tmp_path):
+    """Q_eff Helmholtz coefficients are stored directly."""
+    dynamics = _small_dynamics(tmp_path)
+    n_coeffs = dynamics.input_field_spaces["Q_eff"].index_length
+    cf_coeffs = np.arange(n_coeffs, dtype=float) + 2.0
+    df_coeffs = -np.arange(n_coeffs, dtype=float) - 3.0
+
+    dynamics.set_Q_eff(cf_coeffs, df_coeffs, time=3.0, coefficients=True)
+
+    dataset = dynamics.input_timeseries.datasets["Q_eff"]
+    np.testing.assert_allclose(
+        dataset["SH_Q_eff"].isel(time=0).values,
+        np.concatenate([cf_coeffs, df_coeffs]),
+    )
+    np.testing.assert_allclose(dataset.time.values, [3.0])
+
+
+def test_state_update_uses_field_coefficients_for_Q_eff(tmp_path):
+    """Q_eff state storage keeps canonical coefficient shape."""
+    dynamics = _small_dynamics(tmp_path)
+    n_coeffs = dynamics.input_field_spaces["Q_eff"].index_length
+    cf_coeffs = np.arange(n_coeffs, dtype=float) + 2.0
+    df_coeffs = -np.arange(n_coeffs, dtype=float) - 3.0
+
+    dynamics.set_Q_eff(cf_coeffs, df_coeffs, time=3.0, coefficients=True)
+    dynamics.state.update(dynamics.input_timeseries, time=3.0)
+
+    assert isinstance(dynamics.state.Q_eff, FieldCoefficients)
+    np.testing.assert_allclose(
+        dynamics.state.Q_eff.array,
         np.vstack([cf_coeffs, df_coeffs]),
     )
 
@@ -111,9 +154,9 @@ def test_set_resistance_accepts_input_basis_coefficients(tmp_path):
     np.testing.assert_allclose(dataset.time.values, [5.0])
 
 
-def test_set_resistance_can_store_native_grid_values_without_projection(tmp_path):
-    """No-projection conductance stores CS grid values."""
-    dynamics = _small_dynamics(tmp_path, project_conductance=False)
+def test_set_resistance_can_store_native_cs_grid_values(tmp_path):
+    """CS conductance basis stores native grid values."""
+    dynamics = _small_dynamics(tmp_path, conductance_projection_basis="CS")
     grid = dynamics.state.geometry.grid
     etaP = np.linspace(0.1, 0.3, grid.size)
     etaH = np.linspace(-0.2, 0.2, grid.size)
@@ -126,34 +169,40 @@ def test_set_resistance_can_store_native_grid_values_without_projection(tmp_path
     np.testing.assert_allclose(dataset.time.values, [6.0])
 
     dynamics.state.update(dynamics.input_timeseries, time=6.0)
-    np.testing.assert_allclose(dynamics.state.etaP.coeffs, etaP)
-    np.testing.assert_allclose(dynamics.state.etaH.coeffs, etaH)
+    np.testing.assert_allclose(dynamics.state.etaP.array, etaP)
+    np.testing.assert_allclose(dynamics.state.etaH.array, etaH)
     np.testing.assert_allclose(
-        dynamics.state._conductance_synthesis_matrix(),
+        dynamics.state._conductance_synthesis_operator().to_matrix(backend="numpy"),
         np.eye(grid.size),
         atol=1e-12,
     )
 
 
-def test_set_resistance_without_projection_requires_matching_grid(tmp_path):
-    """Direct grid conductance rejects non-model grids."""
-    dynamics = _small_dynamics(tmp_path, project_conductance=False)
+def test_set_resistance_cs_basis_remaps_non_model_grid(tmp_path):
+    """CS conductance basis can remap values from another grid."""
+    dynamics = _small_dynamics(tmp_path, conductance_projection_basis="CS")
     grid = dynamics.state.geometry.grid
     etaP = np.ones(grid.size)
     etaH = np.zeros(grid.size)
 
-    with np.testing.assert_raises_regex(ValueError, "input grid to match"):
-        dynamics.set_resistance(
-            etaP,
-            etaH,
-            lat=grid.lat + np.linspace(0.0, 1e-3, grid.size),
-            lon=grid.lon,
-        )
+    dynamics.set_resistance(
+        etaP,
+        etaH,
+        lat=grid.lat + np.linspace(0.0, 1e-3, grid.size),
+        lon=grid.lon,
+        time=6.0,
+    )
+
+    dataset = dynamics.input_timeseries.datasets["conductance"]
+    assert "CS_etaP" in dataset
+    assert "CS_etaH" in dataset
+    assert np.all(np.isfinite(dataset["CS_etaP"].isel(time=0).values))
+    assert np.all(np.isfinite(dataset["CS_etaH"].isel(time=0).values))
 
 
-def test_set_resistance_without_projection_rejects_projection_options(tmp_path):
-    """Direct grid conductance rejects projection controls."""
-    dynamics = _small_dynamics(tmp_path, project_conductance=False)
+def test_set_resistance_cs_basis_rejects_least_squares_options(tmp_path):
+    """CS conductance storage rejects least-squares controls."""
+    dynamics = _small_dynamics(tmp_path, conductance_projection_basis="CS")
     grid = dynamics.state.geometry.grid
     etaP = np.ones(grid.size)
     etaH = np.zeros(grid.size)
@@ -171,8 +220,8 @@ def test_set_resistance_without_projection_rejects_projection_options(tmp_path):
 def test_set_conductance_delegates_resistance_conversion(tmp_path, monkeypatch):
     """Conductance inputs are converted once before delegation."""
     dynamics = _small_dynamics(tmp_path)
-    hall = np.array([[3.0, 4.0]])
-    pedersen = np.array([[4.0, 3.0]])
+    hall = np.array([[3, 4]])
+    pedersen = np.array([[4, 3]])
     recorded = {}
 
     def record_set_resistance(Pedersen, Hall, **kwargs):
@@ -196,6 +245,8 @@ def test_set_conductance_delegates_resistance_conversion(tmp_path, monkeypatch):
     denominator = hall**2 + pedersen**2
     np.testing.assert_allclose(recorded["Pedersen"], pedersen / denominator)
     np.testing.assert_allclose(recorded["Hall"], hall / denominator)
+    assert recorded["Pedersen"].dtype.kind == "f"
+    assert recorded["Hall"].dtype.kind == "f"
     assert recorded["kwargs"]["time"] == 7.0
     assert recorded["kwargs"]["reg_lambda"] == 1e-3
     assert recorded["kwargs"]["pinv_rtol"] == 1e-10

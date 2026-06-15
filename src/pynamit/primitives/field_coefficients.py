@@ -1,4 +1,4 @@
-"""Coefficient-backed field values."""
+"""Field coefficient values."""
 
 from typing import Any
 
@@ -7,12 +7,13 @@ import numpy as np
 from pynamit.primitives.field_space import FieldSpace
 
 
-class CoefficientField:
+class FieldCoefficients:
     """Realized field coefficients in a ``FieldSpace``.
 
     This is the value-carrying counterpart to ``FieldSpace``. It checks
-    coefficient length and applies the field-space coefficient policy.
-    It does not own grid projection or grid evaluation.
+    coefficient length, stores the canonical coefficient shape, and
+    applies the field-space coefficient policy. It does not own grid
+    projection or grid evaluation.
     """
 
     def __init__(
@@ -22,13 +23,14 @@ class CoefficientField:
         *,
         name: str | None = None,
     ):
-        """Initialize a coefficient-backed field."""
+        """Initialize field coefficients."""
         if not isinstance(field_space, FieldSpace):
-            raise TypeError("CoefficientField requires a FieldSpace.")
+            raise TypeError("FieldCoefficients requires a FieldSpace.")
         self.field_space = field_space
-        self.coeffs = self.field_space.validate_coefficients(
-            self.field_space.project_mean_free(coeffs),
-            name=name or f"{self.__class__.__name__}.coeffs",
+        field_name = name or f"{self.__class__.__name__}.array"
+        self._array = self.field_space.validate_coefficients(
+            self.field_space.project_mean_free(coeffs, name=field_name),
+            name=field_name,
         )
 
     @property
@@ -57,10 +59,24 @@ class CoefficientField:
         return self.field_space.coefficient_length
 
     @property
+    def coefficient_shape(self):
+        """Return the canonical coefficient array shape."""
+        return self.field_space.coefficient_shape
+
+    @property
     def signature(self):
         """Return the structural field-space signature."""
         return self.field_space.signature
 
+    @property
+    def array(self):
+        """Return coefficients in canonical shaped form."""
+        return self._array
+
+    def to_vector(self):
+        """Return coefficients as a flat operator-compatible vector."""
+        return self.array.reshape(-1)
+
     def __array__(self, dtype=None):
         """Return coefficients for NumPy coercion."""
-        return np.asarray(self.coeffs, dtype=dtype)
+        return np.asarray(self.array, dtype=dtype)

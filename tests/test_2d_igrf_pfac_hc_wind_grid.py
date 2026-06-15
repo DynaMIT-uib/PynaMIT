@@ -11,9 +11,9 @@ import numpy as np
 def test_2d_igrf_pfac_hc_wind_grid():
     """Test 2D grid-based simulation with IGRF, PFAC, HC, and wind."""
     # Arrange.
-    expected_coeff_norm = 8.017966615753342e-09
-    expected_coeff_max = 2.371670930644875e-09
-    expected_coeff_min = -3.218941002096898e-09
+    expected_coeff_norm = 8.539937195217714e-09
+    expected_coeff_max = 2.9383716319638394e-09
+    expected_coeff_min = -3.302945299283126e-09
     expected_n_coeffs = 228
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
@@ -33,9 +33,9 @@ def test_2d_igrf_pfac_hc_wind_grid():
         connect_hemispheres=True,
         latitude_boundary=50,
         use_wind=True,
-        vector_jr=False,
-        vector_conductance=False,
-        vector_u=False,
+        jr_projection_basis="CS",
+        conductance_projection_basis="CS",
+        u_projection_basis="CS",
         steady_state_initialization=False,
     )
 
@@ -51,6 +51,7 @@ def test_2d_igrf_pfac_hc_wind_grid():
     actual_coeff_max = np.max(coeff_array)
     actual_coeff_min = np.min(coeff_array)
     actual_n_coeffs = coeff_array.shape[0]
+    conductance = dynamics.input_timeseries.datasets["conductance"]
 
     print("actual_coeff_norm: ", actual_coeff_norm)
     print("actual_coeff_max: ", actual_coeff_max)
@@ -62,3 +63,5 @@ def test_2d_igrf_pfac_hc_wind_grid():
     assert actual_coeff_max == pytest.approx(expected_coeff_max, abs=0.0, rel=1e-5)
     assert actual_coeff_min == pytest.approx(expected_coeff_min, abs=0.0, rel=1e-5)
     assert actual_n_coeffs == pytest.approx(expected_n_coeffs, abs=0.0, rel=1e-5)
+    assert "CS_etaP" in conductance
+    assert "CS_etaH" in conductance

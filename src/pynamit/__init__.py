@@ -14,7 +14,7 @@ CSBasis : class
     Class for cubed sphere projections.
 Dynamics : class
     Class for simulating ionospheric dynamics.
-CoefficientField : class
+FieldCoefficients : class
     Class for storing validated field coefficients.
 FieldEvaluator : class
     Class for evaluating fields.
@@ -30,10 +30,6 @@ SolidHarmonics : class
     Radial solid-harmonic operations wrapping an SHBasis.
 FieldSpace : class
     Class for describing field coefficient spaces.
-debugplot : function
-    Function for debug plotting.
-globalplot : function
-    Function for global plotting.
 """
 
 from .sphere import (
@@ -52,7 +48,7 @@ from .sphere import (
     is_sh_basis,
 )
 from .primitives.basis_evaluator import BasisEvaluator
-from .primitives.coefficient_field import CoefficientField
+from .primitives.field_coefficients import FieldCoefficients
 from .primitives.field_evaluator import FieldEvaluator
 from .primitives.field_space import FieldSpace
 from .simulation.dynamics import Dynamics
@@ -61,13 +57,8 @@ from .math import set_backend, use_jax
 from .external_inputs import set_input_source, get_input_source
 
 _LAZY_EXPORTS = {
-    "PynamEye": ("pynamit.simulation.pynameye", "PynamEye"),
-    "debugplot": ("pynamit.simulation.visualization", "debugplot"),
-    "globalplot": ("pynamit.simulation.visualization", "globalplot"),
-    "plot_input_vs_interpolated": (
-        "pynamit.simulation.input_vs_interpolated",
-        "plot_input_vs_interpolated",
-    ),
+    "PynamEye": ("pynamit.visualization.pynameye", "PynamEye"),
+    "evaluate_projected_input": ("pynamit.visualization", "evaluate_projected_input"),
 }
 
 
@@ -92,7 +83,7 @@ __all__ = [
     "BasisView",
     "BasisEvaluator",
     "CSBasis",
-    "CoefficientField",
+    "FieldCoefficients",
     "Dynamics",
     "FieldEvaluator",
     "FieldSpace",
@@ -106,12 +97,10 @@ __all__ = [
     "SphericalTransform",
     "SurfaceOperators",
     "basis_kind",
-    "debugplot",
-    "globalplot",
+    "evaluate_projected_input",
     "is_basis_kind",
     "is_cs_basis",
     "is_sh_basis",
-    "plot_input_vs_interpolated",
     "set_backend",
     "use_jax",
     "set_input_source",

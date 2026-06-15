@@ -4,7 +4,7 @@ import numpy as np
 import math
 
 
-class SHIndices(object):
+class SHIndices:
     """Container for (n,m) index pairs."""
 
     def __init__(self, Nmax: int, Mmax: int):

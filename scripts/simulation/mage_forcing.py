@@ -10,6 +10,7 @@ import os
 import cartopy.crs as ccrs
 from polplot import Polarplot
 import matplotlib.pyplot as plt
+from pynamit.visualization.results import plot_global_polar_map
 
 
 RE = 6381e3
@@ -119,9 +120,9 @@ for step in range(0, nstep):
 
         lat = 90 - theta
         lon = phi
-        pynamit.globalplot(lon, lat, delta_Br, cmap=plt.cm.bwr, extend="both")
+        plot_global_polar_map(lon, lat, delta_Br, cmap=plt.cm.bwr, extend="both")
 
-    Br_field = pynamit.CoefficientField(
+    Br_field = pynamit.FieldCoefficients(
         state_field_space,
         Br_spherical_transform.analyze_scalar(delta_Br.flatten()),
     )
@@ -135,7 +136,7 @@ for step in range(0, nstep):
     )
 
     if PLOT_BR:
-        pynamit.globalplot(
+        plot_global_polar_map(
             plt_lon,
             plt_lat,
             plt_evaluator.synthesize_scalar(Br_field).reshape(plt_lon.shape),
@@ -145,11 +146,9 @@ for step in range(0, nstep):
         )
     # Shift from 1.5 RI to 1.0 RI.
     # This is now done inside state, assuming that Br is at RM.
-    # Br_field.coeffs = Br_field.coeffs
-    # * dynamics.solid_harmonics.regular_reference_shift(1.5, 1)
 
     # if PLOT_BR:
-    #    pynamit.globalplot(
+    #    plot_global_polar_map(
     #        plt_lon,
     #        plt_lat,
     #        plt_evaluator.synthesize_scalar(Br_field).reshape(
@@ -324,7 +323,7 @@ for step in range(0, nstep):
     dynamics.set_input_state_variables()
 
     if PLOT_JR:
-        pynamit.globalplot(
+        plot_global_polar_map(
             plt_lon,
             plt_lat,
             pynamit.SphericalTransform(dynamics.state.jr.representation, plt_grid)
@@ -336,7 +335,7 @@ for step in range(0, nstep):
         )
 
     if PLOT_CONDUCTANCE:
-        pynamit.globalplot(
+        plot_global_polar_map(
             plt_lon,
             plt_lat,
             conductance_plt_evaluator.synthesize_scalar(dynamics.state.etaP).reshape(
@@ -347,7 +346,7 @@ for step in range(0, nstep):
             title="etaP",
         )
 
-        pynamit.globalplot(
+        plot_global_polar_map(
             plt_lon,
             plt_lat,
             conductance_plt_evaluator.synthesize_scalar(dynamics.state.etaH).reshape(

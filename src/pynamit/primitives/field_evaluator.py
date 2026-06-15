@@ -7,7 +7,7 @@ field quantities on spatial grids.
 import numpy as np
 
 
-class FieldEvaluator(object):
+class FieldEvaluator:
     """Class for evaluating magnetic field quantities on spatial grids.
 
     Computes magnetic field quantities and handles conversions between

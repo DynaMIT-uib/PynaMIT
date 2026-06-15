@@ -6,6 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 import dipole
+from pynamit.visualization.state_fields import evaluate_Phi_coefficients
 
 ts = [0, 0.5, 1, 2, 3, 5, 10, 15, 20, 30, 40, 50, 60, 90, 120, 150, 180, 240, 300, 420]
 DT = 480  # An offset to apply to all the ts
@@ -52,7 +53,7 @@ if GLOBAL_TIMESERIES:
         )
 
         for ax in [ax_E, ax_B, ax_Q]:
-            a.jazz_global_plot(
+            a.style_global_axis(
                 ax,
                 draw_labels=True if i == 0 else False,
                 draw_coastlines=True if i == 0 else False,
@@ -250,7 +251,7 @@ if EQUATORIAL_EFIELD:
             a.basis, grid
         )
 
-        phi = evaluator.synthesize_scalar(a.m_Phi)
+        phi = evaluate_Phi_coefficients(a.geometry, a.Phi_coeffs, evaluator)
 
         Br, Btheta, Bphi = a.mainfield.get_B(a.RI, grid.theta, grid.lon)
         Bh = np.sqrt(Btheta**2 + Bphi**2).flatten()

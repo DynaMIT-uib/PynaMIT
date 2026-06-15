@@ -14,11 +14,16 @@ import numpy as np
 from scipy.integrate import solve_ivp
 from scipy.linalg import expm
 
-from pynamit.primitives.coefficient_field import CoefficientField
+from pynamit.primitives.field_coefficients import FieldCoefficients
 from pynamit.math import einsum_linear_map_from_matvec
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver, get_default_least_squares_solver
-from pynamit.math.linear_map import LinearMap, as_linear_map, diagonal_linear_map
+from pynamit.math.linear_map import (
+    LinearMap,
+    as_linear_map,
+    identity_linear_map,
+    pointwise_matrix_linear_map,
+)
 from pynamit.math.backend import (
     block_after_jax_linalg,
     get_array_module,
@@ -30,6 +35,7 @@ from pynamit.math.backend import (
 from pynamit.sphere import CSBasis, SolidHarmonics, SurfaceOperators
 from pynamit.simulation.geometry import Geometry
 from pynamit.simulation.operators import StateOperators
+from pynamit.simulation.config import setting_value
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +76,7 @@ class State:
         # Operator for mapping velocity field `u` to E-field
         # (independent of conductance)
         self._u_coeffs_to_E_coeffs_cache: Optional[LinearMap] = None
+        self._Q_eff_synthesis_operator_cache: dict[Any, LinearMap] = {}
 
         # The solver is configured here but remains stateless.
         self.m_imp_solver = LeastSquaresSolver(
@@ -77,11 +84,12 @@ class State:
         )
 
         # Initialize state variables
-        self.u: Optional[CoefficientField] = None
-        self.Br: Optional[CoefficientField] = None
-        self.jr: Optional[CoefficientField] = None
-        self.etaP: Optional[CoefficientField] = None
-        self.etaH: Optional[CoefficientField] = None
+        self.u: Optional[FieldCoefficients] = None
+        self.Q_eff: Optional[FieldCoefficients] = None
+        self.Br: Optional[FieldCoefficients] = None
+        self.jr: Optional[FieldCoefficients] = None
+        self.etaP: Optional[FieldCoefficients] = None
+        self.etaH: Optional[FieldCoefficients] = None
 
         # Invalidate all caches
         self._invalidate_caches()
@@ -90,17 +98,30 @@ class State:
 
     def _init_settings(self, settings: Any) -> None:
         """Extract and store configuration from the settings object."""
-        self.solver_type = getattr(
+        self.solver_type = setting_value(
             settings, "least_squares_solver", get_default_least_squares_solver()
         )
-        self.preconditioner = getattr(settings, "least_squares_preconditioner", "pinv")
-        self.static_preconditioner = getattr(settings, "static_preconditioner", False)
-        self.integrator = settings.integrator
-        self.m_imp_regularization_lambda = getattr(settings, "m_imp_regularization_lambda", 0.0)
-        self.RI = settings.RI
-        self.RM = None if settings.RM == 0 else settings.RM
-        self.ih_constraint_scaling = settings.ih_constraint_scaling
-        self.connect_hemispheres = bool(settings.connect_hemispheres)
+        self.preconditioner = setting_value(
+            settings,
+            "least_squares_preconditioner",
+            "pinv",
+        )
+        self.static_preconditioner = setting_value(
+            settings,
+            "static_preconditioner",
+            False,
+        )
+        self.integrator = setting_value(settings, "integrator")
+        self.m_imp_regularization_lambda = setting_value(
+            settings,
+            "m_imp_regularization_lambda",
+            0.0,
+        )
+        self.RI = setting_value(settings, "RI")
+        rm = setting_value(settings, "RM")
+        self.RM = None if rm == 0 else rm
+        self.ih_constraint_scaling = setting_value(settings, "ih_constraint_scaling")
+        self.connect_hemispheres = bool(setting_value(settings, "connect_hemispheres"))
 
     @staticmethod
     def _project_scalar_with_basis(basis: Any, coeffs: Any) -> Any:
@@ -145,15 +166,69 @@ class State:
             self._u_coeffs_to_E_coeffs_cache = self._create_u_to_E_operator()
         return self._u_coeffs_to_E_coeffs_cache
 
+    def _Q_eff_synthesis_operator_for_representation(self, representation) -> LinearMap:
+        """Return Q_eff coefficient synthesis to the model grid."""
+        cache_key = getattr(representation, "coefficient_space_signature", None)
+        if cache_key is None:
+            cache_key = getattr(representation, "signature", id(representation))
+        if cache_key not in self._Q_eff_synthesis_operator_cache:
+            get_operator = getattr(
+                representation, "get_helmholtz_synthesis_operator", None
+            )
+            if not callable(get_operator):
+                raise ValueError(
+                    "Q_eff storage basis cannot evaluate tangential fields on "
+                    "the state/model grid."
+                )
+            self._Q_eff_synthesis_operator_cache[cache_key] = get_operator(
+                self.geometry.grid
+            )
+        return self._Q_eff_synthesis_operator_cache[cache_key]
+
+    def _create_Q_eff_to_E_operator_for_representation(
+        self, representation
+    ) -> LinearMap:
+        """Map effective-current coefficients to E coefficients."""
+        q_synthesis = self._Q_eff_synthesis_operator_for_representation(representation)
+
+        grid_to_coeffs = as_linear_map(
+            xp.asarray(self.geometry.helmholtz_analysis_matrix),
+            input_shape=(2, self.geometry.grid.size),
+            output_shape=(2, self.basis.index_length),
+        )
+        current_to_E_grid = pointwise_matrix_linear_map(xp.asarray(self.M_total_on_grid))
+        return grid_to_coeffs @ current_to_E_grid @ q_synthesis
+
+    def Q_eff_to_E_coeffs_for_field_space(self, field_space) -> LinearMap:
+        """Return Q_eff-to-E map for an explicit storage field space."""
+        return self._create_Q_eff_to_E_operator_for_representation(
+            field_space.representation
+        )
+
+    @property
+    def Q_eff_to_E_coeffs(self) -> Optional[LinearMap]:
+        """Linear map from effective-current coeffs to E coeffs."""
+        if getattr(self, "Q_eff", None) is None:
+            return None
+        if self._Q_eff_to_E_coeffs_cache is None:
+            self._Q_eff_to_E_coeffs_cache = (
+                self._create_Q_eff_to_E_operator_for_representation(
+                    self.Q_eff.representation
+                )
+            )
+        return self._Q_eff_to_E_coeffs_cache
+
     def _invalidate_caches(self) -> None:
         """Invalidate all conductance-dependent cached properties."""
         self._M_total_on_grid: Optional[np.ndarray] = None
         self._m_ind_to_E_coeffs_cache: Optional[LinearMap] = None
         self._m_imp_to_E_coeffs_cache: Optional[LinearMap] = None
         self._Br_to_E_coeffs_cache: Optional[LinearMap] = None
+        self._Q_eff_to_E_coeffs_cache: Optional[LinearMap] = None
         self._m_ind_to_E_coeffs_runtime_cache: Optional[LinearMap] = None
         self._m_imp_to_E_coeffs_runtime_cache: Optional[LinearMap] = None
         self._Br_to_E_coeffs_runtime_cache: Optional[LinearMap] = None
+        self._Q_eff_to_E_coeffs_runtime_cache: Optional[LinearMap] = None
         self._E_map_constraint_cache: Optional[LinearMap] = None
         self._m_ind_to_E_df_matrix: Optional[np.ndarray] = None
         self._m_ind_to_E_df_operator: Optional[LinearMap] = None
@@ -180,34 +255,63 @@ class State:
                     "Conductance must be set before accessing conductance-dependent properties."
                 )
             eta_stacked = xp.stack(
-                [xp.asarray(self.etaP.coeffs), xp.asarray(self.etaH.coeffs)], axis=0
+                [xp.asarray(self.etaP.array), xp.asarray(self.etaH.array)], axis=0
             )
-            conductance_synthesis = xp.asarray(self._conductance_synthesis_matrix())
+            conductance_synthesis = self._conductance_synthesis_operator()
+            conductance_on_grid = xp.asarray(
+                conductance_synthesis.matmat(xp.swapaxes(eta_stacked, 0, 1))
+            )
+            conductance_on_grid = xp.swapaxes(conductance_on_grid, 0, 1)
             b_stacked = xp.stack(
                 [xp.asarray(self.geometry.bP), xp.asarray(self.geometry.bH)], axis=0
             )
             self._M_total_on_grid = xp.einsum(
-                "sijk,kp,sp->ijk",
+                "sijk,sk->ijk",
                 b_stacked,
-                conductance_synthesis,
-                eta_stacked,
+                conductance_on_grid,
                 optimize=True,
             )
         return self._M_total_on_grid
 
-    def _conductance_synthesis_matrix(self):
-        """Return stored-conductance synthesis to the model grid."""
+    def _conductance_storage_basis(self):
+        """Return the shared conductance storage basis."""
         basis = self.etaP.representation
-        if basis.coefficients_are_compatible_with(self.basis):
-            return self.geometry.spherical_transform.scalar_coeffs_to_grid
+        hall_basis = self.etaH.representation
+        if hall_basis is not basis:
+            compatible = getattr(hall_basis, "coefficients_are_compatible_with", None)
+            if not callable(compatible) or not compatible(basis):
+                raise ValueError(
+                    "Pedersen and Hall conductance storage bases must be "
+                    "coefficient-compatible."
+                )
+        return basis
 
-        zero_added_basis = self.geometry.spherical_transform_zero_added.source
-        if basis.coefficients_are_compatible_with(zero_added_basis):
-            return self.geometry.spherical_transform_zero_added.scalar_coeffs_to_grid
+    def _compatible_conductance_transform(self, basis) -> Optional[Any]:
+        """Return a synthesis transform compatible with basis."""
+        if basis.coefficients_are_compatible_with(self.basis):
+            return self.geometry.spherical_transform
+
+        zero_added_transform = self.geometry.spherical_transform_zero_added
+        if basis.coefficients_are_compatible_with(zero_added_transform.source):
+            return zero_added_transform
+
+        return None
+
+    def _conductance_synthesis_operator(self) -> LinearMap:
+        """Return stored-conductance synthesis to the model grid."""
+        basis = self._conductance_storage_basis()
+
+        get_operator = getattr(basis, "get_scalar_evaluation_operator", None)
+        if callable(get_operator):
+            return get_operator(self.geometry.grid)
+
+        transform = self._compatible_conductance_transform(basis)
+        if transform is not None:
+            return transform.scalar_coeffs_to_grid_operator
 
         get_matrix = getattr(basis, "get_scalar_evaluation_matrix", None)
         if callable(get_matrix):
-            return get_matrix(self.geometry.grid)
+            return as_linear_map(get_matrix(self.geometry.grid))
 
         raise ValueError(
             "Conductance storage basis cannot be evaluated on the state/model grid."
@@ -261,7 +365,8 @@ class State:
         """Return an E-coefficient operator for repeated applies."""
         if op is None:
             return None
-        return op.cache_dense()
+        _ = op.array
+        return op
 
     @property
     def _m_ind_to_E_coeffs_runtime(self) -> Optional[LinearMap]:
@@ -289,6 +394,15 @@ class State:
                 self.Br_to_E_coeffs
             )
         return self._Br_to_E_coeffs_runtime_cache
+
+    @property
+    def _Q_eff_to_E_coeffs_runtime(self) -> Optional[LinearMap]:
+        """Runtime map from effective-current coeffs to E coeffs."""
+        if getattr(self, "_Q_eff_to_E_coeffs_runtime_cache", None) is None:
+            self._Q_eff_to_E_coeffs_runtime_cache = self._runtime_E_coeffs_operator(
+                self.Q_eff_to_E_coeffs
+            )
+        return self._Q_eff_to_E_coeffs_runtime_cache
 
     @property
     def _E_map_constraint(self) -> Optional[LinearMap]:
@@ -328,7 +442,7 @@ class State:
             reg_ops, reg_weights = [], []
             if self.m_imp_regularization_lambda > 0:
                 n = self.basis.index_length
-                reg_ops.append(diagonal_linear_map(np.ones(n)))
+                reg_ops.append(identity_linear_map((n,)))
                 reg_weights.append(self.m_imp_regularization_lambda)
 
             self._m_imp_problem = LeastSquaresProblem(
@@ -424,19 +538,21 @@ class State:
             if updated_input is None:
                 continue
 
-            field_space = input_timeseries.get_storage_spec(key)
+            field_space = input_timeseries.get_field_space(key)
             if key == "conductance":
                 conductance_updated = True
-                self.etaP = CoefficientField(field_space, coeffs=updated_input["etaP"])
-                self.etaH = CoefficientField(field_space, coeffs=updated_input["etaH"])
+                self.etaP = FieldCoefficients(field_space, coeffs=updated_input["etaP"])
+                self.etaH = FieldCoefficients(field_space, coeffs=updated_input["etaH"])
             elif key == "jr":
-                self.jr = CoefficientField(field_space, coeffs=updated_input["jr"])
+                self.jr = FieldCoefficients(field_space, coeffs=updated_input["jr"])
             elif key == "Br":
                 if self.RM is None:
                     raise ValueError("Br input can only be set if RM is not None.")
-                self.Br = CoefficientField(field_space, coeffs=updated_input["Br"])
+                self.Br = FieldCoefficients(field_space, coeffs=updated_input["Br"])
             elif key == "u":
-                self.u = CoefficientField(field_space, coeffs=updated_input["u"].reshape((2, -1)))
+                self.u = FieldCoefficients(field_space, coeffs=updated_input["u"])
+            elif key == "Q_eff":
+                self.Q_eff = FieldCoefficients(field_space, coeffs=updated_input["Q_eff"])
 
         if conductance_updated:
             logger.info("Conductance updated: invalidating caches and problem definition.")
@@ -476,14 +592,20 @@ class State:
     def calculate_noind_coeffs(self) -> Tuple[np.ndarray, np.ndarray]:
         """Calculate E-field coefficients without induction effects."""
         E_shape = (2, self.basis.index_length)
-        u_coeffs = 0 if self.u is None else xp.asarray(self.u.coeffs)
+        u_coeffs = 0 if self.u is None else xp.asarray(self.u.array)
         E_direct = self._apply_operator(self.u_coeffs_to_E_coeffs, u_coeffs, E_shape)
         if self.Br is not None:
             E_direct += self._apply_operator(
-                self._Br_to_E_coeffs_runtime, xp.asarray(self.Br.coeffs), E_shape
+                self._Br_to_E_coeffs_runtime, xp.asarray(self.Br.array), E_shape
+            )
+        if getattr(self, "Q_eff", None) is not None:
+            E_direct += self._apply_operator(
+                self._Q_eff_to_E_coeffs_runtime,
+                xp.asarray(self.Q_eff.array),
+                E_shape,
             )
 
-        jr_coeffs = None if self.jr is None else xp.asarray(self.jr.coeffs)
+        jr_coeffs = None if self.jr is None else xp.asarray(self.jr.array)
         return self._calculate_total_E_field(E_direct, jr_coeffs)
 
     def calculate_ind_coeffs(self, m_ind: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -546,7 +668,7 @@ class State:
     def _build_m_ind_to_E_df_matrix(self) -> None:
         """Construct the dense matrix for the induction operator."""
         logger.info("Building dense induction operator matrix (m_ind -> E_df)...")
-        self._m_ind_to_E_df_matrix = self.m_ind_to_E_df_operator.dense()
+        self._m_ind_to_E_df_matrix = self.m_ind_to_E_df_operator.to_matrix()
         logger.info("Dense induction operator built.")
 
     def _calculate_d_m_ind_dt(self, m_ind: np.ndarray, E_coeffs_noind: np.ndarray) -> np.ndarray:

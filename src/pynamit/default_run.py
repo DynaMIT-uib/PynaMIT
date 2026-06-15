@@ -20,26 +20,30 @@ def run_pynamit(
     connect_hemispheres=False,
     latitude_boundary=50,
     use_wind=False,
+    use_Q_eff=False,
     use_jr=True,
     steady_state_initialization=True,
     run_inductive=True,
     run_steady_state=True,
-    vector_jr=True,
-    vector_Br=True,
-    vector_conductance=True,
-    vector_u=True,
+    jr_projection_basis=None,
+    Br_projection_basis=None,
+    conductance_projection_basis=None,
+    u_projection_basis=None,
+    Q_eff_projection_basis=None,
     integrator="euler",
     jr_lambda=None,
     conductance_lambda=None,
     u_lambda=None,
+    Q_eff_lambda=None,
     multi_data=False,
     least_squares_solver=None,
     least_squares_preconditioner="pinv",
+    static_preconditioner=False,
+    m_imp_regularization_lambda=0.0,
     run_directory=None,
     artifact_storage="auto",
     horizontal_basis_kind="SH",
     area_weighted_least_squares=False,
-    project_conductance=True,
 ):
     """Run a default PynaMIT simulation with the given parameters.
 
@@ -69,6 +73,9 @@ def run_pynamit(
         The latitude boundary for the simulation.
     use_wind : bool, optional
         Whether to include neutral-wind driving in the simulation.
+    use_Q_eff : bool, optional
+        Whether to represent neutral-wind driving through the effective
+        current input Q_eff instead of direct wind forcing.
     use_jr : bool, optional
         Whether to include radial-current driving in the simulation.
     steady_state_initialization : bool, optional
@@ -78,14 +85,22 @@ def run_pynamit(
     run_steady_state : bool, optional
         Whether to calculate and save the algebraic steady-state
         solution.
-    vector_jr : bool, optional
-        Whether to use vector representation for radial current.
-    vector_Br : bool, optional
-        Whether to use vector representation for magnetic field.
-    vector_conductance : bool, optional
-        Whether to use vector representation for conductance.
-    vector_u : bool, optional
-        Whether to use vector representation for wind.
+    jr_projection_basis : {'SH', 'CS'}, optional
+        Basis route used when projecting radial-current inputs. Defaults
+        to ``horizontal_basis_kind``.
+    Br_projection_basis : {'SH', 'CS'}, optional
+        Basis route used when projecting radial magnetic-field inputs.
+        Defaults to ``horizontal_basis_kind``.
+    conductance_projection_basis : {'SH', 'CS'}, optional
+        Conductance storage/projection basis. ``'CS'`` stores
+        resistance values on the cubed-sphere grid; matching model-grid
+        inputs are a no-op. Defaults to ``horizontal_basis_kind``.
+    u_projection_basis : {'SH', 'CS'}, optional
+        Basis route used when projecting neutral-wind inputs. Defaults
+        to ``horizontal_basis_kind``.
+    Q_eff_projection_basis : {'SH', 'CS'}, optional
+        Basis route used when projecting effective wind-current inputs.
+        Defaults to ``u_projection_basis``.
     integrator : {'euler', 'exponential'}, optional
         Integrator type for time evolution.
     jr_lambda : float, optional
@@ -94,10 +109,16 @@ def run_pynamit(
         Regularization parameter for the conductance.
     u_lambda : float, optional
         Regularization parameter for the wind.
+    Q_eff_lambda : float, optional
+        Regularization parameter for the effective wind current.
     least_squares_solver : str, optional
         Least-squares solver used by state feedback solves.
     least_squares_preconditioner : {'jacobi', 'pinv', None}, optional
         Preconditioner used by iterative least-squares state solves.
+    static_preconditioner : bool, optional
+        Keep a reusable iterative-solver preconditioner when valid.
+    m_imp_regularization_lambda : float, optional
+        Regularization strength for imposed-potential solves.
     run_directory : str, optional
         Directory for one persisted run. If omitted, a unique
         timestamped run directory is created under ``simulation/``.
@@ -112,11 +133,6 @@ def run_pynamit(
     area_weighted_least_squares : bool, optional
         Use surface-area weights for least-squares projections when no
         explicit ``sqrt_weights`` are supplied.
-    project_conductance : bool, optional
-        If True, project conductance/resistance inputs into the
-        conductance storage basis. If False, require conductance inputs
-        on the state/model grid and store resistance values directly on
-        that grid.
 
     Returns
     -------
@@ -150,17 +166,19 @@ def run_pynamit(
         ignore_PFAC=ignore_PFAC,
         connect_hemispheres=connect_hemispheres,
         latitude_boundary=latitude_boundary,
-        vector_jr=vector_jr,
-        vector_Br=vector_Br,
-        vector_conductance=vector_conductance,
-        vector_u=vector_u,
+        jr_projection_basis=jr_projection_basis,
+        Br_projection_basis=Br_projection_basis,
+        conductance_projection_basis=conductance_projection_basis,
+        u_projection_basis=u_projection_basis,
+        Q_eff_projection_basis=Q_eff_projection_basis,
         horizontal_basis_kind=horizontal_basis_kind,
         area_weighted_least_squares=area_weighted_least_squares,
-        project_conductance=project_conductance,
         save_steady_states=run_steady_state,
         integrator=integrator,
         least_squares_solver=least_squares_solver,
         least_squares_preconditioner=least_squares_preconditioner,
+        static_preconditioner=static_preconditioner,
+        m_imp_regularization_lambda=m_imp_regularization_lambda,
         artifact_storage=artifact_storage,
     )
 
@@ -180,6 +198,8 @@ def run_pynamit(
         jr, jr_lat, jr_lon = get_jr_inputs(date, jr_lat, jr_lon, time)
 
     wind_inputs = get_wind_inputs(date, use_wind=use_wind, time=time)
+    if use_Q_eff and wind_inputs is None:
+        raise ValueError("use_Q_eff=True requires use_wind=True in run_pynamit.")
 
     if wind_inputs is not None:
         u_theta, u_phi, u_lat, u_lon, weights = wind_inputs
@@ -196,7 +216,18 @@ def run_pynamit(
     if use_jr:
         dynamics.set_jr(jr, lat=jr_lat, lon=jr_lon, reg_lambda=jr_lambda, time=time)
 
-    if wind_inputs is not None:
+    if wind_inputs is not None and use_Q_eff:
+        dynamics.set_Q_eff_from_neutral_wind(
+            u_theta=u_theta,
+            u_phi=u_phi,
+            lat=u_lat,
+            lon=u_lon,
+            sqrt_weights=weights,
+            wind_reg_lambda=u_lambda,
+            Q_eff_reg_lambda=Q_eff_lambda,
+            time=time,
+        )
+    elif wind_inputs is not None:
         dynamics.set_neutral_wind(
             u_theta=u_theta,
             u_phi=u_phi,

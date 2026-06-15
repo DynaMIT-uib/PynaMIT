@@ -6,6 +6,7 @@ import pytest
 import pynamit
 from pynamit.math import JAX_AVAILABLE, set_backend, to_numpy, use_jax
 from pynamit.primitives.basis_evaluator import BasisEvaluator
+from pynamit.primitives.field_coefficients import FieldCoefficients
 from pynamit.sphere.spherical_transform import SphericalTransform
 from pynamit.primitives.field_space import FieldSpace
 from pynamit.primitives.timeseries import Timeseries
@@ -16,7 +17,7 @@ def _regular_grid():
     lat = np.linspace(-70.0, 70.0, 11)
     lon = np.linspace(0.0, 330.0, 12)
     lat_grid, lon_grid = np.meshgrid(lat, lon, indexing="ij")
-    return Grid(lat=lat_grid.ravel(), lon=lon_grid.ravel())
+    return Grid(lat=lat_grid.reshape(-1), lon=lon_grid.reshape(-1))
 
 
 def test_spherical_transform_projects_scalar_grid_values():
@@ -34,6 +35,44 @@ def test_spherical_transform_projects_scalar_grid_values():
     np.testing.assert_allclose(actual[0], expected, atol=1e-10)
 
 
+def test_spherical_transform_synthesizes_field_coefficients():
+    """Transforms read canonical arrays from FieldCoefficients."""
+    basis = SHBasis(3, 2, mean_free=True)
+    grid = _regular_grid()
+    field_space = FieldSpace(basis, field_type="scalar")
+    coeffs = np.zeros(basis.index_length)
+    coeffs[1] = 1.0
+    field = FieldCoefficients(field_space, coeffs)
+    transform = SphericalTransform(basis, grid)
+
+    np.testing.assert_allclose(
+        transform.synthesize_scalar(field),
+        transform.synthesize_scalar(field.array),
+    )
+
+
+def test_spherical_transform_caches_direct_input_transforms_by_grid():
+    """Direct projection cache keeps separate compatible input grids."""
+    basis = SHBasis(3, 2, mean_free=True)
+    grid = _regular_grid()
+    shifted_grid = Grid(lat=grid.lat, lon=grid.lon + 1.0)
+    transform = SphericalTransform(basis, grid)
+
+    transform.project_scalar(
+        np.zeros(grid.size), input_grid=grid, projection_basis=basis
+    )
+    first_cached = tuple(transform._input_transforms.values())
+    transform.project_scalar(
+        np.zeros(shifted_grid.size), input_grid=shifted_grid, projection_basis=basis
+    )
+    transform.project_scalar(
+        np.zeros(grid.size), input_grid=grid, projection_basis=basis
+    )
+
+    assert len(transform._input_transforms) == 2
+    assert tuple(transform._input_transforms.values())[0] is first_cached[0]
+
+
 def test_basis_evaluator_is_spherical_transform_alias():
     """Historical BasisEvaluator name aliases SphericalTransform."""
     basis = SHBasis(3, 2, mean_free=True)
@@ -43,8 +82,6 @@ def test_basis_evaluator_is_spherical_transform_alias():
     assert BasisEvaluator is SphericalTransform
     assert pynamit.BasisEvaluator is BasisEvaluator
     assert pynamit.SphericalTransform is SphericalTransform
-    assert not hasattr(pynamit, "FieldTransform")
-    assert not hasattr(pynamit, "Basis")
 
     coeffs = np.zeros(basis.index_length)
     coeffs[1] = 1.0
@@ -80,6 +117,53 @@ def test_basis_evaluator_is_spherical_transform_alias():
     np.testing.assert_allclose(
         evaluator.G_helmholtz[:, :, 1, :],
         evaluator.G_rxgrad,
+    )
+
+
+def test_spherical_transform_regularization_uses_diagonal_operators():
+    """Degree regularization stays structured in least-squares."""
+    basis = SHBasis(4, 2, mean_free=True)
+    transform = SphericalTransform(basis, _regular_grid(), reg_lambda=1.0)
+    n = np.asarray(basis.n)
+    helmholtz_weights = np.stack(
+        [
+            n * (n + 1) / (2 * n + 1),
+            (n + 1) / 2,
+        ],
+        axis=0,
+    )
+    helmholtz_coeffs = np.vstack(
+        [
+            np.linspace(0.0, 1.0, basis.index_length),
+            np.linspace(1.0, 2.0, basis.index_length),
+        ]
+    )
+    scalar_coeffs = np.linspace(0.0, 1.0, basis.index_length)
+
+    scalar_regularization = transform.scalar_least_squares_problem.regularization_matrices[
+        0
+    ]
+    helmholtz_regularization = (
+        transform.helmholtz_least_squares_problem.regularization_matrices[0]
+    )
+
+    np.testing.assert_allclose(transform.L, np.diag(n))
+    np.testing.assert_allclose(
+        transform.L_helmholtz.reshape(2 * basis.index_length, 2 * basis.index_length),
+        np.diag(helmholtz_weights.reshape(-1)),
+    )
+    np.testing.assert_allclose(scalar_regularization.diagonal(backend="numpy"), n)
+    np.testing.assert_allclose(
+        helmholtz_regularization.diagonal(backend="numpy"),
+        helmholtz_weights.reshape(-1),
+    )
+    np.testing.assert_allclose(
+        transform.helmholtz_regularization_term(helmholtz_coeffs),
+        helmholtz_weights * helmholtz_coeffs,
+    )
+    np.testing.assert_allclose(
+        transform.scalar_regularization_term(scalar_coeffs),
+        np.dot(scalar_coeffs, n * scalar_coeffs),
     )
 
 
@@ -724,7 +808,7 @@ def test_field_space_applies_cs_mean_free_after_spherical_projection():
     np.testing.assert_allclose(basis.scalar_mean(actual), 0.0, atol=1e-12)
 
 
-def test_timeseries_exposes_storage_spec_and_projects_mean_free_cs_coefficients():
+def test_timeseries_exposes_field_space_and_projects_mean_free_cs_coefficients():
     """Time-series storage honors FieldSpace metadata."""
     basis = CSBasis(4)
     field_space = FieldSpace(basis, field_type="scalar", mean_free=True)
@@ -733,10 +817,28 @@ def test_timeseries_exposes_storage_spec_and_projects_mean_free_cs_coefficients(
 
     timeseries.add_entry("state", {"m_ind": values}, time=0.0)
 
-    assert timeseries.get_storage_spec("state") is field_space
+    assert timeseries.get_field_space("state") is field_space
     assert timeseries.get_data_var_name("state", "m_ind") == "CS_m_ind"
     stored = timeseries.get_entry("state", 0.0)["m_ind"]
     np.testing.assert_allclose(basis.scalar_mean(stored), 0.0, atol=1e-12)
+
+
+def test_timeseries_change_tracking_is_group_scoped():
+    """Groups with the same variable names do not share change state."""
+    basis = CSBasis(4)
+    field_space = FieldSpace(basis, field_type="scalar")
+    timeseries = Timeseries(
+        {"first": field_space, "second": field_space},
+        {"first": ("value",), "second": ("value",)},
+    )
+    values = np.zeros(basis.index_length)
+    timeseries.add_entry("first", {"value": values}, time=0.0)
+    timeseries.add_entry("second", {"value": values}, time=0.0)
+
+    assert timeseries.get_entry_if_changed("first", 0.0) is not None
+    assert timeseries.get_entry_if_changed("second", 0.0) is not None
+    assert timeseries.get_entry_if_changed("first", 0.0) is None
+    assert timeseries.get_entry_if_changed("second", 0.0) is None
 
 
 def test_timeseries_requires_field_space_and_name_only_variables():

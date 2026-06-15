@@ -22,6 +22,21 @@ def test_default_horizontal_basis_is_sh(tmp_path):
 
     assert dynamics.settings.attrs["horizontal_basis_kind"] == "SH"
     assert dynamics.horizontal_basis is dynamics.solid_harmonics.basis
+    geometry = dynamics.state.geometry
+    assert geometry.horizontal_solid_projection_is_identity
+    assert geometry._horizontal_to_solid_harmonic is None
+    assert geometry._solid_harmonic_to_horizontal is None
+    np.testing.assert_allclose(
+        geometry.horizontal_potential_to_gridded_JS,
+        geometry.solid_harmonic_poloidal_to_gridded_sheet_current,
+    )
+    np.testing.assert_allclose(
+        geometry.horizontal_poloidal_to_gridded_sheet_current(
+            geometry.spherical_transform
+        ),
+        geometry.solid_harmonic_poloidal_to_gridded_sheet_current,
+    )
+    assert geometry._horizontal_to_solid_harmonic is None
 
 
 def test_horizontal_basis_kind_is_persisted(tmp_path):
@@ -84,9 +99,9 @@ def test_cs_horizontal_basis_runs_with_cs_outputs(tmp_path):
         Ncs=8,
         ignore_PFAC=True,
         use_wind=False,
-        vector_jr=False,
-        vector_conductance=False,
-        vector_u=False,
+        jr_projection_basis="CS",
+        conductance_projection_basis="CS",
+        u_projection_basis="CS",
         run_directory=str(tmp_path / "run"),
         horizontal_basis_kind="CS",
         artifact_storage="netcdf",
@@ -110,9 +125,9 @@ def test_cs_horizontal_basis_runs_with_pfac(tmp_path):
         Ncs=8,
         ignore_PFAC=False,
         use_wind=False,
-        vector_jr=False,
-        vector_conductance=False,
-        vector_u=False,
+        jr_projection_basis="CS",
+        conductance_projection_basis="CS",
+        u_projection_basis="CS",
         run_directory=str(tmp_path / "run"),
         horizontal_basis_kind="CS",
         artifact_storage="netcdf",
@@ -169,9 +184,9 @@ def test_cs_horizontal_basis_supports_connected_hemispheres(tmp_path):
         ignore_PFAC=True,
         connect_hemispheres=True,
         use_wind=False,
-        vector_jr=False,
-        vector_conductance=False,
-        vector_u=False,
+        jr_projection_basis="CS",
+        conductance_projection_basis="CS",
+        u_projection_basis="CS",
         run_directory=str(tmp_path / "run"),
         horizontal_basis_kind="CS",
         artifact_storage="netcdf",
@@ -196,6 +211,33 @@ def test_cs_horizontal_basis_supports_connected_hemispheres(tmp_path):
     assert np.all(np.isfinite(geometry.E_coeffs_to_E_apex_ll_diff))
 
 
+def test_connected_E_apex_constraint_operator_is_lazy(tmp_path):
+    """Connected E-apex constraint stays operator-backed."""
+    dynamics = Dynamics(
+        run_directory=str(tmp_path / "run"),
+        Nmax=2,
+        Mmax=1,
+        Ncs=8,
+        ignore_PFAC=True,
+        connect_hemispheres=True,
+        artifact_storage="netcdf",
+    )
+
+    geometry = dynamics.state.geometry
+    operator = geometry.E_coeffs_to_E_apex_ll_diff_operator
+    assert operator is not None
+    assert geometry._E_coeffs_to_E_apex_ll_diff is None
+
+    rng = np.random.default_rng(20260612)
+    coeffs = rng.standard_normal(operator.input_shape)
+
+    actual = operator.matvec(coeffs).reshape(operator.output_shape)
+    explicit = geometry.E_coeffs_to_E_apex_ll_diff
+    expected = np.tensordot(explicit, coeffs, axes=([2, 3], [0, 1]))
+
+    np.testing.assert_allclose(actual, expected)
+
+
 def test_cs_horizontal_basis_combines_pfac_rm_and_connected_terms(tmp_path):
     """CS horizontal basis supports the combined radial/coupled path."""
     dynamics = run_pynamit(
@@ -208,10 +250,10 @@ def test_cs_horizontal_basis_combines_pfac_rm_and_connected_terms(tmp_path):
         ignore_PFAC=False,
         connect_hemispheres=True,
         use_wind=False,
-        vector_jr=False,
-        vector_Br=False,
-        vector_conductance=False,
-        vector_u=False,
+        jr_projection_basis="CS",
+        Br_projection_basis="CS",
+        conductance_projection_basis="CS",
+        u_projection_basis="CS",
         run_directory=str(tmp_path / "run"),
         horizontal_basis_kind="CS",
         artifact_storage="netcdf",

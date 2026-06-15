@@ -27,7 +27,7 @@ try:
     cond = cond[["hall", "pedersen"]]
     ss = np.interp(r, cond.index, cond["pedersen"]).reshape(xx.shape)
 
-    ccc = ax.contourf(
+    filled_contour = ax.contourf(
         xx,
         yy,
         ss.reshape(xx.shape),

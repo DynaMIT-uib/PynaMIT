@@ -88,8 +88,8 @@ dynamics.update_jr()
 dynamics.state.update_m_imp()
 
 
-def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
-    """Debug plotting for the model object.
+def plot_state_debug_summary(dynamics, title=None, filename=None, noon_longitude=0):
+    """Plot a state diagnostic summary for the model object.
 
     Parameters
     ----------
@@ -145,9 +145,9 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
             1 / plt_b_evaluator.br.reshape((-1, 1))
         )
     ).dot(
-        dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr
+        dynamics.state.m_imp.array * dynamics.state.m_imp_to_jr
     )
-    jr_mod = plt_state_evaluator.G.dot(dynamics.state.m_imp.coeffs * dynamics.state.m_imp_to_jr)
+    jr_mod = plt_state_evaluator.G.dot(dynamics.state.m_imp.array * dynamics.state.m_imp_to_jr)
     eq_current_function = dynamics.state.get_Jeq(plt_state_evaluator)
 
     # Make global plots.
@@ -173,27 +173,49 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     mlt = (lon - noon_longitude + 180) / 15  # rotate so that noon is up
 
     # Make north polar plots.
-    iii = lat > 50
-    paxn_B.contourf(lat[iii], mlt[iii], Br[iii], **B_kwargs)
-    paxn_j.contour(lat[iii], mlt[iii], eq_current_function[iii], **eqJ_kwargs)
-    paxn_j.contourf(lat[iii], mlt[iii], FAC[iii], **FAC_kwargs)
+    north_mask = lat > 50
+    paxn_B.contourf(lat[north_mask], mlt[north_mask], Br[north_mask], **B_kwargs)
+    paxn_j.contour(
+        lat[north_mask],
+        mlt[north_mask],
+        eq_current_function[north_mask],
+        **eqJ_kwargs,
+    )
+    paxn_j.contourf(
+        lat[north_mask],
+        mlt[north_mask],
+        FAC[north_mask],
+        **FAC_kwargs,
+    )
 
     # Make south polar plots.
-    iii = lat < -50
-    paxs_B.contourf(lat[iii], mlt[iii], Br[iii], **B_kwargs)
-    paxs_j.contour(lat[iii], mlt[iii], eq_current_function[iii], **eqJ_kwargs)
-    paxs_j.contourf(lat[iii], mlt[iii], FAC[iii], **FAC_kwargs)
+    south_mask = lat < -50
+    paxs_B.contourf(lat[south_mask], mlt[south_mask], Br[south_mask], **B_kwargs)
+    paxs_j.contour(
+        lat[south_mask],
+        mlt[south_mask],
+        eq_current_function[south_mask],
+        **eqJ_kwargs,
+    )
+    paxs_j.contourf(
+        lat[south_mask],
+        mlt[south_mask],
+        FAC[south_mask],
+        **FAC_kwargs,
+    )
 
     # Scatter plot high latitude jr.
-    iii = np.abs(dynamics.state.geometry.grid.lat) > dynamics.state.latitude_boundary
+    high_latitude_mask = (
+        np.abs(dynamics.state.geometry.grid.lat) > dynamics.state.latitude_boundary
+    )
     jrmax = np.max(np.abs(dynamics.state.jr))
-    ax_1.scatter(dynamics.state.jr, jr_mod[iii])
+    ax_1.scatter(dynamics.state.jr, jr_mod[high_latitude_mask])
     ax_1.plot([-jrmax, jrmax], [-jrmax, jrmax], "k-")
     ax_1.set_xlabel("Input ")
 
     # Scatter plot FACs at conjugate points.
-    j_par_ll = dynamics.state.G_par_ll.dot(dynamics.state.m_imp.coeffs)
-    j_par_cp = dynamics.state.G_par_cp.dot(dynamics.state.m_imp.coeffs)
+    j_par_ll = dynamics.state.G_par_ll.dot(dynamics.state.m_imp.array)
+    j_par_cp = dynamics.state.G_par_cp.dot(dynamics.state.m_imp.array)
     j_par_max = np.max(np.abs(j_par_ll))
     ax_2.scatter(j_par_ll, j_par_cp)
     ax_2.plot([-j_par_max, j_par_max], [-j_par_max, j_par_max], "k-")
@@ -230,10 +252,10 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
         + dynamics.state.etaH_cp * dynamics.state.aeH_ind_cp
     )
 
-    c_ll = cu_ll + A_ind_ll.dot(dynamics.state.m_ind.coeffs)
-    c_cp = cu_cp + A_ind_cp.dot(dynamics.state.m_ind.coeffs)
-    Ed1_ll, Ed2_ll = np.split(c_ll + A_imp_ll.dot(dynamics.state.m_imp.coeffs), 2)
-    Ed1_cp, Ed2_cp = np.split(c_cp + A_imp_cp.dot(dynamics.state.m_imp.coeffs), 2)
+    c_ll = cu_ll + A_ind_ll.dot(dynamics.state.m_ind.array)
+    c_cp = cu_cp + A_ind_cp.dot(dynamics.state.m_ind.array)
+    Ed1_ll, Ed2_ll = np.split(c_ll + A_imp_ll.dot(dynamics.state.m_imp.array), 2)
+    Ed1_cp, Ed2_cp = np.split(c_cp + A_imp_cp.dot(dynamics.state.m_imp.array), 2)
     ax_3.scatter(Ed1_ll, Ed1_cp, label="$E_{d_1}$")
     ax_3.scatter(Ed2_ll, Ed2_cp, label="$E_{d_2}$")
     ax_3.set_xlabel("$E_{d_i}$")
@@ -252,4 +274,9 @@ def debugplot(dynamics, title=None, filename=None, noon_longitude=0):
     plt.close()
 
 
-debugplot(dynamics, title="hoi!", filename=None, noon_longitude=noon_longitude)
+plot_state_debug_summary(
+    dynamics,
+    title="State diagnostic summary",
+    filename=None,
+    noon_longitude=noon_longitude,
+)

@@ -6,8 +6,13 @@ spherical-basis coefficients and grid values.
 
 import numpy as np
 
-from pynamit.math.backend import get_array_module
-from pynamit.math.linear_map import LinearMap, as_linear_map, is_noop_linear_map
+from pynamit.math.backend import get_array_module, to_numpy
+from pynamit.math.linear_map import (
+    LinearMap,
+    as_linear_map,
+    diagonal_linear_map,
+    is_noop_linear_map,
+)
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver, get_default_least_squares_solver
 from pynamit.sphere.core import SurfaceOperators
@@ -36,6 +41,14 @@ def resolve_sqrt_weights(grid, sqrt_weights=None, area_weighted=False, vector=Fa
     weights = grid_sqrt_area_weights(grid)
     xp = get_array_module(weights)
     return xp.tile(weights, (2, 1)) if vector else weights
+
+
+def _representation_signature(representation):
+    """Return a cache key for an evaluable representation."""
+    signature = getattr(representation, "signature", None)
+    if signature is not None:
+        return signature
+    return getattr(representation, "coefficient_space_signature", id(representation))
 
 
 class SphericalTransform:
@@ -83,7 +96,7 @@ class SphericalTransform:
 
         self._scalar_least_squares_problem = None
         self._helmholtz_least_squares_problem = None
-        self._input_transform = None
+        self._input_transforms = {}
 
     def _evaluate_source_on_target(self, derivative=None):
         """Evaluate the source on the target grid."""
@@ -263,12 +276,28 @@ class SphericalTransform:
             if self.reg_lambda is None:
                 self._L = None
             else:
+                self._L = np.asarray(
+                    self.L_operator.to_matrix(backend="numpy")
+                )
+        return self._L
+
+    @property
+    def L_operator(self):
+        """Degree-weighted regularization operator for scalar fields."""
+        if not hasattr(self, "_L_operator"):
+            if self.reg_lambda is None:
+                self._L_operator = None
+            else:
                 if not hasattr(self.source, "n"):
                     raise NotImplementedError(
                         "Degree-weighted scalar regularization requires basis.n."
                     )
-                self._L = np.diag(self.source.n)
-        return self._L
+                self._L_operator = diagonal_linear_map(
+                    np.asarray(self.source.n),
+                    input_shape=(self.source.index_length,),
+                    output_shape=(self.source.index_length,),
+                )
+        return self._L_operator
 
     @property
     def L_helmholtz(self):
@@ -277,34 +306,34 @@ class SphericalTransform:
             if self.reg_lambda is None:
                 self._L_helmholtz = None
             else:
+                self._L_helmholtz = to_numpy(self.L_helmholtz_operator.array)
+        return self._L_helmholtz
+
+    @property
+    def L_helmholtz_operator(self):
+        """Degree-weighted Helmholtz regularization operator."""
+        if not hasattr(self, "_L_helmholtz_operator"):
+            if self.reg_lambda is None:
+                self._L_helmholtz_operator = None
+            else:
                 if not hasattr(self.source, "n"):
                     raise NotImplementedError(
                         "Degree-weighted Helmholtz regularization requires basis.n."
                     )
-                curl_free_selector = np.asarray(
-                    self.source.get_helmholtz_curl_free_potential_matrix()
+                n = np.asarray(self.source.n)
+                weights = np.stack(
+                    [
+                        n * (n + 1) / (2 * n + 1),
+                        (n + 1) / 2,
+                    ],
+                    axis=0,
                 )
-                divergence_free_selector = np.asarray(
-                    self.source.get_helmholtz_divergence_free_potential_matrix()
+                self._L_helmholtz_operator = diagonal_linear_map(
+                    weights.reshape(-1),
+                    input_shape=(2, self.source.index_length),
+                    output_shape=(2, self.source.index_length),
                 )
-                # The weights are the existing SH spectral penalties.
-                # The selector matrices keep the Helmholtz component
-                # semantics explicit without moving this policy onto
-                # the basis implementation.
-                curl_free_weight = np.diag(
-                    self.source.n * (self.source.n + 1) / (2 * self.source.n + 1)
-                )
-                divergence_free_weight = np.diag((self.source.n + 1) / 2)
-                L_cf = np.tensordot(
-                    curl_free_weight, curl_free_selector, axes=([1], [0])
-                )
-                L_df = np.tensordot(
-                    divergence_free_weight,
-                    divergence_free_selector,
-                    axes=([1], [0]),
-                )
-                self._L_helmholtz = np.stack([L_cf, L_df], axis=0)
-        return self._L_helmholtz
+        return self._L_helmholtz_operator
 
     @property
     def scalar_least_squares_problem(self) -> LeastSquaresProblem:
@@ -316,7 +345,7 @@ class SphericalTransform:
                 data_shapes=self.target.size,
                 sqrt_weights=self.sqrt_weights,
                 regularization_weights=self.reg_lambda,
-                regularization_matrices=self.L,
+                regularization_matrices=self.L_operator,
             )
         return self._scalar_least_squares_problem
 
@@ -330,7 +359,7 @@ class SphericalTransform:
                 data_shapes=(2, self.target.size),
                 sqrt_weights=self.helmholtz_sqrt_weights,
                 regularization_weights=self.reg_lambda,
-                regularization_matrices=self.L_helmholtz,
+                regularization_matrices=self.L_helmholtz_operator,
             )
         return self._helmholtz_least_squares_problem
 
@@ -369,12 +398,14 @@ class SphericalTransform:
     def scalar_regularization_term(self, coeffs):
         """Return the scalar regularization term."""
         coeff_array = self._coefficient_array(coeffs)
-        return np.dot(coeff_array, np.dot(self.L, coeff_array))
+        return np.dot(coeff_array, self.L_operator.matvec(coeff_array))
 
     def helmholtz_regularization_term(self, coeffs):
         """Return the Helmholtz regularization term."""
         coeff_array = self._coefficient_array(coeffs, helmholtz=True)
-        return np.tensordot(self.L_helmholtz, coeff_array, 2)
+        return self.L_helmholtz_operator.matvec(coeff_array.reshape(-1)).reshape(
+            coeff_array.shape
+        )
 
     def project_scalar(
         self,
@@ -482,18 +513,28 @@ class SphericalTransform:
 
     def _coefficient_array(self, coeffs, *, helmholtz=False, preserve_backend=False):
         """Return validated coefficient values."""
-        values = getattr(coeffs, "coeffs", coeffs)
-        shape = (2, self.source.index_length) if helmholtz else (self.source.index_length,)
-        array = np.asarray(values)
-        if array.size != int(np.prod(shape)):
+        values = getattr(coeffs, "array", coeffs)
+        shape = (
+            (2, self.source.index_length)
+            if helmholtz
+            else (self.source.index_length,)
+        )
+        expected_size = int(np.prod(shape))
+        size = getattr(values, "size", None)
+        if size is None:
+            array = np.asarray(values)
+            size = array.size
+        if int(size) != expected_size:
             field_type = "Helmholtz" if helmholtz else "scalar"
             raise ValueError(
-                f"{field_type} coefficients have length {array.size}, "
-                f"expected {int(np.prod(shape))}."
+                f"{field_type} coefficients have length {int(size)}, "
+                f"expected {expected_size}."
             )
-        if preserve_backend and "jax" in type(values).__module__:
-            return get_array_module(values).asarray(values).reshape(shape)
-        return array.reshape(shape)
+        if preserve_backend:
+            xp = get_array_module(values)
+            if xp is not np:
+                return xp.asarray(values).reshape(shape)
+        return np.asarray(values).reshape(shape)
 
     def _coefficients_to_grid(self, coeffs, derivative=None, helmholtz=False):
         """Transform basis coefficients to grid values."""
@@ -523,13 +564,10 @@ class SphericalTransform:
 
         xp = get_array_module(self.scalar_coeffs_to_grid, *op.backend_context)
         scalar_coeffs_to_grid = xp.asarray(self.scalar_coeffs_to_grid)
-        if op.shape[0] == op.shape[1]:
-            try:
-                diagonal = xp.asarray(op.diagonal()).reshape((1, -1))
-                return scalar_coeffs_to_grid * diagonal
-            except ValueError:
-                pass
-        return scalar_coeffs_to_grid @ xp.asarray(op.dense())
+        product_adjoint = op.rmatmat(
+            xp.swapaxes(xp.conjugate(scalar_coeffs_to_grid), -2, -1)
+        )
+        return xp.swapaxes(xp.conjugate(product_adjoint), -2, -1)
 
     def normalize_scalar_value_batch(self, values, input_grid):
         """Return scalar values with canonical time-first layout."""
@@ -608,49 +646,32 @@ class SphericalTransform:
         pinv_rtol=1e-15,
     ):
         """Return transform for direct input-grid projection."""
-        transform = self._input_transform
-        if transform is not None and self._input_transform_matches(
-            transform,
-            projection_basis,
-            input_grid,
-            sqrt_weights=sqrt_weights,
-            reg_lambda=reg_lambda,
-            pinv_rtol=pinv_rtol,
-        ):
-            return transform
+        if sqrt_weights is not None:
+            return SphericalTransform(
+                projection_basis,
+                input_grid,
+                sqrt_weights=sqrt_weights,
+                reg_lambda=reg_lambda,
+                pinv_rtol=pinv_rtol,
+                area_weighted=self.area_weighted,
+            )
 
-        transform = SphericalTransform(
-            projection_basis,
-            input_grid,
-            sqrt_weights=sqrt_weights,
-            reg_lambda=reg_lambda,
-            pinv_rtol=pinv_rtol,
-            area_weighted=self.area_weighted,
+        cache_key = (
+            _representation_signature(projection_basis),
+            input_grid.signature,
+            reg_lambda,
+            pinv_rtol,
+            self.area_weighted,
         )
-        self._input_transform = transform
-        return transform
-
-    def _input_transform_matches(
-        self,
-        transform,
-        projection_basis,
-        input_grid,
-        *,
-        sqrt_weights=None,
-        reg_lambda=None,
-        pinv_rtol=1e-15,
-    ):
-        """Return whether a cached input transform can be reused."""
-        if transform.source is not projection_basis:
-            return False
-        if sqrt_weights is not None or transform.explicit_sqrt_weights:
-            return False
-        return (
-            input_grid.same_as(transform.target)
-            and transform.reg_lambda == reg_lambda
-            and transform.pinv_rtol == pinv_rtol
-            and transform.area_weighted == self.area_weighted
-        )
+        if cache_key not in self._input_transforms:
+            self._input_transforms[cache_key] = SphericalTransform(
+                projection_basis,
+                input_grid,
+                reg_lambda=reg_lambda,
+                pinv_rtol=pinv_rtol,
+                area_weighted=self.area_weighted,
+            )
+        return self._input_transforms[cache_key]
 
     def _grid_remap_operator(self, method_name, input_grid, *, input_shape, output_shape):
         """Return the required grid-remap operator."""

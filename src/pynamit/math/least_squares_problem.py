@@ -171,8 +171,8 @@ class LeastSquaresProblem:
         """Return cached dense system matrix for one backend key."""
         if backend_key not in self._dense_system_matrix_cache:
             backend = "numpy" if backend_key == "numpy" else None
-            self._dense_system_matrix_cache[backend_key] = self.get_system_linear_map().dense(
-                backend=backend
+            self._dense_system_matrix_cache[backend_key] = (
+                self.get_system_linear_map().to_matrix(backend=backend)
             )
         return self._dense_system_matrix_cache[backend_key]
 

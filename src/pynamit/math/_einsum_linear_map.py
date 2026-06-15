@@ -43,6 +43,221 @@ def _batched_einsum_string(einsum_string: str, operand_index: int) -> Optional[s
     return ",".join(operands) + "->" + rhs + batch_label
 
 
+def _parse_explicit_einsum(einsum_string: str) -> tuple[tuple[str, ...], str]:
+    """Parse an explicit, non-ellipsis einsum specification."""
+    spec = einsum_string.replace(" ", "")
+    if "..." in spec or "->" not in spec:
+        raise ValueError("Einsum composition requires explicit non-ellipsis strings.")
+    lhs, rhs = spec.split("->", maxsplit=1)
+    operands = tuple(lhs.split(",")) if lhs else ()
+    return operands, rhs
+
+
+def _dense_axis_labels(einsum_map: "_EinsumMap") -> tuple[str, str]:
+    """Return output and input labels from a dense einsum."""
+    _, dense_output = _parse_explicit_einsum(einsum_map.einsum_string_dense)
+    output_ndim = len(einsum_map.output_shape)
+    input_ndim = len(einsum_map.input_shape)
+    if len(dense_output) != output_ndim + input_ndim:
+        raise ValueError("Dense einsum output does not match map shape metadata.")
+
+    output_labels = dense_output[:output_ndim]
+    input_labels = dense_output[output_ndim:]
+    if len(set(output_labels)) != len(output_labels):
+        raise ValueError("Dense output labels must be unique.")
+    if len(set(input_labels)) != len(input_labels):
+        raise ValueError("Dense input labels must be unique.")
+    if set(output_labels).intersection(input_labels):
+        raise ValueError("Dense input and output labels must be distinct.")
+    return output_labels, input_labels
+
+
+def _allocate_labels(count: int, used_labels: set[str]) -> str:
+    """Allocate fresh single-character einsum labels."""
+    if count == 0:
+        return ""
+    labels = []
+    for label in _EINSUM_BATCH_LABELS:
+        if label in used_labels:
+            continue
+        labels.append(label)
+        used_labels.add(label)
+        if len(labels) == count:
+            return "".join(labels)
+    raise ValueError("Not enough einsum labels available for fused composition.")
+
+
+def _remap_subscript(
+    subscript: str,
+    label_map: dict[str, str],
+    used_labels: set[str],
+) -> str:
+    """Return ``subscript`` with collision-free labels."""
+    remapped = []
+    for label in subscript:
+        if label not in label_map:
+            label_map[label] = _allocate_labels(1, used_labels)
+        remapped.append(label_map[label])
+    return "".join(remapped)
+
+
+def _remap_component_subscripts(
+    component_subscripts: Sequence[str],
+    label_map: dict[str, str],
+    used_labels: set[str],
+) -> tuple[str, ...]:
+    """Remap all component tensor subscripts for one einsum map."""
+    return tuple(
+        _remap_subscript(subscript, label_map, used_labels)
+        for subscript in component_subscripts
+    )
+
+
+def _remap_einsum_components(
+    einsum_map: "_EinsumMap",
+    output_labels: str,
+    input_labels: str,
+    used_labels: set[str],
+) -> tuple[str, ...]:
+    """Remap map component labels to requested external labels."""
+    component_subscripts, _ = _parse_explicit_einsum(einsum_map.einsum_string_dense)
+    output_old, input_old = _dense_axis_labels(einsum_map)
+    label_map = dict(zip(output_old, output_labels, strict=True))
+    label_map.update(zip(input_old, input_labels, strict=True))
+    return _remap_component_subscripts(component_subscripts, label_map, used_labels)
+
+
+def compose_einsum_maps(left: "_EinsumMap", right: "_EinsumMap") -> "_EinsumMap":
+    """Return a fused einsum representation of ``left @ right``.
+
+    The shaped domain of ``left`` must exactly match the shaped range of
+    ``right``. Flat-only compatibility stays generic.
+    """
+    if left.input_shape != right.output_shape:
+        raise ValueError("Einsum maps require matching shaped intermediate axes.")
+
+    used_labels: set[str] = set()
+    output_labels = _allocate_labels(len(left.output_shape), used_labels)
+    input_labels = _allocate_labels(len(right.input_shape), used_labels)
+    intermediate_labels = _allocate_labels(len(left.input_shape), used_labels)
+
+    fused_components = _remap_einsum_components(
+        left, output_labels, intermediate_labels, used_labels
+    ) + _remap_einsum_components(right, intermediate_labels, input_labels, used_labels)
+
+    dense_output = output_labels + input_labels
+    einsum_string_dense = ",".join(fused_components) + "->" + dense_output
+    einsum_string_matvec = (
+        ",".join(fused_components + (input_labels,)) + "->" + output_labels
+    )
+    einsum_string_rmatvec = (
+        ",".join((output_labels,) + fused_components) + "->" + input_labels
+    )
+    return _EinsumMap(
+        component_tensors=left.component_tensors + right.component_tensors,
+        einsum_string_dense=einsum_string_dense,
+        einsum_string_matvec=einsum_string_matvec,
+        einsum_string_rmatvec=einsum_string_rmatvec,
+        output_shape=left.output_shape,
+        input_shape=right.input_shape,
+    )
+
+
+def compose_diagonal_einsum_map(
+    diagonal_values: Any,
+    diagonal_shape: tuple[int, ...],
+    einsum_map: "_EinsumMap",
+    *,
+    side: str,
+) -> "_EinsumMap":
+    """Fuse a shaped diagonal scale with an einsum map."""
+    diagonal_shape = tuple(diagonal_shape)
+    if side not in {"left", "right"}:
+        raise ValueError("side must be 'left' or 'right'.")
+    if side == "left" and diagonal_shape != einsum_map.output_shape:
+        raise ValueError("Left diagonal shape must match einsum output shape.")
+    if side == "right" and diagonal_shape != einsum_map.input_shape:
+        raise ValueError("Right diagonal shape must match einsum input shape.")
+
+    xp = get_array_module(diagonal_values)
+    diagonal_tensor = xp.asarray(diagonal_values).reshape(diagonal_shape)
+
+    used_labels: set[str] = set()
+    output_labels = _allocate_labels(len(einsum_map.output_shape), used_labels)
+    input_labels = _allocate_labels(len(einsum_map.input_shape), used_labels)
+    remapped_components = _remap_einsum_components(
+        einsum_map, output_labels, input_labels, used_labels
+    )
+    if side == "left":
+        component_tensors = (diagonal_tensor,) + einsum_map.component_tensors
+        component_subscripts = (output_labels,) + remapped_components
+    else:
+        component_tensors = einsum_map.component_tensors + (diagonal_tensor,)
+        component_subscripts = remapped_components + (input_labels,)
+
+    dense_output = output_labels + input_labels
+    einsum_string_dense = ",".join(component_subscripts) + "->" + dense_output
+    einsum_string_matvec = (
+        ",".join(component_subscripts + (input_labels,)) + "->" + output_labels
+    )
+    einsum_string_rmatvec = (
+        ",".join((output_labels,) + component_subscripts) + "->" + input_labels
+    )
+    return _EinsumMap(
+        component_tensors=component_tensors,
+        einsum_string_dense=einsum_string_dense,
+        einsum_string_matvec=einsum_string_matvec,
+        einsum_string_rmatvec=einsum_string_rmatvec,
+        output_shape=einsum_map.output_shape,
+        input_shape=einsum_map.input_shape,
+    )
+
+
+def dense_tensor_einsum_map(
+    tensor: Any,
+    *,
+    output_shape: tuple[int, ...],
+    input_shape: tuple[int, ...],
+) -> "_EinsumMap":
+    """Return an einsum representation of an explicit dense tensor."""
+    used_labels: set[str] = set()
+    labels = _allocate_labels(len(output_shape) + len(input_shape), used_labels)
+    output_labels = labels[: len(output_shape)]
+    input_labels = labels[len(output_shape) :]
+    return _EinsumMap(
+        component_tensors=(tensor,),
+        einsum_string_dense=f"{labels}->{labels}",
+        einsum_string_matvec=f"{labels},{input_labels}->{output_labels}",
+        einsum_string_rmatvec=f"{output_labels},{labels}->{input_labels}",
+        output_shape=output_shape,
+        input_shape=input_shape,
+    )
+
+
+def scale_einsum_map(einsum_map: "_EinsumMap", scalar: Any) -> "_EinsumMap":
+    """Return an einsum map representing ``scalar * einsum_map``."""
+    xp = get_array_module(scalar, *einsum_map.component_tensors)
+    scalar_tensor = xp.asarray(scalar)
+    component_subscripts, dense_output = _parse_explicit_einsum(
+        einsum_map.einsum_string_dense
+    )
+    output_labels, input_labels = _dense_axis_labels(einsum_map)
+    scaled_components = ("",) + component_subscripts
+
+    return _EinsumMap(
+        component_tensors=(scalar_tensor,) + einsum_map.component_tensors,
+        einsum_string_dense=",".join(scaled_components) + "->" + dense_output,
+        einsum_string_matvec=(
+            ",".join(scaled_components + (input_labels,)) + "->" + output_labels
+        ),
+        einsum_string_rmatvec=(
+            ",".join((output_labels,) + scaled_components) + "->" + input_labels
+        ),
+        output_shape=einsum_map.output_shape,
+        input_shape=einsum_map.input_shape,
+    )
+
+
 def _derive_einsum_strings_from_matvec(
     einsum_string_matvec: str,
     num_component_tensors: int,
@@ -94,8 +309,10 @@ class _EinsumMap:
     _einsum_path_rmatvec: Optional[list] = field(default=None, repr=False)
     _einsum_path_matmat: Optional[list] = field(default=None, repr=False)
     _einsum_path_rmatmat: Optional[list] = field(default=None, repr=False)
+    _einsum_path_normal_diag: Optional[list] = field(default=None, repr=False)
     _einsum_string_matmat: Optional[str] = field(default=None, repr=False)
     _einsum_string_rmatmat: Optional[str] = field(default=None, repr=False)
+    _einsum_string_normal_diag: Optional[str] = field(default=None, repr=False)
     _component_arrays_np: Optional[list[np.ndarray]] = field(default=None, repr=False)
 
     @property
@@ -117,6 +334,7 @@ class _EinsumMap:
             _dense_array_func=self.dense_array,
             _normal_matrix_diag=self.normal_matrix_diag,
             _backend_context=self.component_tensors,
+            _einsum_map=self,
             output_shape=self.output_shape,
             input_shape=self.input_shape,
         )
@@ -136,6 +354,13 @@ class _EinsumMap:
 
     def normal_matrix_diag(self) -> np.ndarray:
         """Compute ``diag(A* A)`` without building the dense matrix."""
+        try:
+            return self._normal_matrix_diag_einsum()
+        except ValueError:
+            return self._normal_matrix_diag_probe()
+
+    def _normal_matrix_diag_probe(self) -> np.ndarray:
+        """Compute ``diag(A* A)`` by applying identity blocks."""
         flat_in = math.prod(self.input_shape)
         diag = np.zeros(flat_in, dtype=np.float64)
         if flat_in == 0:
@@ -151,6 +376,48 @@ class _EinsumMap:
             res = np.asarray(self.matmat(block[:, :cols]))
             diag[start:stop] = np.sum(np.abs(res) ** 2, axis=0).real
         return diag
+
+    def _normal_diag_string(self) -> str:
+        """Return an einsum string for ``diag(A* A)``."""
+        if self._einsum_string_normal_diag is None:
+            used_labels: set[str] = set()
+            output_labels = _allocate_labels(len(self.output_shape), used_labels)
+            input_labels = _allocate_labels(len(self.input_shape), used_labels)
+            conj_components = _remap_einsum_components(
+                self, output_labels, input_labels, used_labels
+            )
+            components = _remap_einsum_components(
+                self, output_labels, input_labels, used_labels
+            )
+            self._einsum_string_normal_diag = (
+                ",".join(conj_components + components) + "->" + input_labels
+            )
+        return self._einsum_string_normal_diag
+
+    def _normal_diag_path(self) -> list:
+        """Return the cached optimized NumPy path for ``diag(A* A)``."""
+        if self._einsum_path_normal_diag is None:
+            component_arrays = self._numpy_component_arrays()
+            conj_arrays = [arr.conj() for arr in component_arrays]
+            self._einsum_path_normal_diag = np.einsum_path(
+                self._normal_diag_string(),
+                *conj_arrays,
+                *component_arrays,
+                optimize="greedy",
+            )[0]
+        return self._einsum_path_normal_diag
+
+    def _normal_matrix_diag_einsum(self) -> np.ndarray:
+        """Compute ``diag(A* A)`` as a direct tensor contraction."""
+        component_arrays = self._numpy_component_arrays()
+        conj_arrays = [arr.conj() for arr in component_arrays]
+        diag = np.einsum(
+            self._normal_diag_string(),
+            *conj_arrays,
+            *component_arrays,
+            optimize=self._normal_diag_path(),
+        )
+        return np.asarray(diag).reshape(-1).real
 
     def _numpy_component_arrays(self) -> list[np.ndarray]:
         """Return cached NumPy component arrays."""

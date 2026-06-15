@@ -65,7 +65,7 @@ def stencil(evaluation_points, order=1, h=1, fraction=False):
         https://web.media.mit.edu/~crtaylor/calculator.html
     """
     # Calculate coefficients.
-    evaluation_points = np.array(evaluation_points).flatten().reshape((1, -1))
+    evaluation_points = np.array(evaluation_points).reshape(-1).reshape((1, -1))
     p = np.arange(evaluation_points.size).reshape((-1, 1))
     d = np.zeros(evaluation_points.size)
     d[order] = factorial(order)
@@ -131,7 +131,7 @@ def get_2D_stencil_coefficients(dx, dy, derivative="xx"):
     it is used in ways that are not currently tested in the ``__main__``
     block at the bottom of the script.
     """
-    dx, dy = np.array(dx).flatten(), np.array(dy).flatten()
+    dx, dy = np.array(dx).reshape(-1), np.array(dy).reshape(-1)
     assert dx.size == dy.size
 
     NN = 4  # How high derivative terms to include when making the design matrix
@@ -283,7 +283,7 @@ if __name__ == "__main__":
     fig, axes = plt.subplots(ncols=5, figsize=(15, 3))
 
     for derivative, df, ax in zip(
-        ["x", "y", "xx", "yy", "xy"], [dfdx, dfdy, d2fdx2, d2fdy2, d2fdxdy], axes.flatten()
+        ["x", "y", "xx", "yy", "xy"], [dfdx, dfdy, d2fdx2, d2fdy2, d2fdxdy], axes.reshape(-1)
     ):
         derivatives = df(x0, y0)
         stencil = get_2D_stencil_coefficients(dx, dy, derivative=derivative)

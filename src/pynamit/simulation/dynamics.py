@@ -5,12 +5,9 @@ coupling.
 """
 
 import numpy as np
-import xarray as xr
-from pynamit.math import is_noop_linear_map
 from pynamit.math.constants import RE
-from pynamit.math.least_squares_solver import get_default_least_squares_solver
 from pynamit.primitives.field_evaluator import FieldEvaluator
-from pynamit.simulation.schema import normalize_horizontal_basis_kind
+from pynamit.simulation.config import SimulationConfig
 from pynamit.sphere.spherical_transform import SphericalTransform
 from pynamit.sphere import Grid
 from pynamit.primitives.io import IO
@@ -22,7 +19,7 @@ from pynamit.math.backend import set_backend, to_jax, to_numpy, use_jax
 FLOAT_ERROR_MARGIN = 1e-6  # Safety margin for floating point errors
 
 
-class Dynamics(object):
+class Dynamics:
     """Class for simulating dynamic MIT coupling.
 
     Manages the temporal evolution of the state of the ionosphere in
@@ -58,20 +55,22 @@ class Dynamics(object):
         connect_hemispheres=False,
         latitude_boundary=50,
         ih_constraint_scaling=1e-5,
-        vector_jr=True,
-        vector_Br=True,
-        vector_conductance=True,
-        vector_u=True,
+        jr_projection_basis=None,
+        Br_projection_basis=None,
+        conductance_projection_basis=None,
+        u_projection_basis=None,
+        Q_eff_projection_basis=None,
         t0="2020-01-01 00:00:00",
         save_steady_states=True,
         integrator="euler",
         least_squares_solver=None,
         least_squares_preconditioner="pinv",
+        static_preconditioner=False,
+        m_imp_regularization_lambda=0.0,
         artifact_storage="auto",
         backend="auto",
         horizontal_basis_kind="SH",
         area_weighted_least_squares=False,
-        project_conductance=True,
     ):
         """Initialize the Dynamics class.
 
@@ -105,15 +104,23 @@ class Dynamics(object):
             Simulation boundary latitude in degrees.
         ih_constraint_scaling : float, optional
             Scaling for interhemispheric coupling constraint.
-        vector_jr : bool, optional
-            Use vector representation for radial current.
-        vector_Br : bool, optional
-            Use vector representation for radial magnetic field
-            component.
-        vector_conductance : bool, optional
-            Use vector representation for conductances.
-        vector_u : bool, optional
-            Use vector representation for neutral wind.
+        jr_projection_basis : {'SH', 'CS'}, optional
+            Basis route used when projecting radial-current inputs.
+            Defaults to ``horizontal_basis_kind``.
+        Br_projection_basis : {'SH', 'CS'}, optional
+            Basis route used when projecting radial magnetic-field
+            inputs. Defaults to ``horizontal_basis_kind``.
+        conductance_projection_basis : {'SH', 'CS'}, optional
+            Conductance storage/projection basis. ``'SH'`` stores fitted
+            resistance coefficients. ``'CS'`` stores grid-basis
+            resistance values; matching CS-grid inputs are a no-op.
+            Defaults to ``horizontal_basis_kind``.
+        u_projection_basis : {'SH', 'CS'}, optional
+            Basis route used when projecting neutral-wind inputs.
+            Defaults to ``horizontal_basis_kind``.
+        Q_eff_projection_basis : {'SH', 'CS'}, optional
+            Basis route used when projecting effective wind-current
+            inputs. Defaults to ``u_projection_basis``.
         t0 : str, optional
             Start time in UTC format.
         save_steady_states : bool, optional
@@ -126,6 +133,10 @@ class Dynamics(object):
         least_squares_preconditioner : {'jacobi', 'pinv', None},
             optional
             Preconditioner used by iterative least-squares state solves.
+        static_preconditioner : bool, optional
+            Keep a reusable iterative-solver preconditioner when valid.
+        m_imp_regularization_lambda : float, optional
+            Regularization strength for imposed-potential solves.
         artifact_storage : {'auto', 'netcdf', 'zarr'}, optional
             Preferred backend for new saved xarray artifacts. Existing
             artifacts keep their format on restart.
@@ -146,55 +157,47 @@ class Dynamics(object):
             no explicit ``sqrt_weights`` are supplied. Cubed-sphere
             grids use their native cell areas; ordinary spherical grids
             use ``sin(theta)``.
-        project_conductance : bool, optional
-            If True, project conductance/resistance inputs into the
-            configured conductance storage basis. If False, store
-            resistance values directly on the model grid; the supplied
-            conductance grid must match the state geometry grid and
-            conductance regularization/weights are not used.
         """
         self.backend = set_backend(backend)
-        horizontal_basis_kind = normalize_horizontal_basis_kind(horizontal_basis_kind)
-
-        # Store setting arguments in xarray dataset.
-        self.settings = xr.Dataset(
-            attrs={
-                "Nmax": Nmax,
-                "Mmax": Mmax,
-                "Ncs": Ncs,
-                "RI": RI,
-                "RM": 0 if RM is None else RM,
-                "latitude_boundary": latitude_boundary,
-                "ignore_PFAC": int(ignore_PFAC),
-                "connect_hemispheres": int(connect_hemispheres),
-                "FAC_integration_steps": FAC_integration_steps,
-                "ih_constraint_scaling": ih_constraint_scaling,
-                "mainfield_kind": mainfield_kind,
-                "mainfield_epoch": mainfield_epoch,
-                "mainfield_B0": 0 if mainfield_B0 is None else mainfield_B0,
-                "vector_jr": int(vector_jr),
-                "vector_Br": int(vector_Br),
-                "vector_conductance": int(vector_conductance),
-                "vector_u": int(vector_u),
-                "horizontal_basis_kind": horizontal_basis_kind,
-                "area_weighted_least_squares": int(area_weighted_least_squares),
-                "project_conductance": int(project_conductance),
-                "t0": t0,
-                "save_steady_states": int(save_steady_states),
-                "integrator": integrator,
-                "least_squares_solver": least_squares_solver or get_default_least_squares_solver(),
-                "least_squares_preconditioner": least_squares_preconditioner,
-            }
+        self.config = SimulationConfig(
+            Nmax=Nmax,
+            Mmax=Mmax,
+            Ncs=Ncs,
+            RI=RI,
+            RM=RM,
+            latitude_boundary=latitude_boundary,
+            ignore_PFAC=ignore_PFAC,
+            connect_hemispheres=connect_hemispheres,
+            FAC_integration_steps=FAC_integration_steps,
+            ih_constraint_scaling=ih_constraint_scaling,
+            mainfield_kind=mainfield_kind,
+            mainfield_epoch=mainfield_epoch,
+            mainfield_B0=mainfield_B0,
+            jr_projection_basis=jr_projection_basis,
+            Br_projection_basis=Br_projection_basis,
+            conductance_projection_basis=conductance_projection_basis,
+            u_projection_basis=u_projection_basis,
+            Q_eff_projection_basis=Q_eff_projection_basis,
+            horizontal_basis_kind=horizontal_basis_kind,
+            area_weighted_least_squares=area_weighted_least_squares,
+            t0=t0,
+            save_steady_states=save_steady_states,
+            integrator=integrator,
+            least_squares_solver=least_squares_solver,
+            least_squares_preconditioner=least_squares_preconditioner,
+            static_preconditioner=static_preconditioner,
+            m_imp_regularization_lambda=m_imp_regularization_lambda,
         )
+        self.settings = self.config.to_dataset()
 
         self.data = SimulationData.create(
-            self.settings,
+            self.config,
             run_directory=run_directory,
             artifact_storage=artifact_storage,
-            horizontal_basis_kind=horizontal_basis_kind,
-            area_weighted_least_squares=self.settings.area_weighted_least_squares,
             print_info=True,
         )
+        self.config = self.data.config
+        self.settings = self.data.settings
         self.uses_temporary_run_directory = self.data.uses_temporary_run_directory
         self.io = self.data.io
         self.run_directory = self.data.run_directory
@@ -221,21 +224,33 @@ class Dynamics(object):
             phi=self.cs_basis.arr_phi,
             area_weights=self.cs_basis.unit_area,
         )
-        self.input_transforms = {
-            key: SphericalTransform(
-                self.input_field_spaces[key].representation,
-                input_grid,
-                grid_remap_basis=self.cs_basis,
-                area_weighted=bool(self.settings.area_weighted_least_squares),
+        input_transform_cache = {}
+        self.input_transforms = {}
+        for key in self.input_vars:
+            representation = self.input_field_spaces[key].representation
+            cache_key = getattr(
+                representation,
+                "signature",
+                getattr(
+                    representation,
+                    "coefficient_space_signature",
+                    id(representation),
+                ),
             )
-            for key in self.input_vars
-        }
+            if cache_key not in input_transform_cache:
+                input_transform_cache[cache_key] = SphericalTransform(
+                    representation,
+                    input_grid,
+                    grid_remap_basis=self.cs_basis,
+                    area_weighted=self.config.area_weighted_least_squares,
+                )
+            self.input_transforms[key] = input_transform_cache[cache_key]
 
         self.mainfield = Mainfield(
-            kind=self.settings.mainfield_kind,
-            epoch=self.settings.mainfield_epoch,
-            hI=(self.settings.RI - RE) * 1e-3,
-            B0=None if self.settings.mainfield_B0 == 0 else self.settings.mainfield_B0,
+            kind=self.config.mainfield_kind,
+            epoch=self.config.mainfield_epoch,
+            hI=(self.config.RI - RE) * 1e-3,
+            B0=self.config.mainfield_B0,
         )
 
         # Initialize the state of the ionosphere, restarting from the
@@ -261,7 +276,28 @@ class Dynamics(object):
     @classmethod
     def from_directory(cls, run_directory, **kwargs):
         """Construct a simulation from one run directory."""
-        return cls(run_directory=IO.discover_run_directory(run_directory), **kwargs)
+        run_directory = IO.discover_run_directory(run_directory)
+        artifact_storage = kwargs.get("artifact_storage", "auto")
+        settings = IO(
+            run_directory,
+            preferred_dataset_storage=artifact_storage,
+        ).load_dataset("settings")
+        if settings is None:
+            return cls(run_directory=run_directory, **kwargs)
+
+        config_kwargs = SimulationConfig.from_settings(settings).to_kwargs()
+        config_kwargs.update(
+            {
+                name: value
+                for name, value in kwargs.items()
+                if name in config_kwargs
+                and value is not None
+            }
+        )
+        extra_kwargs = {
+            name: value for name, value in kwargs.items() if name not in config_kwargs
+        }
+        return cls(run_directory=run_directory, **config_kwargs, **extra_kwargs)
 
     def evolve_to_time(
         self,
@@ -298,7 +334,7 @@ class Dynamics(object):
         """
         run_inductive = bool(run_inductive)
         if run_steady_state is None:
-            run_steady_state = bool(self.settings.save_steady_states)
+            run_steady_state = self.config.save_steady_states
         else:
             run_steady_state = bool(run_steady_state)
 
@@ -348,9 +384,9 @@ class Dynamics(object):
             should_save_sample = is_sample_step and step % (
                 sampling_step_interval * saving_sample_interval
             ) == 0
-            needs_steady_state = (run_inductive and self.settings.integrator == "exponential") or (
-                run_steady_state and is_sample_step
-            )
+            needs_steady_state = (
+                run_inductive and self.config.integrator == "exponential"
+            ) or (run_steady_state and is_sample_step)
 
             if needs_steady_state:
                 steady_state_m_ind = self.state.steady_state_m_ind(E_coeffs_noind)
@@ -414,13 +450,13 @@ class Dynamics(object):
 
         if save:
             self.add_state_to_timeseries("state", steady_state_m_ind, E_coeffs_noind, m_imp_noind)
-            if bool(self.settings.save_steady_states):
+            if self.config.save_steady_states:
                 self.add_state_to_timeseries(
                     "steady_state", steady_state_m_ind, E_coeffs_noind, m_imp_noind
                 )
 
             self.data.save_output_dataset("state")
-            if bool(self.settings.save_steady_states):
+            if self.config.save_steady_states:
                 self.data.save_output_dataset("steady_state")
 
             if not quiet:
@@ -502,7 +538,9 @@ class Dynamics(object):
             Relative tolerance for the pseudo-inverse.
         """
         FAC_b_evaluator = FieldEvaluator(
-            self.mainfield, Grid(lat=lat, lon=lon, theta=theta, phi=phi), self.settings.RI
+            self.mainfield,
+            Grid(lat=lat, lon=lon, theta=theta, phi=phi),
+            self.config.RI,
         )
 
         self.set_jr(
@@ -610,7 +648,7 @@ class Dynamics(object):
             If True, ``Br`` is already in the input storage basis and is
             stored directly without interpolation or projection.
         """
-        if self.settings.RM == 0:
+        if self.config.RM is None:
             raise ValueError("Br can only be set if magnetospheric radius (RM) is set.")
 
         input_data = {"Br": np.atleast_2d(Br)}
@@ -646,7 +684,6 @@ class Dynamics(object):
         pinv_rtol=1e-15,
         *,
         coefficients=False,
-        project=None,
     ):
         """Set Pedersen and Hall resistance inputs.
 
@@ -674,11 +711,6 @@ class Dynamics(object):
             If True, ``Pedersen`` and ``Hall`` are already in the input
             storage basis and are stored directly without interpolation
             or projection.
-        project : bool, optional
-            Override ``self.settings.project_conductance`` for this
-            call. If False, ``Pedersen`` and ``Hall`` must be grid
-            values on the state/model grid and are stored directly in
-            the grid conductance basis.
         """
         input_data = {"etaP": np.atleast_2d(Pedersen), "etaH": np.atleast_2d(Hall)}
 
@@ -686,19 +718,14 @@ class Dynamics(object):
             self._add_input_coefficients("conductance", input_data, time)
             return
 
-        if not self._should_project_conductance(project):
-            self._add_native_grid_input(
-                "conductance",
-                input_data,
-                lat=lat,
-                lon=lon,
-                theta=theta,
-                phi=phi,
-                time=time,
-                sqrt_weights=sqrt_weights,
-                reg_lambda=reg_lambda,
+        if (
+            self.config.conductance_projection_basis == "CS"
+            and (sqrt_weights is not None or reg_lambda is not None)
+        ):
+            raise ValueError(
+                "sqrt_weights and reg_lambda are not supported for "
+                "conductance_projection_basis='CS'."
             )
-            return
 
         self._project_and_add_input(
             "conductance",
@@ -725,8 +752,6 @@ class Dynamics(object):
         sqrt_weights=None,
         reg_lambda=None,
         pinv_rtol=1e-15,
-        *,
-        project=None,
     ):
         """Set Hall and Pedersen conductance values.
 
@@ -748,14 +773,9 @@ class Dynamics(object):
             Regularization parameter.
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
-        project : bool, optional
-            Override ``self.settings.project_conductance`` for this
-            call. If False, the conductance grid must match the
-            state/model grid and the converted resistance values are
-            stored directly without projection.
         """
-        Hall = np.atleast_2d(Hall)
-        Pedersen = np.atleast_2d(Pedersen)
+        Hall = np.atleast_2d(np.asarray(Hall, dtype=float))
+        Pedersen = np.atleast_2d(np.asarray(Pedersen, dtype=float))
 
         etaP = np.empty_like(Pedersen)
         etaH = np.empty_like(Hall)
@@ -778,7 +798,6 @@ class Dynamics(object):
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
-            project=project,
         )
 
     def set_neutral_wind(
@@ -847,10 +866,270 @@ class Dynamics(object):
         """Set neutral wind velocities using the historical API name."""
         return self.set_neutral_wind(*args, **kwargs)
 
+    def set_Q_eff(
+        self,
+        Q_theta,
+        Q_phi,
+        lat=None,
+        lon=None,
+        theta=None,
+        phi=None,
+        time=None,
+        sqrt_weights=None,
+        reg_lambda=None,
+        pinv_rtol=1e-15,
+        *,
+        coefficients=False,
+    ):
+        """Set effective wind-current input.
+
+        ``Q_eff`` is a tangential sheet-current proxy for the neutral
+        wind ``u x B`` term. It is added to the sheet current before
+        the conductance/resistance tensor maps currents to the electric
+        field.
+
+        Parameters
+        ----------
+        Q_theta : array-like
+            Southward effective-current component in A/m, or
+            curl-free storage-basis coefficients if
+            ``coefficients=True``.
+        Q_phi : array-like
+            Eastward effective-current component in A/m, or
+            divergence-free storage-basis coefficients if
+            ``coefficients=True``.
+        lat, lon : array-like, optional
+            Latitude/longitude coordinates in degrees.
+        theta, phi : array-like, optional
+            Colatitude/azimuth coordinates in degrees.
+        time : array-like, optional
+            Time points for the Q_eff data.
+        sqrt_weights : array-like, optional
+            sqrt_weights for the Q_eff data points.
+        reg_lambda : float, optional
+            Regularization parameter.
+        pinv_rtol : float, optional
+            Relative tolerance for the pseudo-inverse.
+        coefficients : bool, optional
+            If True, ``Q_theta`` and ``Q_phi`` are interpreted as the
+            curl-free and divergence-free Helmholtz coefficients,
+            respectively, and stored directly without interpolation or
+            projection.
+        """
+        input_data = self._tangential_input_data("Q_eff", Q_theta, Q_phi)
+
+        if coefficients:
+            self._add_input_coefficients("Q_eff", input_data, time)
+            return
+
+        self._project_and_add_input(
+            "Q_eff",
+            input_data,
+            lat=lat,
+            lon=lon,
+            theta=theta,
+            phi=phi,
+            time=time,
+            sqrt_weights=sqrt_weights,
+            reg_lambda=reg_lambda,
+            pinv_rtol=pinv_rtol,
+        )
+
+    def set_Q_eff_from_neutral_wind(
+        self,
+        u_theta,
+        u_phi,
+        lat=None,
+        lon=None,
+        theta=None,
+        phi=None,
+        time=None,
+        sqrt_weights=None,
+        wind_reg_lambda=None,
+        Q_eff_reg_lambda=None,
+        pinv_rtol=1e-15,
+        *,
+        fit_coefficients=True,
+    ):
+        """Compute and store Q_eff from neutral wind and conductance."""
+        if fit_coefficients:
+            input_time, wind_coeff_rows = self._project_neutral_wind_coefficients(
+                u_theta,
+                u_phi,
+                lat=lat,
+                lon=lon,
+                theta=theta,
+                phi=phi,
+                time=time,
+                sqrt_weights=sqrt_weights,
+                reg_lambda=wind_reg_lambda,
+                pinv_rtol=pinv_rtol,
+            )
+            q_coeff_rows = self._fit_Q_eff_coefficients_from_wind(
+                input_time,
+                wind_coeff_rows,
+                reg_lambda=Q_eff_reg_lambda,
+                pinv_rtol=pinv_rtol,
+            )
+            self._add_input_coefficients(
+                "Q_eff",
+                {"Q_eff": q_coeff_rows},
+                input_time,
+            )
+            return
+
+        Q_theta, Q_phi, Q_lat, Q_lon = self.calculate_Q_eff_from_neutral_wind(
+            u_theta,
+            u_phi,
+            lat=lat,
+            lon=lon,
+            theta=theta,
+            phi=phi,
+            time=time,
+            sqrt_weights=sqrt_weights,
+            reg_lambda=wind_reg_lambda,
+            pinv_rtol=pinv_rtol,
+        )
+        self.set_Q_eff(
+            Q_theta,
+            Q_phi,
+            lat=Q_lat,
+            lon=Q_lon,
+            time=time,
+            reg_lambda=Q_eff_reg_lambda,
+            pinv_rtol=pinv_rtol,
+        )
+
+    def calculate_Q_eff_from_neutral_wind(
+        self,
+        u_theta,
+        u_phi,
+        lat=None,
+        lon=None,
+        theta=None,
+        phi=None,
+        time=None,
+        sqrt_weights=None,
+        reg_lambda=None,
+        pinv_rtol=1e-15,
+    ):
+        """Return model-grid Q_eff equivalent to wind forcing."""
+        if "conductance" not in self.input_timeseries.datasets:
+            raise RuntimeError("Conductance must be set before calculating Q_eff from wind.")
+
+        input_time, wind_coeff_rows = self._project_neutral_wind_coefficients(
+            u_theta,
+            u_phi,
+            lat=lat,
+            lon=lon,
+            theta=theta,
+            phi=phi,
+            time=time,
+            sqrt_weights=sqrt_weights,
+            reg_lambda=reg_lambda,
+            pinv_rtol=pinv_rtol,
+        )
+        wind_synthesis = self.input_field_spaces[
+            "u"
+        ].representation.get_helmholtz_synthesis_operator(self.state.geometry.grid)
+        Q_eff_values = []
+        for time_value, wind_coeffs in zip(input_time, wind_coeff_rows):
+            self.state.update(self.input_timeseries, time_value)
+            wind_on_grid = np.asarray(wind_synthesis.matvec(wind_coeffs)).reshape(
+                (2, self.state.geometry.grid.size)
+            )
+            E_wind_on_grid = np.einsum(
+                "abg,bg->ag",
+                np.asarray(self.state.geometry.bu),
+                wind_on_grid,
+                optimize=True,
+            )
+            M = np.asarray(self.state.M_total_on_grid)
+            point_matrices = np.moveaxis(M, -1, 0)
+            Q_eff_on_grid = np.linalg.solve(
+                point_matrices,
+                E_wind_on_grid.T[..., np.newaxis],
+            )[..., 0].T
+            Q_eff_values.append(Q_eff_on_grid)
+
+        Q_eff_values = np.asarray(Q_eff_values)
+        grid = self.state.geometry.grid
+        return Q_eff_values[:, 0, :], Q_eff_values[:, 1, :], grid.lat, grid.lon
+
+    def _project_neutral_wind_coefficients(
+        self,
+        u_theta,
+        u_phi,
+        *,
+        lat=None,
+        lon=None,
+        theta=None,
+        phi=None,
+        time=None,
+        sqrt_weights=None,
+        reg_lambda=None,
+        pinv_rtol=1e-15,
+    ):
+        """Project wind samples to stored Helmholtz coefficients."""
+        input_data = self._wind_input_data(u_theta, u_phi)
+        input_time = self.adapt_input_time(time, input_data)
+        input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
+        wind_coeff_rows = self.input_transforms["u"].project_helmholtz(
+            input_data["u"],
+            input_grid=input_grid,
+            projection_basis=self.input_projection_bases["u"],
+            sqrt_weights=sqrt_weights,
+            reg_lambda=reg_lambda,
+            pinv_rtol=pinv_rtol,
+        )
+        if wind_coeff_rows.shape[0] != input_time.size:
+            raise ValueError(
+                f"u has {wind_coeff_rows.shape[0]} projected time slices, "
+                f"but {input_time.size} time values were supplied."
+            )
+        return input_time, wind_coeff_rows
+
+    def _fit_Q_eff_coefficients_from_wind(
+        self,
+        input_time,
+        wind_coeff_rows,
+        *,
+        reg_lambda=None,
+        pinv_rtol=1e-15,
+    ):
+        """Fit Q_eff coefficients to reproduce wind E coefficients."""
+        q_field_space = self.input_field_spaces["Q_eff"]
+        q_coeff_rows = []
+        for time_value, wind_coeffs in zip(input_time, wind_coeff_rows):
+            self.state.update(self.input_timeseries, time_value)
+            E_wind_coeffs = self.state.u_coeffs_to_E_coeffs.matvec(wind_coeffs)
+            q_to_E = self.state.Q_eff_to_E_coeffs_for_field_space(q_field_space)
+            matrix = np.asarray(q_to_E.to_matrix(backend="numpy"))
+            rhs = np.asarray(E_wind_coeffs).reshape(-1)
+            if reg_lambda is not None and float(reg_lambda) > 0.0:
+                weight = float(reg_lambda)
+                matrix = np.vstack(
+                    [matrix, weight * np.eye(matrix.shape[1], dtype=matrix.dtype)]
+                )
+                rhs = np.concatenate([rhs, np.zeros(matrix.shape[1], dtype=rhs.dtype)])
+            q_coeffs, *_ = np.linalg.lstsq(matrix, rhs, rcond=pinv_rtol)
+            q_coeff_rows.append(
+                q_field_space.validate_coefficients(q_coeffs, name="Q_eff coefficients")
+            )
+        return np.asarray(q_coeff_rows)
+
     def _wind_input_data(self, u_theta, u_phi):
         """Return wind input data with time before component."""
-        input_data = {"u": np.array([np.atleast_2d(u_theta), np.atleast_2d(u_phi)])}
-        input_data["u"] = np.moveaxis(input_data["u"], [0, 1], [1, 0])
+        return self._tangential_input_data("u", u_theta, u_phi)
+
+    def _tangential_input_data(self, key, theta_component, phi_component):
+        """Return tangential input data with time before component."""
+        input_data = {
+            key: np.array(
+                [np.atleast_2d(theta_component), np.atleast_2d(phi_component)]
+            )
+        }
+        input_data[key] = np.moveaxis(input_data[key], [0, 1], [1, 0])
         return input_data
 
     def _project_and_add_input(
@@ -953,90 +1232,6 @@ class Dynamics(object):
             var: projected[index * input_time.size : (index + 1) * input_time.size]
             for index, var in enumerate(variables)
         }
-
-    def _should_project_conductance(self, project):
-        """Return the effective conductance projection setting."""
-        if project is None:
-            return bool(self.settings.project_conductance)
-        return bool(project)
-
-    def _add_native_grid_input(
-        self,
-        key,
-        input_data,
-        *,
-        lat=None,
-        lon=None,
-        theta=None,
-        phi=None,
-        time=None,
-        sqrt_weights=None,
-        reg_lambda=None,
-    ):
-        """Store grid-basis input values after model-grid validation."""
-        if sqrt_weights is not None:
-            raise ValueError("sqrt_weights are not supported when conductance projection is off.")
-        if reg_lambda is not None:
-            raise ValueError("reg_lambda is not supported when conductance projection is off.")
-
-        input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
-        model_grid = self.state.geometry.grid
-        if not input_grid.same_as(model_grid):
-            raise ValueError(
-                "Direct grid conductance storage requires the input grid to match "
-                "the state/model grid."
-            )
-
-        storage_representation = self.input_field_spaces[key].representation
-        get_operator = getattr(storage_representation, "get_scalar_evaluation_operator", None)
-        if not callable(get_operator) or not is_noop_linear_map(
-            get_operator(model_grid),
-            input_shape=(model_grid.size,),
-            output_shape=(model_grid.size,),
-        ):
-            raise ValueError(
-                "Direct grid conductance storage requires Dynamics(project_conductance=False)."
-            )
-
-        if hasattr(storage_representation, "arr_theta") and hasattr(
-            storage_representation, "arr_phi"
-        ):
-            storage_grid = Grid(
-                theta=storage_representation.arr_theta,
-                phi=storage_representation.arr_phi,
-            )
-            if not storage_grid.same_as(model_grid):
-                raise ValueError(
-                    "Conductance storage basis grid does not match the state/model grid."
-                )
-
-        transform = self.input_transforms[key]
-        normalize = (
-            transform.normalize_helmholtz_value_batch
-            if self.input_field_spaces[key].field_type == "tangential"
-            else transform.normalize_scalar_value_batch
-        )
-        direct_data = {
-            var: normalize(values, input_grid)
-            for var, values in input_data.items()
-        }
-        input_time = self.adapt_input_time(time, direct_data)
-
-        for var, values in direct_data.items():
-            if values.shape[0] != input_time.size:
-                raise ValueError(
-                    f"{key}.{var} has {values.shape[0]} grid time slices, "
-                    f"but {input_time.size} time values were supplied."
-                )
-
-        for time_index in range(input_time.size):
-            self.input_timeseries.add_entry(
-                key,
-                {var: direct_data[var][time_index] for var in direct_data},
-                input_time[time_index],
-            )
-
-        self.data.save_input_dataset(key)
 
     def _add_input_coefficients(self, key, input_data, time):
         """Store input-basis coefficients directly in a time series."""

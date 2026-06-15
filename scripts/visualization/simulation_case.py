@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import datetime
 from polplot import Polarplot
 from string import ascii_lowercase as abc
+from pynamit.visualization.state_fields import evaluate_Phi_coefficients
 
 path = "../simulation/data/pynamit_paper_simulation"  # Where the save files are located
 
@@ -15,8 +16,8 @@ a = pynamit.PynamEye(path, steady_state=True)
 for plot_num, simulation_time in enumerate([0, 480]):
     a.set_time(simulation_time, steady_state=True)
 
-    phin = a.transforms["north"].synthesize_scalar(a.m_Phi)
-    phis = a.transforms["south"].synthesize_scalar(a.m_Phi)
+    phin = evaluate_Phi_coefficients(a.geometry, a.Phi_coeffs, a.transforms["north"])
+    phis = evaluate_Phi_coefficients(a.geometry, a.Phi_coeffs, a.transforms["south"])
     print(
         datetime.datetime.now(),
         "CPCP in the North is {:.1f} kV".format((phin.max() - phin.min()) * 1e-3),
@@ -79,7 +80,7 @@ for plot_num, simulation_time in enumerate([0, 480]):
     cbar_axes = [plt.subplot2grid((4, 62), (i, 0)) for i in range(3)]
 
     for ax in [gax_wind, gax_hall, gax_pede, gax_Brad, gax_Elec]:
-        a.jazz_global_plot(ax)
+        a.style_global_axis(ax)
 
     for i, ax in enumerate(
         [

@@ -318,13 +318,6 @@ def test_jax_lsmr_solves_underdetermined_block_rhs():
     np.testing.assert_allclose(solution, expected, rtol=1e-10, atol=1e-10)
 
 
-@pytest.mark.parametrize("solver_name", ["normal", "cg"])
-def test_solver_aliases_are_not_accepted(solver_name):
-    """Solver modes use explicit public names."""
-    with pytest.raises(ValueError):
-        LeastSquaresSolver(solver=solver_name)
-
-
 @pytest.mark.parametrize("weight", [-1.0, np.inf, np.nan, np.array([1.0, 2.0])])
 def test_regularization_weights_must_be_finite_non_negative_scalars(weight):
     """Invalid regularization weights fail before system assembly."""

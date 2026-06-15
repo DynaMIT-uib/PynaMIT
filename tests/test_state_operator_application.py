@@ -107,6 +107,51 @@ def test_u_coeffs_to_E_coeffs_is_linear_map_on_jax():
     np.testing.assert_allclose(np.asarray(result), expected)
 
 
+def test_Q_eff_coeffs_to_E_coeffs_uses_conductance_tensor_operator():
+    """Q_eff maps through the conductance tensor before E analysis."""
+    n = 3
+    n_grid = 4
+    helmholtz_analysis = np.arange(2 * n * 2 * n_grid, dtype=float).reshape(
+        2, n, 2, n_grid
+    ) / 10.0
+    M_total = np.arange(2 * 2 * n_grid, dtype=float).reshape(2, 2, n_grid) / 20.0
+    M_total += np.array([[[2.0], [0.0]], [[0.0], [3.0]]])
+    synthesis = np.arange(2 * n_grid * 2 * n, dtype=float).reshape(
+        2, n_grid, 2, n
+    ) / 30.0
+    coeffs = np.arange(2 * n, dtype=float).reshape(2, n) / 40.0
+
+    q_on_grid = np.einsum("qgrs,rs->qg", synthesis, coeffs, optimize=True)
+    E_on_grid = np.einsum("pqg,qg->pg", M_total, q_on_grid, optimize=True)
+    expected = np.einsum("cmpg,pg->cm", helmholtz_analysis, E_on_grid, optimize=True)
+
+    q_representation = SimpleNamespace(
+        get_helmholtz_synthesis_operator=lambda grid: as_linear_map(
+            synthesis,
+            input_shape=(2, n),
+            output_shape=(2, n_grid),
+        )
+    )
+    state = object.__new__(State)
+    state.basis = SimpleNamespace(index_length=n)
+    state.geometry = SimpleNamespace(
+        grid=SimpleNamespace(size=n_grid),
+        helmholtz_analysis_matrix=helmholtz_analysis,
+    )
+    state.Q_eff = SimpleNamespace(representation=q_representation)
+    state._Q_eff_synthesis_operator_cache = {}
+    state._Q_eff_to_E_coeffs_cache = None
+    state._M_total_on_grid = M_total
+
+    operator = state.Q_eff_to_E_coeffs
+    result = State._apply_operator(None, operator, coeffs, (2, n))
+
+    assert isinstance(operator, LinearMap)
+    assert operator.output_shape == (2, n)
+    assert operator.input_shape == (2, n)
+    np.testing.assert_allclose(result, expected)
+
+
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
 def test_induction_matrix_assembly_stays_on_jax(monkeypatch):
     """Dense induction assembly should not bounce through NumPy."""
@@ -261,7 +306,7 @@ def test_m_imp_problem_uses_jr_apex_operator_without_dense_property():
     problem = state.m_imp_problem
 
     np.testing.assert_allclose(
-        problem.get_system_linear_map().dense(backend="numpy"),
+        problem.get_system_linear_map().to_matrix(backend="numpy"),
         jr_to_apex @ m_imp_to_jr,
     )
 
@@ -300,9 +345,96 @@ def test_E_map_constraint_uses_geometry_operator_without_dense_property():
 
     expected = E_outer.reshape(2 * n_ll, 2 * n) @ m_imp_to_E.reshape(2 * n, n)
     np.testing.assert_allclose(
-        constraint.dense(backend="numpy"),
+        constraint.to_matrix(backend="numpy"),
         expected,
     )
+
+
+def test_M_total_on_grid_uses_conductance_synthesis_operator_without_matrix():
+    """Conductance synthesis should avoid grid-evaluation matrices."""
+    n_grid = 4
+    n_coeffs = 3
+    synthesis = np.arange(n_grid * n_coeffs, dtype=float).reshape(n_grid, n_coeffs) / 10.0
+    etaP = np.array([1.0, 2.0, 3.0])
+    etaH = np.array([4.0, 5.0, 6.0])
+    bP = np.arange(2 * 2 * n_grid, dtype=float).reshape(2, 2, n_grid) / 20.0
+    bH = np.arange(2 * 2 * n_grid, dtype=float).reshape(2, 2, n_grid) / 30.0
+    model_grid = object()
+
+    class ConductanceBasis:
+        def coefficients_are_compatible_with(self, _basis):
+            return False
+
+        def get_scalar_evaluation_operator(self, grid):
+            assert grid is model_grid
+            return as_linear_map(
+                synthesis,
+                input_shape=(n_coeffs,),
+                output_shape=(n_grid,),
+            )
+
+        def get_scalar_evaluation_matrix(self, _grid):
+            raise AssertionError("M_total_on_grid should use the operator API")
+
+    conductance_basis = ConductanceBasis()
+    state = object.__new__(State)
+    state.basis = object()
+    state.geometry = SimpleNamespace(
+        grid=model_grid,
+        spherical_transform_zero_added=SimpleNamespace(source=object()),
+        bP=bP,
+        bH=bH,
+    )
+    state.etaP = SimpleNamespace(array=etaP, representation=conductance_basis)
+    state.etaH = SimpleNamespace(array=etaH, representation=conductance_basis)
+    state._M_total_on_grid = None
+
+    conductance_on_grid = synthesis @ np.stack([etaP, etaH], axis=1)
+    expected = np.einsum(
+        "sijk,sk->ijk",
+        np.stack([bP, bH], axis=0),
+        conductance_on_grid.T,
+        optimize=True,
+    )
+
+    np.testing.assert_allclose(state.M_total_on_grid, expected)
+
+
+def test_M_total_on_grid_rejects_incompatible_conductance_bases():
+    """Pedersen and Hall must share one coefficient space."""
+    n_grid = 4
+    n_coeffs = 3
+    synthesis = np.ones((n_grid, n_coeffs))
+
+    class ConductanceBasis:
+        def __init__(self, name):
+            self.name = name
+
+        def coefficients_are_compatible_with(self, other):
+            return self.name == getattr(other, "name", None)
+
+        def get_scalar_evaluation_operator(self, _grid):
+            return as_linear_map(
+                synthesis,
+                input_shape=(n_coeffs,),
+                output_shape=(n_grid,),
+            )
+
+    state = object.__new__(State)
+    state.basis = object()
+    state.geometry = SimpleNamespace(grid=object(), bP=np.ones((2, 2, n_grid)), bH=0.0)
+    state.etaP = SimpleNamespace(
+        array=np.ones(n_coeffs),
+        representation=ConductanceBasis("pedersen"),
+    )
+    state.etaH = SimpleNamespace(
+        array=np.ones(n_coeffs),
+        representation=ConductanceBasis("hall"),
+    )
+    state._M_total_on_grid = None
+
+    with pytest.raises(ValueError, match="coefficient-compatible"):
+        _ = state.M_total_on_grid
 
 
 def test_model_operator_accessors_match_runtime_operator_chain():
@@ -377,9 +509,10 @@ def test_model_operator_accessors_match_runtime_operator_chain():
         M_imp_to_E @ np.arange(n, dtype=float),
     )
 
-    edf_matrices = state.operators.E_df_dense()
-    rate_matrices = state.operators.rates_dense()
+    edf_matrices = state.operators.E_df_matrices()
+    rate_matrices = state.operators.rates_matrices()
 
+    assert state._direct_E_coeffs_to_total_E_coeffs_operator is None
     assert set(edf_matrices) == set(expected_edf)
     assert set(rate_matrices) == set(expected_rates)
     for key, expected in expected_edf.items():
@@ -402,7 +535,7 @@ def test_model_operator_accessors_match_runtime_operator_chain():
 
 
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
-def test_model_dense_accessors_accept_explicit_jax_backend():
+def test_model_matrix_accessors_accept_explicit_jax_backend():
     """Dense model accessors should accept backend='jax'."""
     previous_backend = use_jax()
     n = 2
@@ -445,7 +578,7 @@ def test_model_dense_accessors_accept_explicit_jax_backend():
 
     try:
         set_backend("numpy")
-        matrices = state.operators.E_df_dense(backend="jax")
+        matrices = state.operators.E_df_matrices(backend="jax")
     finally:
         set_backend(previous_backend)
 

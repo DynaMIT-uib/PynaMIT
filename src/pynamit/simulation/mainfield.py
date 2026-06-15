@@ -12,7 +12,7 @@ from datetime import datetime
 from pynamit.math.constants import RE
 
 
-class Mainfield(object):
+class Mainfield:
     """Class for representing the main magnetic field.
 
     Provides implementations of different magnetic field models,
@@ -86,7 +86,7 @@ class Mainfield(object):
                 return ((RE / r) ** 2 * B0, r * 0, r * 0)
 
         else:
-            raise Exception("impossible")
+            raise RuntimeError("unreachable main-field kind")
 
         self._Bfunc = _Bfunc
 
@@ -375,4 +375,4 @@ class Mainfield(object):
             # Calculate latitude of evenly spaced points.
             lat, lon, _ = self.apx.apex2geo(90 - theta, mlon, self.apx.refh)
             # Interpolate to phi.
-            return (np.interp(phi.flatten(), lon % 360, 90 - lat, period=360)).reshape(phi.shape)
+            return (np.interp(phi.reshape(-1), lon % 360, 90 - lat, period=360)).reshape(phi.shape)

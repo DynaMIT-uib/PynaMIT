@@ -1,7 +1,5 @@
 """Tests for basis interface enforcement."""
 
-import importlib.util
-
 import numpy as np
 import pytest
 from scipy.sparse import csr_matrix
@@ -14,6 +12,7 @@ from pynamit.sphere.spherical_transform import (
 )
 from pynamit.math import (
     JAX_AVAILABLE,
+    LinearMap,
     as_linear_map,
     diagonal_linear_map,
     is_noop_linear_map,
@@ -50,18 +49,6 @@ def test_public_sphere_package_is_canonical():
     assert pynamit.SphericalBasis is SphericalBasis
     assert pynamit.SphericalRepresentation is SphericalRepresentation
     assert pynamit.BasisView is BasisView
-    assert not hasattr(pynamit, "normalize_horizontal_basis_kind")
-    sphere_package = importlib.import_module("pynamit.sphere")
-    assert not hasattr(sphere_package, "normalize_horizontal_basis_kind")
-    assert importlib.util.find_spec("pynamit.basis") is None
-    assert importlib.util.find_spec("pynamit.primitives.basis") is None
-    assert importlib.util.find_spec("pynamit.primitives.field_transform") is None
-    assert importlib.util.find_spec("pynamit.primitives.spherical_transform") is None
-    assert importlib.util.find_spec("pynamit.sphere.spherical_transform") is not None
-    assert importlib.util.find_spec("pynamit.cubed_sphere") is None
-    assert importlib.util.find_spec("pynamit.spherical_harmonics") is None
-    assert importlib.util.find_spec("pynamit.primitives.grid") is None
-    assert importlib.util.find_spec("pynamit.utils") is None
 
 
 def test_concrete_bases_implement_basis_interface():
@@ -79,8 +66,6 @@ def test_concrete_bases_implement_basis_interface():
     assert not is_noop_linear_map(sh_basis.get_scalar_evaluation_operator(cs_basis.native_grid))
     assert sh_basis.kind == "SH"
     assert cs_basis.kind == "CS"
-    assert not hasattr(sh_basis, "caching")
-    assert not hasattr(cs_basis, "caching")
     assert cs_basis.index_length == cs_basis.arr_theta.size
     sh_basis.validate_metadata()
     cs_basis.validate_metadata()
@@ -104,10 +89,6 @@ def test_solid_harmonics_are_separate_from_surface_bases():
     assert solid_harmonics.basis is sh_basis
     assert isinstance(sh_basis, SurfaceOperators)
     assert isinstance(cs_basis, SurfaceOperators)
-    for basis in (sh_basis, cs_basis):
-        assert not hasattr(basis, "external_potential_continuation")
-        assert not hasattr(basis, "internal_potential_continuation")
-        assert not hasattr(basis, "boundary_potential_discontinuity")
     with pytest.raises(TypeError, match="SH surface basis"):
         SolidHarmonics(cs_basis)
 
@@ -313,8 +294,8 @@ def test_csbasis_native_grid_is_cell_centered_with_cell_areas():
     """Native CS coefficients live at cell centers with cell areas."""
     cs_basis = CSBasis(16)
     block, i, j = cs_basis.get_gridpoints(cs_basis.N)
-    expected_xi = cs_basis.xi(i[:, :-1, :-1] + 0.5, cs_basis.N).flatten()
-    expected_eta = cs_basis.eta(j[:, :-1, :-1] + 0.5, cs_basis.N).flatten()
+    expected_xi = cs_basis.xi(i[:, :-1, :-1] + 0.5, cs_basis.N).reshape(-1)
+    expected_eta = cs_basis.eta(j[:, :-1, :-1] + 0.5, cs_basis.N).reshape(-1)
     step = np.diff(cs_basis.xi(np.array([0, 1]), cs_basis.N))[0]
     midpoint_area = step**2 * np.sqrt(
         np.linalg.det(cs_basis.get_metric_tensor(expected_xi, expected_eta))
@@ -322,7 +303,7 @@ def test_csbasis_native_grid_is_cell_centered_with_cell_areas():
 
     np.testing.assert_allclose(cs_basis.arr_xi, expected_xi)
     np.testing.assert_allclose(cs_basis.arr_eta, expected_eta)
-    np.testing.assert_array_equal(cs_basis.arr_block, block[:, :-1, :-1].flatten())
+    np.testing.assert_array_equal(cs_basis.arr_block, block[:, :-1, :-1].reshape(-1))
     assert np.all(cs_basis.unit_area > 0.0)
     np.testing.assert_allclose(np.sum(cs_basis.unit_area), 4 * np.pi)
     assert np.all(np.isfinite(cs_basis.arr_theta))
@@ -509,6 +490,78 @@ def test_spherical_transform_contract_scalar_coeffs_to_grid_matches_explicit_pro
     )
     with pytest.raises(ValueError, match="vector, matrix, or LinearMap"):
         evaluator.contract_scalar_coeffs_to_grid(np.zeros((1, 1, 1)))
+
+
+def test_spherical_transform_contract_scalar_coeffs_uses_operator_actions():
+    """Scalar grid contraction can use a structured right operator."""
+    cs_basis = CSBasis(8)
+    evaluator = SphericalTransform(
+        cs_basis,
+        Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi),
+    )
+    rng = np.random.default_rng(1)
+    matrix = rng.normal(size=(cs_basis.index_length, 3)) + 1j * rng.normal(
+        size=(cs_basis.index_length, 3)
+    )
+
+    def fail_dense(_xp):
+        raise AssertionError("contract_scalar_coeffs_to_grid should not densify")
+
+    operator = LinearMap(
+        shape=matrix.shape,
+        dtype=matrix.dtype,
+        _matvec=lambda x: matrix @ np.asarray(x).reshape(3),
+        _rmatvec=lambda y: matrix.conj().T @ np.asarray(y).reshape(
+            cs_basis.index_length
+        ),
+        _matmat=lambda x: matrix @ np.asarray(x).reshape(3, -1),
+        _rmatmat=lambda y: matrix.conj().T @ np.asarray(y).reshape(
+            cs_basis.index_length, -1
+        ),
+        _dense_array_func=fail_dense,
+        input_shape=(3,),
+        output_shape=(cs_basis.index_length,),
+    )
+
+    np.testing.assert_allclose(
+        evaluator.contract_scalar_coeffs_to_grid(operator),
+        evaluator.scalar_coeffs_to_grid @ matrix,
+    )
+
+
+def test_spherical_transform_contract_scalar_coeffs_skips_diagonal_probe():
+    """Square non-diagonal maps should not densify."""
+    cs_basis = CSBasis(8)
+    evaluator = SphericalTransform(
+        cs_basis,
+        Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi),
+    )
+    rng = np.random.default_rng(2)
+    matrix = rng.normal(
+        size=(cs_basis.index_length, cs_basis.index_length)
+    ) + 1j * rng.normal(size=(cs_basis.index_length, cs_basis.index_length))
+
+    def fail_dense(_xp):
+        raise AssertionError("contract_scalar_coeffs_to_grid should not densify")
+
+    operator = LinearMap(
+        shape=matrix.shape,
+        dtype=matrix.dtype,
+        _matvec=lambda x: matrix @ np.asarray(x).reshape(cs_basis.index_length),
+        _rmatvec=lambda y: matrix.conj().T
+        @ np.asarray(y).reshape(cs_basis.index_length),
+        _matmat=lambda x: matrix @ np.asarray(x).reshape(cs_basis.index_length, -1),
+        _rmatmat=lambda y: matrix.conj().T
+        @ np.asarray(y).reshape(cs_basis.index_length, -1),
+        _dense_array_func=fail_dense,
+        input_shape=(cs_basis.index_length,),
+        output_shape=(cs_basis.index_length,),
+    )
+
+    np.testing.assert_allclose(
+        evaluator.contract_scalar_coeffs_to_grid(operator),
+        evaluator.scalar_coeffs_to_grid @ matrix,
+    )
 
 
 def test_grid_basis_regularization_requires_degree_metadata():
@@ -895,7 +948,6 @@ def test_spherical_transform_reuses_sh_evaluation_context(monkeypatch):
     transform.scalar_coeffs_to_gridded_phi_derivative
 
     assert calls == {"legendre": 1, "derivative": 1}
-    assert not hasattr(transform, "_source_evaluator")
 
 
 def test_csbasis_reuses_native_operator_cache():

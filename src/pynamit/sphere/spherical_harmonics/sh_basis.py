@@ -127,8 +127,8 @@ class SHBasis(SurfaceOperators):
         self.cnm_filter = [(pair in self.cnm.index_pairs) for pair in self.index_pairs]
         self.snm_filter = [(pair in self.snm.index_pairs) for pair in self.index_pairs]
 
-        self.n = np.hstack((self.cnm.n.flatten(), self.snm.n.flatten()))
-        self.m = np.hstack((self.cnm.m.flatten(), self.snm.m.flatten()))
+        self.n = np.hstack((self.cnm.n.reshape(-1), self.snm.n.reshape(-1)))
+        self.m = np.hstack((self.cnm.m.reshape(-1), self.snm.m.reshape(-1)))
 
         self.is_normalized = quasi_normalized
         if self.is_normalized:
@@ -562,9 +562,10 @@ class SHBasis(SurfaceOperators):
             Gc = np.divide(num_Gc, sin_theta, out=np.zeros_like(num_Gc), where=~is_pole)
             num_Gs = P[:, self.snm_filter] * m_s * np.cos(m_s * phi_col)
             Gs = np.divide(num_Gs, sin_theta, out=np.zeros_like(num_Gs), where=~is_pole)
-            idx_poles = np.where(is_pole.flatten())[0]
+            idx_poles = np.where(is_pole.reshape(-1))[0]
             if idx_poles.size:
-                cnm_is_m1, snm_is_m1 = (self.cnm.m == 1).flatten(), (self.snm.m == 1).flatten()
+                cnm_is_m1 = (self.cnm.m == 1).reshape(-1)
+                snm_is_m1 = (self.snm.m == 1).reshape(-1)
                 cnm_m1_cols, snm_m1_cols = np.where(cnm_is_m1)[0], np.where(snm_is_m1)[0]
                 if cnm_m1_cols.size:
                     dP_pole = dP[idx_poles][:, self.cnm_filter][:, cnm_is_m1]
