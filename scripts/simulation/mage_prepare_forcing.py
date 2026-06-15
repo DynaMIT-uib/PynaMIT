@@ -397,7 +397,7 @@ def prepare_forcing(args: argparse.Namespace) -> Path:
 
     gamera_dir = Path(args.gamera_dir).expanduser()
     tiegcm_path = resolve_tiegcm_path(gamera_dir, args.tiegcm_nc)
-    gamera_run_dir = gamera_dir / args.gamera_subdir
+    gamera_run_dir = gamera_dir #/ args.gamera_subdir
     remix_file = gamera_run_dir / f"{args.tag}.mix.h5"
     output_path = output_path_from_args(args.output_dir, args.output_name)
 
