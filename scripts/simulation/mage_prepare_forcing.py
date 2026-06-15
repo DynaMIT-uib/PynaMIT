@@ -35,7 +35,7 @@ DEFAULT_OUTPUT_DIR = SCRIPT_DIR / "mage_prepared"
 DEFAULT_OUTPUT_NAME = "data_H_int_qeff.h5"
 DEFAULT_TAG = "msphere"
 
-RE_KM = 6371.0
+FALLBACK_EARTH_RADIUS_M = 6371.0e3
 FILL_THRESHOLD = 1e30
 
 
@@ -46,6 +46,31 @@ def datetime_to_decimal_year(value: dt.datetime) -> float:
     year_seconds = (next_year_start - year_start).total_seconds()
     elapsed = (value - year_start).total_seconds()
     return value.year + elapsed / year_seconds
+
+
+def wrap_longitude_180_value(value: float) -> float:
+    """Wrap longitude to [-180, 180) degrees."""
+    return float((value + 180.0) % 360.0 - 180.0)
+
+
+def centered_dipole_alignment_attrs(event_time: dt.datetime) -> dict[str, Any]:
+    """Return run-alignment metadata for the centered dipole and SM grid."""
+    dipole_epoch = datetime_to_decimal_year(event_time)
+    dpl = dipole.Dipole(dipole_epoch)
+    return {
+        "gamera_coordinate_system": "SM",
+        "gamera_internal_dipole_axis": np.array([0.0, 0.0, 1.0]),
+        "gamera_internal_north_pole_lat_lon": np.array([90.0, 0.0]),
+        "gamera_internal_south_pole_lat_lon": np.array([-90.0, 0.0]),
+        "remix_local_noon_longitude_deg": 0.0,
+        "dipole_alignment_epoch": dipole_epoch,
+        "dipole_axis_geo_cartesian": np.asarray(dpl.axis, dtype=float),
+        "dipole_north_pole_geo_lat_lon": np.asarray(dpl.north_pole, dtype=float),
+        "dipole_south_pole_geo_lat_lon": np.asarray(dpl.south_pole, dtype=float),
+        "dipole_noon_mlon_deg_at_start": wrap_longitude_180_value(
+            float(np.asarray(dpl.mlt2mlon(12.0, event_time)))
+        ),
+    }
 
 
 def resolve_tiegcm_path(gamera_dir: Path, explicit_path: str | None) -> Path:
@@ -71,6 +96,55 @@ def output_path_from_args(output_dir: str, output_name: str) -> Path:
     directory = Path(output_dir).expanduser()
     directory.mkdir(parents=True, exist_ok=True)
     return directory / output_name
+
+
+def resolve_gamera_run_dir(gamera_dir: Path, gamera_subdir: str, tag: str) -> Path:
+    """Resolve the directory that contains GAMERA/REMIX files."""
+    direct_mix = gamera_dir / f"{tag}.mix.h5"
+    direct_serial = gamera_dir / f"{tag}.gam.h5"
+    direct_mpi = sorted(gamera_dir.glob(f"{tag}_*.gam.h5"))
+    if direct_mix.exists() or direct_serial.exists() or direct_mpi:
+        return gamera_dir
+
+    nested = gamera_dir / gamera_subdir
+    nested_mix = nested / f"{tag}.mix.h5"
+    nested_serial = nested / f"{tag}.gam.h5"
+    nested_mpi = sorted(nested.glob(f"{tag}_*.gam.h5"))
+    if nested_mix.exists() or nested_serial.exists() or nested_mpi:
+        return nested
+
+    raise FileNotFoundError(
+        f"Could not find GAMERA/REMIX files for tag {tag!r} in {gamera_dir} "
+        f"or {nested}"
+    )
+
+
+def gamera_length_scale_m(gsph: Any) -> float:
+    """Return the length scale that converts GAMERA coordinates to meters."""
+    try:
+        import h5py
+
+        with h5py.File(gsph.f0, "r") as file:
+            units_id = file.attrs.get("UnitsID", b"")
+            if isinstance(units_id, bytes):
+                units_id = units_id.decode("ascii", errors="ignore")
+            if str(units_id).upper().startswith("EARTH") and "tScl" in file.attrs:
+                return float(file.attrs["tScl"]) * 1.0e5
+    except Exception:
+        pass
+
+    return FALLBACK_EARTH_RADIUS_M
+
+
+def gamera_magnetic_moment_nT(gsph: Any) -> float | None:
+    """Return the signed GAMERA dipole moment parameter in nT if available."""
+    try:
+        with h5py.File(gsph.f0, "r") as file:
+            if "MagM0" in file.attrs:
+                return float(file.attrs["MagM0"])
+    except Exception:
+        pass
+    return None
 
 
 def read_nc_step(dataset: Any, name: str, step: int) -> np.ndarray:
@@ -166,11 +240,15 @@ def integrate_tiegcm_step(
     }
 
 
-def centered_inner_boundary_grid(gsph: Any) -> tuple[np.ndarray, ...]:
+def centered_inner_boundary_grid(
+    gsph: Any,
+    inner_index: int,
+    length_scale_m: float,
+) -> tuple[np.ndarray, ...]:
     """Return centered inner-boundary grid and spherical helper arrays."""
-    x = gsph.X[0]
-    y = gsph.Y[0]
-    z = gsph.Z[0]
+    x = gsph.X[inner_index]
+    y = gsph.Y[inner_index]
+    z = gsph.Z[inner_index]
 
     x = 0.25 * (x[:-1, :-1] + x[1:, :-1] + x[:-1, 1:] + x[1:, 1:])
     y = 0.25 * (y[:-1, :-1] + y[1:, :-1] + y[:-1, 1:] + y[1:, 1:])
@@ -182,7 +260,7 @@ def centered_inner_boundary_grid(gsph: Any) -> tuple[np.ndarray, ...]:
 
     glat = 90.0 - np.degrees(theta)
     glon = np.degrees(phi)
-    r_m = r_re * RE_KM * 1e3
+    r_m = r_re * length_scale_m
 
     sin_theta = np.sin(theta)
     cos_theta = np.cos(theta)
@@ -362,6 +440,7 @@ def create_output_datasets(
 def write_static_datasets(
     output: h5py.File,
     time_values: np.ndarray,
+    event_time: dt.datetime,
     tiegcm_lat: np.ndarray,
     tiegcm_lon: np.ndarray,
     inner_lat: np.ndarray,
@@ -378,10 +457,22 @@ def write_static_datasets(
     output.create_dataset("Blon", data=inner_lon)
     output.create_dataset("r", data=inner_r)
     output.attrs["gamera_dir"] = str(Path(args.gamera_dir).expanduser())
+    output.attrs["gamera_run_dir"] = str(Path(args.gamera_run_dir).expanduser())
     output.attrs["tiegcm_nc"] = str(tiegcm_path)
     output.attrs["conductance_source"] = args.conductance_source
     output.attrs["wind_weighting"] = "Pedersen datasets We/Wn; Hall datasets WeH/WnH"
     output.attrs["remix_tag"] = args.tag
+    output.attrs["FAC_convention"] = "upward_positive_kaipy_remix_init_vars"
+    output.attrs["gamera_inner_index"] = int(args.inner_index)
+    output.attrs["gamera_length_scale_m"] = float(args.gamera_length_scale_m)
+    for name, value in centered_dipole_alignment_attrs(event_time).items():
+        output.attrs[name] = value
+    if args.gamera_mag_m0_nT is not None:
+        output.attrs["gamera_mag_m0_nT"] = float(args.gamera_mag_m0_nT)
+        output.attrs["gamera_dipole_B0_T"] = abs(float(args.gamera_mag_m0_nT)) * 1e-9
+    output.attrs["RM"] = float(np.nanmean(inner_r))
+    output.attrs["RM_min"] = float(np.nanmin(inner_r))
+    output.attrs["RM_max"] = float(np.nanmax(inner_r))
 
 
 def prepare_forcing(args: argparse.Namespace) -> Path:
@@ -397,8 +488,11 @@ def prepare_forcing(args: argparse.Namespace) -> Path:
 
     gamera_dir = Path(args.gamera_dir).expanduser()
     tiegcm_path = resolve_tiegcm_path(gamera_dir, args.tiegcm_nc)
-    gamera_run_dir = gamera_dir #/ args.gamera_subdir
+    gamera_run_dir = resolve_gamera_run_dir(gamera_dir, args.gamera_subdir, args.tag)
+    args.gamera_run_dir = str(gamera_run_dir)
     remix_file = gamera_run_dir / f"{args.tag}.mix.h5"
+    if not remix_file.exists():
+        raise FileNotFoundError(f"REMIX file does not exist: {remix_file}")
     output_path = output_path_from_args(args.output_dir, args.output_name)
 
     print(f"Using GAMERA directory: {gamera_dir}", flush=True)
@@ -407,6 +501,21 @@ def prepare_forcing(args: argparse.Namespace) -> Path:
     print(f"Writing prepared forcing: {output_path}", flush=True)
 
     gsph = msph.GamsphPipe(str(gamera_run_dir), args.tag, doFast=False)
+    if args.inner_index < 0 or args.inner_index >= gsph.X.shape[0] - 1:
+        raise ValueError(
+            f"--inner-index must be between 0 and {gsph.X.shape[0] - 2}; "
+            f"got {args.inner_index}"
+        )
+    length_scale_m = gamera_length_scale_m(gsph)
+    args.gamera_length_scale_m = length_scale_m
+    args.gamera_mag_m0_nT = gamera_magnetic_moment_nT(gsph)
+    print(f"Using GAMERA length scale: {length_scale_m:.6g} m", flush=True)
+    if args.gamera_mag_m0_nT is not None:
+        print(
+            f"Using GAMERA dipole MagM0: {args.gamera_mag_m0_nT:.6g} nT",
+            flush=True,
+        )
+    print(f"Using GAMERA inner index: {args.inner_index}", flush=True)
     n_available = len(gsph.UT) - 1
     if args.max_steps is not None:
         n_available = min(n_available, int(args.max_steps))
@@ -424,11 +533,11 @@ def prepare_forcing(args: argparse.Namespace) -> Path:
         )
 
         inner_lat, inner_lon, inner_r, sin_theta, cos_theta, sin_phi, cos_phi = (
-            centered_inner_boundary_grid(gsph)
+            centered_inner_boundary_grid(gsph, args.inner_index, length_scale_m)
         )
-        bx0 = gsph.GetVar("Bx0")[0]
-        by0 = gsph.GetVar("By0")[0]
-        bz0 = gsph.GetVar("Bz0")[0]
+        bx0 = gsph.GetVar("Bx0")[args.inner_index]
+        by0 = gsph.GetVar("By0")[args.inner_index]
+        bz0 = gsph.GetVar("Bz0")[args.inner_index]
         br0, btheta0, bphi0 = spherical_components(
             bx0, by0, bz0, sin_theta, cos_theta, sin_phi, cos_phi
         )
@@ -437,6 +546,7 @@ def prepare_forcing(args: argparse.Namespace) -> Path:
             write_static_datasets(
                 output,
                 time_values,
+                gsph.UT[1],
                 tiegcm_lat,
                 tiegcm_lon,
                 inner_lat,
@@ -478,9 +588,9 @@ def prepare_forcing(args: argparse.Namespace) -> Path:
                 for key, values in remix_values.items():
                     output[key][out_step] = values.astype(np.float32)
 
-                bx = gsph.GetVar("Bx", gamera_step)[0] - bx0
-                by = gsph.GetVar("By", gamera_step)[0] - by0
-                bz = gsph.GetVar("Bz", gamera_step)[0] - bz0
+                bx = gsph.GetVar("Bx", gamera_step)[args.inner_index] - bx0
+                by = gsph.GetVar("By", gamera_step)[args.inner_index] - by0
+                bz = gsph.GetVar("Bz", gamera_step)[args.inner_index] - bz0
                 br, btheta, bphi = spherical_components(
                     bx, by, bz, sin_theta, cos_theta, sin_phi, cos_phi
                 )
@@ -505,9 +615,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--gamera-subdir",
         default="gamera",
-        help="Subdirectory under --gamera-dir containing msphere files.",
+        help=(
+            "Fallback subdirectory under --gamera-dir containing msphere files. "
+            "The script first tries --gamera-dir itself."
+        ),
     )
     parser.add_argument("--tag", default=DEFAULT_TAG, help="GAMERA/REMIX file tag.")
+    parser.add_argument(
+        "--inner-index",
+        type=int,
+        default=0,
+        help="Radial index used for the GAMERA inner-boundary magnetic field.",
+    )
     parser.add_argument("--tiegcm-nc", default=None, help="Explicit TIEGCM NetCDF path.")
     parser.add_argument(
         "--output-dir",

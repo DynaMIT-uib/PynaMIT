@@ -77,17 +77,15 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
         geometry.poloidal_to_boundary_potential_jump_factor,
         np.diag(dynamics.solid_harmonics.poloidal_to_boundary_potential_jump_factor),
     )
-    np.testing.assert_allclose(
-        geometry.horizontal_poloidal_to_gridded_sheet_current(),
-        geometry.horizontal_potential_to_gridded_JS,
+    assert geometry.m_ind_to_gridded_sheet_current().shape == (
+        2,
+        geometry.grid.size,
+        dynamics.horizontal_basis.index_length,
     )
-    np.testing.assert_allclose(
-        geometry.m_ind_to_gridded_sheet_current(),
-        geometry.m_ind_to_gridded_JS,
-    )
-    np.testing.assert_allclose(
-        geometry.m_imp_to_gridded_sheet_current(),
-        geometry.m_imp_to_gridded_JS,
+    assert geometry.m_imp_to_gridded_sheet_current().shape == (
+        2,
+        geometry.grid.size,
+        dynamics.horizontal_basis.index_length,
     )
 
     plot_grid = Grid(theta=geometry.grid.theta[:10], phi=geometry.grid.phi[:10])

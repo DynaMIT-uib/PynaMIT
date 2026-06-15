@@ -122,12 +122,15 @@ class PynamEye:
         )
         self.global_vector_grid = Grid(theta=arr_theta, lon=arr_phi)
 
-        # Define t0 and set up dipole object.
+        # Define t0 and set up the configured dipole object.
         self.t0 = datetime.datetime.strptime(
             self.config.t0,
             "%Y-%m-%d %H:%M:%S",
         )
-        self.dp = Dipole(self.t0.year)
+        self.mainfield_epoch = float(
+            self._config_value("mainfield_epoch", self.t0.year)
+        )
+        self.dp = Dipole(self.mainfield_epoch)
 
         self.schema = self.run_view.schema
         self.cs_basis = self.schema.cs_basis
@@ -163,7 +166,7 @@ class PynamEye:
         )
         if self.config.mainfield_kind.lower() == "igrf":
             # Define a grid, then mask depending on mlatmin.
-            self.apx = apexpy.Apex(self.t0.year, refh=(self.RI - RE) * 1e-3)
+            self.apx = apexpy.Apex(self.mainfield_epoch, refh=(self.RI - RE) * 1e-3)
             self.lat_n, self.lon_n, _ = self.apx.apex2geo(
                 self.mlat, self.mlon, (self.RI - RE) * 1e-3
             )
@@ -191,16 +194,16 @@ class PynamEye:
         self.m_imp_to_jr_operator = self.geometry.m_imp_to_jr_operator
         self.W_to_dBr_dt = 1 / self.RI
         # Cache maps needed by Joule heating and E-from-B derivation.
-        self.m_ind_to_gridded_JS = {}
-        self.m_imp_to_gridded_JS = {}
+        self.m_ind_to_gridded_sheet_current_maps = {}
+        self.m_imp_to_gridded_sheet_current_maps = {}
         for region in ["global", "north", "south"]:
-            self.m_ind_to_gridded_JS[region] = (
+            self.m_ind_to_gridded_sheet_current_maps[region] = (
                 self.geometry.m_ind_to_gridded_sheet_current(
                     self.transforms[region],
                     solid_transform=self.solid_harmonic_transforms[region],
                 )
             )
-            self.m_imp_to_gridded_JS[region] = (
+            self.m_imp_to_gridded_sheet_current_maps[region] = (
                 self.geometry.m_imp_to_gridded_sheet_current(
                     self.transforms[region],
                     solid_transform=self.solid_harmonic_transforms[region],
@@ -270,13 +273,13 @@ class PynamEye:
             self.bH_01 = self.b_evaluator.br
             self.bH_10 = -self.b_evaluator.br
 
-            self.m_ind_to_gridded_JS["num"] = (
+            self.m_ind_to_gridded_sheet_current_maps["num"] = (
                 self.geometry.m_ind_to_gridded_sheet_current(
                     self.transforms["num"],
                     solid_transform=self.solid_harmonic_transforms["num"],
                 )
             )
-            self.m_imp_to_gridded_JS["num"] = (
+            self.m_imp_to_gridded_sheet_current_maps["num"] = (
                 self.geometry.m_imp_to_gridded_sheet_current(
                     self.transforms["num"],
                     solid_transform=self.solid_harmonic_transforms["num"],
@@ -287,12 +290,16 @@ class PynamEye:
 
         # Calculate electric field values on state_grid.
         Js_ind, Je_ind = np.split(
-            self.m_ind_to_gridded_JS["num"].matvec(self.m_ind).reshape(2, -1),
+            self.m_ind_to_gridded_sheet_current_maps["num"]
+            .matvec(self.m_ind)
+            .reshape(2, -1),
             2,
             axis=0,
         )
         Js_imp, Je_imp = np.split(
-            self.m_imp_to_gridded_JS["num"].matvec(self.m_imp).reshape(2, -1),
+            self.m_imp_to_gridded_sheet_current_maps["num"]
+            .matvec(self.m_imp)
+            .reshape(2, -1),
             2,
             axis=0,
         )
@@ -448,7 +455,7 @@ class PynamEye:
         """Return a config value, falling back to raw settings."""
         config = getattr(self, "config", None)
         if config is not None:
-            return getattr(config, name)
+            return getattr(config, name, default)
         return setting_value(self.settings, name, default)
 
     def get_global_coordinate_context(self):
@@ -652,19 +659,19 @@ class PynamEye:
         """
         self._fill_plot_defaults(kwargs, self.joule_defaults)
 
-        Q, E, JS = evaluate_joule_from_coefficients(
+        Q, E, sheet_current = evaluate_joule_from_coefficients(
             self.transforms[region],
             self.m_imp,
             self.m_ind,
             self.m_Phi,
             self.m_W,
             self.RI,
-            m_imp_to_sheet=self.m_imp_to_gridded_JS[region],
-            m_ind_to_sheet=self.m_ind_to_gridded_JS[region],
+            m_imp_to_sheet=self.m_imp_to_gridded_sheet_current_maps[region],
+            m_ind_to_sheet=self.m_ind_to_gridded_sheet_current_maps[region],
         )
         self._Q = Q
         self._E = E
-        self._JS = JS
+        self._sheet_current = sheet_current
 
         # Plot.
         return self._plot_filled_contour(Q, ax, region, **kwargs)

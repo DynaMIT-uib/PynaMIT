@@ -339,7 +339,7 @@ class State:
         """Linear map from m_ind coefficients to E coefficients."""
         if self._m_ind_to_E_coeffs_cache is None:
             self._m_ind_to_E_coeffs_cache = self._create_E_coeffs_operator(
-                self.geometry.m_ind_to_gridded_JS
+                self.geometry.m_ind_to_gridded_sheet_current()
             )
         return self._m_ind_to_E_coeffs_cache
 
@@ -348,7 +348,7 @@ class State:
         """Linear map from m_imp coefficients to E coefficients."""
         if self._m_imp_to_E_coeffs_cache is None:
             self._m_imp_to_E_coeffs_cache = self._create_E_coeffs_operator(
-                self.geometry.m_imp_to_gridded_JS
+                self.geometry.m_imp_to_gridded_sheet_current()
             )
         return self._m_imp_to_E_coeffs_cache
 
@@ -357,7 +357,7 @@ class State:
         """Linear map from Br coefficients to E coefficients."""
         if self._Br_to_E_coeffs_cache is None:
             self._Br_to_E_coeffs_cache = self._create_E_coeffs_operator(
-                self.geometry.Br_to_gridded_JS
+                self.geometry.Br_to_gridded_sheet_current()
             )
         return self._Br_to_E_coeffs_cache
 

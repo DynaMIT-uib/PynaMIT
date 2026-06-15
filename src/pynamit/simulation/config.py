@@ -147,13 +147,14 @@ class SimulationConfig:
     Ncs: int = 30
     RI: float = RE + 110.0e3
     RM: float | None = None
+    RM_shielding: bool = False
     latitude_boundary: float = 50
     ignore_PFAC: bool = False
     connect_hemispheres: bool = False
     FAC_integration_steps: Any = field(default_factory=default_fac_integration_steps)
     ih_constraint_scaling: float = 1e-5
     mainfield_kind: str = "dipole"
-    mainfield_epoch: int = 2020
+    mainfield_epoch: float = 2020.0
     mainfield_B0: float | None = None
     jr_projection_basis: str | None = None
     Br_projection_basis: str | None = None
@@ -177,6 +178,7 @@ class SimulationConfig:
         object.__setattr__(self, "Ncs", int(self.Ncs))
         object.__setattr__(self, "RI", float(self.RI))
         object.__setattr__(self, "RM", _zero_to_none(self.RM))
+        object.__setattr__(self, "RM_shielding", bool(self.RM_shielding))
         object.__setattr__(
             self,
             "latitude_boundary",
@@ -200,7 +202,7 @@ class SimulationConfig:
             float(self.ih_constraint_scaling),
         )
         object.__setattr__(self, "mainfield_kind", str(self.mainfield_kind))
-        object.__setattr__(self, "mainfield_epoch", int(self.mainfield_epoch))
+        object.__setattr__(self, "mainfield_epoch", float(self.mainfield_epoch))
         object.__setattr__(self, "mainfield_B0", _zero_to_none(self.mainfield_B0))
 
         horizontal_basis_kind = normalize_horizontal_basis_kind(
@@ -266,6 +268,7 @@ class SimulationConfig:
             "Ncs": self.Ncs,
             "RI": self.RI,
             "RM": self.stored_RM,
+            "RM_shielding": int(self.RM_shielding),
             "latitude_boundary": self.latitude_boundary,
             "ignore_PFAC": int(self.ignore_PFAC),
             "connect_hemispheres": int(self.connect_hemispheres),

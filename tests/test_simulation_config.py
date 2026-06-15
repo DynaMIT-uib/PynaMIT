@@ -41,6 +41,7 @@ def test_simulation_config_dataset_roundtrip_preserves_stored_sentinels():
         Mmax=2,
         Ncs=4,
         RM=None,
+        RM_shielding=True,
         mainfield_B0=None,
         ignore_PFAC=True,
         area_weighted_least_squares=True,
@@ -55,6 +56,7 @@ def test_simulation_config_dataset_roundtrip_preserves_stored_sentinels():
     assert settings.attrs["mainfield_B0"] == 0
     assert setting_value(settings, "ignore_PFAC") == 1
     assert restored.RM is None
+    assert restored.RM_shielding
     assert restored.mainfield_B0 is None
     assert restored.ignore_PFAC
     assert restored.area_weighted_least_squares
@@ -77,6 +79,15 @@ def test_simulation_config_from_minimal_settings_accepts_missing_defaults():
     assert config.Ncs == 4
     assert config.horizontal_basis_kind == "SH"
     assert config.conductance_projection_basis == "SH"
+
+
+def test_simulation_config_preserves_decimal_mainfield_epoch():
+    """Main-field epochs can be decimal years for alignment consistency."""
+    config = SimulationConfig(mainfield_epoch=2011.813014015728)
+    restored = SimulationConfig.from_settings(config.to_dataset())
+
+    assert config.mainfield_epoch == pytest.approx(2011.813014015728)
+    assert restored.mainfield_epoch == pytest.approx(config.mainfield_epoch)
 
 
 def test_simulation_config_from_settings_rejects_conflicting_override():

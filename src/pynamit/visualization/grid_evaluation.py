@@ -81,6 +81,7 @@ def build_sheet_current_operators(settings, sh_basis, transform, T_to_Ve=None):
         transform,
         radius=float(setting_value(settings, "RI")),
         boundary_radius=rm,
+        boundary_shielding=bool(setting_value(settings, "RM_shielding", False)),
         T_to_Ve=T_to_Ve,
     )
 

@@ -26,16 +26,6 @@ def test_default_horizontal_basis_is_sh(tmp_path):
     assert geometry.horizontal_solid_projection_is_identity
     assert geometry._horizontal_to_solid_harmonic is None
     assert geometry._solid_harmonic_to_horizontal is None
-    np.testing.assert_allclose(
-        geometry.horizontal_potential_to_gridded_JS,
-        geometry.solid_harmonic_poloidal_to_gridded_sheet_current,
-    )
-    np.testing.assert_allclose(
-        geometry.horizontal_poloidal_to_gridded_sheet_current(
-            geometry.spherical_transform
-        ),
-        geometry.solid_harmonic_poloidal_to_gridded_sheet_current,
-    )
     assert geometry._horizontal_to_solid_harmonic is None
 
 
@@ -145,7 +135,7 @@ def test_cs_horizontal_basis_runs_with_pfac(tmp_path):
     )
     assert np.linalg.norm(pfac) > 0.0
     assert np.all(np.isfinite(pfac))
-    assert np.all(np.isfinite(geometry.m_imp_to_gridded_JS))
+    assert np.all(np.isfinite(geometry.m_imp_to_gridded_sheet_current()))
 
 
 def test_cs_horizontal_basis_supports_rm_solid_harmonics(tmp_path):
@@ -163,14 +153,17 @@ def test_cs_horizontal_basis_supports_rm_solid_harmonics(tmp_path):
 
     geometry = dynamics.state.geometry
 
-    assert geometry.m_ind_to_gridded_JS.shape == (
+    m_ind_to_sheet = geometry.m_ind_to_gridded_sheet_current()
+    Br_to_sheet = geometry.Br_to_gridded_sheet_current()
+
+    assert m_ind_to_sheet.shape == (
         2,
         geometry.grid.size,
         dynamics.horizontal_basis.index_length,
     )
-    assert geometry.Br_to_gridded_JS.shape == geometry.m_ind_to_gridded_JS.shape
-    assert np.all(np.isfinite(geometry.m_ind_to_gridded_JS))
-    assert np.all(np.isfinite(geometry.Br_to_gridded_JS))
+    assert Br_to_sheet.shape == m_ind_to_sheet.shape
+    assert np.all(np.isfinite(m_ind_to_sheet))
+    assert np.all(np.isfinite(Br_to_sheet))
 
 
 def test_cs_horizontal_basis_supports_connected_hemispheres(tmp_path):
@@ -266,14 +259,16 @@ def test_cs_horizontal_basis_combines_pfac_rm_and_connected_terms(tmp_path):
         dynamics.horizontal_basis.index_length,
         dynamics.horizontal_basis.index_length,
     )
-    assert geometry.Br_to_gridded_JS.shape == geometry.m_ind_to_gridded_JS.shape
+    assert geometry.Br_to_gridded_sheet_current().shape == (
+        geometry.m_ind_to_gridded_sheet_current().shape
+    )
     assert geometry.E_coeffs_to_E_apex_ll_diff.shape[-2:] == (
         2,
         dynamics.horizontal_basis.index_length,
     )
     assert np.linalg.norm(geometry.T_to_Ve.values) > 0.0
     assert np.all(np.isfinite(geometry.T_to_Ve.values))
-    assert np.all(np.isfinite(geometry.Br_to_gridded_JS))
+    assert np.all(np.isfinite(geometry.Br_to_gridded_sheet_current()))
 
 
 def test_cs_to_solid_harmonic_projection_matches_grid_least_squares(tmp_path):

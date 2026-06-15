@@ -254,6 +254,7 @@ def test_sheet_current_operator_bundle_matches_core_formulas():
     class Settings:
         RI = 1.0
         RM = 2.0
+        RM_shielding = True
 
     sh_basis = SHBasis(3, 2, mean_free=True)
     solid_harmonics = SolidHarmonics(sh_basis)
@@ -280,17 +281,39 @@ def test_sheet_current_operator_bundle_matches_core_formulas():
     m_ind_to_br = -(Settings.RI**2) * sh_basis.laplacian(Settings.RI)
 
     np.testing.assert_allclose(
-        operators["G_m_imp_to_JS"],
+        operators["G_m_imp_to_sheet_current"],
         toroidal_to_sheet + np.tensordot(poloidal_to_sheet, t_to_ve, axes=([2], [0])),
     )
     np.testing.assert_allclose(
-        operators["G_m_ind_to_JS"],
+        operators["G_m_ind_to_sheet_current"],
         poloidal_to_sheet * (1.0 + regular_shift * irregular_shift / denominator),
     )
     np.testing.assert_allclose(
-        operators["G_Br_to_JS"],
+        operators["G_Br_to_sheet_current"],
         poloidal_to_sheet * (-regular_shift / (denominator * m_ind_to_br)),
     )
+
+
+def test_sheet_current_operator_bundle_defaults_to_unshielded_rm():
+    """RM does not impose shielding unless requested."""
+
+    class Settings:
+        RI = 1.0
+        RM = 2.0
+
+    sh_basis = SHBasis(3, 2, mean_free=True)
+    solid_harmonics = SolidHarmonics(sh_basis)
+    _, _, grid = build_plot_grid(nlat=4, nlon=5)
+    transform = build_evaluator(sh_basis, grid)
+
+    operators = build_sheet_current_operators(Settings, sh_basis, transform)
+    poloidal_to_sheet = (
+        -transform.scalar_coeffs_to_gridded_rhat_cross_gradient
+        * solid_harmonics.poloidal_to_boundary_potential_jump_factor.reshape(1, 1, -1)
+        / mu0
+    )
+
+    np.testing.assert_allclose(operators["G_m_ind_to_sheet_current"], poloidal_to_sheet)
 
 
 def test_sheet_current_operator_bundle_matches_geometry(tmp_path):
@@ -315,14 +338,14 @@ def test_sheet_current_operator_bundle_matches_geometry(tmp_path):
     )
 
     np.testing.assert_allclose(
-        operators["G_m_ind_to_JS"],
+        operators["G_m_ind_to_sheet_current"],
         geometry.m_ind_to_gridded_sheet_current(transform),
     )
     np.testing.assert_allclose(
-        operators["G_m_imp_to_JS"],
+        operators["G_m_imp_to_sheet_current"],
         geometry.m_imp_to_gridded_sheet_current(transform),
     )
     np.testing.assert_allclose(
-        operators["G_Br_to_JS"],
+        operators["G_Br_to_sheet_current"],
         geometry.Br_to_gridded_sheet_current(transform),
     )

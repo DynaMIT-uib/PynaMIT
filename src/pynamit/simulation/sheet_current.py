@@ -18,37 +18,23 @@ def coefficient_scale_values(values):
     return array.copy()
 
 
-def solid_poloidal_to_gridded_sheet_current(
-    solid_harmonics,
-    transform,
-    *,
-    solid_scale=None,
-):
-    """Map solid-harmonic poloidal coefficients to sheet current."""
-    scale = coefficient_scale_values(
-        solid_harmonics.poloidal_to_boundary_potential_jump_factor
-    )
-    if solid_scale is not None:
-        scale = scale * np.asarray(solid_scale)
-    return (
-        -transform.scalar_coeffs_to_gridded_rhat_cross_gradient
-        * scale.reshape(1, 1, -1)
-        / mu0
-    )
-
-
-def horizontal_poloidal_to_gridded_sheet_current(
+def poloidal_to_gridded_sheet_current(
     solid_harmonics,
     transform,
     *,
     horizontal_to_solid_harmonic=None,
     solid_scale=None,
 ):
-    """Map horizontal poloidal coefficients to gridded sheet current."""
-    sheet_current = solid_poloidal_to_gridded_sheet_current(
-        solid_harmonics,
-        transform,
-        solid_scale=solid_scale,
+    """Map poloidal coefficients to gridded sheet current."""
+    scale = coefficient_scale_values(
+        solid_harmonics.poloidal_to_boundary_potential_jump_factor
+    )
+    if solid_scale is not None:
+        scale = scale * np.asarray(solid_scale)
+    sheet_current = (
+        -transform.scalar_coeffs_to_gridded_rhat_cross_gradient
+        * scale.reshape(1, 1, -1)
+        / mu0
     )
     if horizontal_to_solid_harmonic is None:
         return sheet_current.copy()
@@ -93,19 +79,21 @@ def m_ind_to_gridded_sheet_current(
     *,
     radius,
     boundary_radius=None,
+    boundary_shielding=False,
     horizontal_to_solid_harmonic=None,
 ):
     """Map induced-potential coefficients to gridded sheet current."""
     solid_scale = None
     if boundary_radius is not None:
-        solid_scale = reference_boundary_poloidal_scale(
-            solid_harmonics,
-            boundary_radius,
-            radius,
-        )
-        # Hack, remove assumption of shielding magnetosphere boundary.
-        solid_scale = 1.0
-    return horizontal_poloidal_to_gridded_sheet_current(
+        if boundary_shielding:
+            solid_scale = reference_boundary_poloidal_scale(
+                solid_harmonics,
+                boundary_radius,
+                radius,
+            )
+        else:
+            solid_scale = 1.0
+    return poloidal_to_gridded_sheet_current(
         solid_harmonics,
         transform,
         horizontal_to_solid_harmonic=horizontal_to_solid_harmonic,
@@ -127,7 +115,7 @@ def Br_to_gridded_sheet_current(
         boundary_radius,
         radius,
     )
-    return horizontal_poloidal_to_gridded_sheet_current(
+    return poloidal_to_gridded_sheet_current(
         solid_harmonics,
         transform,
         horizontal_to_solid_harmonic=horizontal_to_solid_harmonic,
@@ -148,7 +136,7 @@ def m_imp_to_gridded_sheet_current(
     toroidal = -horizontal_transform.scalar_coeffs_to_gridded_gradient / mu0
     if T_to_Ve is None:
         return toroidal
-    poloidal = horizontal_poloidal_to_gridded_sheet_current(
+    poloidal = poloidal_to_gridded_sheet_current(
         solid_harmonics,
         solid_transform,
         horizontal_to_solid_harmonic=horizontal_to_solid_harmonic,
@@ -167,6 +155,7 @@ def sheet_current_operator_bundle(
     *,
     radius,
     boundary_radius=None,
+    boundary_shielding=False,
     solid_transform=None,
     horizontal_to_solid_harmonic=None,
     T_to_Ve=None,
@@ -178,6 +167,7 @@ def sheet_current_operator_bundle(
         solid_transform,
         radius=radius,
         boundary_radius=boundary_radius,
+        boundary_shielding=boundary_shielding,
         horizontal_to_solid_harmonic=horizontal_to_solid_harmonic,
     )
     m_imp_to_sheet = m_imp_to_gridded_sheet_current(
@@ -199,20 +189,19 @@ def sheet_current_operator_bundle(
             horizontal_to_solid_harmonic=horizontal_to_solid_harmonic,
         )
     return {
-        "G_m_ind_to_JS": m_ind_to_sheet,
-        "G_m_imp_to_JS": m_imp_to_sheet,
-        "G_Br_to_JS": Br_to_sheet,
+        "G_m_ind_to_sheet_current": m_ind_to_sheet,
+        "G_m_imp_to_sheet_current": m_imp_to_sheet,
+        "G_Br_to_sheet_current": Br_to_sheet,
     }
 
 
 __all__ = [
     "Br_to_gridded_sheet_current",
     "coefficient_scale_values",
-    "horizontal_poloidal_to_gridded_sheet_current",
     "m_imp_to_gridded_sheet_current",
     "m_ind_to_gridded_sheet_current",
+    "poloidal_to_gridded_sheet_current",
     "reference_boundary_br_to_poloidal_scale",
     "reference_boundary_poloidal_scale",
     "sheet_current_operator_bundle",
-    "solid_poloidal_to_gridded_sheet_current",
 ]

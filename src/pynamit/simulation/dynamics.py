@@ -47,6 +47,7 @@ class Dynamics:
         Ncs=30,
         RI=RE + 110.0e3,
         RM=None,
+        RM_shielding=False,
         mainfield_kind="dipole",
         mainfield_epoch=2020,
         mainfield_B0=None,
@@ -88,10 +89,15 @@ class Dynamics:
             Number of cubed sphere grid points per edge.
         RI : float, optional
             Ionospheric radius in meters.
+        RM : float, optional
+            Magnetospheric boundary radius in meters.
+        RM_shielding : bool, optional
+            Whether induced fields are solved with a shielding condition
+            at the magnetospheric boundary ``RM``.
         mainfield_kind : {'dipole', 'igrf',  'radial'}, optional
             Type of main magnetic field model.
-        mainfield_epoch : int, optional
-            Epoch year for main field model.
+        mainfield_epoch : float, optional
+            Decimal year for main field model.
         mainfield_B0 : float, optional
             Main field strength.
         FAC_integration_steps : array-like, optional
@@ -165,6 +171,7 @@ class Dynamics:
             Ncs=Ncs,
             RI=RI,
             RM=RM,
+            RM_shielding=RM_shielding,
             latitude_boundary=latitude_boundary,
             ignore_PFAC=ignore_PFAC,
             connect_hemispheres=connect_hemispheres,

@@ -8,8 +8,26 @@ import ppigrf
 import apexpy
 import dipole
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timedelta
 from pynamit.math.constants import RE
+
+
+def _datetime_from_decimal_year(epoch):
+    """Convert a decimal year to a datetime for IGRF evaluation."""
+    epoch = float(epoch)
+    year = int(np.floor(epoch))
+    year_start = datetime(year, 1, 1, 0, 0)
+    next_year_start = datetime(year + 1, 1, 1, 0, 0)
+    year_seconds = (next_year_start - year_start).total_seconds()
+    return year_start + timedelta(seconds=(epoch - year) * year_seconds)
+
+
+def _dipole_for_epoch(epoch, B0=None):
+    """Return an epoch-aligned dipole, optionally overriding magnitude."""
+    base = dipole.Dipole(epoch)
+    if B0 is None:
+        return base
+    return dipole.Dipole(dipole_pole=tuple(base.north_pole), B0=float(B0) * 1e9)
 
 
 class Mainfield:
@@ -19,7 +37,8 @@ class Mainfield:
     providing field components, coordinate mapping, and basis vectors.
 
     Available models:
-    - dipole: Dipole magnetic field using IGRF coefficients for moment.
+    - dipole: Centered dipole magnetic field using IGRF coefficients for
+      alignment. The moment can be overridden with ``B0``.
     - igrf: International Geomagnetic Reference Field in geocentric
       coordinates (with geodetic conversion ignored).
     - radial: Radial field lines with configurable magnitude.
@@ -48,13 +67,13 @@ class Mainfield:
         ----------
         kind : {'dipole', 'igrf', 'radial'}, optional
             Type of magnetic field model.
-        epoch : int, optional
+        epoch : float, optional
             Decimal year for field coefficients.
         hI : float, optional
             Ionospheric height in km.
         B0 : float, optional
-            Field magnitude at ground for radial model in Tesla. If
-            None, uses reference field for epoch.
+            Equatorial ground field magnitude for dipole/radial models in
+            Tesla. If None, uses reference field magnitude for epoch.
         """
         if kind.lower() not in ["radial", "dipole", "igrf"]:
             raise ValueError("kind must be either radial, dipole or igrf")
@@ -63,15 +82,15 @@ class Mainfield:
 
         # Define magnetic field and mapping functions for chosen model.
         if self.kind == "dipole":
-            self.dpl = dipole.Dipole(epoch)
+            self.dpl = _dipole_for_epoch(epoch, B0=B0)
 
             def _Bfunc(r, theta, phi):
                 Bn, Br = self.dpl.B(90 - theta, r * 1e-3)
                 return (Br * 1e-9, -Bn * 1e-9, Bn * 0)
 
         elif self.kind == "igrf":
-            self.apx = apexpy.Apex(epoch, refh=hI)
-            epoch = datetime(epoch, 1, 1, 0, 0)
+            self.apx = apexpy.Apex(float(epoch), refh=hI)
+            epoch = _datetime_from_decimal_year(epoch)
 
             def _Bfunc(r, theta, phi):
                 Br, Btheta, Bphi = ppigrf.igrf_gc(r * 1e-3, theta, phi, epoch)
@@ -79,7 +98,7 @@ class Mainfield:
 
         elif self.kind == "radial":
             # Use Dipole B0 as default.
-            B0 = dipole.Dipole(epoch).B0 if B0 is None else B0
+            B0 = dipole.Dipole(epoch).B0 * 1e-9 if B0 is None else float(B0)
 
             def _Bfunc(r, theta, phi):
                 r, theta, phi = np.broadcast_arrays(r, theta, phi)
