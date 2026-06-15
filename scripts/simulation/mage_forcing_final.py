@@ -34,7 +34,7 @@ RI = 6.5e6
 LATITUDE_BOUNDARY = 35.0
 
 BR_LAMBDA = 0.1
-CONDUCTANCE_LAMBDA = 2.5
+CONDUCTANCE_LAMBDA = 3.0
 JR_LAMBDA = 0.1
 U_LAMBDA = 0.1
 Q_EFF_LAMBDA = 0.1
@@ -394,7 +394,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--mainfield-kind", choices=("igrf",), default="igrf")
     parser.add_argument("--nmax", type=int, default=80)
-    parser.add_argument("--mmax", type=int, default=60)
+    parser.add_argument("--mmax", type=int, default=80)
     parser.add_argument("--ncs", type=int, default=60)
     parser.add_argument("--dt", type=float, default=10.0)
     parser.add_argument("--final-time", type=float, default=3600.0)
@@ -509,6 +509,10 @@ def main() -> None:
                     print("  FAC contains non-finite values; setting them to 0.", flush=True)
                     FAC[~np.isfinite(FAC)] = 0.0
                 jr = FAC.reshape(-1) * FAC_b_evaluator.br
+
+                # Flip sign in North (different convention in MAGE).
+                jr[ionosphere_lat.reshape(-1) > 0] *= -1
+
                 print_field_stats("  jr [A/m^2]", jr)
                 dynamics.set_jr(
                     jr,

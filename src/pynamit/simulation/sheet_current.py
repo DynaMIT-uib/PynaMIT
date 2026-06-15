@@ -103,6 +103,8 @@ def m_ind_to_gridded_sheet_current(
             boundary_radius,
             radius,
         )
+        # Hack, remove assumption of shielding magnetosphere boundary.
+        solid_scale = 1.0
     return horizontal_poloidal_to_gridded_sheet_current(
         solid_harmonics,
         transform,
