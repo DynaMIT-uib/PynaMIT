@@ -92,6 +92,8 @@ class MageForcingSettings:
     q_eff_lambda: float = Q_EFF_LAMBDA
     br_floor: float = 1e-3
     parallel_conductance: float = np.inf
+    steady_state_initialization: bool = False
+    save_steady_states: bool = False
 
 
 SETTINGS = MageForcingSettings()
@@ -357,18 +359,20 @@ def paper_q_eff_for_pynamit(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Compute PynaMIT Q_eff samples from Appendix A of Laundal et al. (2025).
 
-    Eq. (A3)-(A4) define Pedersen- and Hall-weighted wind-current terms.
-    Eq. (A8) projects the full height-integrated wind term into the
+    Eq. (A3)-(A4) define Pedersen- and Hall-weighted wind-current terms,
+    and Eq. (A8) projects the full height-integrated wind term into the
     effective tangential sheet-current ``Q_eff``.  PynaMIT's ``set_Q_eff``
-    adds the supplied current proxy through ``+ A_res Q_eff`` whereas the
-    generalized Ohm's law in Eq. (A11) has ``A_res(J_S - Q_eff)``.  The
-    returned samples therefore use the sign convention expected by PynaMIT.
+    applies the supplied current proxy through ``+ A_res Q_eff``, whereas
+    the generalized Ohm's law in Eq. (A11) has ``A_res(J_S - Q_eff)``.
+    The returned samples therefore use the sign convention expected by
+    PynaMIT.
 
-    The Hall wind term below is the term that must enter Eq. (A2) with
-    PynaMIT's resistance-tensor convention.  With identical Pedersen- and
-    Hall-weighted winds it satisfies ``A_res Q_eff = u x B`` before the
-    final PynaMIT sign flip, so q_eff mode reduces to direct neutral-wind
-    forcing in the height-independent limit.
+    The Hall-weighted term below uses the Hall sign that is consistent with
+    PynaMIT's resistance tensor and with Eqs. (A1), (A2), (A11), and (11):
+    with identical Pedersen- and Hall-weighted winds it satisfies
+    ``A_res Q_eff = u x B`` before the final PynaMIT sign flip, so q_eff
+    mode reduces to direct neutral-wind forcing in the height-independent
+    limit.
     """
     sigma_p = np.asarray(sigma_p, dtype=float).reshape(-1)
     sigma_h = np.asarray(sigma_h, dtype=float).reshape(-1)
@@ -531,9 +535,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--RM-shielding",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         default=SETTINGS.RM_shielding,
-        help="Use the shielding reference-boundary condition at RM.",
+        help=(
+            "Use the shielding reference-boundary condition for the induced "
+            "m_ind sheet-current operator at RM. Disabled by default for MAGE "
+            "forcing; Br boundary and PFAC finite-RM terms are still included "
+            "when RM is set."
+        ),
     )
     parser.add_argument("--nmax", type=int, default=SETTINGS.nmax)
     parser.add_argument("--mmax", type=int, default=SETTINGS.mmax)
@@ -586,6 +595,7 @@ def main() -> None:
     try:
         with h5py.File(h5_path, "r") as file:
             event_time = parse_h5_time(file["time"][0])
+            coordinate_time = event_time
             dipole_epoch = decimal_year(event_time)
             RM = boundary_radius_from_h5(file, args.RM)
             dipole_B0 = dipole_B0_from_h5(file, args.dipole_B0)
@@ -600,21 +610,23 @@ def main() -> None:
 
             ionosphere_lat_geo = np.asarray(file["glat"][:], dtype=float)
             ionosphere_lon_geo = wrap_longitude_180(file["glon"][:])
+            # PynaMIT's main-field geometry and PFAC matrix are built once,
+            # so all inputs are expressed in one frozen SM frame.
             ionosphere_lat, ionosphere_lon = mainfield.geo_to_model_coordinates(
                 ionosphere_lat_geo,
                 ionosphere_lon_geo,
-                event_time=event_time,
+                event_time=coordinate_time,
             )
 
             magnetosphere_lat_raw = np.asarray(file["Blat"][:], dtype=float)
             magnetosphere_lon_raw = np.asarray(file["Blon"][:], dtype=float)
-
             ionosphere_grid = pynamit.Grid(lat=ionosphere_lat, lon=ionosphere_lon)
 
             print(f"Using forcing file: {h5_path}", flush=True)
             if tiegcm_path is not None:
                 print(f"Using TIEGCM file for weighted winds: {tiegcm_path}", flush=True)
             print(f"Event time: {event_time.isoformat()}", flush=True)
+            print(f"Coordinate frame time: {coordinate_time.isoformat()}", flush=True)
             print(f"Main field: {args.mainfield_kind}", flush=True)
             print(
                 f"Dipole alignment model: {alignment['dipole_alignment_model']}",
@@ -669,8 +681,13 @@ def main() -> None:
                 flush=True,
             )
             print(f"RM: {RM:.6g} m", flush=True)
+            print(f"Induced RM shielding: {args.RM_shielding}", flush=True)
             print(f"Wind mode: {args.wind_mode}", flush=True)
             print(f"FAC convention: {args.fac_convention}", flush=True)
+            print(
+                f"Steady-state initialization: {SETTINGS.steady_state_initialization}",
+                flush=True,
+            )
 
             dynamics = pynamit.Dynamics(
                 run_directory=args.run_directory,
@@ -689,6 +706,7 @@ def main() -> None:
                 latitude_boundary=LATITUDE_BOUNDARY,
                 ih_constraint_scaling=1e-5,
                 t0=str(event_time),
+                save_steady_states=SETTINGS.save_steady_states,
                 integrator="exponential",
             )
 
@@ -701,7 +719,6 @@ def main() -> None:
 
             for step in range(n_steps):
                 input_time = args.dt * step
-                step_event_time = parse_h5_time(file["time"][step])
                 print(f"Processing input step {step + 1} of {n_steps}", flush=True)
 
                 delta_Br = np.asarray(file["Bu"][step], dtype=float).reshape(-1) * 1e-9
@@ -711,7 +728,7 @@ def main() -> None:
                 magnetosphere_lat = np.asarray(magnetosphere_lat_raw, dtype=float)
                 magnetosphere_lon = mainfield.local_time_longitude_to_model_longitude(
                     magnetosphere_lon_raw,
-                    step_event_time,
+                    coordinate_time,
                     local_noon_longitude=MAGE_BR_LOCAL_NOON_LONGITUDE,
                 )
                 magnetosphere_grid = pynamit.Grid(
@@ -782,7 +799,7 @@ def main() -> None:
                     ionosphere_lon_geo,
                     u_p_east,
                     u_p_north,
-                    event_time=step_event_time,
+                    event_time=coordinate_time,
                 )
                 u_p_theta = -np.asarray(u_p_north, dtype=float).reshape(-1)
                 u_p_phi = np.asarray(u_p_east, dtype=float).reshape(-1)
@@ -813,7 +830,7 @@ def main() -> None:
                     ionosphere_lon_geo,
                     u_h_east,
                     u_h_north,
-                    event_time=step_event_time,
+                    event_time=coordinate_time,
                 )
                 u_h_theta = -np.asarray(u_h_north, dtype=float).reshape(-1)
                 u_h_phi = np.asarray(u_h_east, dtype=float).reshape(-1)
@@ -851,6 +868,8 @@ def main() -> None:
                 dt=args.dt,
                 sampling_step_interval=1,
                 saving_sample_interval=1,
+                steady_state_initialization=SETTINGS.steady_state_initialization,
+                run_steady_state=SETTINGS.save_steady_states,
             )
     finally:
         if tiegcm_dataset is not None:
