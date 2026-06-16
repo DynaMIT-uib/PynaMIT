@@ -3,11 +3,11 @@
 This is a cleaned-up version of the MAGE forcing workflow.  The default
 configuration assumes that the prepared HDF5 file contains TIEGCM
 ionospheric inputs on a geographic grid and a MAGE/REMIX inner-boundary
-magnetic grid whose longitude is local-time-like.  PynaMIT is run with one
-main magnetic-field model here: an epoch-aligned centered dipole. Geographic
-and magnetic labels only describe input coordinate systems. The TIEGCM grid
-is converted to dipole coordinates and wind vectors are rotated into the
-dipole east/north basis before setting the inputs.
+magnetic grid whose longitude is local-time-like.  The default PynaMIT main
+field is ``kaiju_dipole``: a centered dipole with Kaiju/Geopack alignment,
+using SM coordinates as the model horizontal coordinates. The TIEGCM grid is
+converted through ``Mainfield.geo_to_model_coordinates`` and wind vectors are
+rotated into the model east/north basis before setting the inputs.
 
 For neutral-wind forcing, the recommended default is ``--wind-mode q_eff``:
 compute the effective sheet-current input from Appendix A of Laundal et al.
@@ -22,15 +22,16 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import warnings
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import dipole
 import numpy as np
 import pynamit
 
 from pynamit.coordinates import wrap_longitude_180
 from pynamit.primitives.field_evaluator import FieldEvaluator
+from pynamit.simulation.mainfield import Mainfield, decimal_year
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -44,11 +45,12 @@ JR_LAMBDA = 0.1
 U_LAMBDA = 0.1
 Q_EFF_LAMBDA = 0.1
 
-# Kaipy/REMIX polar plots place raw longitude 0 at noon. Treat Blon as a
-# local-time longitude and rotate it through MLT -> magnetic longitude before
-# fitting Br in the PynaMIT dipole coordinate system.
+# Kaipy/REMIX polar plots place raw longitude 0 at noon. In kaiju_dipole mode
+# this is already the SM longitude origin used by the run. Legacy dipole mode
+# keeps the old MLT -> centered-dipole magnetic-longitude conversion.
 MAGE_BR_LOCAL_NOON_LONGITUDE = 0.0
 MAGE_DIPOLE_B0_T = 29617.369174957275e-9
+CENTERED_DIPOLE_MODELS = ("kaiju_dipole", "dipole")
 
 DEFAULT_FORCING_CANDIDATES = (
     SCRIPT_DIR / "mage_prepared" / "data_H_int_qeff.h5",
@@ -69,13 +71,30 @@ DEFAULT_TIEGCM_CANDIDATES = (
 )
 
 
-def datetime_to_decimal_year(value: dt.datetime) -> float:
-    """Convert datetime to decimal year for dipole transforms."""
-    year_start = dt.datetime(value.year, 1, 1)
-    next_year_start = dt.datetime(value.year + 1, 1, 1)
-    year_seconds = (next_year_start - year_start).total_seconds()
-    elapsed = (value - year_start).total_seconds()
-    return value.year + elapsed / year_seconds
+@dataclass(frozen=True)
+class MageForcingSettings:
+    """Defaults intended to be edited in this script for normal runs."""
+
+    run_directory: Path = SCRIPT_DIR / "mage_runs" / "results_mage_2011_kaiju_qeff"
+    wind_mode: str = "q_eff"
+    mainfield_kind: str = "kaiju_dipole"
+    fac_convention: str = "upward"
+    RM_shielding: bool = False
+    nmax: int = 80
+    mmax: int = 80
+    ncs: int = 60
+    dt: float = 10.0
+    final_time: float = 3600.0
+    br_lambda: float = BR_LAMBDA
+    conductance_lambda: float = CONDUCTANCE_LAMBDA
+    jr_lambda: float = JR_LAMBDA
+    u_lambda: float = U_LAMBDA
+    q_eff_lambda: float = Q_EFF_LAMBDA
+    br_floor: float = 1e-3
+    parallel_conductance: float = np.inf
+
+
+SETTINGS = MageForcingSettings()
 
 
 def dipole_radial_sampling(r_min: float, r_max: float, n_steps: int) -> np.ndarray:
@@ -122,52 +141,6 @@ def tangential_sqrt_weights(lat: np.ndarray) -> np.ndarray:
     return np.tile(area_sqrt_weights(lat), (2, 1))
 
 
-def mage_br_grid_to_dipole(
-    magnetic_lat: np.ndarray,
-    local_time_lon: np.ndarray,
-    mlt_time: dt.datetime,
-    dipole_epoch: float,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Convert MAGE Br grid coordinates to PynaMIT centered-dipole coordinates."""
-    dpl = dipole.Dipole(dipole_epoch)
-    mlt = (
-        (np.asarray(local_time_lon, dtype=float) - MAGE_BR_LOCAL_NOON_LONGITUDE)
-        / 15.0
-        + 12.0
-    ) % 24.0
-    magnetic_lon = dpl.mlt2mlon(mlt, mlt_time)
-    return np.asarray(magnetic_lat, dtype=float), wrap_longitude_180(magnetic_lon)
-
-
-def geographic_grid_to_dipole(
-    geographic_lat: np.ndarray,
-    geographic_lon: np.ndarray,
-    dipole_epoch: float,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Convert a geographic scalar grid to PynaMIT centered-dipole coordinates."""
-    dpl = dipole.Dipole(dipole_epoch)
-    magnetic_lat, magnetic_lon = dpl.geo2mag(geographic_lat, geographic_lon)
-    return np.asarray(magnetic_lat), wrap_longitude_180(magnetic_lon)
-
-
-def geographic_vector_to_dipole(
-    geographic_lat: np.ndarray,
-    geographic_lon: np.ndarray,
-    east: np.ndarray,
-    north: np.ndarray,
-    dipole_epoch: float,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Rotate geographic east/north vector components into dipole coordinates."""
-    dpl = dipole.Dipole(dipole_epoch)
-    _, _, east_magnetic, north_magnetic = dpl.geo2mag(
-        geographic_lat,
-        geographic_lon,
-        east,
-        north,
-    )
-    return np.asarray(east_magnetic), np.asarray(north_magnetic)
-
-
 def boundary_radius_from_h5(h5_file: Any, explicit_rm: float | None) -> float:
     """Return the magnetospheric boundary radius used for Br fitting."""
     if explicit_rm is not None:
@@ -199,18 +172,51 @@ def dipole_B0_from_h5(h5_file: Any, explicit_B0: float | None) -> float:
     return MAGE_DIPOLE_B0_T
 
 
-def centered_dipole_alignment(
-    dipole_epoch: float,
-    event_time: dt.datetime,
-) -> dict[str, np.ndarray | float]:
-    """Return the centered-dipole alignment used for this run."""
-    dpl = dipole.Dipole(dipole_epoch)
-    noon_mlon = dpl.mlt2mlon(12.0, event_time)
+def gamera_mag_m0_from_h5(h5_file: Any) -> float | None:
+    """Return signed GAMERA MagM0 in nT if available."""
+    if "gamera_mag_m0_nT" in h5_file.attrs:
+        return float(h5_file.attrs["gamera_mag_m0_nT"])
+    return None
+
+
+def gamera_internal_axis_from_h5(
+    h5_file: Any,
+    name: str,
+    fallback: np.ndarray,
+) -> np.ndarray:
+    """Return a stored GAMERA internal axis or a fallback axis."""
+    if name in h5_file.attrs:
+        axis = np.asarray(h5_file.attrs[name], dtype=float)
+        if axis.shape == (3,) and np.linalg.norm(axis) > 0.0:
+            unit = axis / np.linalg.norm(axis)
+            unit[np.isclose(unit, 0.0)] = 0.0
+            return unit
+    fallback = np.asarray(fallback, dtype=float)
+    unit = fallback / np.linalg.norm(fallback)
+    unit[np.isclose(unit, 0.0)] = 0.0
+    return unit
+
+
+def gamera_internal_dipole_details(h5_file: Any) -> dict[str, np.ndarray | float | None]:
+    """Return signed GAMERA dipole details encoded in prepared metadata."""
+    mag_m0_nT = gamera_mag_m0_from_h5(h5_file)
+    sign = -1.0
+    if mag_m0_nT is not None and np.isfinite(mag_m0_nT) and mag_m0_nT != 0.0:
+        sign = float(np.sign(mag_m0_nT))
+    moment_fallback = np.array([0.0, 0.0, sign])
+    north_fallback = -moment_fallback
     return {
-        "axis_geo_cartesian": np.asarray(dpl.axis, dtype=float),
-        "north_pole_geo_lat_lon": np.asarray(dpl.north_pole, dtype=float),
-        "south_pole_geo_lat_lon": np.asarray(dpl.south_pole, dtype=float),
-        "noon_mlon_deg": float(np.asarray(wrap_longitude_180(noon_mlon))),
+        "mag_m0_nT": mag_m0_nT,
+        "moment_axis": gamera_internal_axis_from_h5(
+            h5_file,
+            "gamera_internal_dipole_moment_axis",
+            moment_fallback,
+        ),
+        "north_axis": gamera_internal_axis_from_h5(
+            h5_file,
+            "gamera_internal_magnetic_north_axis",
+            north_fallback,
+        ),
     }
 
 
@@ -476,11 +482,21 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--run-directory",
-        default=str(SCRIPT_DIR / "mage_runs" / "results_mage_2011_dipole_qeff"),
+        default=str(SETTINGS.run_directory),
         help="PynaMIT output directory.",
     )
     parser.add_argument(
-        "--wind-mode", choices=("q_eff", "neutral_wind", "none"), default="q_eff"
+        "--wind-mode", choices=("q_eff", "neutral_wind", "none"), default=SETTINGS.wind_mode
+    )
+    parser.add_argument(
+        "--mainfield-kind",
+        choices=CENTERED_DIPOLE_MODELS,
+        default=SETTINGS.mainfield_kind,
+        help=(
+            "Centered-dipole geometry used for PynaMIT and input coordinate "
+            "conversion. The default matches Kaiju/Geopack degree-1 IGRF "
+            "placement; 'dipole' preserves the previous klaundal/dipole path."
+        ),
     )
     parser.add_argument(
         "--dipole-B0",
@@ -495,7 +511,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--fac-convention",
         choices=("upward", "field_aligned"),
-        default="upward",
+        default=SETTINGS.fac_convention,
         help=(
             "Convention for the HDF5 FAC dataset. 'upward' means radial outward "
             "current density, as produced by kaipy.remix.init_vars(). "
@@ -516,23 +532,28 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--RM-shielding",
         action="store_true",
+        default=SETTINGS.RM_shielding,
         help="Use the shielding reference-boundary condition at RM.",
     )
-    parser.add_argument("--nmax", type=int, default=80)
-    parser.add_argument("--mmax", type=int, default=80)
-    parser.add_argument("--ncs", type=int, default=60)
-    parser.add_argument("--dt", type=float, default=10.0)
-    parser.add_argument("--final-time", type=float, default=3600.0)
+    parser.add_argument("--nmax", type=int, default=SETTINGS.nmax)
+    parser.add_argument("--mmax", type=int, default=SETTINGS.mmax)
+    parser.add_argument("--ncs", type=int, default=SETTINGS.ncs)
+    parser.add_argument("--dt", type=float, default=SETTINGS.dt)
+    parser.add_argument("--final-time", type=float, default=SETTINGS.final_time)
     parser.add_argument(
         "--max-steps", type=int, default=None, help="Limit input steps for a short test run."
     )
-    parser.add_argument("--br-lambda", type=float, default=BR_LAMBDA)
-    parser.add_argument("--conductance-lambda", type=float, default=CONDUCTANCE_LAMBDA)
-    parser.add_argument("--jr-lambda", type=float, default=JR_LAMBDA)
-    parser.add_argument("--u-lambda", type=float, default=U_LAMBDA)
-    parser.add_argument("--q-eff-lambda", type=float, default=Q_EFF_LAMBDA)
-    parser.add_argument("--br-floor", type=float, default=1e-3)
-    parser.add_argument("--parallel-conductance", type=float, default=np.inf)
+    parser.add_argument("--br-lambda", type=float, default=SETTINGS.br_lambda)
+    parser.add_argument(
+        "--conductance-lambda", type=float, default=SETTINGS.conductance_lambda
+    )
+    parser.add_argument("--jr-lambda", type=float, default=SETTINGS.jr_lambda)
+    parser.add_argument("--u-lambda", type=float, default=SETTINGS.u_lambda)
+    parser.add_argument("--q-eff-lambda", type=float, default=SETTINGS.q_eff_lambda)
+    parser.add_argument("--br-floor", type=float, default=SETTINGS.br_floor)
+    parser.add_argument(
+        "--parallel-conductance", type=float, default=SETTINGS.parallel_conductance
+    )
     return parser
 
 
@@ -565,18 +586,24 @@ def main() -> None:
     try:
         with h5py.File(h5_path, "r") as file:
             event_time = parse_h5_time(file["time"][0])
-            dipole_epoch = datetime_to_decimal_year(event_time)
+            dipole_epoch = decimal_year(event_time)
             RM = boundary_radius_from_h5(file, args.RM)
             dipole_B0 = dipole_B0_from_h5(file, args.dipole_B0)
-            alignment = centered_dipole_alignment(dipole_epoch, event_time)
+            mainfield = Mainfield(
+                kind=args.mainfield_kind,
+                epoch=dipole_epoch,
+                B0=dipole_B0,
+            )
+            gamera_dipole = gamera_internal_dipole_details(file)
+            alignment = mainfield.alignment_metadata(event_time)
             rk = dipole_radial_sampling(RI, RM, n_steps=40)
 
             ionosphere_lat_geo = np.asarray(file["glat"][:], dtype=float)
             ionosphere_lon_geo = wrap_longitude_180(file["glon"][:])
-            ionosphere_lat, ionosphere_lon = geographic_grid_to_dipole(
+            ionosphere_lat, ionosphere_lon = mainfield.geo_to_model_coordinates(
                 ionosphere_lat_geo,
                 ionosphere_lon_geo,
-                dipole_epoch,
+                event_time=event_time,
             )
 
             magnetosphere_lat_raw = np.asarray(file["Blat"][:], dtype=float)
@@ -588,15 +615,40 @@ def main() -> None:
             if tiegcm_path is not None:
                 print(f"Using TIEGCM file for weighted winds: {tiegcm_path}", flush=True)
             print(f"Event time: {event_time.isoformat()}", flush=True)
-            print("Main field: dipole", flush=True)
+            print(f"Main field: {args.mainfield_kind}", flush=True)
+            print(
+                f"Dipole alignment model: {alignment['dipole_alignment_model']}",
+                flush=True,
+            )
             print(f"Dipole epoch: {dipole_epoch:.9f}", flush=True)
             print(
                 f"Dipole B0: {dipole_B0:.6g} T ({dipole_B0 * 1e9:.6g} nT)",
                 flush=True,
             )
+            if gamera_dipole["mag_m0_nT"] is not None:
+                print(
+                    f"GAMERA signed MagM0: {gamera_dipole['mag_m0_nT']:.6g} nT",
+                    flush=True,
+                )
+            else:
+                print(
+                    "GAMERA signed MagM0: not present in forcing file; "
+                    "assuming Earth-like negative moment for internal-axis metadata",
+                    flush=True,
+                )
             print(
-                "GAMERA coordinates: SM; internal dipole axis = [0, 0, 1]; "
-                "REMIX longitude 0 = noon",
+                "GAMERA coordinates: SM; REMIX longitude 0 = noon",
+                flush=True,
+            )
+            print(
+                "GAMERA internal moment axis: "
+                f"{gamera_dipole['moment_axis'][0]:.3g}, "
+                f"{gamera_dipole['moment_axis'][1]:.3g}, "
+                f"{gamera_dipole['moment_axis'][2]:.3g}; "
+                "magnetic north axis: "
+                f"{gamera_dipole['north_axis'][0]:.3g}, "
+                f"{gamera_dipole['north_axis'][1]:.3g}, "
+                f"{gamera_dipole['north_axis'][2]:.3g}",
                 flush=True,
             )
             print(
@@ -613,7 +665,7 @@ def main() -> None:
                 flush=True,
             )
             print(
-                f"Noon magnetic longitude at start: {alignment['noon_mlon_deg']:.6f} deg",
+                f"Noon longitude in run coordinates: {alignment['noon_mlon_deg']:.6f} deg",
                 flush=True,
             )
             print(f"RM: {RM:.6g} m", flush=True)
@@ -628,7 +680,7 @@ def main() -> None:
                 RI=RI,
                 RM=RM,
                 RM_shielding=args.RM_shielding,
-                mainfield_kind="dipole",
+                mainfield_kind=args.mainfield_kind,
                 mainfield_epoch=dipole_epoch,
                 mainfield_B0=dipole_B0,
                 FAC_integration_steps=rk,
@@ -656,11 +708,11 @@ def main() -> None:
                 if np.any(~np.isfinite(delta_Br)):
                     raise ValueError("Br input contains non-finite values.")
                 print_field_stats("  Delta Br [T]", delta_Br)
-                magnetosphere_lat, magnetosphere_lon = mage_br_grid_to_dipole(
-                    magnetosphere_lat_raw,
+                magnetosphere_lat = np.asarray(magnetosphere_lat_raw, dtype=float)
+                magnetosphere_lon = mainfield.local_time_longitude_to_model_longitude(
                     magnetosphere_lon_raw,
                     step_event_time,
-                    dipole_epoch,
+                    local_noon_longitude=MAGE_BR_LOCAL_NOON_LONGITUDE,
                 )
                 magnetosphere_grid = pynamit.Grid(
                     lat=magnetosphere_lat,
@@ -725,12 +777,12 @@ def main() -> None:
                     tiegcm_dataset=tiegcm_dataset,
                     require_hall_weighted=args.wind_mode == "q_eff",
                 )
-                u_p_east, u_p_north = geographic_vector_to_dipole(
+                _, _, u_p_east, u_p_north = mainfield.geo_to_model_coordinates(
                     ionosphere_lat_geo,
                     ionosphere_lon_geo,
                     u_p_east,
                     u_p_north,
-                    dipole_epoch,
+                    event_time=step_event_time,
                 )
                 u_p_theta = -np.asarray(u_p_north, dtype=float).reshape(-1)
                 u_p_phi = np.asarray(u_p_east, dtype=float).reshape(-1)
@@ -756,12 +808,12 @@ def main() -> None:
                         "Internal error: q_eff mode did not load Hall-weighted winds."
                     )
 
-                u_h_east, u_h_north = geographic_vector_to_dipole(
+                _, _, u_h_east, u_h_north = mainfield.geo_to_model_coordinates(
                     ionosphere_lat_geo,
                     ionosphere_lon_geo,
                     u_h_east,
                     u_h_north,
-                    dipole_epoch,
+                    event_time=step_event_time,
                 )
                 u_h_theta = -np.asarray(u_h_north, dtype=float).reshape(-1)
                 u_h_phi = np.asarray(u_h_east, dtype=float).reshape(-1)

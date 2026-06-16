@@ -449,6 +449,14 @@ class PynamEye:
 
     def get_magnetic_coordinate_context(self):
         """Return the magnetic local-time context."""
+        if str(self._config_value("mainfield_kind", "dipole")).lower() == "kaiju_dipole":
+            return MapCoordinateContext.from_noon_longitude(
+                0.0,
+                longitude_kind="magnetic",
+                local_time_kind="magnetic",
+                label="MLT",
+                reference_time=self.time,
+            )
         return MapCoordinateContext.magnetic(self.time, self.dp)
 
     def _config_value(self, name, default=None):

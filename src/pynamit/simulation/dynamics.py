@@ -94,7 +94,7 @@ class Dynamics:
         RM_shielding : bool, optional
             Whether induced fields are solved with a shielding condition
             at the magnetospheric boundary ``RM``.
-        mainfield_kind : {'dipole', 'igrf',  'radial'}, optional
+        mainfield_kind : {'dipole', 'kaiju_dipole', 'igrf', 'radial'}, optional
             Type of main magnetic field model.
         mainfield_epoch : float, optional
             Decimal year for main field model.

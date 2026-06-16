@@ -23,10 +23,11 @@ import warnings
 from pathlib import Path
 from typing import Any
 
-import dipole
 import h5py
 import numpy as np
 from scipy.interpolate import griddata
+
+from pynamit.simulation.mainfield import Mainfield, decimal_year
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -39,37 +40,68 @@ FALLBACK_EARTH_RADIUS_M = 6371.0e3
 FILL_THRESHOLD = 1e30
 
 
-def datetime_to_decimal_year(value: dt.datetime) -> float:
-    """Convert datetime to decimal year for dipole transforms."""
-    year_start = dt.datetime(value.year, 1, 1)
-    next_year_start = dt.datetime(value.year + 1, 1, 1)
-    year_seconds = (next_year_start - year_start).total_seconds()
-    elapsed = (value - year_start).total_seconds()
-    return value.year + elapsed / year_seconds
-
-
 def wrap_longitude_180_value(value: float) -> float:
     """Wrap longitude to [-180, 180) degrees."""
     return float((value + 180.0) % 360.0 - 180.0)
 
 
-def centered_dipole_alignment_attrs(event_time: dt.datetime) -> dict[str, Any]:
+def axis_lat_lon(axis: np.ndarray) -> np.ndarray:
+    """Return latitude/longitude of a Cartesian axis."""
+    axis = np.asarray(axis, dtype=float)
+    norm = float(np.linalg.norm(axis))
+    if norm == 0.0:
+        raise ValueError("axis must be non-zero.")
+    unit = axis / norm
+    lat = float(np.degrees(np.arcsin(np.clip(unit[2], -1.0, 1.0))))
+    if np.isclose(abs(unit[2]), 1.0):
+        lon = 0.0
+    else:
+        lon = wrap_longitude_180_value(float(np.degrees(np.arctan2(unit[1], unit[0]))))
+    return np.array([lat, lon])
+
+
+def gamera_internal_dipole_axes(mag_m0_nT: float | None) -> dict[str, np.ndarray]:
+    """Return GAMERA internal dipole moment and magnetic-north axes.
+
+    GAMERA's ``MagM0`` is a signed dipole moment along the simulation Z axis.
+    For the Earth-like negative value in this run, the moment vector is -Z and
+    the magnetic-north axis is +Z.
+    """
+    sign = -1.0
+    if mag_m0_nT is not None and np.isfinite(mag_m0_nT) and mag_m0_nT != 0.0:
+        sign = float(np.sign(mag_m0_nT))
+    moment_axis = np.array([0.0, 0.0, sign])
+    north_axis = -moment_axis
+    moment_axis[np.isclose(moment_axis, 0.0)] = 0.0
+    north_axis[np.isclose(north_axis, 0.0)] = 0.0
+    return {
+        "moment_axis": moment_axis,
+        "north_axis": north_axis,
+        "south_axis": -north_axis,
+    }
+
+
+def centered_dipole_alignment_attrs(
+    event_time: dt.datetime,
+    mag_m0_nT: float | None,
+) -> dict[str, Any]:
     """Return run-alignment metadata for the centered dipole and SM grid."""
-    dipole_epoch = datetime_to_decimal_year(event_time)
-    dpl = dipole.Dipole(dipole_epoch)
+    mainfield = Mainfield(kind="kaiju_dipole", epoch=decimal_year(event_time))
+    alignment = mainfield.alignment_metadata(event_time)
+    internal = gamera_internal_dipole_axes(mag_m0_nT)
     return {
         "gamera_coordinate_system": "SM",
-        "gamera_internal_dipole_axis": np.array([0.0, 0.0, 1.0]),
-        "gamera_internal_north_pole_lat_lon": np.array([90.0, 0.0]),
-        "gamera_internal_south_pole_lat_lon": np.array([-90.0, 0.0]),
+        "gamera_internal_dipole_axis": internal["north_axis"],
+        "gamera_internal_magnetic_north_axis": internal["north_axis"],
+        "gamera_internal_magnetic_south_axis": internal["south_axis"],
+        "gamera_internal_dipole_moment_axis": internal["moment_axis"],
+        "gamera_internal_north_pole_lat_lon": axis_lat_lon(internal["north_axis"]),
+        "gamera_internal_south_pole_lat_lon": axis_lat_lon(internal["south_axis"]),
         "remix_local_noon_longitude_deg": 0.0,
-        "dipole_alignment_epoch": dipole_epoch,
-        "dipole_axis_geo_cartesian": np.asarray(dpl.axis, dtype=float),
-        "dipole_north_pole_geo_lat_lon": np.asarray(dpl.north_pole, dtype=float),
-        "dipole_south_pole_geo_lat_lon": np.asarray(dpl.south_pole, dtype=float),
-        "dipole_noon_mlon_deg_at_start": wrap_longitude_180_value(
-            float(np.asarray(dpl.mlt2mlon(12.0, event_time)))
-        ),
+        "pynamit_run_coordinate_system": "SM",
+        "dipole_noon_mlon_deg_at_start": 0.0,
+        "dipole_mag_noon_mlon_deg_at_start": alignment["dipole_mag_noon_mlon_deg"],
+        **alignment,
     }
 
 
@@ -285,21 +317,6 @@ def spherical_components(
     return br, btheta, bphi
 
 
-def remix_to_geographic(
-    dpl: Any,
-    mlat: np.ndarray,
-    mlon: np.ndarray,
-    east: np.ndarray | None = None,
-    north: np.ndarray | None = None,
-) -> tuple[np.ndarray, ...]:
-    """Convert REMIX magnetic coordinates and optional vector components."""
-    if east is None or north is None:
-        lat, lon = dpl.mag2geo(mlat, mlon)
-        return np.asarray(lat), np.asarray(lon)
-    lat, lon, east_geo, north_geo = dpl.mag2geo(mlat, mlon, east, north)
-    return np.asarray(lat), np.asarray(lon), np.asarray(east_geo), np.asarray(north_geo)
-
-
 def interpolate_to_tiegcm_grid(
     source_lat: np.ndarray,
     source_lon: np.ndarray,
@@ -327,11 +344,12 @@ def merge_south_with_north(south: np.ndarray, north: np.ndarray) -> np.ndarray:
 def remix_hemisphere_fields(
     ion: Any,
     hemisphere: str,
-    dpl: Any,
+    coordinate_field: Mainfield,
     mlat: np.ndarray,
-    mlon: np.ndarray,
+    sm_lon: np.ndarray,
     tiegcm_lon: np.ndarray,
     tiegcm_lat: np.ndarray,
+    event_time: dt.datetime,
 ) -> dict[str, np.ndarray]:
     """Return one REMIX hemisphere interpolated onto the TIEGCM grid."""
     ion.init_vars(hemisphere)
@@ -345,12 +363,24 @@ def remix_hemisphere_fields(
     jh_north, jh_east = -currents[6], currents[7]
     jp_north, jp_east = -currents[8], currents[9]
 
-    scalar_lat, scalar_lon = remix_to_geographic(dpl, lat_mag, mlon)
-    _, _, jh_east, jh_north = remix_to_geographic(
-        dpl, lat_mag, mlon, jh_east, jh_north
+    scalar_lat, scalar_lon = coordinate_field.model_to_geo_coordinates(
+        lat_mag,
+        sm_lon,
+        event_time=event_time,
     )
-    _, _, jp_east, jp_north = remix_to_geographic(
-        dpl, lat_mag, mlon, jp_east, jp_north
+    _, _, jh_east, jh_north = coordinate_field.model_to_geo_coordinates(
+        lat_mag,
+        sm_lon,
+        jh_east,
+        jh_north,
+        event_time=event_time,
+    )
+    _, _, jp_east, jp_north = coordinate_field.model_to_geo_coordinates(
+        lat_mag,
+        sm_lon,
+        jp_east,
+        jp_north,
+        event_time=event_time,
     )
 
     return {
@@ -391,22 +421,38 @@ def remix_fields_for_step(
     except ModuleNotFoundError as exc:
         raise ModuleNotFoundError(
             "mage_prepare_forcing.py needs kaipy.remix to read REMIX files. "
-            "Run it in the MAGE/GAMERA environment where kaipy is installed."
+            f"Missing module: {exc.name!r}. Run it in the MAGE/GAMERA environment "
+            "where kaipy and its dependencies are installed."
         ) from exc
 
-    dpl = dipole.Dipole(datetime_to_decimal_year(event_time))
+    coordinate_field = Mainfield(
+        kind="kaiju_dipole",
+        epoch=decimal_year(event_time),
+    )
     ion = remix.remix(str(remix_file), step)
     _, _, theta, phi = ion.cartesianCellCenters()
     mlat = 90.0 - theta / np.pi * 180.0
-    local_time_lon = phi / np.pi * 180.0
-    mlt = (local_time_lon / 15.0 + 12.0) % 24.0
-    mlon = dpl.mlt2mlon(mlt, event_time)
+    sm_lon = wrap_longitude_180_value(phi / np.pi * 180.0)
 
     north = remix_hemisphere_fields(
-        ion, "NORTH", dpl, mlat, mlon, tiegcm_lon, tiegcm_lat
+        ion,
+        "NORTH",
+        coordinate_field,
+        mlat,
+        sm_lon,
+        tiegcm_lon,
+        tiegcm_lat,
+        event_time,
     )
     south = remix_hemisphere_fields(
-        ion, "SOUTH", dpl, mlat, mlon, tiegcm_lon, tiegcm_lat
+        ion,
+        "SOUTH",
+        coordinate_field,
+        mlat,
+        sm_lon,
+        tiegcm_lon,
+        tiegcm_lat,
+        event_time,
     )
     return {key: merge_south_with_north(south[key], north[key]) for key in south}
 
@@ -465,7 +511,12 @@ def write_static_datasets(
     output.attrs["FAC_convention"] = "upward_positive_kaipy_remix_init_vars"
     output.attrs["gamera_inner_index"] = int(args.inner_index)
     output.attrs["gamera_length_scale_m"] = float(args.gamera_length_scale_m)
-    for name, value in centered_dipole_alignment_attrs(event_time).items():
+    output.attrs["gamera_B_output"] = "Kaiju Bx/By/Bz total field, with B0 active"
+    output.attrs["prepared_B_output"] = "Bu/Bn/Be are perturbations from Bx/By/Bz minus Bx0/By0/Bz0"
+    for name, value in centered_dipole_alignment_attrs(
+        event_time,
+        args.gamera_mag_m0_nT,
+    ).items():
         output.attrs[name] = value
     if args.gamera_mag_m0_nT is not None:
         output.attrs["gamera_mag_m0_nT"] = float(args.gamera_mag_m0_nT)
@@ -483,7 +534,8 @@ def prepare_forcing(args: argparse.Namespace) -> Path:
     except ModuleNotFoundError as exc:
         raise ModuleNotFoundError(
             "mage_prepare_forcing.py needs kaipy to read GAMERA/REMIX files. "
-            "Run it in the MAGE/GAMERA environment where kaipy is installed."
+            f"Missing module: {exc.name!r}. Run it in the MAGE/GAMERA environment "
+            "where kaipy and its dependencies are installed."
         ) from exc
 
     gamera_dir = Path(args.gamera_dir).expanduser()
@@ -509,10 +561,30 @@ def prepare_forcing(args: argparse.Namespace) -> Path:
     length_scale_m = gamera_length_scale_m(gsph)
     args.gamera_length_scale_m = length_scale_m
     args.gamera_mag_m0_nT = gamera_magnetic_moment_nT(gsph)
+    with h5py.File(gsph.f0, "r") as root_file:
+        missing_background = [
+            name for name in ("Bx0", "By0", "Bz0") if name not in root_file
+        ]
+        if missing_background:
+            raise RuntimeError(
+                "This preparation path expects Kaiju background-field output. "
+                f"Missing root datasets: {missing_background}. "
+                "For MAGE/GAMERA Earth runs, Kaiju writes total Bx/By/Bz and "
+                "root Bx0/By0/Bz0, and the prepared Br is total minus B0."
+            )
     print(f"Using GAMERA length scale: {length_scale_m:.6g} m", flush=True)
     if args.gamera_mag_m0_nT is not None:
+        axes = gamera_internal_dipole_axes(args.gamera_mag_m0_nT)
         print(
             f"Using GAMERA dipole MagM0: {args.gamera_mag_m0_nT:.6g} nT",
+            flush=True,
+        )
+        print(
+            "GAMERA internal moment axis: "
+            f"{axes['moment_axis'][0]:.3g}, {axes['moment_axis'][1]:.3g}, "
+            f"{axes['moment_axis'][2]:.3g}; magnetic north axis: "
+            f"{axes['north_axis'][0]:.3g}, {axes['north_axis'][1]:.3g}, "
+            f"{axes['north_axis'][2]:.3g}",
             flush=True,
         )
     print(f"Using GAMERA inner index: {args.inner_index}", flush=True)
@@ -535,6 +607,8 @@ def prepare_forcing(args: argparse.Namespace) -> Path:
         inner_lat, inner_lon, inner_r, sin_theta, cos_theta, sin_phi, cos_phi = (
             centered_inner_boundary_grid(gsph, args.inner_index, length_scale_m)
         )
+        # Kaiju gioH5 writes Bx/By/Bz as total field when Model%doBackground is
+        # true, and root Bx0/By0/Bz0 as Gr%B0. PynaMIT needs the perturbation.
         bx0 = gsph.GetVar("Bx0")[args.inner_index]
         by0 = gsph.GetVar("By0")[args.inner_index]
         bz0 = gsph.GetVar("Bz0")[args.inner_index]

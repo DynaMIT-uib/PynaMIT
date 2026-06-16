@@ -27,6 +27,7 @@ from pynamit.sphere.spherical_transform import SphericalTransform, resolve_sqrt_
 from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.math.tensor_operations import weighted_tensor_pinv
 from pynamit.simulation.config import setting_value
+from pynamit.simulation.mainfield import is_dipole_kind
 from pynamit.simulation import sheet_current as sheet_current_ops
 from pynamit.simulation.sheet_current import (
     coefficient_scale_values as _coefficient_scale_values,
@@ -429,7 +430,7 @@ class Geometry:
     def _init_constraint_mappings(self) -> None:
         """Initialize geometric operators related to constraints."""
         kind = self.mainfield.kind
-        if kind == "dipole":
+        if is_dipole_kind(kind):
             self.ll_mask = np.abs(self.grid.lat) < self.latitude_boundary
         elif kind == "igrf":
             mlat, _ = self.mainfield.apx.geo2apex(

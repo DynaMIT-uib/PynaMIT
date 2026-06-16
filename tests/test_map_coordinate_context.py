@@ -126,3 +126,17 @@ def test_pynameye_uses_distinct_global_and_magnetic_contexts():
     assert global_context.local_time_kind == "magnetic"
     assert global_context.noon_longitude == 45.0
     assert magnetic_context.noon_longitude == 40.0
+
+
+def test_pynameye_uses_sm_noon_for_kaiju_dipole_context():
+    """Kaiju dipole runs use SM longitude, where noon is longitude zero."""
+    eye = object.__new__(PynamEye)
+    eye.time = dt.datetime(2011, 10, 24, 18, 30)
+    eye.dp = FakeDipole()
+    eye.settings = SimpleNamespace(mainfield_kind="kaiju_dipole")
+
+    context = eye.get_magnetic_coordinate_context()
+
+    assert context.longitude_kind == "magnetic"
+    assert context.local_time_kind == "magnetic"
+    assert context.noon_longitude == 0.0
