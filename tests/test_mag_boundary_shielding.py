@@ -12,9 +12,9 @@ from pynamit.math.constants import RE
 def test_mag_boundary():
     """Test 2D simulation with magnetosphere boundary currents."""
     # Arrange.
-    expected_coeff_norm = 9.215784632046766e-09
-    expected_coeff_max = 1.5650719301179843e-09
-    expected_coeff_min = -3.860313634933096e-09
+    expected_coeff_norm = 9.215777844127273e-09
+    expected_coeff_max = 1.5650387484970313e-09
+    expected_coeff_min = -3.860308906912494e-09
     expected_n_coeffs = 228
 
     temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
@@ -35,6 +35,7 @@ def test_mag_boundary():
         connect_hemispheres=True,
         latitude_boundary=50,
         steady_state_initialization=False,
+        RM_shielding=True,
     )
 
     # Assert.

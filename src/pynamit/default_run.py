@@ -44,6 +44,7 @@ def run_pynamit(
     artifact_storage="auto",
     horizontal_basis_kind="SH",
     area_weighted_least_squares=False,
+    RM_shielding=False,
 ):
     """Run a default PynaMIT simulation with the given parameters.
 
@@ -180,6 +181,7 @@ def run_pynamit(
         static_preconditioner=static_preconditioner,
         m_imp_regularization_lambda=m_imp_regularization_lambda,
         artifact_storage=artifact_storage,
+        RM_shielding=RM_shielding,
     )
 
     date = datetime.datetime(2001, 5, 12, 21, 45)
