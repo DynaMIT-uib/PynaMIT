@@ -24,17 +24,7 @@ ZARR_SUFFIX = ".zarr"
 DATASET_STORAGE_KINDS = frozenset({"auto", "netcdf", "zarr"})
 DATAARRAY_ARTIFACTS = frozenset({"PFAC_matrix"})
 RUN_ARTIFACTS = frozenset(
-    {
-        "settings",
-        "PFAC_matrix",
-        "jr",
-        "Br",
-        "conductance",
-        "u",
-        "Q_eff",
-        "state",
-        "steady_state",
-    }
+    {"settings", "PFAC_matrix", "jr", "Br", "conductance", "u", "Q_eff", "state", "steady_state"}
 )
 ZARR_AVAILABLE = importlib.util.find_spec("zarr") is not None
 ZARR_WRITE_KWARGS = {"write_empty_chunks": True, "consolidated": False}
@@ -61,9 +51,7 @@ class IO:
             Default storage format for new artifacts.
         """
         self.run_directory: str | None = None
-        self.preferred_dataset_storage = self._normalize_storage_kind(
-            preferred_dataset_storage
-        )
+        self.preferred_dataset_storage = self._normalize_storage_kind(preferred_dataset_storage)
         self.update_run_directory(run_directory)
 
     def update_run_directory(self, run_directory: str | os.PathLike[str] | None) -> None:

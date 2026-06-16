@@ -10,18 +10,11 @@ from pynamit.visualization.saved_run import SavedRunView
 def test_saved_run_view_loads_core_visualization_objects(tmp_path):
     """Saved-run view centralizes settings, schema, and geometry."""
     dynamics = pynamit.Dynamics(
-        run_directory=tmp_path,
-        Nmax=2,
-        Mmax=1,
-        Ncs=8,
-        ignore_PFAC=True,
-        artifact_storage="netcdf",
+        run_directory=tmp_path, Nmax=2, Mmax=1, Ncs=8, ignore_PFAC=True, artifact_storage="netcdf"
     )
 
     run_view = SavedRunView.from_directory(
-        dynamics.run_directory,
-        require_pfac_matrix=True,
-        build_geometry=True,
+        dynamics.run_directory, require_pfac_matrix=True, build_geometry=True
     )
     input_timeseries = run_view.load_input_timeseries()
     output_timeseries = run_view.load_output_timeseries()
@@ -39,12 +32,7 @@ def test_saved_run_view_loads_core_visualization_objects(tmp_path):
 def test_saved_run_view_loads_requested_datasets(tmp_path):
     """Required and optional dataset loading is explicit."""
     dynamics = pynamit.Dynamics(
-        run_directory=tmp_path,
-        Nmax=2,
-        Mmax=1,
-        Ncs=8,
-        ignore_PFAC=True,
-        artifact_storage="netcdf",
+        run_directory=tmp_path, Nmax=2, Mmax=1, Ncs=8, ignore_PFAC=True, artifact_storage="netcdf"
     )
 
     run_view = SavedRunView.from_directory(
@@ -59,22 +47,13 @@ def test_saved_run_view_loads_requested_datasets(tmp_path):
 def test_pynameye_uses_saved_run_view(tmp_path):
     """PynamEye is a frontend over the saved-run view."""
     dynamics = pynamit.Dynamics(
-        run_directory=tmp_path,
-        Nmax=2,
-        Mmax=1,
-        Ncs=8,
-        ignore_PFAC=True,
-        artifact_storage="netcdf",
+        run_directory=tmp_path, Nmax=2, Mmax=1, Ncs=8, ignore_PFAC=True, artifact_storage="netcdf"
     )
     conductance_shape = dynamics.input_field_spaces["conductance"].coefficient_shape
     etaP = np.zeros(conductance_shape)
     etaH = np.zeros(conductance_shape)
     etaP[0] = 1.0
-    dynamics.set_resistance(
-        etaP_coefficients=etaP,
-        etaH_coefficients=etaH,
-        time=0.0,
-    )
+    dynamics.set_resistance(etaP_coefficients=etaP, etaH_coefficients=etaH, time=0.0)
 
     wind_shape = dynamics.input_field_spaces["u"].coefficient_shape
     u_cf = np.linspace(0.0, 1.0, wind_shape[1])
@@ -85,13 +64,7 @@ def test_pynameye_uses_saved_run_view(tmp_path):
     dynamics.set_jr(jr_coefficients=np.zeros(jr_shape), time=0.0)
     dynamics.impose_steady_state(time=0.0, save=True, quiet=True)
 
-    eye = PynamEye(
-        dynamics.run_directory,
-        Nlat=6,
-        Nlon=8,
-        NCS_plot=4,
-        steady_state=False,
-    )
+    eye = PynamEye(dynamics.run_directory, Nlat=6, Nlon=8, NCS_plot=4, steady_state=False)
 
     assert isinstance(eye.run_view, SavedRunView)
     assert eye.schema is eye.run_view.schema
@@ -122,11 +95,7 @@ def test_pynameye_wind_plot_uses_wind_projection_basis(tmp_path):
     etaP = np.zeros(conductance_shape)
     etaH = np.zeros(conductance_shape)
     etaP[0] = 1.0
-    dynamics.set_resistance(
-        etaP_coefficients=etaP,
-        etaH_coefficients=etaH,
-        time=0.0,
-    )
+    dynamics.set_resistance(etaP_coefficients=etaP, etaH_coefficients=etaH, time=0.0)
 
     wind_shape = dynamics.input_field_spaces["u"].coefficient_shape
     u_cf = np.zeros(wind_shape[1])
@@ -139,17 +108,9 @@ def test_pynameye_wind_plot_uses_wind_projection_basis(tmp_path):
     dynamics.set_jr(jr_coefficients=np.zeros(jr_shape), time=0.0)
     dynamics.impose_steady_state(time=0.0, save=True, quiet=True)
 
-    eye = PynamEye(
-        dynamics.run_directory,
-        Nlat=6,
-        Nlon=8,
-        NCS_plot=4,
-        steady_state=False,
-    )
+    eye = PynamEye(dynamics.run_directory, Nlat=6, Nlon=8, NCS_plot=4, steady_state=False)
     cs_wind_space = pynamit.FieldSpace.from_representation(
-        eye.schema.cs_basis,
-        field_type="tangential",
-        mean_free=True,
+        eye.schema.cs_basis, field_type="tangential", mean_free=True
     )
     cs_wind = np.zeros(cs_wind_space.coefficient_shape)
     cs_wind[0, 0] = 1.0

@@ -133,20 +133,14 @@ def plot_state_debug_summary(dynamics, title=None, filename=None, noon_longitude
     lat, lon = np.linspace(-89.9, 89.9, NLA), np.linspace(-180, 180, NLO)
     lat, lon = map(np.ravel, np.meshgrid(lat, lon))
     plt_grid = pynamit.Grid(lat=lat, lon=lon)
-    plt_state_evaluator = pynamit.SphericalTransform(
-        dynamics.horizontal_basis, plt_grid
-    )
+    plt_state_evaluator = pynamit.SphericalTransform(dynamics.horizontal_basis, plt_grid)
     plt_b_evaluator = pynamit.FieldEvaluator(dynamics.state.mainfield, plt_grid, dynamics.state.RI)
 
     # Calculate values to plot.
     Br = dynamics.state.get_Br(plt_state_evaluator)
     FAC = (
-        plt_state_evaluator.contract_scalar_coeffs_to_grid(
-            1 / plt_b_evaluator.br.reshape((-1, 1))
-        )
-    ).dot(
-        dynamics.state.m_imp.array * dynamics.state.m_imp_to_jr
-    )
+        plt_state_evaluator.contract_scalar_coeffs_to_grid(1 / plt_b_evaluator.br.reshape((-1, 1)))
+    ).dot(dynamics.state.m_imp.array * dynamics.state.m_imp_to_jr)
     jr_mod = plt_state_evaluator.G.dot(dynamics.state.m_imp.array * dynamics.state.m_imp_to_jr)
     eq_current_function = dynamics.state.get_Jeq(plt_state_evaluator)
 
@@ -175,34 +169,14 @@ def plot_state_debug_summary(dynamics, title=None, filename=None, noon_longitude
     # Make north polar plots.
     north_mask = lat > 50
     paxn_B.contourf(lat[north_mask], mlt[north_mask], Br[north_mask], **B_kwargs)
-    paxn_j.contour(
-        lat[north_mask],
-        mlt[north_mask],
-        eq_current_function[north_mask],
-        **eqJ_kwargs,
-    )
-    paxn_j.contourf(
-        lat[north_mask],
-        mlt[north_mask],
-        FAC[north_mask],
-        **FAC_kwargs,
-    )
+    paxn_j.contour(lat[north_mask], mlt[north_mask], eq_current_function[north_mask], **eqJ_kwargs)
+    paxn_j.contourf(lat[north_mask], mlt[north_mask], FAC[north_mask], **FAC_kwargs)
 
     # Make south polar plots.
     south_mask = lat < -50
     paxs_B.contourf(lat[south_mask], mlt[south_mask], Br[south_mask], **B_kwargs)
-    paxs_j.contour(
-        lat[south_mask],
-        mlt[south_mask],
-        eq_current_function[south_mask],
-        **eqJ_kwargs,
-    )
-    paxs_j.contourf(
-        lat[south_mask],
-        mlt[south_mask],
-        FAC[south_mask],
-        **FAC_kwargs,
-    )
+    paxs_j.contour(lat[south_mask], mlt[south_mask], eq_current_function[south_mask], **eqJ_kwargs)
+    paxs_j.contourf(lat[south_mask], mlt[south_mask], FAC[south_mask], **FAC_kwargs)
 
     # Scatter plot high latitude jr.
     high_latitude_mask = (
@@ -275,8 +249,5 @@ def plot_state_debug_summary(dynamics, title=None, filename=None, noon_longitude
 
 
 plot_state_debug_summary(
-    dynamics,
-    title="State diagnostic summary",
-    filename=None,
-    noon_longitude=noon_longitude,
+    dynamics, title="State diagnostic summary", filename=None, noon_longitude=noon_longitude
 )

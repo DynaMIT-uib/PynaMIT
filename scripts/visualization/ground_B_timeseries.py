@@ -18,9 +18,7 @@ def _load_period_dataset(period, name):
     run_directory = DATA_DIRECTORY / f"{period:02d}s"
     dataset = IO(run_directory).load_dataset(name)
     if dataset is None:
-        raise FileNotFoundError(
-            f"No {name!r} artifact found in run directory {run_directory}."
-        )
+        raise FileNotFoundError(f"No {name!r} artifact found in run directory {run_directory}.")
     return dataset
 
 
@@ -45,9 +43,7 @@ glat, glon, _ = a.apex2geo(mlat, mlon, 0)
 glat, glon = glat.flatten(), glon.flatten()
 
 ground_grid = pynamit.Grid(lat=glat, lon=glon)
-ground_evaluator = pynamit.SphericalTransform(
-    sh_basis, ground_grid
-)
+ground_evaluator = pynamit.SphericalTransform(sh_basis, ground_grid)
 
 m_ind_to_Bh_ground = -(sh_basis.n + 1) * (RE / RI) ** sh_basis.n
 m_ind_to_Br_ground = sh_basis.n * (sh_basis.n + 1) * (RE / RI) ** (sh_basis.n - 1)

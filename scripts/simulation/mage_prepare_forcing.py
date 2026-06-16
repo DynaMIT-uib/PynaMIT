@@ -74,16 +74,11 @@ def gamera_internal_dipole_axes(mag_m0_nT: float | None) -> dict[str, np.ndarray
     north_axis = -moment_axis
     moment_axis[np.isclose(moment_axis, 0.0)] = 0.0
     north_axis[np.isclose(north_axis, 0.0)] = 0.0
-    return {
-        "moment_axis": moment_axis,
-        "north_axis": north_axis,
-        "south_axis": -north_axis,
-    }
+    return {"moment_axis": moment_axis, "north_axis": north_axis, "south_axis": -north_axis}
 
 
 def centered_dipole_alignment_attrs(
-    event_time: dt.datetime,
-    mag_m0_nT: float | None,
+    event_time: dt.datetime, mag_m0_nT: float | None
 ) -> dict[str, Any]:
     """Return run-alignment metadata for the centered dipole and SM grid."""
     mainfield = Mainfield(kind="kaiju_dipole", epoch=decimal_year(event_time))
@@ -115,9 +110,7 @@ def resolve_tiegcm_path(gamera_dir: Path, explicit_path: str | None) -> Path:
 
     matches = sorted(gamera_dir.glob("*sech_tie*.nc"))
     if not matches:
-        raise FileNotFoundError(
-            f"Could not find a '*sech_tie*.nc' TIEGCM file in {gamera_dir}"
-        )
+        raise FileNotFoundError(f"Could not find a '*sech_tie*.nc' TIEGCM file in {gamera_dir}")
     if len(matches) > 1:
         print(f"Found multiple TIEGCM files; using {matches[0]}", flush=True)
     return matches[0]
@@ -146,8 +139,7 @@ def resolve_gamera_run_dir(gamera_dir: Path, gamera_subdir: str, tag: str) -> Pa
         return nested
 
     raise FileNotFoundError(
-        f"Could not find GAMERA/REMIX files for tag {tag!r} in {gamera_dir} "
-        f"or {nested}"
+        f"Could not find GAMERA/REMIX files for tag {tag!r} in {gamera_dir} or {nested}"
     )
 
 
@@ -183,9 +175,7 @@ def read_nc_step(dataset: Any, name: str, step: int) -> np.ndarray:
     """Read a NetCDF variable time slice while suppressing known warnings."""
     with warnings.catch_warnings():
         warnings.filterwarnings(
-            "ignore",
-            message="WARNING: missing_value not used since it.*",
-            category=UserWarning,
+            "ignore", message="WARNING: missing_value not used since it.*", category=UserWarning
         )
         return np.asarray(dataset.variables[name][step])
 
@@ -223,9 +213,7 @@ def weighted_wind(
 
 
 def integrate_tiegcm_step(
-    dataset: Any,
-    step: int,
-    conductance_source: str,
+    dataset: Any, step: int, conductance_source: str
 ) -> dict[str, np.ndarray]:
     """Height-integrate TIEGCM conductivities and weighted winds for one step."""
     sigma_p = replace_fill(read_nc_step(dataset, "SIGMA_PED", step))
@@ -247,20 +235,8 @@ def integrate_tiegcm_step(
         sigma_p_out = sigma_p_int
         sigma_h_out = sigma_h_int
 
-    u_p_east, u_p_north = weighted_wind(
-        sigma_p_layer,
-        sigma_p_out,
-        wind_east,
-        wind_north,
-        dz,
-    )
-    u_h_east, u_h_north = weighted_wind(
-        sigma_h_layer,
-        sigma_h_out,
-        wind_east,
-        wind_north,
-        dz,
-    )
+    u_p_east, u_p_north = weighted_wind(sigma_p_layer, sigma_p_out, wind_east, wind_north, dz)
+    u_h_east, u_h_north = weighted_wind(sigma_h_layer, sigma_h_out, wind_east, wind_north, dz)
 
     return {
         "SP": sigma_p_out.astype(np.float32),
@@ -273,9 +249,7 @@ def integrate_tiegcm_step(
 
 
 def centered_inner_boundary_grid(
-    gsph: Any,
-    inner_index: int,
-    length_scale_m: float,
+    gsph: Any, inner_index: int, length_scale_m: float
 ) -> tuple[np.ndarray, ...]:
     """Return centered inner-boundary grid and spherical helper arrays."""
     x = gsph.X[inner_index]
@@ -364,23 +338,13 @@ def remix_hemisphere_fields(
     jp_north, jp_east = -currents[8], currents[9]
 
     scalar_lat, scalar_lon = coordinate_field.model_to_geo_coordinates(
-        lat_mag,
-        sm_lon,
-        event_time=event_time,
+        lat_mag, sm_lon, event_time=event_time
     )
     _, _, jh_east, jh_north = coordinate_field.model_to_geo_coordinates(
-        lat_mag,
-        sm_lon,
-        jh_east,
-        jh_north,
-        event_time=event_time,
+        lat_mag, sm_lon, jh_east, jh_north, event_time=event_time
     )
     _, _, jp_east, jp_north = coordinate_field.model_to_geo_coordinates(
-        lat_mag,
-        sm_lon,
-        jp_east,
-        jp_north,
-        event_time=event_time,
+        lat_mag, sm_lon, jp_east, jp_north, event_time=event_time
     )
 
     return {
@@ -390,18 +354,12 @@ def remix_hemisphere_fields(
         "SP_G": interpolate_to_tiegcm_grid(
             scalar_lat, scalar_lon, sigma_p, tiegcm_lon, tiegcm_lat
         ),
-        "FAC": interpolate_to_tiegcm_grid(
-            scalar_lat, scalar_lon, fac, tiegcm_lon, tiegcm_lat
-        ),
-        "JHe": interpolate_to_tiegcm_grid(
-            scalar_lat, scalar_lon, jh_east, tiegcm_lon, tiegcm_lat
-        ),
+        "FAC": interpolate_to_tiegcm_grid(scalar_lat, scalar_lon, fac, tiegcm_lon, tiegcm_lat),
+        "JHe": interpolate_to_tiegcm_grid(scalar_lat, scalar_lon, jh_east, tiegcm_lon, tiegcm_lat),
         "JHn": interpolate_to_tiegcm_grid(
             scalar_lat, scalar_lon, jh_north, tiegcm_lon, tiegcm_lat
         ),
-        "JPe": interpolate_to_tiegcm_grid(
-            scalar_lat, scalar_lon, jp_east, tiegcm_lon, tiegcm_lat
-        ),
+        "JPe": interpolate_to_tiegcm_grid(scalar_lat, scalar_lon, jp_east, tiegcm_lon, tiegcm_lat),
         "JPn": interpolate_to_tiegcm_grid(
             scalar_lat, scalar_lon, jp_north, tiegcm_lon, tiegcm_lat
         ),
@@ -425,34 +383,17 @@ def remix_fields_for_step(
             "where kaipy and its dependencies are installed."
         ) from exc
 
-    coordinate_field = Mainfield(
-        kind="kaiju_dipole",
-        epoch=decimal_year(event_time),
-    )
+    coordinate_field = Mainfield(kind="kaiju_dipole", epoch=decimal_year(event_time))
     ion = remix.remix(str(remix_file), step)
     _, _, theta, phi = ion.cartesianCellCenters()
     mlat = 90.0 - theta / np.pi * 180.0
     sm_lon = wrap_longitude_180_value(phi / np.pi * 180.0)
 
     north = remix_hemisphere_fields(
-        ion,
-        "NORTH",
-        coordinate_field,
-        mlat,
-        sm_lon,
-        tiegcm_lon,
-        tiegcm_lat,
-        event_time,
+        ion, "NORTH", coordinate_field, mlat, sm_lon, tiegcm_lon, tiegcm_lat, event_time
     )
     south = remix_hemisphere_fields(
-        ion,
-        "SOUTH",
-        coordinate_field,
-        mlat,
-        sm_lon,
-        tiegcm_lon,
-        tiegcm_lat,
-        event_time,
+        ion, "SOUTH", coordinate_field, mlat, sm_lon, tiegcm_lon, tiegcm_lat, event_time
     )
     return {key: merge_south_with_north(south[key], north[key]) for key in south}
 
@@ -512,11 +453,10 @@ def write_static_datasets(
     output.attrs["gamera_inner_index"] = int(args.inner_index)
     output.attrs["gamera_length_scale_m"] = float(args.gamera_length_scale_m)
     output.attrs["gamera_B_output"] = "Kaiju Bx/By/Bz total field, with B0 active"
-    output.attrs["prepared_B_output"] = "Bu/Bn/Be are perturbations from Bx/By/Bz minus Bx0/By0/Bz0"
-    for name, value in centered_dipole_alignment_attrs(
-        event_time,
-        args.gamera_mag_m0_nT,
-    ).items():
+    output.attrs["prepared_B_output"] = (
+        "Bu/Bn/Be are perturbations from Bx/By/Bz minus Bx0/By0/Bz0"
+    )
+    for name, value in centered_dipole_alignment_attrs(event_time, args.gamera_mag_m0_nT).items():
         output.attrs[name] = value
     if args.gamera_mag_m0_nT is not None:
         output.attrs["gamera_mag_m0_nT"] = float(args.gamera_mag_m0_nT)
@@ -529,6 +469,7 @@ def write_static_datasets(
 def prepare_forcing(args: argparse.Namespace) -> Path:
     """Prepare the HDF5 forcing file."""
     from netCDF4 import Dataset
+
     try:
         import kaipy.gamera.magsphere as msph
     except ModuleNotFoundError as exc:
@@ -555,16 +496,13 @@ def prepare_forcing(args: argparse.Namespace) -> Path:
     gsph = msph.GamsphPipe(str(gamera_run_dir), args.tag, doFast=False)
     if args.inner_index < 0 or args.inner_index >= gsph.X.shape[0] - 1:
         raise ValueError(
-            f"--inner-index must be between 0 and {gsph.X.shape[0] - 2}; "
-            f"got {args.inner_index}"
+            f"--inner-index must be between 0 and {gsph.X.shape[0] - 2}; got {args.inner_index}"
         )
     length_scale_m = gamera_length_scale_m(gsph)
     args.gamera_length_scale_m = length_scale_m
     args.gamera_mag_m0_nT = gamera_magnetic_moment_nT(gsph)
     with h5py.File(gsph.f0, "r") as root_file:
-        missing_background = [
-            name for name in ("Bx0", "By0", "Bz0") if name not in root_file
-        ]
+        missing_background = [name for name in ("Bx0", "By0", "Bz0") if name not in root_file]
         if missing_background:
             raise RuntimeError(
                 "This preparation path expects Kaiju background-field output. "
@@ -575,10 +513,7 @@ def prepare_forcing(args: argparse.Namespace) -> Path:
     print(f"Using GAMERA length scale: {length_scale_m:.6g} m", flush=True)
     if args.gamera_mag_m0_nT is not None:
         axes = gamera_internal_dipole_axes(args.gamera_mag_m0_nT)
-        print(
-            f"Using GAMERA dipole MagM0: {args.gamera_mag_m0_nT:.6g} nT",
-            flush=True,
-        )
+        print(f"Using GAMERA dipole MagM0: {args.gamera_mag_m0_nT:.6g} nT", flush=True)
         print(
             "GAMERA internal moment axis: "
             f"{axes['moment_axis'][0]:.3g}, {axes['moment_axis'][1]:.3g}, "
@@ -630,34 +565,23 @@ def prepare_forcing(args: argparse.Namespace) -> Path:
                 tiegcm_path,
             )
             create_output_datasets(
-                output,
-                n_steps,
-                tiegcm_lat.shape,
-                inner_lat.shape,
-                args.compression,
+                output, n_steps, tiegcm_lat.shape, inner_lat.shape, args.compression
             )
 
             for out_step in range(n_steps):
                 gamera_step = gsph.s0 + out_step + 1
                 event_time = gsph.UT[out_step + 1]
                 print(
-                    f"Preparing step {out_step + 1} of {n_steps}: "
-                    f"{event_time.isoformat()}",
+                    f"Preparing step {out_step + 1} of {n_steps}: {event_time.isoformat()}",
                     flush=True,
                 )
 
-                integrated = integrate_tiegcm_step(
-                    tiegcm, out_step, args.conductance_source
-                )
+                integrated = integrate_tiegcm_step(tiegcm, out_step, args.conductance_source)
                 for key, values in integrated.items():
                     output[key][out_step] = values
 
                 remix_values = remix_fields_for_step(
-                    remix_file,
-                    gamera_step,
-                    event_time,
-                    tiegcm_lon,
-                    tiegcm_lat,
+                    remix_file, gamera_step, event_time, tiegcm_lon, tiegcm_lat
                 )
                 for key, values in remix_values.items():
                     output[key][out_step] = values.astype(np.float32)
@@ -703,9 +627,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--tiegcm-nc", default=None, help="Explicit TIEGCM NetCDF path.")
     parser.add_argument(
-        "--output-dir",
-        default=str(DEFAULT_OUTPUT_DIR),
-        help="Directory for prepared HDF5 output.",
+        "--output-dir", default=str(DEFAULT_OUTPUT_DIR), help="Directory for prepared HDF5 output."
     )
     parser.add_argument(
         "--output-name", default=DEFAULT_OUTPUT_NAME, help="Prepared HDF5 filename."

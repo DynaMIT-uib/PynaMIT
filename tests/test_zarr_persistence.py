@@ -39,19 +39,14 @@ def _first_data_chunk(store: Path, variable_name: str) -> Path:
 def _build_state_timeseries() -> Timeseries:
     sh_basis = SHBasis(2, 1)
     return Timeseries(
-        {"state": FieldSpace(sh_basis, field_type="scalar")},
-        {"state": ("m_ind", "m_imp")},
+        {"state": FieldSpace(sh_basis, field_type="scalar")}, {"state": ("m_ind", "m_imp")}
     )
 
 
 def _add_state(ts: Timeseries, time: float, scale: float) -> None:
     n_coeffs = ts.get_field_space("state").index_length
     values = np.arange(n_coeffs, dtype=float) + scale
-    ts.add_entry(
-        "state",
-        {"m_ind": values, "m_imp": -values},
-        time,
-    )
+    ts.add_entry("state", {"m_ind": values, "m_imp": -values}, time)
 
 
 def _state_coefficients(dynamics: Dynamics) -> np.ndarray:
@@ -195,8 +190,7 @@ def test_timeseries_rewrites_zarr_for_same_time_replacement(tmp_path):
 
 
 @pytest.mark.parametrize(
-    ("backend", "data_source", "least_squares_solver"),
-    [("numpy", "fallback", "normal_pinv")],
+    ("backend", "data_source", "least_squares_solver"), [("numpy", "fallback", "normal_pinv")]
 )
 def test_run_pynamit_default_run_directories_are_isolated(
     backend, data_source, least_squares_solver
@@ -231,8 +225,7 @@ def test_run_pynamit_default_run_directories_are_isolated(
 
 
 @pytest.mark.parametrize(
-    ("backend", "data_source", "least_squares_solver"),
-    [("numpy", "fallback", "normal_pinv")],
+    ("backend", "data_source", "least_squares_solver"), [("numpy", "fallback", "normal_pinv")]
 )
 @pytest.mark.parametrize("artifact_storage", ["netcdf", "zarr"])
 def test_dynamics_restart_continues_to_match_direct_run(
@@ -255,9 +248,7 @@ def test_dynamics_restart_continues_to_match_direct_run(
         artifact_storage=artifact_storage,
     )
     direct = run_pynamit(
-        final_time=0.1,
-        run_directory=str(tmp_path / f"direct-{artifact_storage}"),
-        **common_kwargs,
+        final_time=0.1, run_directory=str(tmp_path / f"direct-{artifact_storage}"), **common_kwargs
     )
     partial_run_directory = tmp_path / f"restart-{artifact_storage}"
     run_pynamit(final_time=0.05, run_directory=str(partial_run_directory), **common_kwargs)

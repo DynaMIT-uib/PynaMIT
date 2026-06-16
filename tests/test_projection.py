@@ -192,26 +192,12 @@ def test_projection():
 
         Ax, Ay, Az = np.einsum("nij, nj -> ni", Pc, Axis).T
         axxyz1.quiver(
-            x.reshape(-1),
-            y.reshape(-1),
-            z.reshape(-1),
-            Ax,
-            Ay,
-            Az,
-            length=1e-1,
-            color=C,
+            x.reshape(-1), y.reshape(-1), z.reshape(-1), Ax, Ay, Az, length=1e-1, color=C
         )
 
         Ax, Ay, Az = np.einsum("nij, nj -> ni", Pc, Aetas).T
         axxyz2.quiver(
-            x.reshape(-1),
-            y.reshape(-1),
-            z.reshape(-1),
-            Ax,
-            Ay,
-            Az,
-            length=1e-1,
-            color=C,
+            x.reshape(-1), y.reshape(-1), z.reshape(-1), Ax, Ay, Az, length=1e-1, color=C
         )
 
     # Make Cartesian plots prettier.

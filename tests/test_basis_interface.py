@@ -60,9 +60,7 @@ def test_concrete_bases_implement_basis_interface():
     assert isinstance(sh_basis, SurfaceOperators)
     assert isinstance(cs_basis, SphericalBasis)
     assert isinstance(cs_basis, SurfaceOperators)
-    assert is_noop_linear_map(
-        cs_basis.get_scalar_evaluation_operator(cs_basis.native_grid)
-    )
+    assert is_noop_linear_map(cs_basis.get_scalar_evaluation_operator(cs_basis.native_grid))
     assert not is_noop_linear_map(sh_basis.get_scalar_evaluation_operator(cs_basis.native_grid))
     assert sh_basis.kind == "SH"
     assert cs_basis.kind == "CS"
@@ -117,16 +115,11 @@ def test_csbasis_native_grid_comparison_uses_grid_hash(monkeypatch):
     def fail_allclose(*args, **kwargs):
         raise AssertionError("Grid-native comparison should use coordinate hashes")
 
-    monkeypatch.setattr(
-        "pynamit.sphere.cubed_sphere.cs_basis.np.allclose",
-        fail_allclose,
-    )
+    monkeypatch.setattr("pynamit.sphere.cubed_sphere.cs_basis.np.allclose", fail_allclose)
 
     assert cs_basis._is_native_grid(grid)
     grid_like = type(
-        "GridLike",
-        (),
-        {"theta": cs_basis.arr_theta + 1e-10, "phi": cs_basis.arr_phi - 1e-10},
+        "GridLike", (), {"theta": cs_basis.arr_theta + 1e-10, "phi": cs_basis.arr_phi - 1e-10}
     )()
     assert cs_basis._is_native_grid(grid_like)
 
@@ -167,14 +160,8 @@ def test_surface_operator_builders_match_component_matrices():
     np.testing.assert_allclose(laplacian, cs_basis.laplacian())
 
     evaluator = SphericalTransform(cs_basis, grid)
-    np.testing.assert_allclose(
-        evaluator.scalar_coeffs_to_gridded_theta_derivative,
-        G_theta,
-    )
-    np.testing.assert_allclose(
-        evaluator.scalar_coeffs_to_gridded_phi_derivative,
-        G_phi,
-    )
+    np.testing.assert_allclose(evaluator.scalar_coeffs_to_gridded_theta_derivative, G_theta)
+    np.testing.assert_allclose(evaluator.scalar_coeffs_to_gridded_phi_derivative, G_phi)
 
 
 @pytest.mark.parametrize("basis_kind", ["CS", "SH"])
@@ -183,9 +170,7 @@ def test_helmholtz_divergence_and_radial_curl_are_laplacian_maps(basis_kind):
     basis = CSBasis(8) if basis_kind == "CS" else SHBasis(3, 2)
     laplacian = to_numpy(basis.get_surface_laplacian_matrix())
     curl_free_potential = to_numpy(basis.get_helmholtz_curl_free_potential_matrix())
-    divergence_free_potential = to_numpy(
-        basis.get_helmholtz_divergence_free_potential_matrix()
-    )
+    divergence_free_potential = to_numpy(basis.get_helmholtz_divergence_free_potential_matrix())
     divergence = to_numpy(basis.get_helmholtz_surface_divergence_matrix())
     radial_curl = to_numpy(basis.get_helmholtz_radial_curl_matrix())
     identity = np.eye(basis.index_length)
@@ -196,14 +181,8 @@ def test_helmholtz_divergence_and_radial_curl_are_laplacian_maps(basis_kind):
     assert divergence_free_potential.shape == (basis.index_length, 2, basis.index_length)
     assert divergence.shape == (basis.index_length, 2, basis.index_length)
     assert radial_curl.shape == (basis.index_length, 2, basis.index_length)
-    np.testing.assert_allclose(
-        curl_free_potential,
-        np.stack([identity, zeros], axis=1),
-    )
-    np.testing.assert_allclose(
-        divergence_free_potential,
-        np.stack([zeros, identity], axis=1),
-    )
+    np.testing.assert_allclose(curl_free_potential, np.stack([identity, zeros], axis=1))
+    np.testing.assert_allclose(divergence_free_potential, np.stack([zeros, identity], axis=1))
     np.testing.assert_allclose(divergence, np.stack([-laplacian, zeros], axis=1))
     np.testing.assert_allclose(radial_curl, np.stack([zeros, laplacian], axis=1))
 
@@ -217,17 +196,13 @@ def test_helmholtz_divergence_and_radial_curl_are_laplacian_maps(basis_kind):
     actual_curl_free = basis.get_helmholtz_curl_free_potential_operator().matvec(
         coeffs.reshape(-1)
     )
-    actual_divergence_free = (
-        basis.get_helmholtz_divergence_free_potential_operator().matvec(
-            coeffs.reshape(-1)
-        )
+    actual_divergence_free = basis.get_helmholtz_divergence_free_potential_operator().matvec(
+        coeffs.reshape(-1)
     )
     actual_divergence = basis.get_helmholtz_surface_divergence_operator().matvec(
         coeffs.reshape(-1)
     )
-    actual_radial_curl = basis.get_helmholtz_radial_curl_operator().matvec(
-        coeffs.reshape(-1)
-    )
+    actual_radial_curl = basis.get_helmholtz_radial_curl_operator().matvec(coeffs.reshape(-1))
     np.testing.assert_allclose(to_numpy(actual_curl_free), expected_curl_free)
     np.testing.assert_allclose(to_numpy(actual_divergence_free), expected_divergence_free)
     np.testing.assert_allclose(to_numpy(actual_divergence), expected_divergence)
@@ -240,28 +215,20 @@ def test_solid_harmonics_match_reference_radius_shift_formulas():
     solid_harmonics = SolidHarmonics(sh_basis)
 
     np.testing.assert_allclose(
-        solid_harmonics.regular_reference_shift(2.0, 3.0),
-        (2.0 / 3.0) ** (1 - sh_basis.n),
+        solid_harmonics.regular_reference_shift(2.0, 3.0), (2.0 / 3.0) ** (1 - sh_basis.n)
     )
     np.testing.assert_allclose(
-        solid_harmonics.irregular_reference_shift(2.0, 3.0),
-        (2.0 / 3.0) ** (sh_basis.n + 2),
+        solid_harmonics.irregular_reference_shift(2.0, 3.0), (2.0 / 3.0) ** (sh_basis.n + 2)
     )
     np.testing.assert_allclose(
-        solid_harmonics.poloidal_to_regular_potential_factor,
-        -(sh_basis.n + 1),
+        solid_harmonics.poloidal_to_regular_potential_factor, -(sh_basis.n + 1)
+    )
+    np.testing.assert_allclose(solid_harmonics.poloidal_to_irregular_potential_factor, sh_basis.n)
+    np.testing.assert_allclose(
+        solid_harmonics.poloidal_to_boundary_potential_jump_factor, 2 * sh_basis.n + 1
     )
     np.testing.assert_allclose(
-        solid_harmonics.poloidal_to_irregular_potential_factor,
-        sh_basis.n,
-    )
-    np.testing.assert_allclose(
-        solid_harmonics.poloidal_to_boundary_potential_jump_factor,
-        2 * sh_basis.n + 1,
-    )
-    np.testing.assert_allclose(
-        solid_harmonics.poloidal_to_boundary_potential_jump(7.0),
-        7.0 * (2 * sh_basis.n + 1),
+        solid_harmonics.poloidal_to_boundary_potential_jump(7.0), 7.0 * (2 * sh_basis.n + 1)
     )
     np.testing.assert_allclose(
         -sh_basis.n * solid_harmonics.poloidal_to_regular_potential_factor,
@@ -317,9 +284,7 @@ def test_csbasis_local_metric_factors_match_gnomonic_mapping():
     cs_basis = CSBasis(16)
     xi, eta = cs_basis.arr_xi, cs_basis.arr_eta
     delta = cs_basis.get_delta(xi, eta)
-    expected_sqrt_detg = 1.0 / (
-        np.cos(xi) ** 2 * np.cos(eta) ** 2 * delta**1.5
-    )
+    expected_sqrt_detg = 1.0 / (np.cos(xi) ** 2 * np.cos(eta) ** 2 * delta**1.5)
     g_covariant = cs_basis.get_metric_tensor(xi, eta)
     g_contravariant = cs_basis.get_metric_tensor(xi, eta, covariant=False)
     identity = np.einsum("nij,njk->nik", g_covariant, g_contravariant)
@@ -361,11 +326,7 @@ def test_csbasis_non_native_scalar_evaluation_uses_interpolation():
 
     G = cs_basis.evaluate_on_grid(target)
     expected = cs_basis.interpolate_scalar(
-        coeffs,
-        cs_basis.arr_theta,
-        cs_basis.arr_phi,
-        target.theta,
-        target.phi,
+        coeffs, cs_basis.arr_theta, cs_basis.arr_phi, target.theta, target.phi
     )
 
     np.testing.assert_allclose(G @ coeffs, expected)
@@ -417,29 +378,15 @@ def test_csbasis_multi_vector_interpolation_matches_per_field_calls():
         deg=True,
     )
     fields_east = np.stack(
-        [
-            np.sin(np.deg2rad(cs_basis.arr_theta)),
-            np.cos(np.deg2rad(cs_basis.arr_phi)),
-        ],
-        axis=-1,
+        [np.sin(np.deg2rad(cs_basis.arr_theta)), np.cos(np.deg2rad(cs_basis.arr_phi))], axis=-1
     )
     fields_north = np.stack(
-        [
-            np.cos(np.deg2rad(cs_basis.arr_theta)),
-            np.sin(np.deg2rad(cs_basis.arr_phi)),
-        ],
-        axis=-1,
+        [np.cos(np.deg2rad(cs_basis.arr_theta)), np.sin(np.deg2rad(cs_basis.arr_phi))], axis=-1
     )
     fields_radial = np.zeros_like(fields_east)
 
     multi = cs_basis.interpolate_vector_components(
-        fields_east,
-        fields_north,
-        fields_radial,
-        cs_basis.arr_theta,
-        cs_basis.arr_phi,
-        theta,
-        phi,
+        fields_east, fields_north, fields_radial, cs_basis.arr_theta, cs_basis.arr_phi, theta, phi
     )
     per_field = [
         cs_basis.interpolate_vector_components(
@@ -455,20 +402,14 @@ def test_csbasis_multi_vector_interpolation_matches_per_field_calls():
     ]
 
     for component_index in range(3):
-        expected = np.stack(
-            [field[component_index] for field in per_field],
-            axis=-1,
-        )
+        expected = np.stack([field[component_index] for field in per_field], axis=-1)
         np.testing.assert_allclose(multi[component_index], expected)
 
 
 def test_spherical_transform_contract_scalar_coeffs_to_grid_matches_explicit_products():
     """Scalar grid contraction matches explicit operators."""
     cs_basis = CSBasis(8)
-    evaluator = SphericalTransform(
-        cs_basis,
-        Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi),
-    )
+    evaluator = SphericalTransform(cs_basis, Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi))
     vector = np.linspace(1.0, 2.0, cs_basis.index_length)
     matrix = np.diag(vector)
 
@@ -481,8 +422,7 @@ def test_spherical_transform_contract_scalar_coeffs_to_grid_matches_explicit_pro
         evaluator.scalar_coeffs_to_grid * vector.reshape((1, -1)),
     )
     np.testing.assert_allclose(
-        evaluator.contract_scalar_coeffs_to_grid(matrix),
-        evaluator.scalar_coeffs_to_grid @ matrix,
+        evaluator.contract_scalar_coeffs_to_grid(matrix), evaluator.scalar_coeffs_to_grid @ matrix
     )
     np.testing.assert_allclose(
         evaluator.contract_scalar_coeffs_to_grid(as_linear_map(csr_matrix(matrix))),
@@ -495,10 +435,7 @@ def test_spherical_transform_contract_scalar_coeffs_to_grid_matches_explicit_pro
 def test_spherical_transform_contract_scalar_coeffs_uses_operator_actions():
     """Scalar grid contraction can use a structured right operator."""
     cs_basis = CSBasis(8)
-    evaluator = SphericalTransform(
-        cs_basis,
-        Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi),
-    )
+    evaluator = SphericalTransform(cs_basis, Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi))
     rng = np.random.default_rng(1)
     matrix = rng.normal(size=(cs_basis.index_length, 3)) + 1j * rng.normal(
         size=(cs_basis.index_length, 3)
@@ -511,13 +448,9 @@ def test_spherical_transform_contract_scalar_coeffs_uses_operator_actions():
         shape=matrix.shape,
         dtype=matrix.dtype,
         _matvec=lambda x: matrix @ np.asarray(x).reshape(3),
-        _rmatvec=lambda y: matrix.conj().T @ np.asarray(y).reshape(
-            cs_basis.index_length
-        ),
+        _rmatvec=lambda y: matrix.conj().T @ np.asarray(y).reshape(cs_basis.index_length),
         _matmat=lambda x: matrix @ np.asarray(x).reshape(3, -1),
-        _rmatmat=lambda y: matrix.conj().T @ np.asarray(y).reshape(
-            cs_basis.index_length, -1
-        ),
+        _rmatmat=lambda y: matrix.conj().T @ np.asarray(y).reshape(cs_basis.index_length, -1),
         _dense_array_func=fail_dense,
         input_shape=(3,),
         output_shape=(cs_basis.index_length,),
@@ -532,14 +465,11 @@ def test_spherical_transform_contract_scalar_coeffs_uses_operator_actions():
 def test_spherical_transform_contract_scalar_coeffs_skips_diagonal_probe():
     """Square non-diagonal maps should not densify."""
     cs_basis = CSBasis(8)
-    evaluator = SphericalTransform(
-        cs_basis,
-        Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi),
-    )
+    evaluator = SphericalTransform(cs_basis, Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi))
     rng = np.random.default_rng(2)
-    matrix = rng.normal(
+    matrix = rng.normal(size=(cs_basis.index_length, cs_basis.index_length)) + 1j * rng.normal(
         size=(cs_basis.index_length, cs_basis.index_length)
-    ) + 1j * rng.normal(size=(cs_basis.index_length, cs_basis.index_length))
+    )
 
     def fail_dense(_xp):
         raise AssertionError("contract_scalar_coeffs_to_grid should not densify")
@@ -548,11 +478,9 @@ def test_spherical_transform_contract_scalar_coeffs_skips_diagonal_probe():
         shape=matrix.shape,
         dtype=matrix.dtype,
         _matvec=lambda x: matrix @ np.asarray(x).reshape(cs_basis.index_length),
-        _rmatvec=lambda y: matrix.conj().T
-        @ np.asarray(y).reshape(cs_basis.index_length),
+        _rmatvec=lambda y: matrix.conj().T @ np.asarray(y).reshape(cs_basis.index_length),
         _matmat=lambda x: matrix @ np.asarray(x).reshape(cs_basis.index_length, -1),
-        _rmatmat=lambda y: matrix.conj().T
-        @ np.asarray(y).reshape(cs_basis.index_length, -1),
+        _rmatmat=lambda y: matrix.conj().T @ np.asarray(y).reshape(cs_basis.index_length, -1),
         _dense_array_func=fail_dense,
         input_shape=(cs_basis.index_length,),
         output_shape=(cs_basis.index_length,),
@@ -568,9 +496,7 @@ def test_grid_basis_regularization_requires_degree_metadata():
     """Degree-weighted regularization declares basis support."""
     cs_basis = CSBasis(8)
     evaluator = SphericalTransform(
-        cs_basis,
-        Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi),
-        reg_lambda=1.0,
+        cs_basis, Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi), reg_lambda=1.0
     )
 
     with pytest.raises(NotImplementedError, match="requires basis.n"):
@@ -582,44 +508,24 @@ def test_grid_basis_regularization_requires_degree_metadata():
 def test_area_weight_defaults_use_grid_areas_or_sin_theta():
     """Default area weights use CS areas or sin(theta) grid weights."""
     cs_basis = CSBasis(4)
-    cs_grid = Grid(
-        theta=cs_basis.arr_theta,
-        phi=cs_basis.arr_phi,
-        area_weights=cs_basis.unit_area,
-    )
-    regular_grid = Grid(
-        theta=np.array([30.0, 90.0, 150.0]),
-        phi=np.array([0.0, 90.0, 180.0]),
-    )
+    cs_grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi, area_weights=cs_basis.unit_area)
+    regular_grid = Grid(theta=np.array([30.0, 90.0, 150.0]), phi=np.array([0.0, 90.0, 180.0]))
 
+    np.testing.assert_allclose(grid_sqrt_area_weights(cs_grid), np.sqrt(cs_basis.unit_area))
     np.testing.assert_allclose(
-        grid_sqrt_area_weights(cs_grid),
-        np.sqrt(cs_basis.unit_area),
-    )
-    np.testing.assert_allclose(
-        grid_sqrt_area_weights(regular_grid),
-        np.sqrt(np.sin(np.deg2rad(regular_grid.theta))),
+        grid_sqrt_area_weights(regular_grid), np.sqrt(np.sin(np.deg2rad(regular_grid.theta)))
     )
 
 
 def test_area_weight_option_and_explicit_weights_override():
     """Global area weighting is used only without explicit weights."""
     cs_basis = CSBasis(4)
-    grid = Grid(
-        theta=cs_basis.arr_theta,
-        phi=cs_basis.arr_phi,
-        area_weights=cs_basis.unit_area,
-    )
+    grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi, area_weights=cs_basis.unit_area)
     explicit = np.linspace(1.0, 2.0, grid.size)
 
     unweighted = SphericalTransform(cs_basis, grid, area_weighted=False)
     weighted = SphericalTransform(cs_basis, grid, area_weighted=True)
-    overridden = SphericalTransform(
-        cs_basis,
-        grid,
-        sqrt_weights=explicit,
-        area_weighted=True,
-    )
+    overridden = SphericalTransform(cs_basis, grid, sqrt_weights=explicit, area_weighted=True)
 
     assert unweighted.sqrt_weights is None
     np.testing.assert_allclose(weighted.sqrt_weights, np.sqrt(cs_basis.unit_area))
@@ -628,32 +534,19 @@ def test_area_weight_option_and_explicit_weights_override():
         resolve_sqrt_weights(grid, area_weighted=True, vector=True),
         np.tile(np.sqrt(cs_basis.unit_area), (2, 1)),
     )
-    assert resolve_sqrt_weights(
-        grid,
-        sqrt_weights=explicit,
-        area_weighted=True,
-        vector=True,
-    ) is explicit
+    assert (
+        resolve_sqrt_weights(grid, sqrt_weights=explicit, area_weighted=True, vector=True)
+        is explicit
+    )
 
 
 def test_weighted_tensor_pinv_matches_explicit_weighted_least_squares():
     """Weighted pseudoinverse solves weighted normal equations."""
-    A = np.array(
-        [
-            [1.0, 0.0],
-            [1.0, 1.0],
-            [1.0, 2.0],
-            [1.0, 3.0],
-        ]
-    )
+    A = np.array([[1.0, 0.0], [1.0, 1.0], [1.0, 2.0], [1.0, 3.0]])
     sqrt_weights = np.array([1.0, 1.5, 2.0, 2.5])
     weight_matrix = np.diag(sqrt_weights**2)
 
-    actual = weighted_tensor_pinv(
-        A,
-        sqrt_weights=sqrt_weights,
-        n_leading_flattened=1,
-    )
+    actual = weighted_tensor_pinv(A, sqrt_weights=sqrt_weights, n_leading_flattened=1)
     expected = np.linalg.solve(A.T @ weight_matrix @ A, A.T @ weight_matrix)
 
     np.testing.assert_allclose(actual, expected)
@@ -737,14 +630,11 @@ def test_csbasis_mean_free_projection_is_area_weighted_and_operator_preserving()
     projected = cs_basis.project_scalar_mean_free(values)
 
     np.testing.assert_allclose(
-        cs_basis.scalar_mean_weights,
-        cs_basis.unit_area / np.sum(cs_basis.unit_area),
+        cs_basis.scalar_mean_weights, cs_basis.unit_area / np.sum(cs_basis.unit_area)
     )
     assert cs_basis.scalar_mean(projected) == pytest.approx(0.0, abs=1e-14)
     np.testing.assert_allclose(
-        cs_basis.laplacian() @ projected,
-        cs_basis.laplacian() @ values,
-        atol=1e-10,
+        cs_basis.laplacian() @ projected, cs_basis.laplacian() @ values, atol=1e-10
     )
 
     grid = type("GridLike", (), {"theta": cs_basis.arr_theta, "phi": cs_basis.arr_phi})()
@@ -784,9 +674,7 @@ def test_csbasis_surface_operators_preserve_jax_inputs():
         set_backend("jax")
         cs_basis = CSBasis(4)
         grid = type(
-            "GridLike",
-            (),
-            {"theta": to_jax(cs_basis.arr_theta), "phi": to_jax(cs_basis.arr_phi)},
+            "GridLike", (), {"theta": to_jax(cs_basis.arr_theta), "phi": to_jax(cs_basis.arr_phi)}
         )()
         values = to_jax(np.arange(cs_basis.index_length, dtype=float))
 
@@ -797,8 +685,7 @@ def test_csbasis_surface_operators_preserve_jax_inputs():
         assert "jax" in type(cs_basis.laplacian()).__module__
         assert "jax" in type(laplacian_values).__module__
         np.testing.assert_allclose(
-            to_numpy(laplacian_values),
-            to_numpy(cs_basis.laplacian()) @ to_numpy(values),
+            to_numpy(laplacian_values), to_numpy(cs_basis.laplacian()) @ to_numpy(values)
         )
     finally:
         set_backend(previous_backend)
@@ -821,9 +708,7 @@ def test_shbasis_surface_operators_preserve_jax_inputs():
         G = sh_basis.evaluate_on_grid(grid)
         grid_values = sh_basis.get_scalar_evaluation_operator(grid).matvec(values)
         shifted = (
-            SolidHarmonics(sh_basis)
-            .get_regular_reference_shift_operator(2.0, 3.0)
-            .matvec(values)
+            SolidHarmonics(sh_basis).get_regular_reference_shift_operator(2.0, 3.0).matvec(values)
         )
 
         assert "jax" in type(G).__module__
@@ -869,8 +754,7 @@ def test_shbasis_mean_free_view_slices_parent_operators():
     np.testing.assert_array_equal(view.index_arrays[1], direct_mean_free.index_arrays[1])
     np.testing.assert_allclose(view.evaluate_on_grid(grid), full.evaluate_on_grid(grid)[:, 1:])
     np.testing.assert_allclose(
-        view.evaluate_on_grid(grid),
-        direct_mean_free.evaluate_on_grid(grid),
+        view.evaluate_on_grid(grid), direct_mean_free.evaluate_on_grid(grid)
     )
     np.testing.assert_allclose(view.laplacian(), direct_mean_free.laplacian())
     view_solid_harmonics = SolidHarmonics(view)
@@ -902,17 +786,13 @@ def test_basis_view_slices_cs_surface_operators():
     np.testing.assert_allclose(view.index_arrays[0], cs_basis.arr_theta[indices])
     np.testing.assert_allclose(view.index_arrays[1], cs_basis.arr_phi[indices])
     np.testing.assert_allclose(
-        view.evaluate_on_grid(grid),
-        cs_basis.evaluate_on_grid(grid)[:, indices],
+        view.evaluate_on_grid(grid), cs_basis.evaluate_on_grid(grid)[:, indices]
     )
     np.testing.assert_allclose(
         view.get_surface_gradient_matrix(grid),
         cs_basis.get_surface_gradient_matrix(grid)[:, :, indices],
     )
-    np.testing.assert_allclose(
-        view.laplacian(),
-        cs_basis.laplacian()[np.ix_(indices, indices)],
-    )
+    np.testing.assert_allclose(view.laplacian(), cs_basis.laplacian()[np.ix_(indices, indices)])
     with pytest.raises(TypeError, match="SH surface basis"):
         SolidHarmonics(view)
 
@@ -960,12 +840,11 @@ def test_csbasis_reuses_native_operator_cache():
         grid
     ) is cs_basis.get_scalar_evaluation_operator(same_grid)
     assert cs_basis.get_scalar_evaluation_operator(
-        grid,
-        derivative="theta",
+        grid, derivative="theta"
     ) is cs_basis.get_scalar_evaluation_operator(same_grid, derivative="theta")
-    assert cs_basis.get_surface_gradient_operator(
-        grid
-    ) is cs_basis.get_surface_gradient_operator(same_grid)
+    assert cs_basis.get_surface_gradient_operator(grid) is cs_basis.get_surface_gradient_operator(
+        same_grid
+    )
     assert cs_basis.get_rhat_cross_gradient_operator(
         grid
     ) is cs_basis.get_rhat_cross_gradient_operator(same_grid)

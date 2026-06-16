@@ -66,9 +66,7 @@ class SavedRunView:
         if require_pfac_matrix or build_geometry:
             pfac_matrix = io.load_dataarray("PFAC_matrix", print_info=print_info)
             if pfac_matrix is None:
-                raise ValueError(
-                    f"No saved 'PFAC_matrix' data array exists at {run_directory!r}"
-                )
+                raise ValueError(f"No saved 'PFAC_matrix' data array exists at {run_directory!r}")
 
         geometry = None
         if build_geometry:

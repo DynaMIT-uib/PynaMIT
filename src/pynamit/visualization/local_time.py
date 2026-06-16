@@ -14,10 +14,7 @@ from pynamit.coordinates import (
 )
 
 
-def local_time_grid_longitudes(
-    reference_time,
-    hours=DEFAULT_LOCAL_TIME_GRID_HOURS,
-):
+def local_time_grid_longitudes(reference_time, hours=DEFAULT_LOCAL_TIME_GRID_HOURS):
     """Return geographic longitudes for selected local-time ticks."""
     return local_time_hours_to_longitude(np.asarray(hours, dtype=float), reference_time)
 
@@ -34,19 +31,12 @@ def make_local_time_longitude_formatter(reference_time):
     from matplotlib.ticker import FuncFormatter
 
     return FuncFormatter(
-        lambda lon, pos: format_local_time_longitude_label(
-            lon,
-            pos,
-            reference_time=reference_time,
-        )
+        lambda lon, pos: format_local_time_longitude_label(lon, pos, reference_time=reference_time)
     )
 
 
 def apply_local_time_grid_labels(
-    gridliner,
-    *,
-    reference_time,
-    hours=DEFAULT_LOCAL_TIME_GRID_HOURS,
+    gridliner, *, reference_time, hours=DEFAULT_LOCAL_TIME_GRID_HOURS
 ):
     """Apply local-time longitudes and labels to a Cartopy gridliner."""
     from matplotlib.ticker import FixedLocator

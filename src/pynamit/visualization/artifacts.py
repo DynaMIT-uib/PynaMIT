@@ -49,9 +49,7 @@ def load_dataarray_artifact(path):
             dataset = xr.open_zarr(resolved, **ZARR_OPEN_KWARGS)
         data_vars = list(dataset.data_vars)
         if len(data_vars) != 1:
-            raise ValueError(
-                f"Expected one data variable in {resolved!r}, found {data_vars}."
-            )
+            raise ValueError(f"Expected one data variable in {resolved!r}, found {data_vars}.")
         return dataset[data_vars[0]]
     return xr.load_dataarray(resolved)
 

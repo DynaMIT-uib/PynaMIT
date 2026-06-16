@@ -39,25 +39,19 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
     assert dynamics.solid_harmonics.basis is not dynamics.horizontal_basis
     assert dynamics.horizontal_spherical_transform is dynamics.state.geometry.spherical_transform
     assert (
-        dynamics.state.geometry.spherical_transform_zero_added.source
-        is dynamics.horizontal_basis
+        dynamics.state.geometry.spherical_transform_zero_added.source is dynamics.horizontal_basis
     )
     assert dynamics.output_field_spaces["state"].representation is dynamics.horizontal_basis
 
     geometry = dynamics.state.geometry
     spherical_transform = geometry.spherical_transform
-    expected_helmholtz = dynamics.horizontal_basis.get_helmholtz_synthesis_matrix(
-        geometry.grid
-    )
+    expected_helmholtz = dynamics.horizontal_basis.get_helmholtz_synthesis_matrix(geometry.grid)
     np.testing.assert_allclose(
-        spherical_transform.helmholtz_coeffs_to_gridded_vector,
-        expected_helmholtz,
+        spherical_transform.helmholtz_coeffs_to_gridded_vector, expected_helmholtz
     )
     np.testing.assert_allclose(
         geometry.surface_laplacian_operator.to_matrix(backend="numpy"),
-        dynamics.horizontal_basis.get_surface_laplacian_matrix(
-            geometry.RI
-        ),
+        dynamics.horizontal_basis.get_surface_laplacian_matrix(geometry.RI),
     )
     assert geometry._poloidal_to_boundary_potential_jump_factor is None
     assert geometry._horizontal_to_boundary_potential_jump_factor is None
@@ -103,12 +97,7 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
     assert "CS_m_ind" in state
     assert "CS_m_imp" in state
 
-    coeff_array = np.hstack(
-        (
-            state["CS_m_ind"].values[-1],
-            state["CS_m_imp"].values[-1],
-        )
-    )
+    coeff_array = np.hstack((state["CS_m_ind"].values[-1], state["CS_m_imp"].values[-1]))
 
     actual_coeff_norm = np.linalg.norm(coeff_array)
     actual_coeff_max = np.max(coeff_array)

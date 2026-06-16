@@ -62,10 +62,7 @@ def test_simulation_config_dataset_roundtrip_preserves_stored_sentinels():
     assert restored.area_weighted_least_squares
     assert restored.static_preconditioner
     assert restored.m_imp_regularization_lambda == pytest.approx(1e-3)
-    np.testing.assert_allclose(
-        restored.FAC_integration_steps,
-        config.FAC_integration_steps,
-    )
+    np.testing.assert_allclose(restored.FAC_integration_steps, config.FAC_integration_steps)
 
 
 def test_simulation_config_from_minimal_settings_accepts_missing_defaults():
@@ -92,14 +89,7 @@ def test_simulation_config_preserves_decimal_mainfield_epoch():
 
 def test_simulation_config_from_settings_rejects_conflicting_override():
     """Explicit overrides must agree with stored settings."""
-    settings = xr.Dataset(
-        attrs={
-            "Nmax": 3,
-            "Mmax": 2,
-            "Ncs": 4,
-            "horizontal_basis_kind": "CS",
-        }
-    )
+    settings = xr.Dataset(attrs={"Nmax": 3, "Mmax": 2, "Ncs": 4, "horizontal_basis_kind": "CS"})
 
     with pytest.raises(ValueError, match="horizontal_basis_kind"):
         SimulationConfig.from_settings(settings, horizontal_basis_kind="SH")

@@ -73,9 +73,7 @@ dynamics.state.update_E()
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
 plt_grid = pynamit.Grid(lat=lat, lon=lon)
-plt_state_evaluator = pynamit.SphericalTransform(
-    dynamics.horizontal_basis, plt_grid
-)
+plt_state_evaluator = pynamit.SphericalTransform(dynamics.horizontal_basis, plt_grid)
 
 G_Br = plt_state_evaluator.contract_scalar_coeffs_to_grid(dynamics.state.m_ind_to_Br)
 Br = G_Br.dot(dynamics.state.geometry.T_to_Ve.dot(dynamics.state.m_imp.array))

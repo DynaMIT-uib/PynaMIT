@@ -29,9 +29,7 @@ from pynamit.math.tensor_operations import weighted_tensor_pinv
 from pynamit.simulation.config import setting_value
 from pynamit.simulation.mainfield import is_dipole_kind
 from pynamit.simulation import sheet_current as sheet_current_ops
-from pynamit.simulation.sheet_current import (
-    coefficient_scale_values as _coefficient_scale_values,
-)
+from pynamit.simulation.sheet_current import coefficient_scale_values as _coefficient_scale_values
 from pynamit.sphere import CSBasis, is_sh_basis
 
 logger = logging.getLogger(__name__)
@@ -104,9 +102,7 @@ class Geometry:
         else:
             self._T_to_Ve: Optional[xr.DataArray] = None
 
-        self.surface_laplacian_operator = self.basis.get_surface_laplacian_operator(
-            self.RI
-        )
+        self.surface_laplacian_operator = self.basis.get_surface_laplacian_operator(self.RI)
         self._helmholtz_curl_free_potential = None
         self.helmholtz_curl_free_potential_operator = (
             self.basis.get_helmholtz_curl_free_potential_operator()
@@ -159,9 +155,7 @@ class Geometry:
         """Return the explicit horizontal-to-solid matrix."""
         if self._horizontal_to_solid_harmonic is None:
             self._horizontal_to_solid_harmonic = np.asarray(
-                self.horizontal_to_solid_harmonic_operator.to_matrix(
-                    backend="numpy"
-                )
+                self.horizontal_to_solid_harmonic_operator.to_matrix(backend="numpy")
             )
         return self._horizontal_to_solid_harmonic
 
@@ -170,9 +164,7 @@ class Geometry:
         """Return the explicit solid-to-horizontal matrix."""
         if self._solid_harmonic_to_horizontal is None:
             self._solid_harmonic_to_horizontal = np.asarray(
-                self.solid_harmonic_to_horizontal_operator.to_matrix(
-                    backend="numpy"
-                )
+                self.solid_harmonic_to_horizontal_operator.to_matrix(backend="numpy")
             )
         return self._solid_harmonic_to_horizontal
 
@@ -180,9 +172,7 @@ class Geometry:
     def helmholtz_curl_free_potential(self) -> np.ndarray:
         """Return the curl-free Helmholtz-potential selector."""
         if self._helmholtz_curl_free_potential is None:
-            self._helmholtz_curl_free_potential = (
-                self.helmholtz_curl_free_potential_operator.array
-            )
+            self._helmholtz_curl_free_potential = self.helmholtz_curl_free_potential_operator.array
         return self._helmholtz_curl_free_potential
 
     @property
@@ -217,9 +207,7 @@ class Geometry:
         """Return the explicit solid-harmonic jump-factor matrix."""
         if self._poloidal_to_boundary_potential_jump_factor is None:
             self._poloidal_to_boundary_potential_jump_factor = np.asarray(
-                self.poloidal_to_boundary_potential_jump_factor_operator.to_matrix(
-                    backend="numpy"
-                )
+                self.poloidal_to_boundary_potential_jump_factor_operator.to_matrix(backend="numpy")
             ).copy()
         return self._poloidal_to_boundary_potential_jump_factor
 
@@ -263,9 +251,7 @@ class Geometry:
     def _init_evaluators(self, cs_basis: CSBasis) -> None:
         """Set up grid, spherical transforms, and field evaluators."""
         self.grid = Grid(
-            theta=cs_basis.arr_theta,
-            phi=cs_basis.arr_phi,
-            area_weights=cs_basis.unit_area,
+            theta=cs_basis.arr_theta, phi=cs_basis.arr_phi, area_weights=cs_basis.unit_area
         )
         self.spherical_transform = SphericalTransform(
             self.basis, self.grid, area_weighted=self.area_weighted_least_squares
@@ -302,9 +288,7 @@ class Geometry:
     def grid_sqrt_weights(self, *, vector=False):
         """Return grid sqrt weights when area weighting is enabled."""
         return resolve_sqrt_weights(
-            self.grid,
-            area_weighted=self.area_weighted_least_squares,
-            vector=vector,
+            self.grid, area_weighted=self.area_weighted_least_squares, vector=vector
         )
 
     def _build_horizontal_to_solid_harmonic_operator(self):
@@ -321,9 +305,7 @@ class Geometry:
         solid_to_grid = self.solid_harmonic_transform.scalar_coeffs_to_grid
         horizontal_to_grid = self.spherical_transform.scalar_coeffs_to_grid
         grid_to_solid = weighted_tensor_pinv(
-            solid_to_grid,
-            sqrt_weights=self.grid_sqrt_weights(),
-            n_leading_flattened=1,
+            solid_to_grid, sqrt_weights=self.grid_sqrt_weights(), n_leading_flattened=1
         )
         return as_linear_map(
             np.asarray(grid_to_solid @ horizontal_to_grid),
@@ -338,9 +320,7 @@ class Geometry:
         horizontal_to_grid = self.spherical_transform.scalar_coeffs_to_grid
         solid_to_grid = self.solid_harmonic_transform.scalar_coeffs_to_grid
         grid_to_horizontal = weighted_tensor_pinv(
-            horizontal_to_grid,
-            sqrt_weights=self.grid_sqrt_weights(),
-            n_leading_flattened=1,
+            horizontal_to_grid, sqrt_weights=self.grid_sqrt_weights(), n_leading_flattened=1
         )
         return as_linear_map(
             np.asarray(grid_to_horizontal @ solid_to_grid),
@@ -356,16 +336,10 @@ class Geometry:
 
     def solid_transform_for(self, transform: SphericalTransform) -> SphericalTransform:
         """Return a solid transform for ``transform.target``."""
-        if self.solid_harmonics.basis.coefficients_are_compatible_with(
-            transform.source
-        ):
+        if self.solid_harmonics.basis.coefficients_are_compatible_with(transform.source):
             return transform
         cache_key = (
-            getattr(
-                self.solid_harmonics.basis,
-                "signature",
-                id(self.solid_harmonics.basis),
-            ),
+            getattr(self.solid_harmonics.basis, "signature", id(self.solid_harmonics.basis)),
             transform.target.signature,
             self.area_weighted_least_squares,
         )
@@ -421,11 +395,7 @@ class Geometry:
         """Map solid-harmonic coefficient rows to horizontal rows."""
         if self._horizontal_solid_projection_is_identity:
             return values
-        return np.tensordot(
-            self.solid_harmonic_to_horizontal,
-            values,
-            axes=([1], [0]),
-        )
+        return np.tensordot(self.solid_harmonic_to_horizontal, values, axes=([1], [0]))
 
     def _init_constraint_mappings(self) -> None:
         """Initialize geometric operators related to constraints."""
@@ -441,9 +411,7 @@ class Geometry:
             self.ll_mask = np.zeros(self.grid.size, dtype=bool)
 
         self._jr_coeffs_to_j_apex = None
-        self.jr_coeffs_to_j_apex_operator = (
-            self._build_jr_coeffs_to_j_apex_operator()
-        )
+        self.jr_coeffs_to_j_apex_operator = self._build_jr_coeffs_to_j_apex_operator()
         self._E_coeffs_to_E_apex_ll_diff = None
         self.E_coeffs_to_E_apex_ll_diff_operator = None
 
@@ -454,13 +422,9 @@ class Geometry:
                 evaluator=self.cp_b_evaluator,
                 output_scale=self.ll_mask,
             )
-            self.jr_coeffs_to_j_apex_operator = (
-                self.jr_coeffs_to_j_apex_operator - cp_operator
-            )
+            self.jr_coeffs_to_j_apex_operator = self.jr_coeffs_to_j_apex_operator - cp_operator
 
-            e_to_apex = self._build_E_coeffs_to_E_apex_operator(
-                output_mask=self.ll_mask,
-            )
+            e_to_apex = self._build_E_coeffs_to_E_apex_operator(output_mask=self.ll_mask)
             e_to_apex_cp = self._build_E_coeffs_to_E_apex_operator(
                 transform=self.cp_spherical_transform,
                 evaluator=self.cp_b_evaluator,
@@ -469,11 +433,7 @@ class Geometry:
             self.E_coeffs_to_E_apex_ll_diff_operator = e_to_apex - e_to_apex_cp
 
     def _build_jr_coeffs_to_j_apex_operator(
-        self,
-        *,
-        transform=None,
-        evaluator=None,
-        output_scale=None,
+        self, *, transform=None, evaluator=None, output_scale=None
     ):
         """Return radial-current coefficients mapped to apex current."""
         transform = self.spherical_transform if transform is None else transform
@@ -489,11 +449,7 @@ class Geometry:
         return scale_operator @ transform.scalar_coeffs_to_grid_operator
 
     def _build_horizontal_grid_to_apex_operator(
-        self,
-        *,
-        evaluator=None,
-        grid=None,
-        output_mask=None,
+        self, *, evaluator=None, grid=None, output_mask=None
     ) -> LinearMap:
         """Return horizontal grid vectors mapped to apex components."""
         evaluator = self.b_evaluator if evaluator is None else evaluator
@@ -512,28 +468,20 @@ class Geometry:
         if indices.size == n_grid and np.array_equal(indices, np.arange(n_grid)):
             return apex_rotation
 
-        grid_selection = take_linear_map(
-            (2, n_grid),
-            indices,
-            axis=1,
-            dtype=apex.dtype,
-        )
+        grid_selection = take_linear_map((2, n_grid), indices, axis=1, dtype=apex.dtype)
         return apex_rotation @ grid_selection
 
     def _build_E_coeffs_to_E_apex_operator(
-        self,
-        *,
-        transform=None,
-        evaluator=None,
-        output_mask=None,
+        self, *, transform=None, evaluator=None, output_mask=None
     ) -> LinearMap:
         """Return Helmholtz E coefficients mapped to apex components."""
         transform = self.spherical_transform if transform is None else transform
-        return self._build_horizontal_grid_to_apex_operator(
-            evaluator=evaluator,
-            grid=transform.target,
-            output_mask=output_mask,
-        ) @ transform.helmholtz_coeffs_to_gridded_vector_operator
+        return (
+            self._build_horizontal_grid_to_apex_operator(
+                evaluator=evaluator, grid=transform.target, output_mask=output_mask
+            )
+            @ transform.helmholtz_coeffs_to_gridded_vector_operator
+        )
 
     @property
     def E_coeffs_to_E_apex_ll_diff(self) -> Optional[np.ndarray]:
@@ -599,8 +547,7 @@ class Geometry:
 
         solid_poloidal_to_gridded_sheet_current = (
             sheet_current_ops.poloidal_to_gridded_sheet_current(
-                self.solid_harmonics,
-                self.solid_harmonic_transform,
+                self.solid_harmonics, self.solid_harmonic_transform
             )
         )
         sheet_current_rk_to_solid_poloidal_rk = weighted_tensor_pinv(
@@ -617,9 +564,7 @@ class Geometry:
             mapped_grid = Grid(theta=theta_mapped, phi=phi_mapped)
             rk_b_evaluator = FieldEvaluator(self.mainfield, self.grid, rk)
             mapped_b_evaluator = FieldEvaluator(self.mainfield, mapped_grid, self.RI)
-            mapped_spherical_transform = SphericalTransform(
-                self.basis, mapped_grid
-            )
+            mapped_spherical_transform = SphericalTransform(self.basis, mapped_grid)
 
             m_imp_to_jr_grid = mapped_spherical_transform.contract_scalar_coeffs_to_grid(
                 self.m_imp_to_jr_operator
@@ -631,10 +576,7 @@ class Geometry:
                 ]
             )
             m_imp_to_sheet_current_rk = np.einsum(
-                "ij,jk->ijk",
-                jr_to_sheet_current_rk,
-                m_imp_to_jr_grid,
-                optimize=True,
+                "ij,jk->ijk", jr_to_sheet_current_rk, m_imp_to_jr_grid, optimize=True
             )
 
             regular_poloidal_rk_to_ri = _coefficient_scale_values(
@@ -667,16 +609,12 @@ class Geometry:
             if np.ndim(factor) == 0:
                 sheet_current_rk_to_solid_poloidal *= factor
             else:
-                sheet_current_rk_to_solid_poloidal *= np.asarray(factor).reshape(
-                    (-1, 1, 1)
-                )
+                sheet_current_rk_to_solid_poloidal *= np.asarray(factor).reshape((-1, 1, 1))
             sheet_current_rk_to_horizontal_poloidal = self._solid_to_horizontal_coefficients(
                 sheet_current_rk_to_solid_poloidal
             )
             self._T_to_Ve += Delta_k[i] * np.tensordot(
-                sheet_current_rk_to_horizontal_poloidal,
-                m_imp_to_sheet_current_rk,
-                axes=2,
+                sheet_current_rk_to_horizontal_poloidal, m_imp_to_sheet_current_rk, axes=2
             )
 
     def Br_to_gridded_sheet_current(

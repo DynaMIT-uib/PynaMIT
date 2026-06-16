@@ -9,11 +9,7 @@ from pynamit.simulation.dynamics import Dynamics
 
 
 def _settings(**attrs):
-    defaults = {
-        "Nmax": 3,
-        "Mmax": 2,
-        "Ncs": 4,
-    }
+    defaults = {"Nmax": 3, "Mmax": 2, "Ncs": 4}
     defaults.update(attrs)
     return xr.Dataset(attrs=defaults)
 
@@ -31,11 +27,7 @@ def test_simulation_data_owns_schema_io_and_timeseries(tmp_path):
     """SimulationData creates and reloads the persisted run context."""
     run_dir = tmp_path / "run"
     settings = _settings(horizontal_basis_kind="CS", area_weighted_least_squares=1)
-    data = SimulationData.create(
-        settings,
-        run_directory=run_dir,
-        artifact_storage="netcdf",
-    )
+    data = SimulationData.create(settings, run_directory=run_dir, artifact_storage="netcdf")
 
     assert data.run_directory == str(run_dir.resolve())
     assert not data.settings_from_file
@@ -52,19 +44,13 @@ def test_simulation_data_owns_schema_io_and_timeseries(tmp_path):
         xr.DataArray(np.eye(n_state), dims=("row", "col"), name="PFAC_matrix")
     )
     data.input_timeseries.add_entry(
-        "jr",
-        {"jr": np.arange(data.schema.input_field_spaces["jr"].coefficient_length)},
-        time=0.0,
+        "jr", {"jr": np.arange(data.schema.input_field_spaces["jr"].coefficient_length)}, time=0.0
     )
     data.save_input_dataset("jr")
     data.add_output_entry("state", _state_payload(n_state), time=0.0)
     data.save_output_dataset("state")
 
-    reloaded = SimulationData.create(
-        settings,
-        run_directory=run_dir,
-        artifact_storage="netcdf",
-    )
+    reloaded = SimulationData.create(settings, run_directory=run_dir, artifact_storage="netcdf")
 
     assert reloaded.settings_from_file
     assert reloaded.pfac_matrix_from_file
@@ -72,8 +58,7 @@ def test_simulation_data_owns_schema_io_and_timeseries(tmp_path):
     assert "state" in reloaded.output_timeseries.datasets
     np.testing.assert_allclose(reloaded.pfac_matrix.values, np.eye(n_state))
     np.testing.assert_allclose(
-        reloaded.output_timeseries.get_entry("state", 0.0)["m_imp"],
-        np.zeros(n_state),
+        reloaded.output_timeseries.get_entry("state", 0.0)["m_imp"], np.zeros(n_state)
     )
 
 
@@ -81,19 +66,11 @@ def test_simulation_data_rejects_saved_settings_mismatch(tmp_path):
     """Saved settings guard against restarting with new args."""
     run_dir = tmp_path / "run"
     settings = _settings(Nmax=3)
-    data = SimulationData.create(
-        settings,
-        run_directory=run_dir,
-        artifact_storage="netcdf",
-    )
+    data = SimulationData.create(settings, run_directory=run_dir, artifact_storage="netcdf")
     data.save_settings_if_missing()
 
     with pytest.raises(ValueError, match="Mismatch"):
-        SimulationData.create(
-            _settings(Nmax=4),
-            run_directory=run_dir,
-            artifact_storage="netcdf",
-        )
+        SimulationData.create(_settings(Nmax=4), run_directory=run_dir, artifact_storage="netcdf")
 
 
 def test_simulation_data_rejects_setting_override_mismatch(tmp_path):
@@ -141,9 +118,7 @@ def test_dynamics_from_directory_uses_saved_configuration(tmp_path):
     )
 
     reloaded = Dynamics.from_directory(
-        str(run_dir),
-        horizontal_basis_kind=None,
-        artifact_storage="netcdf",
+        str(run_dir), horizontal_basis_kind=None, artifact_storage="netcdf"
     )
 
     assert reloaded.config.Nmax == original.config.Nmax
@@ -168,8 +143,4 @@ def test_dynamics_from_directory_rejects_conflicting_override(tmp_path):
     )
 
     with pytest.raises(ValueError, match="Mismatch"):
-        Dynamics.from_directory(
-            str(run_dir),
-            Nmax=3,
-            artifact_storage="netcdf",
-        )
+        Dynamics.from_directory(str(run_dir), Nmax=3, artifact_storage="netcdf")

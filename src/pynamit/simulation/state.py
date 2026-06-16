@@ -65,12 +65,7 @@ class State:
 
         # Encapsulate all geometry, mappings, and evaluators
         self.geometry = Geometry(
-            basis,
-            cs_basis,
-            mainfield,
-            settings,
-            PFAC_matrix,
-            solid_harmonics=solid_harmonics,
+            basis, cs_basis, mainfield, settings, PFAC_matrix, solid_harmonics=solid_harmonics
         )
 
         # Operator for mapping velocity field `u` to E-field
@@ -101,21 +96,11 @@ class State:
         self.solver_type = setting_value(
             settings, "least_squares_solver", get_default_least_squares_solver()
         )
-        self.preconditioner = setting_value(
-            settings,
-            "least_squares_preconditioner",
-            "pinv",
-        )
-        self.static_preconditioner = setting_value(
-            settings,
-            "static_preconditioner",
-            False,
-        )
+        self.preconditioner = setting_value(settings, "least_squares_preconditioner", "pinv")
+        self.static_preconditioner = setting_value(settings, "static_preconditioner", False)
         self.integrator = setting_value(settings, "integrator")
         self.m_imp_regularization_lambda = setting_value(
-            settings,
-            "m_imp_regularization_lambda",
-            0.0,
+            settings, "m_imp_regularization_lambda", 0.0
         )
         self.RI = setting_value(settings, "RI")
         rm = setting_value(settings, "RM")
@@ -172,22 +157,16 @@ class State:
         if cache_key is None:
             cache_key = getattr(representation, "signature", id(representation))
         if cache_key not in self._Q_eff_synthesis_operator_cache:
-            get_operator = getattr(
-                representation, "get_helmholtz_synthesis_operator", None
-            )
+            get_operator = getattr(representation, "get_helmholtz_synthesis_operator", None)
             if not callable(get_operator):
                 raise ValueError(
                     "Q_eff storage basis cannot evaluate tangential fields on "
                     "the state/model grid."
                 )
-            self._Q_eff_synthesis_operator_cache[cache_key] = get_operator(
-                self.geometry.grid
-            )
+            self._Q_eff_synthesis_operator_cache[cache_key] = get_operator(self.geometry.grid)
         return self._Q_eff_synthesis_operator_cache[cache_key]
 
-    def _create_Q_eff_to_E_operator_for_representation(
-        self, representation
-    ) -> LinearMap:
+    def _create_Q_eff_to_E_operator_for_representation(self, representation) -> LinearMap:
         """Map effective-current coefficients to E coefficients."""
         q_synthesis = self._Q_eff_synthesis_operator_for_representation(representation)
 
@@ -201,9 +180,7 @@ class State:
 
     def Q_eff_to_E_coeffs_for_field_space(self, field_space) -> LinearMap:
         """Return Q_eff-to-E map for an explicit storage field space."""
-        return self._create_Q_eff_to_E_operator_for_representation(
-            field_space.representation
-        )
+        return self._create_Q_eff_to_E_operator_for_representation(field_space.representation)
 
     @property
     def Q_eff_to_E_coeffs(self) -> Optional[LinearMap]:
@@ -211,10 +188,8 @@ class State:
         if getattr(self, "Q_eff", None) is None:
             return None
         if self._Q_eff_to_E_coeffs_cache is None:
-            self._Q_eff_to_E_coeffs_cache = (
-                self._create_Q_eff_to_E_operator_for_representation(
-                    self.Q_eff.representation
-                )
+            self._Q_eff_to_E_coeffs_cache = self._create_Q_eff_to_E_operator_for_representation(
+                self.Q_eff.representation
             )
         return self._Q_eff_to_E_coeffs_cache
 
@@ -266,10 +241,7 @@ class State:
                 [xp.asarray(self.geometry.bP), xp.asarray(self.geometry.bH)], axis=0
             )
             self._M_total_on_grid = xp.einsum(
-                "sijk,sk->ijk",
-                b_stacked,
-                conductance_on_grid,
-                optimize=True,
+                "sijk,sk->ijk", b_stacked, conductance_on_grid, optimize=True
             )
         return self._M_total_on_grid
 
@@ -281,8 +253,7 @@ class State:
             compatible = getattr(hall_basis, "coefficients_are_compatible_with", None)
             if not callable(compatible) or not compatible(basis):
                 raise ValueError(
-                    "Pedersen and Hall conductance storage bases must be "
-                    "coefficient-compatible."
+                    "Pedersen and Hall conductance storage bases must be coefficient-compatible."
                 )
         return basis
 
@@ -313,9 +284,7 @@ class State:
         if callable(get_matrix):
             return as_linear_map(get_matrix(self.geometry.grid))
 
-        raise ValueError(
-            "Conductance storage basis cannot be evaluated on the state/model grid."
-        )
+        raise ValueError("Conductance storage basis cannot be evaluated on the state/model grid.")
 
     def _create_E_coeffs_operator(
         self, source_to_sheet_current: Optional[np.ndarray]
@@ -423,10 +392,7 @@ class State:
             operators, data_shapes = [], []
 
             # Radial current (jr) must match imposed field.
-            op_jr = (
-                self.geometry.jr_coeffs_to_j_apex_operator
-                @ self.geometry.m_imp_to_jr_operator
-            )
+            op_jr = self.geometry.jr_coeffs_to_j_apex_operator @ self.geometry.m_imp_to_jr_operator
             operators.append(op_jr)
             data_shapes.append(op_jr.output_shape)
 
@@ -477,8 +443,7 @@ class State:
         n = self.basis.index_length
         problem = self.m_imp_problem
         solve_response = self.m_imp_solver.build_response_solver(
-            problem,
-            preconditioner=self.m_imp_preconditioner,
+            problem, preconditioner=self.m_imp_preconditioner
         )
 
         jr_rhs = np.asarray(self.geometry.jr_coeffs_to_j_apex).reshape(
@@ -567,10 +532,7 @@ class State:
     # ----- State Calculation -----
 
     def _apply_operator(
-        self,
-        op: Optional[LinearMap],
-        coeffs: Any,
-        output_shape: Tuple[int, ...],
+        self, op: Optional[LinearMap], coeffs: Any, output_shape: Tuple[int, ...]
     ) -> Any:
         if op is None or coeffs is None or (isinstance(coeffs, (int, float)) and coeffs == 0):
             array_module = op.array_module(coeffs) if op is not None else get_array_module(coeffs)
@@ -600,9 +562,7 @@ class State:
             )
         if getattr(self, "Q_eff", None) is not None:
             E_direct += self._apply_operator(
-                self._Q_eff_to_E_coeffs_runtime,
-                xp.asarray(self.Q_eff.array),
-                E_shape,
+                self._Q_eff_to_E_coeffs_runtime, xp.asarray(self.Q_eff.array), E_shape
             )
 
         jr_coeffs = None if self.jr is None else xp.asarray(self.jr.array)
@@ -727,9 +687,7 @@ class State:
 
             m_ind_to_E_df_matrix = to_numpy(self.m_ind_to_E_df_matrix)
             E_noind_df = to_numpy(
-                self.geometry.helmholtz_divergence_free_potential_operator.matvec(
-                    backend_E_noind
-                )
+                self.geometry.helmholtz_divergence_free_potential_operator.matvec(backend_E_noind)
             )
             rhs_scale = float(self.geometry.E_df_to_d_m_ind_dt)
 

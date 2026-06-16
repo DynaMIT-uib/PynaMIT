@@ -38,17 +38,10 @@ OUTPUT_VARIABLES = {
     "steady_state": ("m_ind", "m_imp", "Phi", "W"),
 }
 
-OUTPUT_FIELD_TYPES = {
-    "state": "scalar",
-    "steady_state": "scalar",
-}
+OUTPUT_FIELD_TYPES = {"state": "scalar", "steady_state": "scalar"}
 
 
-__all__ = [
-    "SimulationSchema",
-    "build_simulation_schema",
-    "field_spaces_from_bases",
-]
+__all__ = ["SimulationSchema", "build_simulation_schema", "field_spaces_from_bases"]
 
 
 @dataclass(frozen=True)
@@ -100,8 +93,7 @@ def field_spaces_from_bases(
 
 
 def build_simulation_schema(
-    settings: Any,
-    horizontal_basis_kind: str | None = None,
+    settings: Any, horizontal_basis_kind: str | None = None
 ) -> SimulationSchema:
     """Build the basis and storage schema for one ``Dynamics``."""
     if horizontal_basis_kind is None:
@@ -109,9 +101,7 @@ def build_simulation_schema(
     horizontal_basis_kind = normalize_horizontal_basis_kind(horizontal_basis_kind)
 
     sh_basis = SHBasis(
-        setting_value(settings, "Nmax"),
-        setting_value(settings, "Mmax"),
-        mean_free=False,
+        setting_value(settings, "Nmax"), setting_value(settings, "Mmax"), mean_free=False
     )
     sh_basis_mean_free = sh_basis.with_mean_free(True)
     cs_basis = CSBasis(setting_value(settings, "Ncs"))
@@ -121,13 +111,9 @@ def build_simulation_schema(
     input_vars = _copy_variable_schema(INPUT_VARIABLES)
     output_vars = _copy_variable_schema(OUTPUT_VARIABLES)
 
-    projection_settings = resolve_projection_basis_settings(
-        settings,
-        horizontal_basis_kind,
-    )
+    projection_settings = resolve_projection_basis_settings(settings, horizontal_basis_kind)
     projection_basis_kinds = {
-        key: projection_settings[f"{key}_projection_basis"]
-        for key in PROJECTION_BASIS_KEYS
+        key: projection_settings[f"{key}_projection_basis"] for key in PROJECTION_BASIS_KEYS
     }
     conductance_projection_basis = projection_basis_kinds["conductance"]
 
@@ -139,25 +125,14 @@ def build_simulation_schema(
             "u": cs_basis,
             "Q_eff": cs_basis,
         }
-        input_mean_free = {
-            "jr": True,
-            "Br": True,
-            "conductance": False,
-            "u": True,
-            "Q_eff": True,
-        }
+        input_mean_free = {"jr": True, "Br": True, "conductance": False, "u": True, "Q_eff": True}
         input_projection_bases = dict(input_bases)
     else:
-        projection_bases = {
-            "SH": sh_basis_mean_free,
-            "CS": cs_basis,
-        }
+        projection_bases = {"SH": sh_basis_mean_free, "CS": cs_basis}
         input_bases = {
             "jr": sh_basis_mean_free,
             "Br": sh_basis_mean_free,
-            "conductance": (
-                sh_basis if conductance_projection_basis == "SH" else cs_basis
-            ),
+            "conductance": (sh_basis if conductance_projection_basis == "SH" else cs_basis),
             "u": sh_basis_mean_free,
             "Q_eff": sh_basis_mean_free,
         }
@@ -165,25 +140,18 @@ def build_simulation_schema(
         input_projection_bases = {
             "jr": projection_bases[projection_basis_kinds["jr"]],
             "Br": projection_bases[projection_basis_kinds["Br"]],
-            "conductance": (
-                sh_basis if conductance_projection_basis == "SH" else cs_basis
-            ),
+            "conductance": (sh_basis if conductance_projection_basis == "SH" else cs_basis),
             "u": projection_bases[projection_basis_kinds["u"]],
             "Q_eff": projection_bases[projection_basis_kinds["Q_eff"]],
         }
 
-    output_bases = {
-        "state": horizontal_basis,
-        "steady_state": horizontal_basis,
-    }
+    output_bases = {"state": horizontal_basis, "steady_state": horizontal_basis}
 
     input_field_spaces = field_spaces_from_bases(
         input_bases, INPUT_FIELD_TYPES, mean_free_by_key=input_mean_free
     )
     output_field_spaces = field_spaces_from_bases(
-        output_bases,
-        OUTPUT_FIELD_TYPES,
-        mean_free_by_key={"state": True, "steady_state": True},
+        output_bases, OUTPUT_FIELD_TYPES, mean_free_by_key={"state": True, "steady_state": True}
     )
 
     return SimulationSchema(

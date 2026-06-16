@@ -42,9 +42,7 @@ def format_contour_interval(interval):
 def contour_kwargs_for_display(plot_kwargs):
     """Drop metadata keys before forwarding kwargs to Matplotlib."""
     return {
-        key: value
-        for key, value in plot_kwargs.items()
-        if key not in {"symbol", "units", "scale"}
+        key: value for key, value in plot_kwargs.items() if key not in {"symbol", "units", "scale"}
     }
 
 
@@ -94,9 +92,7 @@ def build_percentile_color_scale(
             )
         percentile_values = finite_values[finite_values >= 0.0]
         if scale_type == "log":
-            percentile_values = percentile_values[
-                percentile_values > float(minimum_positive)
-            ]
+            percentile_values = percentile_values[percentile_values > float(minimum_positive)]
             if percentile_values.size == 0:
                 raise ValueError(
                     f"No data above {minimum_positive:g} for '{label}' log color scale."
@@ -186,8 +182,7 @@ def suppress_empty_contour_warnings():
 
     with warnings.catch_warnings():
         warnings.filterwarnings(
-            "ignore",
-            message="No contour levels were found within the data range.",
+            "ignore", message="No contour levels were found within the data range."
         )
         yield
 
@@ -213,11 +208,7 @@ def style_global_axis(
     if set_global:
         ax.set_global()
     if draw_coastlines:
-        ax.coastlines(
-            color=coastline_color,
-            linewidth=coastline_linewidth,
-            zorder=2,
-        )
+        ax.coastlines(color=coastline_color, linewidth=coastline_linewidth, zorder=2)
     gridliner = ax.gridlines(
         crs=ccrs.PlateCarree(),
         draw_labels=draw_labels,
@@ -234,10 +225,7 @@ def style_global_axis(
     if coordinate_context is not None:
         coordinate_context.apply_grid_labels(gridliner)
     elif local_time_reference is not None:
-        apply_local_time_grid_labels(
-            gridliner,
-            reference_time=local_time_reference,
-        )
+        apply_local_time_grid_labels(gridliner, reference_time=local_time_reference)
     try:
         gridliner.xlabel_style = {"size": label_size}
         gridliner.ylabel_style = {"size": label_size}
@@ -317,12 +305,7 @@ def add_panel_label(ax, label):
         va="top",
         fontsize=10,
         fontweight="bold",
-        bbox={
-            "facecolor": "white",
-            "edgecolor": "none",
-            "alpha": 0.82,
-            "pad": 2.0,
-        },
+        bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.82, "pad": 2.0},
         zorder=10,
     )
 

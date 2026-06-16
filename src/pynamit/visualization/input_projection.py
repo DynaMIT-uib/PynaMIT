@@ -32,14 +32,7 @@ def _make_transform(field_space, grid, transform):
 
 
 def evaluate_projected_input(
-    source,
-    key,
-    time,
-    *,
-    grid=None,
-    transform=None,
-    interpolation=False,
-    include_derived=True,
+    source, key, time, *, grid=None, transform=None, interpolation=False, include_derived=True
 ):
     """Evaluate one projected input time series on a grid.
 
@@ -82,9 +75,7 @@ def evaluate_projected_input(
         for var, coeffs in entry.items():
             field = FieldCoefficients(field_space, coeffs=coeffs)
             components = evaluate_tangential_coefficients(
-                evaluator,
-                field,
-                include_magnitude=include_derived,
+                evaluator, field, include_magnitude=include_derived
             )
             values[f"{var}_theta"] = components["theta"]
             values[f"{var}_phi"] = components["phi"]
@@ -97,12 +88,7 @@ def evaluate_projected_input(
         values[var] = evaluator.synthesize_scalar(field)
 
     if include_derived and key == "conductance" and {"etaP", "etaH"} <= set(values):
-        values.update(
-            evaluate_conductance_values(
-                values["etaP"],
-                values["etaH"],
-            )
-        )
+        values.update(evaluate_conductance_values(values["etaP"], values["etaH"]))
 
     return values
 

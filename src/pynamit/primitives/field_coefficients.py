@@ -16,21 +16,14 @@ class FieldCoefficients:
     projection or grid evaluation.
     """
 
-    def __init__(
-        self,
-        field_space: FieldSpace,
-        coeffs: Any,
-        *,
-        name: str | None = None,
-    ):
+    def __init__(self, field_space: FieldSpace, coeffs: Any, *, name: str | None = None):
         """Initialize field coefficients."""
         if not isinstance(field_space, FieldSpace):
             raise TypeError("FieldCoefficients requires a FieldSpace.")
         self.field_space = field_space
         field_name = name or f"{self.__class__.__name__}.array"
         self._array = self.field_space.validate_coefficients(
-            self.field_space.project_mean_free(coeffs, name=field_name),
-            name=field_name,
+            self.field_space.project_mean_free(coeffs, name=field_name), name=field_name
         )
 
     @property

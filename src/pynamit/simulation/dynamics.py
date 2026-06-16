@@ -238,11 +238,7 @@ class Dynamics:
             cache_key = getattr(
                 representation,
                 "signature",
-                getattr(
-                    representation,
-                    "coefficient_space_signature",
-                    id(representation),
-                ),
+                getattr(representation, "coefficient_space_signature", id(representation)),
             )
             if cache_key not in input_transform_cache:
                 input_transform_cache[cache_key] = SphericalTransform(
@@ -285,10 +281,9 @@ class Dynamics:
         """Construct a simulation from one run directory."""
         run_directory = IO.discover_run_directory(run_directory)
         artifact_storage = kwargs.get("artifact_storage", "auto")
-        settings = IO(
-            run_directory,
-            preferred_dataset_storage=artifact_storage,
-        ).load_dataset("settings")
+        settings = IO(run_directory, preferred_dataset_storage=artifact_storage).load_dataset(
+            "settings"
+        )
         if settings is None:
             return cls(run_directory=run_directory, **kwargs)
 
@@ -297,13 +292,10 @@ class Dynamics:
             {
                 name: value
                 for name, value in kwargs.items()
-                if name in config_kwargs
-                and value is not None
+                if name in config_kwargs and value is not None
             }
         )
-        extra_kwargs = {
-            name: value for name, value in kwargs.items() if name not in config_kwargs
-        }
+        extra_kwargs = {name: value for name, value in kwargs.items() if name not in config_kwargs}
         return cls(run_directory=run_directory, **config_kwargs, **extra_kwargs)
 
     def evolve_to_time(
@@ -388,12 +380,12 @@ class Dynamics:
             E_coeffs_noind, m_imp_noind = self.state.calculate_noind_coeffs()
 
             is_sample_step = step % sampling_step_interval == 0
-            should_save_sample = is_sample_step and step % (
-                sampling_step_interval * saving_sample_interval
-            ) == 0
-            needs_steady_state = (
-                run_inductive and self.config.integrator == "exponential"
-            ) or (run_steady_state and is_sample_step)
+            should_save_sample = (
+                is_sample_step and step % (sampling_step_interval * saving_sample_interval) == 0
+            )
+            needs_steady_state = (run_inductive and self.config.integrator == "exponential") or (
+                run_steady_state and is_sample_step
+            )
 
             if needs_steady_state:
                 steady_state_m_ind = self.state.steady_state_m_ind(E_coeffs_noind)
@@ -496,14 +488,10 @@ class Dynamics:
             "m_ind": to_numpy(m_ind),
             "m_imp": to_numpy(m_imp),
             "Phi": to_numpy(
-                self.state.geometry.helmholtz_curl_free_potential_operator.matvec(
-                    E_coeffs
-                )
+                self.state.geometry.helmholtz_curl_free_potential_operator.matvec(E_coeffs)
             ),
             "W": to_numpy(
-                self.state.geometry.helmholtz_divergence_free_potential_operator.matvec(
-                    E_coeffs
-                )
+                self.state.geometry.helmholtz_divergence_free_potential_operator.matvec(E_coeffs)
             ),
         }
 
@@ -545,9 +533,7 @@ class Dynamics:
             Relative tolerance for the pseudo-inverse.
         """
         FAC_b_evaluator = FieldEvaluator(
-            self.mainfield,
-            Grid(lat=lat, lon=lon, theta=theta, phi=phi),
-            self.config.RI,
+            self.mainfield, Grid(lat=lat, lon=lon, theta=theta, phi=phi), self.config.RI
         )
 
         self.set_jr(
@@ -752,11 +738,7 @@ class Dynamics:
                 etaP_coefficients=etaP_coefficients,
                 etaH_coefficients=etaH_coefficients,
             )
-            self._require_no_sample_values(
-                "resistance coefficients",
-                etaP=etaP,
-                etaH=etaH,
-            )
+            self._require_no_sample_values("resistance coefficients", etaP=etaP, etaH=etaH)
             input_data = {
                 "etaP": np.atleast_2d(etaP_coefficients),
                 "etaH": np.atleast_2d(etaH_coefficients),
@@ -766,9 +748,8 @@ class Dynamics:
 
         self._require_complete_values("resistance samples", etaP=etaP, etaH=etaH)
         input_data = {"etaP": np.atleast_2d(etaP), "etaH": np.atleast_2d(etaH)}
-        if (
-            self.config.conductance_projection_basis == "CS"
-            and (sqrt_weights is not None or reg_lambda is not None)
+        if self.config.conductance_projection_basis == "CS" and (
+            sqrt_weights is not None or reg_lambda is not None
         ):
             raise ValueError(
                 "sqrt_weights and reg_lambda are not supported for "
@@ -904,11 +885,7 @@ class Dynamics:
                 reg_lambda=reg_lambda,
             )
             self._require_complete_values("wind coefficients", u_cf=u_cf, u_df=u_df)
-            self._require_no_sample_values(
-                "wind coefficients",
-                u_theta=u_theta,
-                u_phi=u_phi,
-            )
+            self._require_no_sample_values("wind coefficients", u_theta=u_theta, u_phi=u_phi)
             input_data = self._wind_input_data(u_cf, u_df)
             self._add_input_coefficients("u", input_data, time)
             return
@@ -988,29 +965,19 @@ class Dynamics:
                 reg_lambda=reg_lambda,
             )
             self._require_complete_values(
-                "Q_eff coefficients",
-                Q_eff_cf=Q_eff_cf,
-                Q_eff_df=Q_eff_df,
+                "Q_eff coefficients", Q_eff_cf=Q_eff_cf, Q_eff_df=Q_eff_df
             )
             self._require_no_sample_values(
-                "Q_eff coefficients",
-                Q_eff_theta=Q_eff_theta,
-                Q_eff_phi=Q_eff_phi,
+                "Q_eff coefficients", Q_eff_theta=Q_eff_theta, Q_eff_phi=Q_eff_phi
             )
             input_data = self._tangential_input_data("Q_eff", Q_eff_cf, Q_eff_df)
             self._add_input_coefficients("Q_eff", input_data, time)
             return
 
         self._require_complete_values(
-            "Q_eff samples",
-            Q_eff_theta=Q_eff_theta,
-            Q_eff_phi=Q_eff_phi,
+            "Q_eff samples", Q_eff_theta=Q_eff_theta, Q_eff_phi=Q_eff_phi
         )
-        input_data = self._tangential_input_data(
-            "Q_eff",
-            Q_eff_theta,
-            Q_eff_phi,
-        )
+        input_data = self._tangential_input_data("Q_eff", Q_eff_theta, Q_eff_phi)
         self._project_and_add_input(
             "Q_eff",
             input_data,
@@ -1055,16 +1022,9 @@ class Dynamics:
                 pinv_rtol=pinv_rtol,
             )
             q_coeff_rows = self._fit_Q_eff_coefficients_from_wind(
-                input_time,
-                wind_coeff_rows,
-                reg_lambda=Q_eff_reg_lambda,
-                pinv_rtol=pinv_rtol,
+                input_time, wind_coeff_rows, reg_lambda=Q_eff_reg_lambda, pinv_rtol=pinv_rtol
             )
-            self._add_input_coefficients(
-                "Q_eff",
-                {"Q_eff": q_coeff_rows},
-                input_time,
-            )
+            self._add_input_coefficients("Q_eff", {"Q_eff": q_coeff_rows}, input_time)
             return
 
         Q_eff_theta, Q_eff_phi, Q_lat, Q_lon = self.calculate_Q_eff_from_neutral_wind(
@@ -1128,17 +1088,13 @@ class Dynamics:
                 (2, self.state.geometry.grid.size)
             )
             E_wind_on_grid = np.einsum(
-                "abg,bg->ag",
-                np.asarray(self.state.geometry.bu),
-                wind_on_grid,
-                optimize=True,
+                "abg,bg->ag", np.asarray(self.state.geometry.bu), wind_on_grid, optimize=True
             )
             M = np.asarray(self.state.M_total_on_grid)
             point_matrices = np.moveaxis(M, -1, 0)
-            Q_eff_on_grid = np.linalg.solve(
-                point_matrices,
-                E_wind_on_grid.T[..., np.newaxis],
-            )[..., 0].T
+            Q_eff_on_grid = np.linalg.solve(point_matrices, E_wind_on_grid.T[..., np.newaxis])[
+                ..., 0
+            ].T
             Q_eff_values.append(Q_eff_on_grid)
 
         Q_eff_values = np.asarray(Q_eff_values)
@@ -1179,12 +1135,7 @@ class Dynamics:
         return input_time, wind_coeff_rows
 
     def _fit_Q_eff_coefficients_from_wind(
-        self,
-        input_time,
-        wind_coeff_rows,
-        *,
-        reg_lambda=None,
-        pinv_rtol=1e-15,
+        self, input_time, wind_coeff_rows, *, reg_lambda=None, pinv_rtol=1e-15
     ):
         """Fit Q_eff coefficients to reproduce wind E coefficients."""
         q_field_space = self.input_field_spaces["Q_eff"]
@@ -1197,9 +1148,7 @@ class Dynamics:
             rhs = np.asarray(E_wind_coeffs).reshape(-1)
             if reg_lambda is not None and float(reg_lambda) > 0.0:
                 weight = float(reg_lambda)
-                matrix = np.vstack(
-                    [matrix, weight * np.eye(matrix.shape[1], dtype=matrix.dtype)]
-                )
+                matrix = np.vstack([matrix, weight * np.eye(matrix.shape[1], dtype=matrix.dtype)])
                 rhs = np.concatenate([rhs, np.zeros(matrix.shape[1], dtype=rhs.dtype)])
             q_coeffs, *_ = np.linalg.lstsq(matrix, rhs, rcond=pinv_rtol)
             q_coeff_rows.append(
@@ -1269,9 +1218,7 @@ class Dynamics:
     def _tangential_input_data(self, key, theta_component, phi_component):
         """Return tangential input data with time before component."""
         input_data = {
-            key: np.array(
-                [np.atleast_2d(theta_component), np.atleast_2d(phi_component)]
-            )
+            key: np.array([np.atleast_2d(theta_component), np.atleast_2d(phi_component)])
         }
         input_data[key] = np.moveaxis(input_data[key], [0, 1], [1, 0])
         return input_data

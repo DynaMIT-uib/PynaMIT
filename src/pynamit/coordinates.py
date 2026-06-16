@@ -59,9 +59,7 @@ def longitude_to_local_time_from_noon_longitude(lon, noon_longitude, *, wrap=Tru
         Wrap output to ``[0, 24)``. Set false when a continuous
         unwrapped coordinate is preferable for polar contour plots.
     """
-    local_time = 12.0 + (
-        np.asarray(lon, dtype=float) - float(noon_longitude)
-    ) / 15.0
+    local_time = 12.0 + (np.asarray(lon, dtype=float) - float(noon_longitude)) / 15.0
     if wrap:
         local_time = local_time % 24.0
     if np.isscalar(lon):
@@ -72,17 +70,10 @@ def longitude_to_local_time_from_noon_longitude(lon, noon_longitude, *, wrap=Tru
 def local_time_hours_to_longitude(local_time_hours, reference_time):
     """Convert local-time hours to geographic longitude."""
     utc_hours = datetime_to_utc_hours(reference_time)
-    return wrap_longitude_180(
-        (np.asarray(local_time_hours, dtype=float) - utc_hours) * 15.0
-    )
+    return wrap_longitude_180((np.asarray(local_time_hours, dtype=float) - utc_hours) * 15.0)
 
 
-def local_time_longitude_to_geographic(
-    lon,
-    *,
-    noon_longitude,
-    local_noon_longitude=0.0,
-):
+def local_time_longitude_to_geographic(lon, *, noon_longitude, local_noon_longitude=0.0):
     """Convert local-time-like longitude to geographic longitude.
 
     Parameters

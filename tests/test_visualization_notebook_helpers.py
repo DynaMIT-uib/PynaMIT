@@ -45,8 +45,7 @@ def test_local_time_longitude_helpers_are_vectorized():
 
     assert wrap_longitude_180(190.0) == -170.0
     np.testing.assert_allclose(
-        wrap_longitude_180(np.array([-190.0, 180.0, 540.0])),
-        np.array([170.0, -180.0, -180.0]),
+        wrap_longitude_180(np.array([-190.0, 180.0, 540.0])), np.array([170.0, -180.0, -180.0])
     )
     assert datetime_to_utc_hours(reference_time) == 18.5
     assert local_noon_longitude(reference_time) == -97.5
@@ -60,8 +59,7 @@ def test_local_time_longitude_helpers_are_vectorized():
     )
     np.testing.assert_allclose(
         longitude_to_local_time_from_noon_longitude(
-            np.array([-97.5, -7.5]),
-            local_noon_longitude(reference_time),
+            np.array([-97.5, -7.5]), local_noon_longitude(reference_time)
         ),
         longitude_to_local_time_hours(np.array([-97.5, -7.5]), reference_time),
     )
@@ -73,11 +71,7 @@ def test_noon_meridian_local_time_helper_preserves_plot_coordinate():
     noon_longitude = -100.0
 
     np.testing.assert_allclose(
-        longitude_to_local_time_from_noon_longitude(
-            lon,
-            noon_longitude,
-            wrap=False,
-        ),
+        longitude_to_local_time_from_noon_longitude(lon, noon_longitude, wrap=False),
         (lon - noon_longitude + 180.0) / 15.0,
     )
     np.testing.assert_allclose(
@@ -91,14 +85,11 @@ def test_local_time_grid_and_source_longitude_conversion():
     reference_time = dt.datetime(2011, 10, 24, 18, 30)
 
     np.testing.assert_allclose(
-        local_time_grid_longitudes(reference_time),
-        np.array([127.5, -142.5, -52.5, 37.5]),
+        local_time_grid_longitudes(reference_time), np.array([127.5, -142.5, -52.5, 37.5])
     )
     np.testing.assert_allclose(
         local_time_longitude_to_geographic(
-            np.array([-180.0, 0.0, 90.0]),
-            noon_longitude=-100.0,
-            local_noon_longitude=0.0,
+            np.array([-180.0, 0.0, 90.0]), noon_longitude=-100.0, local_noon_longitude=0.0
         ),
         np.array([80.0, -100.0, -10.0]),
     )
@@ -128,12 +119,10 @@ def test_plot_helper_functions_match_notebook_behaviour():
     """Plot helper outputs are stable and metadata is filtered."""
     levels = symmetric_contour_levels_without_zero(10.0, 2.0)
     np.testing.assert_allclose(
-        levels,
-        np.array([-9.0, -7.0, -5.0, -3.0, -1.0, 1.0, 3.0, 5.0, 7.0, 9.0]),
+        levels, np.array([-9.0, -7.0, -5.0, -3.0, -1.0, 1.0, 3.0, 5.0, 7.0, 9.0])
     )
     np.testing.assert_allclose(
-        get_ticks_from_levels({"levels": np.array([0.0, 2.0, 4.0])}),
-        np.array([1.0, 3.0]),
+        get_ticks_from_levels({"levels": np.array([0.0, 2.0, 4.0])}), np.array([1.0, 3.0])
     )
     assert format_contour_interval(0.001) == "1.00e-03"
     assert contour_kwargs_for_display(
@@ -144,9 +133,7 @@ def test_plot_helper_functions_match_notebook_behaviour():
 def test_percentile_color_scale_handles_diverging_data_symmetrically():
     """Diverging data use a symmetric percentile limit."""
     scale = build_percentile_color_scale(
-        [np.array([-1.0, 0.0, 2.0, 100.0, np.nan])],
-        strictly_positive=False,
-        vmax_percentile=75.0,
+        [np.array([-1.0, 0.0, 2.0, 100.0, np.nan])], strictly_positive=False, vmax_percentile=75.0
     )
 
     assert scale["strictly_positive"] is False
@@ -162,10 +149,7 @@ def test_percentile_color_scale_handles_positive_linear_and_log_data():
     values = np.array([0.0, 1.0, 10.0, 100.0, np.nan])
 
     linear = build_percentile_color_scale(
-        [values],
-        strictly_positive=True,
-        vmin_percentile=25.0,
-        vmax_percentile=75.0,
+        [values], strictly_positive=True, vmin_percentile=25.0, vmax_percentile=75.0
     )
     assert linear["vmin"] == 0.0
     np.testing.assert_allclose(linear["vmax"], 32.5)
@@ -206,12 +190,7 @@ def test_style_global_axis_centralizes_map_setup():
             return FakeGridliner()
 
     ax = FakeAxis()
-    gridliner = style_global_axis(
-        ax,
-        draw_labels=False,
-        draw_coastlines=False,
-        set_global=False,
-    )
+    gridliner = style_global_axis(ax, draw_labels=False, draw_coastlines=False, set_global=False)
 
     assert not ax.global_called
     assert ax.coastline_kwargs is None
@@ -229,10 +208,7 @@ def test_grid_and_conductance_helpers_are_importable_from_visualization():
     assert lon.shape == (3, 4)
     assert grid.size == 12
 
-    sigmaP, sigmaH = resistance_to_conductance(
-        np.array([2.0, 0.0]),
-        np.array([1.0, 0.0]),
-    )
+    sigmaP, sigmaH = resistance_to_conductance(np.array([2.0, 0.0]), np.array([1.0, 0.0]))
     np.testing.assert_allclose(sigmaP[0], 0.4)
     np.testing.assert_allclose(sigmaH[0], 0.2)
     assert np.isnan(sigmaP[1])
@@ -262,12 +238,7 @@ def test_sheet_current_operator_bundle_matches_core_formulas():
     transform = build_evaluator(sh_basis, grid)
     t_to_ve = np.eye(sh_basis.index_length)
 
-    operators = build_sheet_current_operators(
-        Settings,
-        sh_basis,
-        transform,
-        T_to_Ve=t_to_ve,
-    )
+    operators = build_sheet_current_operators(Settings, sh_basis, transform, T_to_Ve=t_to_ve)
 
     poloidal_to_sheet = (
         -transform.scalar_coeffs_to_gridded_rhat_cross_gradient
@@ -331,21 +302,15 @@ def test_sheet_current_operator_bundle_matches_geometry(tmp_path):
     _, _, grid = build_plot_grid(nlat=4, nlon=5)
     transform = build_evaluator(dynamics.horizontal_basis, grid)
     operators = build_sheet_current_operators(
-        dynamics.settings,
-        dynamics.horizontal_basis,
-        transform,
-        T_to_Ve=geometry.T_to_Ve.values,
+        dynamics.settings, dynamics.horizontal_basis, transform, T_to_Ve=geometry.T_to_Ve.values
     )
 
     np.testing.assert_allclose(
-        operators["G_m_ind_to_sheet_current"],
-        geometry.m_ind_to_gridded_sheet_current(transform),
+        operators["G_m_ind_to_sheet_current"], geometry.m_ind_to_gridded_sheet_current(transform)
     )
     np.testing.assert_allclose(
-        operators["G_m_imp_to_sheet_current"],
-        geometry.m_imp_to_gridded_sheet_current(transform),
+        operators["G_m_imp_to_sheet_current"], geometry.m_imp_to_gridded_sheet_current(transform)
     )
     np.testing.assert_allclose(
-        operators["G_Br_to_sheet_current"],
-        geometry.Br_to_gridded_sheet_current(transform),
+        operators["G_Br_to_sheet_current"], geometry.Br_to_gridded_sheet_current(transform)
     )

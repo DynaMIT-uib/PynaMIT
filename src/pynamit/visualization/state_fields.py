@@ -70,9 +70,7 @@ def evaluate_equivalent_current_function(dynamics, transform, *, key=None):
     """Evaluate the equivalent-current stream function."""
     entry = current_output_entry(dynamics, key=key)
     return evaluate_equivalent_current_coefficients(
-        dynamics.state.geometry,
-        entry["m_ind"],
-        transform,
+        dynamics.state.geometry, entry["m_ind"], transform
     )
 
 
@@ -85,10 +83,7 @@ def evaluate_sheet_current_coefficients(geometry, m_imp, m_ind, transform):
     m_imp_to_sheet = geometry.m_imp_to_gridded_sheet_current(horizontal_transform)
     m_ind_to_sheet = geometry.m_ind_to_gridded_sheet_current(horizontal_transform)
     return evaluate_sheet_current_from_maps(
-        m_imp,
-        m_ind,
-        m_imp_to_sheet=m_imp_to_sheet,
-        m_ind_to_sheet=m_ind_to_sheet,
+        m_imp, m_ind, m_imp_to_sheet=m_imp_to_sheet, m_ind_to_sheet=m_ind_to_sheet
     )
 
 
@@ -96,19 +91,13 @@ def evaluate_sheet_current(dynamics, transform, *, key=None):
     """Evaluate total horizontal sheet current."""
     entry = current_output_entry(dynamics, key=key)
     return evaluate_sheet_current_coefficients(
-        dynamics.state.geometry,
-        entry["m_imp"],
-        entry["m_ind"],
-        transform,
+        dynamics.state.geometry, entry["m_imp"], entry["m_ind"], transform
     )
 
 
 def evaluate_Phi_coefficients(geometry, Phi, transform):
     """Evaluate saved curl-free E coefficients as potential in volts."""
-    return geometry.RI * transform_for_source(
-        geometry.basis,
-        transform,
-    ).synthesize_scalar(Phi)
+    return geometry.RI * transform_for_source(geometry.basis, transform).synthesize_scalar(Phi)
 
 
 def evaluate_Phi(dynamics, transform, *, key=None):
@@ -119,10 +108,7 @@ def evaluate_Phi(dynamics, transform, *, key=None):
 
 def evaluate_W_coefficients(geometry, W, transform):
     """Evaluate divergence-free E coefficients as potential in volts."""
-    return geometry.RI * transform_for_source(
-        geometry.basis,
-        transform,
-    ).synthesize_scalar(W)
+    return geometry.RI * transform_for_source(geometry.basis, transform).synthesize_scalar(W)
 
 
 def evaluate_W(dynamics, transform, *, key=None):

@@ -13,10 +13,7 @@ import xarray as xr
 from pynamit.primitives.io import IO
 from pynamit.primitives.timeseries import Timeseries
 from pynamit.simulation.config import SimulationConfig
-from pynamit.simulation.schema import (
-    SimulationSchema,
-    build_simulation_schema,
-)
+from pynamit.simulation.schema import SimulationSchema, build_simulation_schema
 
 
 @dataclass
@@ -58,10 +55,7 @@ class SimulationData:
         if uses_temporary_run_directory:
             run_directory = IO.build_temporary_run_directory()
 
-        io = IO(
-            run_directory=run_directory,
-            preferred_dataset_storage=artifact_storage,
-        )
+        io = IO(run_directory=run_directory, preferred_dataset_storage=artifact_storage)
 
         settings_on_file = io.load_dataset("settings", print_info=print_info)
         if settings_on_file is not None and not settings.identical(settings_on_file):

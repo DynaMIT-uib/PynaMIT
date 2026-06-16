@@ -53,9 +53,7 @@ def build_dynamics(
 
     grid = dynamics.state.geometry.grid
     date = datetime.datetime(2001, 5, 12, 21, 45)
-    hall, pedersen, cond_lat, cond_lon = get_conductance_inputs(
-        date, grid.lat, grid.lon, None
-    )
+    hall, pedersen, cond_lat, cond_lon = get_conductance_inputs(date, grid.lat, grid.lon, None)
     dynamics.set_conductance(hall, pedersen, lat=cond_lat, lon=cond_lon)
     dynamics.state.update(dynamics.input_timeseries, time=0.0, interpolation=False)
     return dynamics
@@ -65,12 +63,9 @@ def fetch_model_dense_matrices(
     dynamics: Dynamics, *, df_only: bool = False, include_Br: bool = True
 ) -> dict[str, np.ndarray]:
     """Return dense matrices from the active simulation state."""
-    matrices = dynamics.state.operators.model_dense(
-        df_only=df_only, include_Br=include_Br
-    )
+    matrices = dynamics.state.operators.model_dense(df_only=df_only, include_Br=include_Br)
     return {
-        key: np.asarray(to_numpy(block_until_ready(matrix)))
-        for key, matrix in matrices.items()
+        key: np.asarray(to_numpy(block_until_ready(matrix))) for key, matrix in matrices.items()
     }
 
 
@@ -103,10 +98,7 @@ def main() -> None:
     parser.add_argument("--mmax", type=int, default=12)
     parser.add_argument("--ncs", type=int, default=22)
     parser.add_argument(
-        "--mainfield-kind",
-        type=str,
-        default="dipole",
-        choices=["dipole", "igrf", "radial"],
+        "--mainfield-kind", type=str, default="dipole", choices=["dipole", "igrf", "radial"]
     )
     parser.add_argument(
         "--rm-over-re",
@@ -115,10 +107,7 @@ def main() -> None:
         help="Optional magnetospheric boundary radius in Earth radii.",
     )
     parser.add_argument(
-        "--horizontal-basis-kind",
-        type=str,
-        default="SH",
-        choices=["SH", "CS", "sh", "cs"],
+        "--horizontal-basis-kind", type=str, default="SH", choices=["SH", "CS", "sh", "cs"]
     )
     parser.add_argument(
         "--ignore-pfac",
@@ -158,9 +147,7 @@ def main() -> None:
         help="Optional .npz path for saving the extracted dense matrices.",
     )
     parser.add_argument(
-        "--df-only",
-        action="store_true",
-        help="Return E_df maps instead of d(m_ind)/dt maps.",
+        "--df-only", action="store_true", help="Return E_df maps instead of d(m_ind)/dt maps."
     )
     parser.add_argument(
         "--exclude-br",

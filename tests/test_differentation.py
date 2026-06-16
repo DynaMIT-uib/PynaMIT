@@ -20,11 +20,7 @@ def _analytic_surface_cases(theta_deg, phi_deg):
     sin_theta = np.sin(theta)
     cos_theta = np.cos(theta)
     ax, ay, az = 0.35, -0.2, 0.15
-    q = (
-        ax * sin_theta * np.cos(phi)
-        + ay * sin_theta * np.sin(phi)
-        + az * cos_theta
-    )
+    q = ax * sin_theta * np.cos(phi) + ay * sin_theta * np.sin(phi) + az * cos_theta
     exp_q = np.exp(q)
     q_theta = ax * cos_theta * np.cos(phi) + ay * cos_theta * np.sin(phi)
     q_theta -= az * sin_theta
@@ -43,12 +39,7 @@ def _analytic_surface_cases(theta_deg, phi_deg):
             np.cos(phi),
             -2 * sin_theta * np.sin(phi),
         ),
-        "l1_z": (
-            cos_theta,
-            -sin_theta,
-            np.zeros_like(theta),
-            -2 * cos_theta,
-        ),
+        "l1_z": (cos_theta, -sin_theta, np.zeros_like(theta), -2 * cos_theta),
         "l2_cos2phi": (
             sin_theta**2 * np.cos(2 * phi),
             2 * sin_theta * cos_theta * np.cos(2 * phi),
@@ -103,26 +94,14 @@ def test_csbasis_differentiates_low_degree_spherical_harmonics():
     np.testing.assert_allclose(D_phi @ constant, 0.0, atol=1e-12)
     np.testing.assert_allclose(laplacian @ constant, 0.0, atol=1e-12)
 
-    for values, expected_theta, expected_phi, expected_laplacian in (
-        _analytic_surface_cases(cs_basis.arr_theta, cs_basis.arr_phi).values()
-    ):
+    for values, expected_theta, expected_phi, expected_laplacian in _analytic_surface_cases(
+        cs_basis.arr_theta, cs_basis.arr_phi
+    ).values():
         gradient_error = _weighted_rms(
-            np.stack(
-                [
-                    D_theta @ values - expected_theta,
-                    D_phi @ values - expected_phi,
-                ]
-            ),
-            weights,
+            np.stack([D_theta @ values - expected_theta, D_phi @ values - expected_phi]), weights
         )
-        gradient_scale = _weighted_rms(
-            np.stack([expected_theta, expected_phi]),
-            weights,
-        )
-        laplacian_error = _weighted_rms(
-            laplacian @ values - expected_laplacian,
-            weights,
-        )
+        gradient_scale = _weighted_rms(np.stack([expected_theta, expected_phi]), weights)
+        laplacian_error = _weighted_rms(laplacian @ values - expected_laplacian, weights)
         laplacian_scale = _weighted_rms(expected_laplacian, weights)
 
         assert gradient_error / gradient_scale < 7e-3
@@ -139,20 +118,10 @@ def test_csbasis_vector_surface_operators_match_analytic_composition():
     f, f_theta, f_phi, _ = cases["l2_cos2phi"]
     g, g_theta, g_phi, _ = cases["l2_sinphi"]
 
-    gradient = np.tensordot(
-        cs_basis.get_surface_gradient_matrix(grid),
-        f,
-        axes=1,
-    )
-    rotated_gradient = np.tensordot(
-        cs_basis.get_rhat_cross_gradient_matrix(grid),
-        f,
-        axes=1,
-    )
+    gradient = np.tensordot(cs_basis.get_surface_gradient_matrix(grid), f, axes=1)
+    rotated_gradient = np.tensordot(cs_basis.get_rhat_cross_gradient_matrix(grid), f, axes=1)
     helmholtz = np.tensordot(
-        cs_basis.get_helmholtz_synthesis_matrix(grid),
-        np.stack([f, g]),
-        axes=2,
+        cs_basis.get_helmholtz_synthesis_matrix(grid), np.stack([f, g]), axes=2
     )
 
     expected_gradient = np.stack([f_theta, f_phi])
@@ -183,14 +152,11 @@ def test_csbasis_differentiation_errors_converge_for_smooth_harmonics():
 
         gradient_errors = []
         laplacian_errors = []
-        for values, expected_theta, expected_phi, expected_laplacian in (
-            _analytic_surface_cases(cs_basis.arr_theta, cs_basis.arr_phi).values()
-        ):
+        for values, expected_theta, expected_phi, expected_laplacian in _analytic_surface_cases(
+            cs_basis.arr_theta, cs_basis.arr_phi
+        ).values():
             gradient_errors.extend(
-                [
-                    D_theta @ values - expected_theta,
-                    D_phi @ values - expected_phi,
-                ]
+                [D_theta @ values - expected_theta, D_phi @ values - expected_phi]
             )
             laplacian_errors.append(laplacian @ values - expected_laplacian)
 
@@ -242,10 +208,7 @@ def test_csbasis_laplacian_integrates_to_zero_and_satisfies_green_identity():
         green_scale = abs(f_laplacian_g) + abs(grad_inner) + 1e-30
 
         return np.array(
-            [
-                np.sqrt(np.mean(np.asarray(laplacian_integrals) ** 2)),
-                green_error / green_scale,
-            ]
+            [np.sqrt(np.mean(np.asarray(laplacian_integrals) ** 2)), green_error / green_scale]
         )
 
     resolutions = np.array([8, 12, 16, 24])

@@ -37,10 +37,7 @@ class IdentityHelmholtzTransform:
 
 def test_conductance_values_include_resistance_and_conductance():
     """Resistance values are returned with conductance."""
-    values = evaluate_conductance_values(
-        np.array([2.0, 0.0]),
-        np.array([1.0, 0.0]),
-    )
+    values = evaluate_conductance_values(np.array([2.0, 0.0]), np.array([1.0, 0.0]))
 
     np.testing.assert_allclose(values["etaP"], np.array([2.0, 0.0]))
     np.testing.assert_allclose(values["etaH"], np.array([1.0, 0.0]))
@@ -53,9 +50,7 @@ def test_conductance_values_include_resistance_and_conductance():
 def test_conductance_coefficients_use_transform_before_conversion():
     """Coefficient evaluation uses direct conductance conversion."""
     values = evaluate_conductance_coefficients(
-        ScalingTransform(),
-        np.array([1.0, 2.0]),
-        np.array([0.5, 1.0]),
+        ScalingTransform(), np.array([1.0, 2.0]), np.array([0.5, 1.0])
     )
 
     np.testing.assert_allclose(values["etaP"], np.array([2.0, 4.0]))
@@ -78,8 +73,7 @@ def test_tangential_and_wind_coefficients_share_component_convention():
     np.testing.assert_allclose(wind["u_north"], -tangential["theta"])
     np.testing.assert_allclose(wind["u_east"], tangential["phi"])
     np.testing.assert_allclose(
-        wind["u_mag"],
-        np.sqrt(tangential["theta"] ** 2 + tangential["phi"] ** 2),
+        wind["u_mag"], np.sqrt(tangential["theta"] ** 2 + tangential["phi"] ** 2)
     )
 
 
@@ -90,10 +84,7 @@ def test_saved_e_coefficients_are_radius_scaled_to_volt_potentials():
     saved_w = np.array([3.0, 4.0])
 
     electric_field = evaluate_electric_field_coefficients(
-        IdentityHelmholtzTransform(),
-        radius * saved_phi,
-        radius * saved_w,
-        radius,
+        IdentityHelmholtzTransform(), radius * saved_phi, radius * saved_w, radius
     )
 
     np.testing.assert_allclose(electric_field, np.stack([saved_phi, saved_w]))
@@ -105,8 +96,7 @@ def test_joule_field_map_uses_sheet_current_dot_electric_field():
     electric_field = np.array([[5.0, 6.0], [7.0, 8.0]])
 
     np.testing.assert_allclose(
-        evaluate_joule_from_fields(sheet_current, electric_field),
-        np.array([26.0, 44.0]),
+        evaluate_joule_from_fields(sheet_current, electric_field), np.array([26.0, 44.0])
     )
 
     expected_current = evaluate_sheet_current_from_maps(
@@ -129,10 +119,7 @@ def test_joule_field_map_uses_sheet_current_dot_electric_field():
     np.testing.assert_allclose(
         field,
         evaluate_electric_field_coefficients(
-            ScalingTransform(),
-            np.array([1.0, 1.0]),
-            np.array([2.0, 2.0]),
-            2.0,
+            ScalingTransform(), np.array([1.0, 1.0]), np.array([2.0, 2.0]), 2.0
         ),
     )
     np.testing.assert_allclose(expected_current, np.array([[7.0, 10.0], [0.0, 0.0]]))

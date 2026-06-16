@@ -125,12 +125,7 @@ class SphericalRepresentation(ABC):
     operator capabilities on top of this shared metadata.
     """
 
-    required_attributes = (
-        "kind",
-        "index_names",
-        "index_length",
-        "index_arrays",
-    )
+    required_attributes = ("kind", "index_names", "index_length", "index_arrays")
 
     @property
     def signature(self):
@@ -235,9 +230,7 @@ class SurfaceOperators(SphericalBasis):
         """Return the scalar coefficient-to-grid operator."""
         matrix = self.get_scalar_evaluation_matrix(grid, derivative=derivative)
         return as_linear_map(
-            matrix,
-            input_shape=(self.index_length,),
-            output_shape=matrix.shape[:-1],
+            matrix, input_shape=(self.index_length,), output_shape=matrix.shape[:-1]
         )
 
     def get_surface_gradient_matrix(self, grid):
@@ -253,9 +246,7 @@ class SurfaceOperators(SphericalBasis):
         """Return the scalar-to-vector surface-gradient operator."""
         matrix = self.get_surface_gradient_matrix(grid)
         return as_linear_map(
-            matrix,
-            input_shape=(self.index_length,),
-            output_shape=matrix.shape[:-1],
+            matrix, input_shape=(self.index_length,), output_shape=matrix.shape[:-1]
         )
 
     def get_rhat_cross_gradient_matrix(self, grid):
@@ -267,9 +258,7 @@ class SurfaceOperators(SphericalBasis):
         """Return the scalar-to-vector ``rhat x grad`` operator."""
         matrix = self.get_rhat_cross_gradient_matrix(grid)
         return as_linear_map(
-            matrix,
-            input_shape=(self.index_length,),
-            output_shape=matrix.shape[:-1],
+            matrix, input_shape=(self.index_length,), output_shape=matrix.shape[:-1]
         )
 
     def get_helmholtz_synthesis_matrix(self, grid):
@@ -287,9 +276,7 @@ class SurfaceOperators(SphericalBasis):
         """Return the Helmholtz-potential-to-vector operator."""
         matrix = self.get_helmholtz_synthesis_matrix(grid)
         return as_linear_map(
-            matrix,
-            input_shape=(2, self.index_length),
-            output_shape=matrix.shape[:2],
+            matrix, input_shape=(2, self.index_length), output_shape=matrix.shape[:2]
         )
 
     def get_helmholtz_curl_free_potential_matrix(self):
@@ -541,10 +528,7 @@ class BasisView(SurfaceOperators):
 
     def evaluate_on_grid(self, grid, derivative=None):
         """Evaluate the viewed basis functions on ``grid``."""
-        result = self.parent_basis.evaluate_on_grid(
-            grid,
-            derivative=derivative,
-        )
+        result = self.parent_basis.evaluate_on_grid(grid, derivative=derivative)
         return result[:, self._parent_coefficient_indices]
 
     def laplacian(self, r=1.0):
@@ -561,23 +545,17 @@ class BasisView(SurfaceOperators):
 
     def scalar_degrees(self, mean_free=None):
         """Return harmonic degrees for the requested scalar space."""
-        basis = self.with_mean_free(
-            self.mean_free if mean_free is None else bool(mean_free)
-        )
+        basis = self.with_mean_free(self.mean_free if mean_free is None else bool(mean_free))
         return basis.n
 
     def scalar_orders(self, mean_free=None):
         """Return harmonic orders for the requested scalar space."""
-        basis = self.with_mean_free(
-            self.mean_free if mean_free is None else bool(mean_free)
-        )
+        basis = self.with_mean_free(self.mean_free if mean_free is None else bool(mean_free))
         return basis.m
 
     def scalar_index_arrays(self, mean_free=None):
         """Return scalar index arrays for the requested scalar space."""
-        basis = self.with_mean_free(
-            self.mean_free if mean_free is None else bool(mean_free)
-        )
+        basis = self.with_mean_free(self.mean_free if mean_free is None else bool(mean_free))
         return basis.n, basis.m
 
     def get_extended_basis(self):

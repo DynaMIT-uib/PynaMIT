@@ -43,16 +43,12 @@ def test_geographic_context_matches_utc_local_time_helpers():
     assert context.local_time_kind == "solar"
     assert context.label == "LT"
     assert context.noon_longitude == local_noon_longitude(reference_time)
-    assert context.projection().equals(
-        ccrs.PlateCarree(central_longitude=context.noon_longitude)
+    assert context.projection().equals(ccrs.PlateCarree(central_longitude=context.noon_longitude))
+    np.testing.assert_allclose(
+        context.local_time_grid_longitudes(), np.array([127.5, -142.5, -52.5, 37.5])
     )
     np.testing.assert_allclose(
-        context.local_time_grid_longitudes(),
-        np.array([127.5, -142.5, -52.5, 37.5]),
-    )
-    np.testing.assert_allclose(
-        context.longitude_to_local_time(np.array([-97.5, -7.5])),
-        np.array([12.0, 18.0]),
+        context.longitude_to_local_time(np.array([-97.5, -7.5])), np.array([12.0, 18.0])
     )
 
 
@@ -68,19 +64,14 @@ def test_magnetic_context_matches_dipole_mlt_conversion():
     assert context.label == "MLT"
     assert context.noon_longitude == 40.0
     np.testing.assert_allclose(
-        context.longitude_to_local_time(mlon),
-        dipole.mlon2mlt(mlon, reference_time),
+        context.longitude_to_local_time(mlon), dipole.mlon2mlt(mlon, reference_time)
     )
 
 
 def test_apex_context_uses_geographic_longitude_for_global_maps():
     """Apex context converts magnetic noon into geographic longitude."""
     reference_time = dt.datetime(2011, 10, 24, 18, 30)
-    context = MapCoordinateContext.magnetic(
-        reference_time,
-        FakeDipole(),
-        apex=FakeApex(),
-    )
+    context = MapCoordinateContext.magnetic(reference_time, FakeDipole(), apex=FakeApex())
 
     assert context.longitude_kind == "geographic"
     assert context.local_time_kind == "magnetic"
@@ -92,15 +83,12 @@ def test_apex_context_uses_geographic_longitude_for_global_maps():
 def test_context_converts_source_local_time_longitude_to_plot_coordinate():
     """Context replaces ad hoc source-longitude rotations."""
     context = MapCoordinateContext.from_noon_longitude(
-        -100.0,
-        longitude_kind="geographic",
-        local_time_kind="solar",
+        -100.0, longitude_kind="geographic", local_time_kind="solar"
     )
 
     np.testing.assert_allclose(
         context.local_time_longitude_to_coordinate(
-            np.array([-180.0, 0.0, 90.0]),
-            local_noon_longitude=0.0,
+            np.array([-180.0, 0.0, 90.0]), local_noon_longitude=0.0
         ),
         np.array([80.0, -100.0, -10.0]),
     )

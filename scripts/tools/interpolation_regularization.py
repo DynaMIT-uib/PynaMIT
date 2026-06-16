@@ -172,11 +172,7 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
         sh_basis = pynamit.SHBasis(Nmax, Mmax, nmin)
         field_space = pynamit.FieldSpace(sh_basis, field_type=field_type)
         input_spherical_transform = pynamit.SphericalTransform(
-            sh_basis,
-            input_grid,
-            sqrt_weights=input_weights,
-            reg_lambda=reg_lambda,
-            pinv_rtol=rtol,
+            sh_basis, input_grid, sqrt_weights=input_weights, reg_lambda=reg_lambda, pinv_rtol=rtol
         )
         output_spherical_transform = pynamit.SphericalTransform(
             sh_basis,
@@ -211,10 +207,7 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
             else input_spherical_transform.scalar_regularization_term
         )
 
-        input_sh = pynamit.FieldCoefficients(
-            field_space,
-            analyze_input(input_grid_values),
-        )
+        input_sh = pynamit.FieldCoefficients(field_space, analyze_input(input_grid_values))
 
         print(
             "Interpolation with Nmax = %d, Mmax = %d:, reg lambda: %e" % (Nmax, Mmax, reg_lambda)
@@ -223,9 +216,7 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
         if L_CURVE:
             reg_lambda_values.append(reg_lambda)
             # sh_norms.append(np.linalg.norm(input_sh.array))
-            sh_norms.append(
-                np.linalg.norm(regularization_term(input_sh.array))
-            )
+            sh_norms.append(np.linalg.norm(regularization_term(input_sh.array)))
             input_sh_on_input_grid = synthesize_input(input_sh)
             sh_resiudal_norms.append(
                 np.linalg.norm(input_sh_on_input_grid - input_grid_values)
@@ -243,8 +234,7 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
 
         if SH_COMPARISON:
             cs_interpolated_output_sh = pynamit.FieldCoefficients(
-                field_space,
-                analyze_output(interpolated_data),
+                field_space, analyze_output(interpolated_data)
             )
             relative_coeff_errors.append(
                 np.linalg.norm(cs_interpolated_output_sh.array - input_sh.array)

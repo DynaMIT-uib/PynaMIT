@@ -13,12 +13,7 @@ from scipy.sparse.linalg import LinearOperator
 from pynamit.math.backend import asarray, block_after_jax_linalg, get_array_module
 from pynamit.math.linear_map import LinearMap, as_linear_map, vstack_linear_maps
 
-OperatorInput: TypeAlias = Union[
-    np.ndarray,
-    scipy.sparse.spmatrix,
-    LinearOperator,
-    LinearMap,
-]
+OperatorInput: TypeAlias = Union[np.ndarray, scipy.sparse.spmatrix, LinearOperator, LinearMap]
 OperatorInputList: TypeAlias = Union[OperatorInput, List[OperatorInput]]
 NumericInputList: TypeAlias = Union[float, List[float]]
 
@@ -52,9 +47,7 @@ class LeastSquaresProblem:
         self.num_data_terms = len(A_list)
         self.data_shapes = self._normalize_data_shapes(data_shapes_in, self.num_data_terms)
         self.A = [
-            as_linear_map(
-                op, output_shape=self.data_shapes[i], input_shape=self.solution_shape
-            )
+            as_linear_map(op, output_shape=self.data_shapes[i], input_shape=self.solution_shape)
             for i, op in enumerate(A_list)
         ]
         sqrt_weights_list = self._prepare_input_list(
@@ -76,22 +69,15 @@ class LeastSquaresProblem:
         ]
         self.regularization_weights = self._validate_regularization_weights(
             self._prepare_input_list(
-                reg_weights_in,
-                "regularization_weights",
-                count=self.num_reg_terms,
-                default_val=0.0,
+                reg_weights_in, "regularization_weights", count=self.num_reg_terms, default_val=0.0
             )
         )
 
-    def _create_weight_operator(
-        self, w_val: Any, shape: Tuple[int, ...]
-    ) -> Optional[LinearMap]:
+    def _create_weight_operator(self, w_val: Any, shape: Tuple[int, ...]) -> Optional[LinearMap]:
         if w_val is None:
             return None
         flat_dim = math.prod(shape)
-        if not isinstance(w_val, (LinearMap, LinearOperator)) and not scipy.sparse.issparse(
-            w_val
-        ):
+        if not isinstance(w_val, (LinearMap, LinearOperator)) and not scipy.sparse.issparse(w_val):
             arr_shape = getattr(w_val, "shape", None)
             if arr_shape is None:
                 arr_shape = np.shape(w_val)
@@ -146,15 +132,9 @@ class LeastSquaresProblem:
         if key not in self._dense_normal_equation_cache:
             system_adjoint = system_matrix.T.conj()
             normal_matrix = system_adjoint @ system_matrix
-            self._dense_normal_equation_cache[key] = (
-                system_matrix,
-                system_adjoint,
-                normal_matrix,
-            )
+            self._dense_normal_equation_cache[key] = (system_matrix, system_adjoint, normal_matrix)
         else:
-            system_matrix, system_adjoint, normal_matrix = (
-                self._dense_normal_equation_cache[key]
-            )
+            system_matrix, system_adjoint, normal_matrix = self._dense_normal_equation_cache[key]
         return xp, system_matrix, system_adjoint, normal_matrix
 
     def dense_normal_pinv(self, tolerance: float) -> Any:
@@ -171,8 +151,8 @@ class LeastSquaresProblem:
         """Return cached dense system matrix for one backend key."""
         if backend_key not in self._dense_system_matrix_cache:
             backend = "numpy" if backend_key == "numpy" else None
-            self._dense_system_matrix_cache[backend_key] = (
-                self.get_system_linear_map().to_matrix(backend=backend)
+            self._dense_system_matrix_cache[backend_key] = self.get_system_linear_map().to_matrix(
+                backend=backend
             )
         return self._dense_system_matrix_cache[backend_key]
 

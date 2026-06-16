@@ -17,12 +17,7 @@ def load_settings_and_basis(settings_path):
     return settings, SHBasis(nmax, mmax)
 
 
-def build_plot_grid(
-    nlat=60,
-    nlon=100,
-    lat_range=(-89.9, 89.9),
-    lon_range=(-180.0, 180.0),
-):
+def build_plot_grid(nlat=60, nlon=100, lat_range=(-89.9, 89.9), lon_range=(-180.0, 180.0)):
     """Build a regular latitude/longitude plotting grid."""
     lat_1d = np.linspace(lat_range[0], lat_range[1], int(nlat))
     lon_1d = np.linspace(lon_range[0], lon_range[1], int(nlon))
@@ -42,9 +37,7 @@ def transform_for_source(source, transform):
     return SphericalTransform(
         source,
         transform.target,
-        sqrt_weights=(
-            transform.sqrt_weights if transform.explicit_sqrt_weights else None
-        ),
+        sqrt_weights=(transform.sqrt_weights if transform.explicit_sqrt_weights else None),
         reg_lambda=transform.reg_lambda,
         pinv_rtol=transform.pinv_rtol,
         area_weighted=transform.area_weighted,
@@ -59,9 +52,7 @@ def compute_conversion_factors(settings, sh_basis):
         "RI": ri,
         "m_ind_to_Br": -(ri**2) * sh_basis.laplacian(ri),
         "m_imp_to_jr": ri / mu0 * sh_basis.laplacian(ri),
-        "m_ind_to_Jeq": (
-            -ri / mu0 * solid_harmonics.poloidal_to_boundary_potential_jump_factor
-        ),
+        "m_ind_to_Jeq": (-ri / mu0 * solid_harmonics.poloidal_to_boundary_potential_jump_factor),
     }
 
 

@@ -123,8 +123,7 @@ for step in range(0, nstep):
         plot_global_polar_map(lon, lat, delta_Br, cmap=plt.cm.bwr, extend="both")
 
     Br_field = pynamit.FieldCoefficients(
-        state_field_space,
-        Br_spherical_transform.analyze_scalar(delta_Br.flatten()),
+        state_field_space, Br_spherical_transform.analyze_scalar(delta_Br.flatten())
     )
 
     plt_lat, plt_lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)

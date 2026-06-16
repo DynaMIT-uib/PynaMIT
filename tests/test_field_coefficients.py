@@ -41,9 +41,7 @@ def test_field_coefficients_preserves_tangential_shape():
     assert field.field_type == "tangential"
     assert field.array.shape == (2, basis.index_length)
     np.testing.assert_allclose(field.to_vector(), field.array.reshape(-1))
-    np.testing.assert_allclose(
-        basis.scalar_mean(field.array), np.zeros(2), atol=1e-12
-    )
+    np.testing.assert_allclose(basis.scalar_mean(field.array), np.zeros(2), atol=1e-12)
 
 
 def test_field_coefficients_canonicalizes_flat_tangential_coefficients():

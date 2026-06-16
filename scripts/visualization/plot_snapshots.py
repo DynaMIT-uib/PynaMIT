@@ -247,9 +247,7 @@ if EQUATORIAL_EFIELD:
 
         grid = pynamit.Grid(lat=glat, lon=glon)
 
-        evaluator = pynamit.SphericalTransform(
-            a.basis, grid
-        )
+        evaluator = pynamit.SphericalTransform(a.basis, grid)
 
         phi = evaluate_Phi_coefficients(a.geometry, a.Phi_coeffs, evaluator)
 

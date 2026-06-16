@@ -36,15 +36,12 @@ def test_2d_igrf_pfac_hc_wind_cs_conductance_basis():
 
     sh_coeffs = _final_state_coefficients(sh_conductance)
     cs_coeffs = _final_state_coefficients(cs_conductance)
-    relative_difference = np.linalg.norm(cs_coeffs - sh_coeffs) / np.linalg.norm(
-        sh_coeffs
-    )
+    relative_difference = np.linalg.norm(cs_coeffs - sh_coeffs) / np.linalg.norm(sh_coeffs)
 
     assert "CS_etaP" in cs_conductance.input_timeseries.datasets["conductance"]
     assert "CS_etaH" in cs_conductance.input_timeseries.datasets["conductance"]
     assert (
-        cs_conductance.input_field_spaces["conductance"].representation
-        is cs_conductance.cs_basis
+        cs_conductance.input_field_spaces["conductance"].representation is cs_conductance.cs_basis
     )
     assert cs_coeffs.shape == sh_coeffs.shape
     assert relative_difference < 0.25

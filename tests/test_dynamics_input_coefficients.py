@@ -66,8 +66,7 @@ def test_set_neutral_wind_accepts_helmholtz_input_basis_coefficients(tmp_path):
 
     dataset = dynamics.input_timeseries.datasets["u"]
     np.testing.assert_allclose(
-        dataset["SH_u"].isel(time=0).values,
-        np.concatenate([cf_coeffs, df_coeffs]),
+        dataset["SH_u"].isel(time=0).values, np.concatenate([cf_coeffs, df_coeffs])
     )
     np.testing.assert_allclose(dataset.time.values, [3.0])
 
@@ -83,8 +82,7 @@ def test_set_u_uses_neutral_wind_api(tmp_path):
 
     dataset = dynamics.input_timeseries.datasets["u"]
     np.testing.assert_allclose(
-        dataset["SH_u"].isel(time=0).values,
-        np.concatenate([cf_coeffs, df_coeffs]),
+        dataset["SH_u"].isel(time=0).values, np.concatenate([cf_coeffs, df_coeffs])
     )
 
 
@@ -99,10 +97,7 @@ def test_state_update_uses_field_coefficients_for_wind(tmp_path):
     dynamics.state.update(dynamics.input_timeseries, time=3.0)
 
     assert isinstance(dynamics.state.u, FieldCoefficients)
-    np.testing.assert_allclose(
-        dynamics.state.u.array,
-        np.vstack([cf_coeffs, df_coeffs]),
-    )
+    np.testing.assert_allclose(dynamics.state.u.array, np.vstack([cf_coeffs, df_coeffs]))
 
 
 def test_set_Q_eff_accepts_helmholtz_input_basis_coefficients(tmp_path):
@@ -116,8 +111,7 @@ def test_set_Q_eff_accepts_helmholtz_input_basis_coefficients(tmp_path):
 
     dataset = dynamics.input_timeseries.datasets["Q_eff"]
     np.testing.assert_allclose(
-        dataset["SH_Q_eff"].isel(time=0).values,
-        np.concatenate([cf_coeffs, df_coeffs]),
+        dataset["SH_Q_eff"].isel(time=0).values, np.concatenate([cf_coeffs, df_coeffs])
     )
     np.testing.assert_allclose(dataset.time.values, [3.0])
 
@@ -133,10 +127,7 @@ def test_state_update_uses_field_coefficients_for_Q_eff(tmp_path):
     dynamics.state.update(dynamics.input_timeseries, time=3.0)
 
     assert isinstance(dynamics.state.Q_eff, FieldCoefficients)
-    np.testing.assert_allclose(
-        dynamics.state.Q_eff.array,
-        np.vstack([cf_coeffs, df_coeffs]),
-    )
+    np.testing.assert_allclose(dynamics.state.Q_eff.array, np.vstack([cf_coeffs, df_coeffs]))
 
 
 def test_set_resistance_accepts_input_basis_coefficients(tmp_path):
@@ -146,11 +137,7 @@ def test_set_resistance_accepts_input_basis_coefficients(tmp_path):
     etaP_coeffs = np.arange(n_coeffs, dtype=float) + 1.0
     etaH_coeffs = np.arange(n_coeffs, dtype=float) - 2.0
 
-    dynamics.set_resistance(
-        etaP_coefficients=etaP_coeffs,
-        etaH_coefficients=etaH_coeffs,
-        time=5.0,
-    )
+    dynamics.set_resistance(etaP_coefficients=etaP_coeffs, etaH_coefficients=etaH_coeffs, time=5.0)
 
     dataset = dynamics.input_timeseries.datasets["conductance"]
     np.testing.assert_allclose(dataset["SH_etaP"].isel(time=0).values, etaP_coeffs)
@@ -165,11 +152,7 @@ def test_coefficient_inputs_reject_projection_coordinates(tmp_path):
     jr_coeffs = np.arange(n_coeffs, dtype=float)
 
     with np.testing.assert_raises_regex(ValueError, "lat"):
-        dynamics.set_jr(
-            jr_coefficients=jr_coeffs,
-            lat=np.zeros(n_coeffs),
-            time=0.0,
-        )
+        dynamics.set_jr(jr_coefficients=jr_coeffs, lat=np.zeros(n_coeffs), time=0.0)
 
 
 def test_tangential_coefficient_inputs_must_be_complete(tmp_path):
@@ -191,11 +174,7 @@ def test_tangential_inputs_reject_mixed_samples_and_coefficients(tmp_path):
 
     with np.testing.assert_raises_regex(ValueError, "sample values"):
         dynamics.set_Q_eff(
-            Q_eff_theta=values,
-            Q_eff_phi=values,
-            Q_eff_cf=coeffs,
-            Q_eff_df=coeffs,
-            time=0.0,
+            Q_eff_theta=values, Q_eff_phi=values, Q_eff_cf=coeffs, Q_eff_df=coeffs, time=0.0
         )
 
 
@@ -231,11 +210,7 @@ def test_set_resistance_cs_basis_remaps_non_model_grid(tmp_path):
     etaH = np.zeros(grid.size)
 
     dynamics.set_resistance(
-        etaP,
-        etaH,
-        lat=grid.lat + np.linspace(0.0, 1e-3, grid.size),
-        lon=grid.lon,
-        time=6.0,
+        etaP, etaH, lat=grid.lat + np.linspace(0.0, 1e-3, grid.size), lon=grid.lon, time=6.0
     )
 
     dataset = dynamics.input_timeseries.datasets["conductance"]
@@ -253,13 +228,7 @@ def test_set_resistance_cs_basis_rejects_least_squares_options(tmp_path):
     etaH = np.zeros(grid.size)
 
     with np.testing.assert_raises_regex(ValueError, "reg_lambda"):
-        dynamics.set_resistance(
-            etaP,
-            etaH,
-            lat=grid.lat,
-            lon=grid.lon,
-            reg_lambda=1e-3,
-        )
+        dynamics.set_resistance(etaP, etaH, lat=grid.lat, lon=grid.lon, reg_lambda=1e-3)
 
 
 def test_set_conductance_delegates_resistance_conversion(tmp_path, monkeypatch):

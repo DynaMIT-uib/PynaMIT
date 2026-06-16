@@ -60,14 +60,7 @@ class PynamEye:
     """
 
     def __init__(
-        self,
-        run_directory,
-        t=0,
-        Nlat=60,
-        Nlon=100,
-        NCS_plot=10,
-        mlatlim=50,
-        steady_state=True,
+        self, run_directory, t=0, Nlat=60, Nlon=100, NCS_plot=10, mlatlim=50, steady_state=True
     ):
         """Initialize the PynamEye object.
 
@@ -123,13 +116,8 @@ class PynamEye:
         self.global_vector_grid = Grid(theta=arr_theta, lon=arr_phi)
 
         # Define t0 and set up the configured dipole object.
-        self.t0 = datetime.datetime.strptime(
-            self.config.t0,
-            "%Y-%m-%d %H:%M:%S",
-        )
-        self.mainfield_epoch = float(
-            self._config_value("mainfield_epoch", self.t0.year)
-        )
+        self.t0 = datetime.datetime.strptime(self.config.t0, "%Y-%m-%d %H:%M:%S")
+        self.mainfield_epoch = float(self._config_value("mainfield_epoch", self.t0.year))
         self.dp = Dipole(self.mainfield_epoch)
 
         self.schema = self.run_view.schema
@@ -144,9 +132,7 @@ class PynamEye:
         self.conductance_field_space = self.input_field_spaces["conductance"]
         self.scalar_field_space = self.output_field_spaces["state"]
         self.tangential_field_space = FieldSpace.from_representation(
-            self.basis,
-            field_type="tangential",
-            mean_free=self.scalar_field_space.mean_free,
+            self.basis, field_type="tangential", mean_free=self.scalar_field_space.mean_free
         )
         self.geometry = self.run_view.geometry
 
@@ -183,9 +169,7 @@ class PynamEye:
             self._add_transforms("north", self.polar_grid)
             self.transforms["south"] = self.transforms["north"]
             self.conductance_transforms["south"] = self.conductance_transforms["north"]
-            self.solid_harmonic_transforms["south"] = self.solid_harmonic_transforms[
-                "north"
-            ]
+            self.solid_harmonic_transforms["south"] = self.solid_harmonic_transforms["north"]
 
         self._e_from_b_cache_ready = False
 
@@ -199,14 +183,12 @@ class PynamEye:
         for region in ["global", "north", "south"]:
             self.m_ind_to_gridded_sheet_current_maps[region] = (
                 self.geometry.m_ind_to_gridded_sheet_current(
-                    self.transforms[region],
-                    solid_transform=self.solid_harmonic_transforms[region],
+                    self.transforms[region], solid_transform=self.solid_harmonic_transforms[region]
                 )
             )
             self.m_imp_to_gridded_sheet_current_maps[region] = (
                 self.geometry.m_imp_to_gridded_sheet_current(
-                    self.transforms[region],
-                    solid_transform=self.solid_harmonic_transforms[region],
+                    self.transforms[region], solid_transform=self.solid_harmonic_transforms[region]
                 )
             )
 
@@ -217,8 +199,7 @@ class PynamEye:
         """Add region transforms."""
         self.transforms[region] = SphericalTransform(self.basis, grid)
         self.conductance_transforms[region] = SphericalTransform(
-            self.conductance_field_space.representation,
-            grid,
+            self.conductance_field_space.representation, grid
         )
         self.solid_harmonic_transforms[region] = self.geometry.solid_transform_for(
             self.transforms[region]
@@ -256,10 +237,7 @@ class PynamEye:
         if not self._e_from_b_cache_ready:
             # Reproduce numerical grid used in the simulation.
             state_cs_basis = self.schema.cs_basis
-            self.state_grid = Grid(
-                theta=state_cs_basis.arr_theta,
-                phi=state_cs_basis.arr_phi,
-            )
+            self.state_grid = Grid(theta=state_cs_basis.arr_theta, phi=state_cs_basis.arr_phi)
 
             self._add_transforms("num", self.state_grid)
 
@@ -275,14 +253,12 @@ class PynamEye:
 
             self.m_ind_to_gridded_sheet_current_maps["num"] = (
                 self.geometry.m_ind_to_gridded_sheet_current(
-                    self.transforms["num"],
-                    solid_transform=self.solid_harmonic_transforms["num"],
+                    self.transforms["num"], solid_transform=self.solid_harmonic_transforms["num"]
                 )
             )
             self.m_imp_to_gridded_sheet_current_maps["num"] = (
                 self.geometry.m_imp_to_gridded_sheet_current(
-                    self.transforms["num"],
-                    solid_transform=self.solid_harmonic_transforms["num"],
+                    self.transforms["num"], solid_transform=self.solid_harmonic_transforms["num"]
                 )
             )
 
@@ -290,16 +266,12 @@ class PynamEye:
 
         # Calculate electric field values on state_grid.
         Js_ind, Je_ind = np.split(
-            self.m_ind_to_gridded_sheet_current_maps["num"]
-            .matvec(self.m_ind)
-            .reshape(2, -1),
+            self.m_ind_to_gridded_sheet_current_maps["num"].matvec(self.m_ind).reshape(2, -1),
             2,
             axis=0,
         )
         Js_imp, Je_imp = np.split(
-            self.m_imp_to_gridded_sheet_current_maps["num"]
-            .matvec(self.m_imp)
-            .reshape(2, -1),
+            self.m_imp_to_gridded_sheet_current_maps["num"].matvec(self.m_imp).reshape(2, -1),
             2,
             axis=0,
         )
@@ -309,9 +281,7 @@ class PynamEye:
         Jth, Jph = Js_ind + Js_imp, Je_ind + Je_imp
 
         conductance = evaluate_conductance_coefficients(
-            self.conductance_transforms["num"],
-            self.m_etaP,
-            self.m_etaH,
+            self.conductance_transforms["num"], self.m_etaP, self.m_etaH
         )
         etaP_on_grid = conductance["etaP"]
         etaH_on_grid = conductance["etaH"]
@@ -336,9 +306,7 @@ class PynamEye:
         Eph -= uxB_phi
 
         E_coeffs = self.transforms["num"].analyze_helmholtz(np.array([Eth, Eph]))
-        self.Phi_coeffs = self.basis.get_helmholtz_curl_free_potential_operator().matvec(
-            E_coeffs
-        )
+        self.Phi_coeffs = self.basis.get_helmholtz_curl_free_potential_operator().matvec(E_coeffs)
         self.W_coeffs = self.basis.get_helmholtz_divergence_free_potential_operator().matvec(
             E_coeffs
         )
@@ -420,14 +388,10 @@ class PynamEye:
         self.m_Phi = self.Phi_coeffs * self.RI
 
         self.m_etaP = self._select_values(
-            self.datasets["conductance"],
-            self.input_field_spaces["conductance"],
-            "etaP",
+            self.datasets["conductance"], self.input_field_spaces["conductance"], "etaP"
         )
         self.m_etaH = self._select_values(
-            self.datasets["conductance"],
-            self.input_field_spaces["conductance"],
-            "etaH",
+            self.datasets["conductance"], self.input_field_spaces["conductance"], "etaH"
         )
         if "u" in self.datasets:
             self.u = FieldCoefficients(
@@ -483,11 +447,7 @@ class PynamEye:
         return self.get_global_coordinate_context().projection()
 
     def style_global_axis(
-        self,
-        ax,
-        draw_labels=True,
-        draw_coastlines=True,
-        local_time_labels=False,
+        self, ax, draw_labels=True, draw_coastlines=True, local_time_labels=False
     ):
         """Style a global map axis and add magnetic reference curves.
 
@@ -516,37 +476,14 @@ class PynamEye:
         dip_lat = 90 - self.mainfield.dip_equator(ll)
 
         latitude_boundary = self._config_value("latitude_boundary", 50)
-        lbn = 90 - self.mainfield.dip_equator(
-            ll, theta=90 - latitude_boundary
-        )
-        lbs = 90 - self.mainfield.dip_equator(
-            ll, theta=90 + latitude_boundary
-        )
+        lbn = 90 - self.mainfield.dip_equator(ll, theta=90 - latitude_boundary)
+        lbs = 90 - self.mainfield.dip_equator(ll, theta=90 + latitude_boundary)
 
         ax.plot(
-            ll,
-            dip_lat,
-            color="blue",
-            linestyle="--",
-            linewidth=1,
-            transform=ccrs.PlateCarree(),
+            ll, dip_lat, color="blue", linestyle="--", linewidth=1, transform=ccrs.PlateCarree()
         )
-        ax.plot(
-            ll,
-            lbn,
-            color="blue",
-            linestyle="--",
-            linewidth=0.5,
-            transform=ccrs.PlateCarree(),
-        )
-        ax.plot(
-            ll,
-            lbs,
-            color="blue",
-            linestyle="--",
-            linewidth=0.5,
-            transform=ccrs.PlateCarree(),
-        )
+        ax.plot(ll, lbn, color="blue", linestyle="--", linewidth=0.5, transform=ccrs.PlateCarree())
+        ax.plot(ll, lbs, color="blue", linestyle="--", linewidth=0.5, transform=ccrs.PlateCarree())
 
     @staticmethod
     def _validate_region(region):
@@ -562,24 +499,16 @@ class PynamEye:
         if region in {"south", "north"}:
             if not isinstance(ax, Polarplot):
                 raise TypeError("Polar regions require a polplot.Polarplot axis.")
-            mlt = self.get_magnetic_coordinate_context().longitude_to_local_time(
-                self.mlon
-            )
+            mlt = self.get_magnetic_coordinate_context().longitude_to_local_time(self.mlon)
             x_coord, y_coord = ax._latlt2xy(self.mlat, mlt)
             plotter = getattr(ax.ax, method)
             plot_args = (x_coord, y_coord, values.reshape(self.mlat.shape))
         else:
             axis_projection = getattr(ax, "projection", None)
-            if axis_projection is None or not axis_projection.equals(
-                self.get_global_projection()
-            ):
+            if axis_projection is None or not axis_projection.equals(self.get_global_projection()):
                 raise ValueError("Global plots require the PynamEye global projection.")
             plotter = getattr(ax, method)
-            plot_args = (
-                self.lon,
-                self.lat,
-                values.reshape(self.lon.shape),
-            )
+            plot_args = (self.lon, self.lat, values.reshape(self.lon.shape))
             kwargs = {"transform": ccrs.PlateCarree(), **kwargs}
 
         with suppress_empty_contour_warnings():
@@ -638,20 +567,11 @@ class PynamEye:
             print("vector plot on polar grid not yet implemented")
             return None
         axis_projection = getattr(ax, "projection", None)
-        if axis_projection is None or not axis_projection.equals(
-            self.get_global_projection()
-        ):
+        if axis_projection is None or not axis_projection.equals(self.get_global_projection()):
             raise ValueError("Global plots require the PynamEye global projection.")
         with suppress_empty_contour_warnings():
             lon, lat = (self.global_vector_grid.lon, self.global_vector_grid.lat)
-            return ax.quiver(
-                lon,
-                lat,
-                east,
-                north,
-                transform=ccrs.PlateCarree(),
-                **kwargs,
-            )
+            return ax.quiver(lon, lat, east, north, transform=ccrs.PlateCarree(), **kwargs)
 
     def plot_joule(self, ax, region="global", **kwargs):
         """Plot Joule heating.
@@ -701,9 +621,7 @@ class PynamEye:
         self._fill_plot_defaults(kwargs, self.conductance_defaults)
 
         conductance = evaluate_conductance_coefficients(
-            self.conductance_transforms[region],
-            self.m_etaP,
-            self.m_etaH,
+            self.conductance_transforms[region], self.m_etaP, self.m_etaH
         )
 
         if hp == "h":
@@ -732,14 +650,9 @@ class PynamEye:
         if self.m_u is None:
             raise RuntimeError("No saved 'u' dataset is available for wind plotting.")
         wind_transform = transform_for_source(
-            self.u.representation,
-            self.transforms["global_vector"],
+            self.u.representation, self.transforms["global_vector"]
         )
-        wind = evaluate_wind_coefficients(
-            wind_transform,
-            self.u,
-            include_magnitude=False,
-        )
+        wind = evaluate_wind_coefficients(wind_transform, self.u, include_magnitude=False)
 
         return self._quiver(wind["u_east"], wind["u_north"], ax, region, **kwargs)
 
@@ -757,11 +670,7 @@ class PynamEye:
         """
         self._fill_plot_defaults(kwargs, self.Br_defaults)
 
-        Br = evaluate_Br_coefficients(
-            self.geometry,
-            self.m_ind,
-            self.transforms[region],
-        )
+        Br = evaluate_Br_coefficients(self.geometry, self.m_ind, self.transforms[region])
 
         return self._plot_filled_contour(Br, ax, region, **kwargs)
 
@@ -780,9 +689,7 @@ class PynamEye:
         self._fill_plot_defaults(kwargs, self.eqJ_defaults)
 
         Jeq = evaluate_equivalent_current_coefficients(
-            self.geometry,
-            self.m_ind,
-            self.transforms[region],
+            self.geometry, self.m_ind, self.transforms[region]
         )
 
         return self._plot_contour(Jeq, ax, region, **kwargs)
@@ -801,11 +708,7 @@ class PynamEye:
         """
         self._fill_plot_defaults(kwargs, self.jr_defaults)
 
-        jr = evaluate_jr_coefficients(
-            self.geometry,
-            self.m_imp,
-            self.transforms[region],
-        )
+        jr = evaluate_jr_coefficients(self.geometry, self.m_imp, self.transforms[region])
 
         return self._plot_filled_contour(jr, ax, region, **kwargs)
 
@@ -827,11 +730,7 @@ class PynamEye:
 
         if from_B:
             self.derive_E_from_B()
-        Phi = evaluate_Phi_coefficients(
-            self.geometry,
-            self.Phi_coeffs,
-            self.transforms[region],
-        )
+        Phi = evaluate_Phi_coefficients(self.geometry, self.Phi_coeffs, self.transforms[region])
 
         return self._plot_contour(Phi, ax, region, **kwargs)
 
@@ -849,11 +748,7 @@ class PynamEye:
         """
         self._fill_plot_defaults(kwargs, self.W_defaults)
 
-        W = evaluate_W_coefficients(
-            self.geometry,
-            self.W_coeffs,
-            self.transforms[region],
-        )
+        W = evaluate_W_coefficients(self.geometry, self.W_coeffs, self.transforms[region])
 
         return self._plot_contour(W, ax, region, **kwargs)
 

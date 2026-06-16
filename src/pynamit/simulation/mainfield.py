@@ -43,9 +43,10 @@ def decimal_year(epoch):
         return float(epoch)
     year_start = datetime(epoch.year, 1, 1, 0, 0)
     next_year_start = datetime(epoch.year + 1, 1, 1, 0, 0)
-    return epoch.year + (epoch - year_start).total_seconds() / (
-        next_year_start - year_start
-    ).total_seconds()
+    return (
+        epoch.year
+        + (epoch - year_start).total_seconds() / (next_year_start - year_start).total_seconds()
+    )
 
 
 def _dipole_for_epoch(epoch, B0=None):
@@ -240,11 +241,7 @@ class Mainfield:
         return (result[0], wrap_longitude_180(result[1]), *result[2:])
 
     def local_time_longitude_to_model_longitude(
-        self,
-        local_time_lon,
-        event_time,
-        *,
-        local_noon_longitude=0.0,
+        self, local_time_lon, event_time, *, local_noon_longitude=0.0
     ):
         """Convert a REMIX/MAGE local-time longitude to this model longitude.
 
@@ -284,12 +281,8 @@ class Mainfield:
                 "dipole_alignment_model": "klaundal_dipole_igrf_centered_dipole",
                 "dipole_alignment_epoch": self.epoch,
                 "dipole_axis_geo_cartesian": np.asarray(dpl.axis, dtype=float),
-                "dipole_north_pole_geo_lat_lon": np.asarray(
-                    dpl.north_pole, dtype=float
-                ),
-                "dipole_south_pole_geo_lat_lon": np.asarray(
-                    dpl.south_pole, dtype=float
-                ),
+                "dipole_north_pole_geo_lat_lon": np.asarray(dpl.north_pole, dtype=float),
+                "dipole_south_pole_geo_lat_lon": np.asarray(dpl.south_pole, dtype=float),
             }
         return {
             "mainfield_kind": self.kind,

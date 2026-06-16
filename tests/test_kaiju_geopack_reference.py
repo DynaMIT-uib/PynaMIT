@@ -71,19 +71,12 @@ end program test_geo2sm
         capture_output=True,
         text=True,
     )
-    output = subprocess.run(
-        [str(executable)],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    output = subprocess.run([str(executable)], check=True, capture_output=True, text=True)
 
     geo_basis_in_sm = np.array(
         [[float(value) for value in line.split()] for line in output.stdout.splitlines()]
     )
     observed_matrix = np.column_stack(geo_basis_in_sm)
-    expected_matrix = kaiju_geopack_sm(
-        dt.datetime(2011, 10, 24, 18, 0, 10)
-    ).geo_to_sm_matrix
+    expected_matrix = kaiju_geopack_sm(dt.datetime(2011, 10, 24, 18, 0, 10)).geo_to_sm_matrix
 
     np.testing.assert_allclose(observed_matrix, expected_matrix, atol=5e-12)

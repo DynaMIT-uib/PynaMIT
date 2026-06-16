@@ -14,11 +14,7 @@ from pynamit.simulation.schema import build_simulation_schema, field_spaces_from
 
 
 def _settings(**attrs):
-    defaults = {
-        "Nmax": 3,
-        "Mmax": 2,
-        "Ncs": 4,
-    }
+    defaults = {"Nmax": 3, "Mmax": 2, "Ncs": 4}
     defaults.update(attrs)
     return xr.Dataset(attrs=defaults)
 
@@ -100,16 +96,12 @@ def test_cs_schema_uses_full_length_storage_with_mean_free_intent():
     assert schema.horizontal_basis is schema.cs_basis
     assert schema.solid_harmonics.basis is schema.sh_basis_mean_free
     assert all(
-        space.representation is schema.cs_basis
-        for space in schema.input_field_spaces.values()
+        space.representation is schema.cs_basis for space in schema.input_field_spaces.values()
     )
     assert all(
-        space.representation is schema.cs_basis
-        for space in schema.output_field_spaces.values()
+        space.representation is schema.cs_basis for space in schema.output_field_spaces.values()
     )
-    assert all(
-        basis is schema.cs_basis for basis in schema.input_projection_bases.values()
-    )
+    assert all(basis is schema.cs_basis for basis in schema.input_projection_bases.values())
 
     state_space = schema.output_field_spaces["state"]
     assert state_space.mean_free
@@ -132,9 +124,7 @@ def test_schema_respects_input_projection_basis_for_sh_mode():
 
     assert schema.input_field_spaces["jr"].representation is schema.sh_basis_mean_free
     assert schema.input_field_spaces["conductance"].representation is schema.cs_basis
-    assert all(
-        basis is schema.cs_basis for basis in schema.input_projection_bases.values()
-    )
+    assert all(basis is schema.cs_basis for basis in schema.input_projection_bases.values())
 
 
 def test_sh_schema_can_store_conductance_on_cs_grid():
@@ -152,10 +142,7 @@ def test_field_spaces_from_bases_rejects_invalid_field_type():
     schema = build_simulation_schema(_settings(), "SH")
 
     with pytest.raises(ValueError, match="field_type"):
-        field_spaces_from_bases(
-            {"bad": schema.sh_basis},
-            {"bad": "vector"},
-        )
+        field_spaces_from_bases({"bad": schema.sh_basis}, {"bad": "vector"})
 
 
 def test_field_spaces_from_bases_requires_matching_keys():

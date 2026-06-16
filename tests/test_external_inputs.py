@@ -68,9 +68,7 @@ def test_fallback_multi_time_scaling(force_fallback):
     time = np.array([0.0, 10.0, 20.0])
     fallback = _load_fallback()
     key, entry = next(iter(fallback["conductance"].items()))
-    hall, pedersen, *_ = get_conductance_inputs(
-        _utc_now(), entry["lat"], entry["lon"], time
-    )
+    hall, pedersen, *_ = get_conductance_inputs(_utc_now(), entry["lat"], entry["lon"], time)
     assert hall.shape == (time.size, entry["hall"].size)
     assert pedersen.shape == (time.size, entry["pedersen"].size)
 

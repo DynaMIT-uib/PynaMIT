@@ -43,13 +43,9 @@ class MapCoordinateContext:
         longitude_kind = str(self.longitude_kind).lower()
         local_time_kind = str(self.local_time_kind).lower()
         if longitude_kind not in _VALID_LONGITUDE_KINDS:
-            raise ValueError(
-                f"longitude_kind must be one of {_VALID_LONGITUDE_KINDS}."
-            )
+            raise ValueError(f"longitude_kind must be one of {_VALID_LONGITUDE_KINDS}.")
         if local_time_kind not in _VALID_LOCAL_TIME_KINDS:
-            raise ValueError(
-                f"local_time_kind must be one of {_VALID_LOCAL_TIME_KINDS}."
-            )
+            raise ValueError(f"local_time_kind must be one of {_VALID_LOCAL_TIME_KINDS}.")
         label = self.label
         if label is None:
             label = "MLT" if local_time_kind == "magnetic" else "LT"
@@ -97,8 +93,7 @@ class MapCoordinateContext:
         geographic longitude for global geographic maps.
         """
         magnetic_noon = _as_float_scalar(
-            dipole.mlt2mlon(12, reference_time),
-            "magnetic noon longitude",
+            dipole.mlt2mlon(12, reference_time), "magnetic noon longitude"
         )
         if apex is None:
             return cls(
@@ -110,10 +105,7 @@ class MapCoordinateContext:
             )
         _, geographic_noon, _ = apex.apex2geo(0, magnetic_noon, apex_height)
         return cls(
-            noon_longitude=_as_float_scalar(
-                geographic_noon,
-                "geographic noon longitude",
-            ),
+            noon_longitude=_as_float_scalar(geographic_noon, "geographic noon longitude"),
             longitude_kind="geographic",
             local_time_kind="magnetic",
             label="MLT",
@@ -133,34 +125,22 @@ class MapCoordinateContext:
 
     def longitude_to_local_time(self, lon, *, wrap=True):
         """Convert plotted longitude to local-time hours."""
-        return longitude_to_local_time_from_noon_longitude(
-            lon,
-            self.noon_longitude,
-            wrap=wrap,
-        )
+        return longitude_to_local_time_from_noon_longitude(lon, self.noon_longitude, wrap=wrap)
 
     def local_time_to_longitude(self, local_time_hours):
         """Convert local-time hours to plotted longitude."""
         return wrap_longitude_180(
-            self.noon_longitude
-            + (np.asarray(local_time_hours, dtype=float) - 12.0) * 15.0
+            self.noon_longitude + (np.asarray(local_time_hours, dtype=float) - 12.0) * 15.0
         )
 
     def local_time_grid_longitudes(self, hours=DEFAULT_LOCAL_TIME_GRID_HOURS):
         """Return plotted longitudes for selected local-time ticks."""
         return self.local_time_to_longitude(np.asarray(hours, dtype=float))
 
-    def local_time_longitude_to_coordinate(
-        self,
-        lon,
-        *,
-        local_noon_longitude=0.0,
-    ):
+    def local_time_longitude_to_coordinate(self, lon, *, local_noon_longitude=0.0):
         """Convert source LT-like longitude to plotted longitude."""
         return wrap_longitude_180(
-            np.asarray(lon, dtype=float)
-            - float(local_noon_longitude)
-            + self.noon_longitude
+            np.asarray(lon, dtype=float) - float(local_noon_longitude) + self.noon_longitude
         )
 
     def format_local_time_label(self, lon, pos=None):
@@ -175,12 +155,7 @@ class MapCoordinateContext:
 
         return FuncFormatter(self.format_local_time_label)
 
-    def apply_grid_labels(
-        self,
-        gridliner,
-        *,
-        hours=DEFAULT_LOCAL_TIME_GRID_HOURS,
-    ):
+    def apply_grid_labels(self, gridliner, *, hours=DEFAULT_LOCAL_TIME_GRID_HOURS):
         """Apply this context's LT ticks to a Cartopy gridliner."""
         from matplotlib.ticker import FixedLocator
 

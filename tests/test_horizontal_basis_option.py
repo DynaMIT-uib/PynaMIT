@@ -69,10 +69,7 @@ def test_area_weighted_least_squares_option_is_persisted(tmp_path):
     assert dynamics.input_timeseries.area_weighted_least_squares
     assert dynamics.output_timeseries.area_weighted_least_squares
     assert geometry.area_weighted_least_squares
-    np.testing.assert_allclose(
-        geometry.grid_sqrt_weights(),
-        np.sqrt(geometry.cs_basis.unit_area),
-    )
+    np.testing.assert_allclose(geometry.grid_sqrt_weights(), np.sqrt(geometry.cs_basis.unit_area))
     np.testing.assert_allclose(
         geometry.grid_sqrt_weights(vector=True),
         np.tile(np.sqrt(geometry.cs_basis.unit_area), (2, 1)),
@@ -156,11 +153,7 @@ def test_cs_horizontal_basis_supports_rm_solid_harmonics(tmp_path):
     m_ind_to_sheet = geometry.m_ind_to_gridded_sheet_current()
     Br_to_sheet = geometry.Br_to_gridded_sheet_current()
 
-    assert m_ind_to_sheet.shape == (
-        2,
-        geometry.grid.size,
-        dynamics.horizontal_basis.index_length,
-    )
+    assert m_ind_to_sheet.shape == (2, geometry.grid.size, dynamics.horizontal_basis.index_length)
     assert Br_to_sheet.shape == m_ind_to_sheet.shape
     assert np.all(np.isfinite(m_ind_to_sheet))
     assert np.all(np.isfinite(Br_to_sheet))
@@ -198,9 +191,7 @@ def test_cs_horizontal_basis_supports_connected_hemispheres(tmp_path):
         2,
         dynamics.horizontal_basis.index_length,
     )
-    assert np.all(
-        np.isfinite(geometry.cp_spherical_transform.helmholtz_coeffs_to_gridded_vector)
-    )
+    assert np.all(np.isfinite(geometry.cp_spherical_transform.helmholtz_coeffs_to_gridded_vector))
     assert np.all(np.isfinite(geometry.E_coeffs_to_E_apex_ll_diff))
 
 
@@ -284,10 +275,10 @@ def test_cs_to_solid_harmonic_projection_matches_grid_least_squares(tmp_path):
     )
 
     geometry = dynamics.state.geometry
-    expected = tensor_pinv(
-        geometry.solid_harmonic_transform.scalar_coeffs_to_grid,
-        n_leading_flattened=1,
-    ) @ geometry.spherical_transform.scalar_coeffs_to_grid
+    expected = (
+        tensor_pinv(geometry.solid_harmonic_transform.scalar_coeffs_to_grid, n_leading_flattened=1)
+        @ geometry.spherical_transform.scalar_coeffs_to_grid
+    )
 
     np.testing.assert_allclose(geometry.horizontal_to_solid_harmonic, expected)
 
@@ -296,9 +287,7 @@ def test_cs_to_solid_harmonic_projection_matches_grid_least_squares(tmp_path):
     cs_coeffs = geometry.solid_harmonic_transform.scalar_coeffs_to_grid @ radial_coeffs
 
     np.testing.assert_allclose(
-        geometry.horizontal_to_solid_harmonic @ cs_coeffs,
-        radial_coeffs,
-        atol=1e-10,
+        geometry.horizontal_to_solid_harmonic @ cs_coeffs, radial_coeffs, atol=1e-10
     )
 
 
@@ -316,11 +305,14 @@ def test_cs_to_solid_harmonic_supports_area_weighted_projection(tmp_path):
     )
 
     geometry = dynamics.state.geometry
-    expected = weighted_tensor_pinv(
-        geometry.solid_harmonic_transform.scalar_coeffs_to_grid,
-        sqrt_weights=np.sqrt(geometry.cs_basis.unit_area),
-        n_leading_flattened=1,
-    ) @ geometry.spherical_transform.scalar_coeffs_to_grid
+    expected = (
+        weighted_tensor_pinv(
+            geometry.solid_harmonic_transform.scalar_coeffs_to_grid,
+            sqrt_weights=np.sqrt(geometry.cs_basis.unit_area),
+            n_leading_flattened=1,
+        )
+        @ geometry.spherical_transform.scalar_coeffs_to_grid
+    )
 
     np.testing.assert_allclose(geometry.horizontal_to_solid_harmonic, expected)
 

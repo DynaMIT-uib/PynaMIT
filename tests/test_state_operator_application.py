@@ -111,14 +111,10 @@ def test_Q_eff_coeffs_to_E_coeffs_uses_conductance_tensor_operator():
     """Q_eff maps through the conductance tensor before E analysis."""
     n = 3
     n_grid = 4
-    helmholtz_analysis = np.arange(2 * n * 2 * n_grid, dtype=float).reshape(
-        2, n, 2, n_grid
-    ) / 10.0
+    helmholtz_analysis = np.arange(2 * n * 2 * n_grid, dtype=float).reshape(2, n, 2, n_grid) / 10.0
     M_total = np.arange(2 * 2 * n_grid, dtype=float).reshape(2, 2, n_grid) / 20.0
     M_total += np.array([[[2.0], [0.0]], [[0.0], [3.0]]])
-    synthesis = np.arange(2 * n_grid * 2 * n, dtype=float).reshape(
-        2, n_grid, 2, n
-    ) / 30.0
+    synthesis = np.arange(2 * n_grid * 2 * n, dtype=float).reshape(2, n_grid, 2, n) / 30.0
     coeffs = np.arange(2 * n, dtype=float).reshape(2, n) / 40.0
 
     q_on_grid = np.einsum("qgrs,rs->qg", synthesis, coeffs, optimize=True)
@@ -127,16 +123,13 @@ def test_Q_eff_coeffs_to_E_coeffs_uses_conductance_tensor_operator():
 
     q_representation = SimpleNamespace(
         get_helmholtz_synthesis_operator=lambda grid: as_linear_map(
-            synthesis,
-            input_shape=(2, n),
-            output_shape=(2, n_grid),
+            synthesis, input_shape=(2, n), output_shape=(2, n_grid)
         )
     )
     state = object.__new__(State)
     state.basis = SimpleNamespace(index_length=n)
     state.geometry = SimpleNamespace(
-        grid=SimpleNamespace(size=n_grid),
-        helmholtz_analysis_matrix=helmholtz_analysis,
+        grid=SimpleNamespace(size=n_grid), helmholtz_analysis_matrix=helmholtz_analysis
     )
     state.Q_eff = SimpleNamespace(representation=q_representation)
     state._Q_eff_synthesis_operator_cache = {}
@@ -165,21 +158,9 @@ def test_induction_matrix_assembly_stays_on_jax(monkeypatch):
     E_direct_to_m_imp = np.arange(n * 2 * n, dtype=float).reshape(n, 2, n) / 30.0
     E_imp_matrix = np.arange(2 * n * n, dtype=float).reshape(2, n, n) / 40.0
 
-    expected = np.tensordot(
-        divergence_free_potential,
-        E_direct_matrix,
-        axes=([1, 2], [0, 1]),
-    )
-    m_imp_matrix = np.tensordot(
-        E_direct_to_m_imp,
-        E_direct_matrix,
-        axes=([1, 2], [0, 1]),
-    )
-    E_imp_to_df = np.tensordot(
-        divergence_free_potential,
-        E_imp_matrix,
-        axes=([1, 2], [0, 1]),
-    )
+    expected = np.tensordot(divergence_free_potential, E_direct_matrix, axes=([1, 2], [0, 1]))
+    m_imp_matrix = np.tensordot(E_direct_to_m_imp, E_direct_matrix, axes=([1, 2], [0, 1]))
+    E_imp_to_df = np.tensordot(divergence_free_potential, E_imp_matrix, axes=([1, 2], [0, 1]))
     expected = expected + E_imp_to_df @ m_imp_matrix
 
     def fail_to_numpy(_):
@@ -191,9 +172,7 @@ def test_induction_matrix_assembly_stays_on_jax(monkeypatch):
     state.basis = SimpleNamespace(index_length=n)
     state.geometry = SimpleNamespace(
         helmholtz_divergence_free_potential_operator=as_linear_map(
-            jnp.asarray(divergence_free_potential),
-            input_shape=(2, n),
-            output_shape=(n,),
+            jnp.asarray(divergence_free_potential), input_shape=(2, n), output_shape=(n,)
         )
     )
     state._m_ind_to_E_coeffs_cache = einsum_linear_map(
@@ -271,10 +250,7 @@ def test_m_imp_solve_uses_shaped_response_operators():
     expected = jr_to_m_imp @ jr_coeffs
     expected += E_direct_to_m_imp.reshape(n, 2 * n) @ E_direct_coeffs.reshape(2 * n)
 
-    np.testing.assert_allclose(
-        state._solve_for_m_imp(jr_coeffs, E_direct_coeffs),
-        expected,
-    )
+    np.testing.assert_allclose(state._solve_for_m_imp(jr_coeffs, E_direct_coeffs), expected)
 
 
 def test_m_imp_problem_uses_jr_apex_operator_without_dense_property():
@@ -285,9 +261,7 @@ def test_m_imp_problem_uses_jr_apex_operator_without_dense_property():
 
     class GeometryStub:
         jr_coeffs_to_j_apex_operator = as_linear_map(
-            jr_to_apex,
-            input_shape=(n,),
-            output_shape=(n,),
+            jr_to_apex, input_shape=(n,), output_shape=(n,)
         )
         m_imp_to_jr_operator = as_linear_map(m_imp_to_jr)
 
@@ -306,8 +280,7 @@ def test_m_imp_problem_uses_jr_apex_operator_without_dense_property():
     problem = state.m_imp_problem
 
     np.testing.assert_allclose(
-        problem.get_system_linear_map().to_matrix(backend="numpy"),
-        jr_to_apex @ m_imp_to_jr,
+        problem.get_system_linear_map().to_matrix(backend="numpy"), jr_to_apex @ m_imp_to_jr
     )
 
 
@@ -315,16 +288,12 @@ def test_E_map_constraint_uses_geometry_operator_without_dense_property():
     """The IH E constraint should compose LinearMaps directly."""
     n = 2
     n_ll = 3
-    E_outer = np.arange(2 * n_ll * 2 * n, dtype=float).reshape(
-        2, n_ll, 2, n
-    ) / 10.0
+    E_outer = np.arange(2 * n_ll * 2 * n, dtype=float).reshape(2, n_ll, 2, n) / 10.0
     m_imp_to_E = np.arange(2 * n * n, dtype=float).reshape(2, n, n) / 20.0
 
     class GeometryStub:
         E_coeffs_to_E_apex_ll_diff_operator = as_linear_map(
-            E_outer,
-            input_shape=(2, n),
-            output_shape=(2, n_ll),
+            E_outer, input_shape=(2, n), output_shape=(2, n_ll)
         )
 
         @property
@@ -335,19 +304,14 @@ def test_E_map_constraint_uses_geometry_operator_without_dense_property():
     state.basis = SimpleNamespace(index_length=n)
     state.geometry = GeometryStub()
     state._m_imp_to_E_coeffs_cache = as_linear_map(
-        m_imp_to_E,
-        input_shape=(n,),
-        output_shape=(2, n),
+        m_imp_to_E, input_shape=(n,), output_shape=(2, n)
     )
     state._E_map_constraint_cache = None
 
     constraint = state._E_map_constraint
 
     expected = E_outer.reshape(2 * n_ll, 2 * n) @ m_imp_to_E.reshape(2 * n, n)
-    np.testing.assert_allclose(
-        constraint.to_matrix(backend="numpy"),
-        expected,
-    )
+    np.testing.assert_allclose(constraint.to_matrix(backend="numpy"), expected)
 
 
 def test_M_total_on_grid_uses_conductance_synthesis_operator_without_matrix():
@@ -367,11 +331,7 @@ def test_M_total_on_grid_uses_conductance_synthesis_operator_without_matrix():
 
         def get_scalar_evaluation_operator(self, grid):
             assert grid is model_grid
-            return as_linear_map(
-                synthesis,
-                input_shape=(n_coeffs,),
-                output_shape=(n_grid,),
-            )
+            return as_linear_map(synthesis, input_shape=(n_coeffs,), output_shape=(n_grid,))
 
         def get_scalar_evaluation_matrix(self, _grid):
             raise AssertionError("M_total_on_grid should use the operator API")
@@ -391,10 +351,7 @@ def test_M_total_on_grid_uses_conductance_synthesis_operator_without_matrix():
 
     conductance_on_grid = synthesis @ np.stack([etaP, etaH], axis=1)
     expected = np.einsum(
-        "sijk,sk->ijk",
-        np.stack([bP, bH], axis=0),
-        conductance_on_grid.T,
-        optimize=True,
+        "sijk,sk->ijk", np.stack([bP, bH], axis=0), conductance_on_grid.T, optimize=True
     )
 
     np.testing.assert_allclose(state.M_total_on_grid, expected)
@@ -414,23 +371,15 @@ def test_M_total_on_grid_rejects_incompatible_conductance_bases():
             return self.name == getattr(other, "name", None)
 
         def get_scalar_evaluation_operator(self, _grid):
-            return as_linear_map(
-                synthesis,
-                input_shape=(n_coeffs,),
-                output_shape=(n_grid,),
-            )
+            return as_linear_map(synthesis, input_shape=(n_coeffs,), output_shape=(n_grid,))
 
     state = object.__new__(State)
     state.basis = object()
     state.geometry = SimpleNamespace(grid=object(), bP=np.ones((2, 2, n_grid)), bH=0.0)
     state.etaP = SimpleNamespace(
-        array=np.ones(n_coeffs),
-        representation=ConductanceBasis("pedersen"),
+        array=np.ones(n_coeffs), representation=ConductanceBasis("pedersen")
     )
-    state.etaH = SimpleNamespace(
-        array=np.ones(n_coeffs),
-        representation=ConductanceBasis("hall"),
-    )
+    state.etaH = SimpleNamespace(array=np.ones(n_coeffs), representation=ConductanceBasis("hall"))
     state._M_total_on_grid = None
 
     with pytest.raises(ValueError, match="coefficient-compatible"):
@@ -452,9 +401,7 @@ def test_model_operator_accessors_match_runtime_operator_chain():
     state.basis = SimpleNamespace(index_length=n)
     state.geometry = SimpleNamespace(
         helmholtz_divergence_free_potential_operator=as_linear_map(
-            divergence_free_potential,
-            input_shape=(2, n),
-            output_shape=(n,),
+            divergence_free_potential, input_shape=(2, n), output_shape=(n,)
         ),
         E_df_to_d_m_ind_dt=scale,
         Br_to_gridded_sheet_current=lambda: None,
@@ -523,15 +470,11 @@ def test_model_operator_accessors_match_runtime_operator_chain():
     sample = np.arange(2 * n, dtype=float)
     operators = state.operators.E_df()
     np.testing.assert_allclose(
-        operators["edf_from_u"].matvec(sample),
-        expected_edf["edf_from_u"] @ sample,
+        operators["edf_from_u"].matvec(sample), expected_edf["edf_from_u"] @ sample
     )
 
     scipy_operator = operators["edf_from_u"].as_linear_operator()
-    np.testing.assert_allclose(
-        scipy_operator.matvec(sample),
-        expected_edf["edf_from_u"] @ sample,
-    )
+    np.testing.assert_allclose(scipy_operator.matvec(sample), expected_edf["edf_from_u"] @ sample)
 
 
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")

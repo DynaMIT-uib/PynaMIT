@@ -66,13 +66,7 @@ class SHBasis(SurfaceOperators):
     _grid_cache_size = 8
 
     def __init__(
-        self,
-        Nmax,
-        Mmax,
-        Nmin=None,
-        mean_free=None,
-        quasi_normalized=True,
-        backend="internal",
+        self, Nmax, Mmax, Nmin=None, mean_free=None, quasi_normalized=True, backend="internal"
     ):
         """
         Initialize the SHBasis instance.
@@ -160,13 +154,7 @@ class SHBasis(SurfaceOperators):
     @property
     def coefficient_space_signature(self):
         """Return a signature for SH coefficient compatibility."""
-        return (
-            "SH",
-            int(self.Nmax),
-            int(self.Mmax),
-            int(self.Nmin),
-            bool(self.is_normalized),
-        )
+        return ("SH", int(self.Nmax), int(self.Mmax), int(self.Nmin), bool(self.is_normalized))
 
     @property
     def kind(self):
@@ -221,11 +209,7 @@ class SHBasis(SurfaceOperators):
         if key in cache:
             cache.move_to_end(key)
             return cache[key]
-        entry = {
-            "legendre": {},
-            "matrices": {},
-            "operators": {},
-        }
+        entry = {"legendre": {}, "matrices": {}, "operators": {}}
         cache[key] = entry
         if len(cache) > self._grid_cache_size:
             cache.popitem(last=False)
@@ -253,9 +237,7 @@ class SHBasis(SurfaceOperators):
         """Return a LinearMap shaped like ``matrix``."""
         output_rank = matrix.ndim - len(input_shape)
         return as_linear_map(
-            matrix,
-            input_shape=input_shape,
-            output_shape=matrix.shape[:output_rank],
+            matrix, input_shape=input_shape, output_shape=matrix.shape[:output_rank]
         )
 
     def scalar_fields_are_mean_free_by_construction(self):
@@ -406,9 +388,7 @@ class SHBasis(SurfaceOperators):
             grid,
             ("scalar_evaluation", derivative),
             lambda legendre_cache: self._evaluate_on_grid(
-                grid,
-                derivative=derivative,
-                legendre_cache=legendre_cache,
+                grid, derivative=derivative, legendre_cache=legendre_cache
             ),
         )
 
@@ -448,8 +428,7 @@ class SHBasis(SurfaceOperators):
             grid,
             "surface_gradient",
             lambda: self._operator_from_matrix(
-                self.get_surface_gradient_matrix(grid),
-                input_shape=(self.index_length,),
+                self.get_surface_gradient_matrix(grid), input_shape=(self.index_length,)
             ),
         )
 
@@ -473,8 +452,7 @@ class SHBasis(SurfaceOperators):
             grid,
             "rhat_cross_gradient",
             lambda: self._operator_from_matrix(
-                self.get_rhat_cross_gradient_matrix(grid),
-                input_shape=(self.index_length,),
+                self.get_rhat_cross_gradient_matrix(grid), input_shape=(self.index_length,)
             ),
         )
 
@@ -499,8 +477,7 @@ class SHBasis(SurfaceOperators):
             grid,
             "helmholtz_synthesis",
             lambda: self._operator_from_matrix(
-                self.get_helmholtz_synthesis_matrix(grid),
-                input_shape=(2, self.index_length),
+                self.get_helmholtz_synthesis_matrix(grid), input_shape=(2, self.index_length)
             ),
         )
 
@@ -518,9 +495,7 @@ class SHBasis(SurfaceOperators):
         )
 
         if self.backend == "internal":
-            P_unnormalized = (
-                cached_P if cached_P is not None else self.legendre(theta)
-            )
+            P_unnormalized = cached_P if cached_P is not None else self.legendre(theta)
             if needs_legendre_derivative:
                 dP_unnormalized = (
                     cached_dP
@@ -530,9 +505,7 @@ class SHBasis(SurfaceOperators):
             else:
                 dP_unnormalized = cached_dP
         else:  # backend == 'scipy'
-            if cached_P is not None and (
-                not needs_legendre_derivative or cached_dP is not None
-            ):
+            if cached_P is not None and (not needs_legendre_derivative or cached_dP is not None):
                 P_unnormalized, dP_unnormalized = cached_P, cached_dP
             else:
                 P_unnormalized, dP_unnormalized = self._get_legendre_scipy(

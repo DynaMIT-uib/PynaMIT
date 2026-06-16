@@ -131,12 +131,10 @@ if PLOT_WIND:
     scalar_state_space = pynamit.FieldSpace(dynamics.horizontal_basis, field_type="scalar")
 
     u_theta_sh = pynamit.FieldCoefficients(
-        scalar_state_space,
-        u_spherical_transform.analyze_scalar(u_theta),
+        scalar_state_space, u_spherical_transform.analyze_scalar(u_theta)
     )
     u_phi_sh = pynamit.FieldCoefficients(
-        scalar_state_space,
-        u_spherical_transform.analyze_scalar(u_phi),
+        scalar_state_space, u_spherical_transform.analyze_scalar(u_phi)
     )
 
     u_theta_int = dynamics.horizontal_spherical_transform.synthesize_scalar(u_theta_sh)

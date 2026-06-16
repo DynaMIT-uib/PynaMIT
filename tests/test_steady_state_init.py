@@ -159,8 +159,7 @@ def test_evolve_to_time_can_run_steady_state_without_inductive_state(tmp_path):
     assert "state" not in dynamics.output_timeseries.datasets
     assert "steady_state" in dynamics.output_timeseries.datasets
     np.testing.assert_allclose(
-        dynamics.output_timeseries.datasets["steady_state"].time.values,
-        [0.0, 0.05, 0.1],
+        dynamics.output_timeseries.datasets["steady_state"].time.values, [0.0, 0.05, 0.1]
     )
     assert not (tmp_path / "steady-only" / "state.ncdf").exists()
     assert (tmp_path / "steady-only" / "steady_state.ncdf").is_file()
@@ -188,8 +187,7 @@ def test_evolve_to_time_can_run_inductive_state_without_steady_state(tmp_path):
     assert "state" in dynamics.output_timeseries.datasets
     assert "steady_state" not in dynamics.output_timeseries.datasets
     np.testing.assert_allclose(
-        dynamics.output_timeseries.datasets["state"].time.values,
-        [0.0, 0.05, 0.1],
+        dynamics.output_timeseries.datasets["state"].time.values, [0.0, 0.05, 0.1]
     )
     assert (tmp_path / "inductive-only" / "state.ncdf").is_file()
     assert not (tmp_path / "inductive-only" / "steady_state.ncdf").exists()
@@ -247,10 +245,7 @@ def test_evolve_to_time_split_modes_match_combined_numerically(tmp_path, rel_tol
             atol=0.0,
         )
         np.testing.assert_allclose(
-            steady_split[variable].values,
-            steady_combined[variable].values,
-            rtol=rel_tol,
-            atol=0.0,
+            steady_split[variable].values, steady_combined[variable].values, rtol=rel_tol, atol=0.0
         )
 
     assert np.linalg.norm(state_combined["SH_m_ind"].values[-1]) > 0.0

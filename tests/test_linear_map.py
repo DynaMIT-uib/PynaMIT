@@ -60,10 +60,7 @@ def test_linear_map_addition_matches_matrix_operations():
     np.testing.assert_allclose(linear_map.rmatvec(y), expected.T @ y)
     np.testing.assert_allclose(linear_map.matmat(block), expected @ block)
     np.testing.assert_allclose(linear_map.to_matrix(backend="numpy"), expected)
-    np.testing.assert_allclose(
-        linear_map.normal_matrix_diag(),
-        np.sum(expected**2, axis=0),
-    )
+    np.testing.assert_allclose(linear_map.normal_matrix_diag(), np.sum(expected**2, axis=0))
 
 
 def test_linear_map_addition_requires_matching_shape_metadata():
@@ -97,11 +94,7 @@ def test_vstack_linear_maps_matches_stacked_matrix_operations():
 
 def test_vstack_linear_maps_elides_single_row():
     """Single-row stacks preserve the underlying map structure."""
-    matrix = as_linear_map(
-        np.array([[1.0, 2.0], [3.0, 5.0]]),
-        output_shape=(2,),
-        input_shape=(2,),
-    )
+    matrix = as_linear_map(np.array([[1.0, 2.0], [3.0, 5.0]]), output_shape=(2,), input_shape=(2,))
 
     assert vstack_linear_maps([matrix], input_shape=(2,)) is matrix
 
@@ -178,9 +171,7 @@ def test_take_linear_map_selects_axis_and_scatter_adjoint():
     adjoint_input = np.arange(output.size, dtype=float).reshape(output.shape)
     expected_adjoint = np.zeros_like(values)
     np.add.at(expected_adjoint, (slice(None), indices), adjoint_input)
-    adjoint_block = np.column_stack(
-        [adjoint_input.reshape(-1), adjoint_input.reshape(-1) + 1.0]
-    )
+    adjoint_block = np.column_stack([adjoint_input.reshape(-1), adjoint_input.reshape(-1) + 1.0])
     duplicate_counts = np.broadcast_to([1.0, 0.0, 2.0, 0.0], values.shape)
 
     assert linear_map.input_shape == values.shape
@@ -190,23 +181,14 @@ def test_take_linear_map_selects_axis_and_scatter_adjoint():
         linear_map.matmat(block),
         np.column_stack([output.reshape(-1), (values[:, indices] + 1.0).reshape(-1)]),
     )
-    np.testing.assert_allclose(
-        linear_map.rmatvec(adjoint_input),
-        expected_adjoint.reshape(-1),
-    )
+    np.testing.assert_allclose(linear_map.rmatvec(adjoint_input), expected_adjoint.reshape(-1))
     np.testing.assert_allclose(
         linear_map.rmatmat(adjoint_block),
         np.column_stack(
-            [
-                expected_adjoint.reshape(-1),
-                (expected_adjoint + duplicate_counts).reshape(-1),
-            ]
+            [expected_adjoint.reshape(-1), (expected_adjoint + duplicate_counts).reshape(-1)]
         ),
     )
-    np.testing.assert_allclose(
-        linear_map.normal_matrix_diag(),
-        duplicate_counts.reshape(-1),
-    )
+    np.testing.assert_allclose(linear_map.normal_matrix_diag(), duplicate_counts.reshape(-1))
     expected_dense = np.zeros((output.size, values.size))
     input_indices = np.arange(values.size).reshape(values.shape)[:, indices].reshape(-1)
     expected_dense[np.arange(output.size), input_indices] = 1.0
@@ -218,10 +200,7 @@ def test_take_linear_map_accepts_boolean_mask():
     values = np.arange(6.0).reshape(2, 3)
     linear_map = take_linear_map(values.shape, [True, False, True], axis=-1)
 
-    np.testing.assert_allclose(
-        linear_map.matvec(values),
-        values[:, [0, 2]].reshape(-1),
-    )
+    np.testing.assert_allclose(linear_map.matvec(values), values[:, [0, 2]].reshape(-1))
 
 
 def test_pointwise_matrix_linear_map_matches_local_component_transform():
@@ -237,38 +216,22 @@ def test_pointwise_matrix_linear_map_matches_local_component_transform():
     adjoint_input = np.arange(8.0).reshape(2, 4) / 7.0
     expected_adjoint = np.einsum("abg,ag->bg", matrix.conj(), adjoint_input)
     block = np.column_stack([values.reshape(-1), values.reshape(-1) + 1.0])
-    expected_block = np.stack(
-        [
-            expected,
-            np.einsum("abg,bg->ag", matrix, values + 1.0),
-        ],
-        axis=-1,
-    )
+    expected_block = np.stack([expected, np.einsum("abg,bg->ag", matrix, values + 1.0)], axis=-1)
 
     assert linear_map.input_shape == values.shape
     assert linear_map.output_shape == expected.shape
     np.testing.assert_allclose(linear_map.matvec(values), expected.reshape(-1))
+    np.testing.assert_allclose(linear_map.rmatvec(adjoint_input), expected_adjoint.reshape(-1))
+    np.testing.assert_allclose(linear_map.matmat(block), expected_block.reshape(expected.size, 2))
     np.testing.assert_allclose(
-        linear_map.rmatvec(adjoint_input),
-        expected_adjoint.reshape(-1),
-    )
-    np.testing.assert_allclose(
-        linear_map.matmat(block),
-        expected_block.reshape(expected.size, 2),
-    )
-    np.testing.assert_allclose(
-        linear_map.normal_matrix_diag(),
-        np.sum(np.abs(matrix) ** 2, axis=0).reshape(-1),
+        linear_map.normal_matrix_diag(), np.sum(np.abs(matrix) ** 2, axis=0).reshape(-1)
     )
     expected_dense = np.zeros((expected.size, values.size), dtype=matrix.dtype)
     for output_component in range(matrix.shape[0]):
         output_rows = output_component * matrix.shape[2] + np.arange(matrix.shape[2])
         for input_component in range(matrix.shape[1]):
             input_cols = input_component * matrix.shape[2] + np.arange(matrix.shape[2])
-            expected_dense[output_rows, input_cols] = matrix[
-                output_component,
-                input_component,
-            ]
+            expected_dense[output_rows, input_cols] = matrix[output_component, input_component]
     np.testing.assert_allclose(linear_map.to_matrix(backend="numpy"), expected_dense)
 
 
@@ -297,14 +260,8 @@ def test_structured_dense_builders_preserve_jax_backend(monkeypatch):
 
     assert "jax" in type(pointwise_dense).__module__
     assert "jax" in type(selector_dense).__module__
-    np.testing.assert_allclose(
-        np.asarray(pointwise_dense),
-        pointwise.to_matrix(backend="numpy"),
-    )
-    np.testing.assert_allclose(
-        np.asarray(selector_dense),
-        selector.to_matrix(backend="numpy"),
-    )
+    np.testing.assert_allclose(np.asarray(pointwise_dense), pointwise.to_matrix(backend="numpy"))
+    np.testing.assert_allclose(np.asarray(selector_dense), selector.to_matrix(backend="numpy"))
 
 
 def test_diagonal_composition_avoids_dense_diagonal_materialization():
@@ -345,13 +302,9 @@ def test_linear_map_diagonal_accessor_is_strict():
     diagonal_matrix = as_linear_map(np.diag([2.0, 3.0]))
     non_diagonal_matrix = as_linear_map(np.array([[2.0, 1.0], [0.0, 3.0]]))
 
+    np.testing.assert_allclose(diagonal_matrix.diagonal(backend="numpy"), [2.0, 3.0])
     np.testing.assert_allclose(
-        diagonal_matrix.diagonal(backend="numpy"),
-        [2.0, 3.0],
-    )
-    np.testing.assert_allclose(
-        (4.0 * diagonal_linear_map(np.array([2.0, 3.0]))).diagonal(backend="numpy"),
-        [8.0, 12.0],
+        (4.0 * diagonal_linear_map(np.array([2.0, 3.0]))).diagonal(backend="numpy"), [8.0, 12.0]
     )
     with pytest.raises(ValueError, match="not diagonal"):
         non_diagonal_matrix.diagonal(backend="numpy")
@@ -363,11 +316,7 @@ def test_scaled_dense_map_preserves_composition_structure():
     scalar = -2.5
     left_tensor = rng.normal(size=(2, 3, 4))
     right_tensor = rng.normal(size=(4, 5))
-    left = as_linear_map(
-        left_tensor.reshape(6, 4),
-        output_shape=(2, 3),
-        input_shape=(4,),
-    )
+    left = as_linear_map(left_tensor.reshape(6, 4), output_shape=(2, 3), input_shape=(4,))
     right = einsum_linear_map(
         component_tensors=[right_tensor],
         einsum_string_dense="ij->ij",
@@ -388,8 +337,7 @@ def test_scaled_dense_map_preserves_composition_structure():
     assert scaled._dense_tensor is not None
     assert composed._einsum_map is not None
     np.testing.assert_allclose(
-        composed.to_matrix(backend="numpy"),
-        scalar * left_tensor.reshape(6, 4) @ right_tensor,
+        composed.to_matrix(backend="numpy"), scalar * left_tensor.reshape(6, 4) @ right_tensor
     )
 
 
@@ -430,8 +378,7 @@ def test_scaled_einsum_map_preserves_composition_structure():
     assert composed._einsum_map is not None
     np.testing.assert_allclose(composed.to_matrix(backend="numpy"), expected)
     np.testing.assert_allclose(
-        composed.normal_matrix_diag(),
-        np.sum(np.abs(expected) ** 2, axis=0),
+        composed.normal_matrix_diag(), np.sum(np.abs(expected) ** 2, axis=0)
     )
 
 
@@ -484,11 +431,7 @@ def test_linear_map_to_matrix_materializes_on_requested_backend():
 def test_linear_map_to_array_returns_shaped_dense_representation():
     """Explicit shaped arrays preserve output/input axis metadata."""
     tensor = np.arange(24.0).reshape(2, 3, 4)
-    linear_map = as_linear_map(
-        tensor,
-        output_shape=(2, 3),
-        input_shape=(4,),
-    )
+    linear_map = as_linear_map(tensor, output_shape=(2, 3), input_shape=(4,))
 
     dense_matrix = linear_map.to_matrix(backend="numpy")
     shaped_array = linear_map.array
@@ -535,10 +478,7 @@ def test_pointwise_linear_map_accepts_numpy_inputs_with_jax_backend():
         set_backend(previous_backend)
 
     assert isinstance(result, np.ndarray)
-    np.testing.assert_allclose(
-        result,
-        np.einsum("abg,bg->ag", matrix, values).reshape(-1),
-    )
+    np.testing.assert_allclose(result, np.einsum("abg,bg->ag", matrix, values).reshape(-1))
 
 
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
@@ -672,13 +612,7 @@ def test_jax_sparse_linear_map_uses_sparse_normal_diagonal():
     """JAX sparse maps expose sparse normal diagonals."""
     from jax.experimental.sparse import BCOO
 
-    matrix = np.array(
-        [
-            [2.0 + 1.0j, 0.0],
-            [0.0, 3.0 - 2.0j],
-            [1.0, -1.0j],
-        ]
-    )
+    matrix = np.array([[2.0 + 1.0j, 0.0], [0.0, 3.0 - 2.0j], [1.0, -1.0j]])
     linear_map = as_linear_map(BCOO.from_scipy_sparse(csr_matrix(matrix)))
 
     def fail_matmat(_block):
@@ -691,8 +625,7 @@ def test_jax_sparse_linear_map_uses_sparse_normal_diagonal():
     object.__setattr__(linear_map, "_dense_array_func", fail_dense)
 
     np.testing.assert_allclose(
-        linear_map.normal_matrix_diag(),
-        np.sum(np.abs(matrix) ** 2, axis=0),
+        linear_map.normal_matrix_diag(), np.sum(np.abs(matrix) ** 2, axis=0)
     )
 
 
@@ -827,8 +760,7 @@ def test_einsum_linear_map_composition_fuses_exact_shapes():
     np.testing.assert_allclose(composed.matmat(block), expected_dense @ block)
     np.testing.assert_allclose(composed.rmatvec(y), expected_dense.conj().T @ y)
     np.testing.assert_allclose(
-        composed.normal_matrix_diag(),
-        np.sum(np.abs(expected_dense) ** 2, axis=0),
+        composed.normal_matrix_diag(), np.sum(np.abs(expected_dense) ** 2, axis=0)
     )
 
 
@@ -837,11 +769,7 @@ def test_dense_and_einsum_linear_map_composition_fuses_exact_shapes():
     rng = np.random.default_rng(5)
     left_tensor = rng.normal(size=(2, 3, 4, 5)) + 1j * rng.normal(size=(2, 3, 4, 5))
     right_tensor = rng.normal(size=(4, 5, 6)) + 1j * rng.normal(size=(4, 5, 6))
-    left = as_linear_map(
-        left_tensor.reshape(6, 20),
-        output_shape=(2, 3),
-        input_shape=(4, 5),
-    )
+    left = as_linear_map(left_tensor.reshape(6, 20), output_shape=(2, 3), input_shape=(4, 5))
     right = einsum_linear_map(
         component_tensors=[right_tensor],
         einsum_string_dense="ijk->ijk",
@@ -881,11 +809,7 @@ def test_einsum_and_dense_linear_map_composition_fuses_exact_shapes():
         output_shape=(2, 3),
         input_shape=(4, 5),
     )
-    right = as_linear_map(
-        right_tensor.reshape(20, 6),
-        output_shape=(4, 5),
-        input_shape=(6,),
-    )
+    right = as_linear_map(right_tensor.reshape(20, 6), output_shape=(4, 5), input_shape=(6,))
     expected_dense = left_tensor.reshape(6, 20) @ right_tensor.reshape(20, 6)
 
     def fail_dense(_xp):
@@ -934,14 +858,10 @@ def test_diagonal_and_einsum_composition_fuses_exact_shapes():
         input_shape=(4, 5),
     )
     left_diag = diagonal_linear_map(
-        left_diag_values.reshape(-1),
-        output_shape=(2, 3),
-        input_shape=(2, 3),
+        left_diag_values.reshape(-1), output_shape=(2, 3), input_shape=(2, 3)
     )
     right_diag = diagonal_linear_map(
-        right_diag_values.reshape(-1),
-        output_shape=(4, 5),
-        input_shape=(4, 5),
+        right_diag_values.reshape(-1), output_shape=(4, 5), input_shape=(4, 5)
     )
     expected_left = left_diag_values.reshape(6, 1) * tensor.reshape(6, 20)
     expected_right = tensor.reshape(6, 20) * right_diag_values.reshape(1, 20)
@@ -969,24 +889,13 @@ def test_diagonal_composition_falls_back_for_flat_only_shape_match():
     """Flat-only diagonal shape matches stay on generic composition."""
     rng = np.random.default_rng(12)
     matrix = rng.normal(size=(6, 4))
-    diagonal = diagonal_linear_map(
-        rng.normal(size=6),
-        output_shape=(6,),
-        input_shape=(6,),
-    )
-    shaped_matrix = as_linear_map(
-        matrix,
-        output_shape=(2, 3),
-        input_shape=(4,),
-    )
+    diagonal = diagonal_linear_map(rng.normal(size=6), output_shape=(6,), input_shape=(6,))
+    shaped_matrix = as_linear_map(matrix, output_shape=(2, 3), input_shape=(4,))
 
     composed = diagonal @ shaped_matrix
 
     assert composed._einsum_map is None
-    np.testing.assert_allclose(
-        composed.to_matrix(backend="numpy"),
-        diagonal.to_matrix() @ matrix,
-    )
+    np.testing.assert_allclose(composed.to_matrix(backend="numpy"), diagonal.to_matrix() @ matrix)
 
 
 def test_dense_chain_then_einsum_composition_fuses_later():
@@ -995,16 +904,8 @@ def test_dense_chain_then_einsum_composition_fuses_later():
     left_tensor = rng.normal(size=(2, 3, 4))
     middle_tensor = rng.normal(size=(4, 5))
     right_tensor = rng.normal(size=(5, 6))
-    left = as_linear_map(
-        left_tensor.reshape(6, 4),
-        output_shape=(2, 3),
-        input_shape=(4,),
-    )
-    middle = as_linear_map(
-        middle_tensor,
-        output_shape=(4,),
-        input_shape=(5,),
-    )
+    left = as_linear_map(left_tensor.reshape(6, 4), output_shape=(2, 3), input_shape=(4,))
+    middle = as_linear_map(middle_tensor, output_shape=(4,), input_shape=(5,))
     right = einsum_linear_map(
         component_tensors=[right_tensor],
         einsum_string_dense="ij->ij",
@@ -1037,16 +938,8 @@ def test_einsum_then_dense_chain_composition_fuses_later():
         output_shape=(2, 3),
         input_shape=(4,),
     )
-    middle = as_linear_map(
-        middle_tensor,
-        output_shape=(4,),
-        input_shape=(5,),
-    )
-    right = as_linear_map(
-        right_tensor,
-        output_shape=(5,),
-        input_shape=(6,),
-    )
+    middle = as_linear_map(middle_tensor, output_shape=(4,), input_shape=(5,))
+    right = as_linear_map(right_tensor, output_shape=(5,), input_shape=(6,))
     dense_chain = middle @ right
     expected_dense = left_tensor.reshape(6, 4) @ middle_tensor @ right_tensor
 
@@ -1069,14 +962,7 @@ def test_four_factor_structured_chains_fuse_for_all_groupings():
     def make_dense(index):
         output_shape, input_shape = shapes[index]
         matrix = matrices[index]
-        return (
-            matrix,
-            as_linear_map(
-                matrix,
-                output_shape=output_shape,
-                input_shape=input_shape,
-            ),
-        )
+        return (matrix, as_linear_map(matrix, output_shape=output_shape, input_shape=input_shape))
 
     def make_einsum(index):
         output_shape, input_shape = shapes[index]
@@ -1084,21 +970,15 @@ def test_four_factor_structured_chains_fuse_for_all_groupings():
         tensor = matrix.reshape(output_shape + input_shape)
         labels = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
         output_labels = labels[: len(output_shape)]
-        input_labels = labels[
-            len(output_shape) : len(output_shape) + len(input_shape)
-        ]
+        input_labels = labels[len(output_shape) : len(output_shape) + len(input_shape)]
         all_labels = output_labels + input_labels
         return (
             matrix,
             einsum_linear_map(
                 component_tensors=[tensor],
                 einsum_string_dense=f"{all_labels}->{all_labels}",
-                einsum_string_matvec=(
-                    f"{all_labels},{input_labels}->{output_labels}"
-                ),
-                einsum_string_rmatvec=(
-                    f"{output_labels},{all_labels}->{input_labels}"
-                ),
+                einsum_string_matvec=(f"{all_labels},{input_labels}->{output_labels}"),
+                einsum_string_rmatvec=(f"{output_labels},{all_labels}->{input_labels}"),
                 output_shape=output_shape,
                 input_shape=input_shape,
             ),
@@ -1111,11 +991,7 @@ def test_four_factor_structured_chains_fuse_for_all_groupings():
         diagonal = rng.normal(size=int(np.prod(output_shape)))
         return (
             np.diag(diagonal),
-            diagonal_linear_map(
-                diagonal,
-                output_shape=output_shape,
-                input_shape=input_shape,
-            ),
+            diagonal_linear_map(diagonal, output_shape=output_shape, input_shape=input_shape),
         )
 
     def make_factor(kind, index):
@@ -1168,9 +1044,7 @@ def test_four_factor_structured_chain_regroups_independently():
             diagonal = rng.normal(size=int(np.prod(output_shape)))
             matrix = np.diag(diagonal)
             linear_map = diagonal_linear_map(
-                diagonal,
-                output_shape=output_shape,
-                input_shape=input_shape,
+                diagonal, output_shape=output_shape, input_shape=input_shape
             )
         elif index == 2:
             tensor = matrix.reshape(output_shape + input_shape)
@@ -1183,11 +1057,7 @@ def test_four_factor_structured_chain_regroups_independently():
                 input_shape=input_shape,
             )
         else:
-            linear_map = as_linear_map(
-                matrix,
-                output_shape=output_shape,
-                input_shape=input_shape,
-            )
+            linear_map = as_linear_map(matrix, output_shape=output_shape, input_shape=input_shape)
         matrices.append(matrix)
         factors.append(linear_map)
 
@@ -1357,9 +1227,7 @@ def test_einsum_linear_map_complex_adjoint_matches_dense():
 
     np.testing.assert_allclose(linear_map.rmatvec(y), dense.conj().T @ y)
     np.testing.assert_allclose(linear_map.rmatmat(y_block), dense.conj().T @ y_block)
-    np.testing.assert_allclose(
-        linear_map.normal_matrix_diag(), np.sum(np.abs(dense) ** 2, axis=0)
-    )
+    np.testing.assert_allclose(linear_map.normal_matrix_diag(), np.sum(np.abs(dense) ** 2, axis=0))
 
 
 def test_least_squares_accepts_linear_map_and_sparse_inputs():

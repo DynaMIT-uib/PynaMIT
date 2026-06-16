@@ -85,9 +85,7 @@ class LeastSquaresSolver:
         return None
 
     def build_response_solver(
-        self,
-        problem: LeastSquaresProblem,
-        preconditioner: PreconditionerInput = None,
+        self, problem: LeastSquaresProblem, preconditioner: PreconditionerInput = None
     ) -> Callable[[Union[np.ndarray, List[np.ndarray]]], Any]:
         """Return a reusable solver for matching RHS response blocks."""
         preconditioner_map = self._prepare_preconditioner(problem, preconditioner)
@@ -142,9 +140,7 @@ class LeastSquaresSolver:
                 dtype = problem.A[0].dtype if problem.A else np.float64
                 return xp.zeros(problem.solution_shape + rhs_shape, dtype=dtype)
             solution_block = normal_pinv @ (system_matrix_adjoint @ rhs_block)
-            return block_until_ready(
-                solution_block.reshape(problem.solution_shape + rhs_shape)
-            )
+            return block_until_ready(solution_block.reshape(problem.solution_shape + rhs_shape))
 
         return solve_response
 
@@ -224,12 +220,7 @@ class LeastSquaresSolver:
         max_iter = kwargs.pop(
             "maxiter", ITERATION_SAFETY_FACTOR * min(m, n) if m > 0 and n > 0 else n
         )
-        return {
-            "atol": self.tolerance,
-            "btol": self.tolerance,
-            "maxiter": max_iter,
-            **kwargs,
-        }
+        return {"atol": self.tolerance, "btol": self.tolerance, "maxiter": max_iter, **kwargs}
 
     def _solve_cgls(
         self,
@@ -250,10 +241,7 @@ class LeastSquaresSolver:
             dtype=system_map.dtype,
         )
         rhs_np = to_numpy(rhs_block)
-        cg_rhs = np.asarray(system_map.rmatmat(rhs_np)).reshape(
-            problem.solution_size,
-            num_rhs,
-        )
+        cg_rhs = np.asarray(system_map.rmatmat(rhs_np)).reshape(problem.solution_size, num_rhs)
 
         max_iter = kwargs.pop("maxiter", ITERATION_SAFETY_FACTOR * problem.solution_size)
         cg_kwargs = {
@@ -339,9 +327,7 @@ class LeastSquaresSolver:
         inv_diag = np.divide(1.0, diag, out=np.ones_like(diag), where=diag != 0)
         values = np.sqrt(inv_diag) if square_root else inv_diag
         return diagonal_linear_map(
-            values,
-            input_shape=problem.solution_shape,
-            output_shape=problem.solution_shape,
+            values, input_shape=problem.solution_shape, output_shape=problem.solution_shape
         )
 
     def _build_pinv_preconditioner(
@@ -351,10 +337,7 @@ class LeastSquaresSolver:
         vt, s_pinv, s_pinv_sq = self._get_pinv_components(problem, self.tolerance)
         weights = s_pinv_sq if squared else s_pinv
         return self._build_spectral_preconditioner(
-            problem.solution_size,
-            vt,
-            weights,
-            problem.solution_shape,
+            problem.solution_size, vt, weights, problem.solution_shape
         )
 
     def _build_spectral_preconditioner(
@@ -379,9 +362,7 @@ class LeastSquaresSolver:
 
         def rmatmat(block):
             x = xp.asarray(block).reshape(size, -1)
-            return vt_arr.T.conj() @ (
-                xp.conjugate(weights_arr).reshape(-1, 1) * (vt_arr @ x)
-            )
+            return vt_arr.T.conj() @ (xp.conjugate(weights_arr).reshape(-1, 1) * (vt_arr @ x))
 
         dtype = np.result_type(vt_arr.dtype, weights_arr.dtype)
         return LinearMap(
@@ -408,9 +389,7 @@ class LeastSquaresSolver:
             s_pinv[s > cutoff] = 1.0 / s[s > cutoff]
         else:
             system_matrix = block_until_ready(problem.assemble_dense_system_matrix())
-            _, s, vt = block_after_jax_linalg(
-                xp.linalg.svd(system_matrix, full_matrices=False)
-            )
+            _, s, vt = block_after_jax_linalg(xp.linalg.svd(system_matrix, full_matrices=False))
             cutoff = tol * (s[0] if s.size > 0 else 0)
             safe_s = xp.where(s > cutoff, s, 1.0)
             s_pinv = xp.where(s > cutoff, 1.0 / safe_s, xp.zeros_like(s))

@@ -101,13 +101,7 @@ def test_kaiju_mainfield_geo_transform_uses_geopack_sm():
     east = np.array([25.0, -10.0, 3.0])
     north = np.array([5.0, 40.0, -2.0])
 
-    result = mainfield.geo_to_model_coordinates(
-        lat,
-        lon,
-        east,
-        north,
-        event_time=event_time,
-    )
+    result = mainfield.geo_to_model_coordinates(lat, lon, east, north, event_time=event_time)
     expected = reference.geo2sm(lat, lon, east, north)
 
     np.testing.assert_allclose(result[0], expected[0])
@@ -122,8 +116,7 @@ def test_kaiju_mainfield_local_time_longitude_is_sm_longitude():
     lon = np.array([-180.0, -90.0, 0.0, 90.0, 180.0])
 
     result = mainfield.local_time_longitude_to_model_longitude(
-        lon,
-        dt.datetime(2011, 10, 24, 18, 0, 10),
+        lon, dt.datetime(2011, 10, 24, 18, 0, 10)
     )
 
     np.testing.assert_allclose(result, np.array([-180.0, -90.0, 0.0, 90.0, -180.0]))
@@ -140,8 +133,7 @@ def test_kaiju_mainfield_alignment_metadata_is_sm_based():
     assert metadata["dipole_alignment_model"] == "kaiju_geopack_centered_dipole"
     assert metadata["noon_mlon_deg"] == pytest.approx(0.0)
     np.testing.assert_allclose(
-        metadata["axis_geo_cartesian"],
-        kaiju_geopack_sm(event_time).sm_to_geo_matrix[:, 2],
+        metadata["axis_geo_cartesian"], kaiju_geopack_sm(event_time).sm_to_geo_matrix[:, 2]
     )
 
 
@@ -149,11 +141,7 @@ def test_kaiju_sm_transform_uses_dipole_axis_as_z_axis():
     """Kaiju SM transform has the Geopack dipole axis as its north pole."""
     sm = kaiju_geopack_sm(2011.0)
 
-    np.testing.assert_allclose(
-        sm.sm_to_geo_matrix[:, 2],
-        sm.coefficients.axis,
-        atol=1e-12,
-    )
+    np.testing.assert_allclose(sm.sm_to_geo_matrix[:, 2], sm.coefficients.axis, atol=1e-12)
 
     pole_lat, pole_lon = kaiju_geopack_dipole(2011.0).north_pole
     sm_lat, _ = sm.geo2sm(pole_lat, pole_lon)
@@ -169,12 +157,7 @@ def test_kaiju_sm_transform_round_trips_coordinates_and_vectors():
     north = np.array([5.0, 40.0, -2.0])
 
     sm_lat, sm_lon, sm_east, sm_north = sm.geo2sm(lat, lon, east, north)
-    geo_lat, geo_lon, geo_east, geo_north = sm.sm2geo(
-        sm_lat,
-        sm_lon,
-        sm_east,
-        sm_north,
-    )
+    geo_lat, geo_lon, geo_east, geo_north = sm.sm2geo(sm_lat, sm_lon, sm_east, sm_north)
 
     np.testing.assert_allclose(geo_lat, lat, atol=1e-12)
     np.testing.assert_allclose(((geo_lon - lon + 180.0) % 360.0) - 180.0, 0.0, atol=1e-12)

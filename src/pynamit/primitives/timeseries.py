@@ -12,13 +12,7 @@ FLOAT_ERROR_MARGIN = 1e-6  # Safety margin for floating point errors
 class Timeseries:
     """Persist and select time-indexed field coefficients."""
 
-    def __init__(
-        self,
-        field_spaces,
-        variables,
-        *,
-        area_weighted_least_squares=False,
-    ):
+    def __init__(self, field_spaces, variables, *, area_weighted_least_squares=False):
         """Initialize the Timeseries class.
 
         Parameters
@@ -108,9 +102,9 @@ class Timeseries:
                 ],
                 names=storage_representation.index_names,
             )
-            coords = xr.Coordinates.from_pandas_multiindex(
-                coefficient_multiindex, dim="i"
-            ).merge({"time": dataset.time.values})
+            coords = xr.Coordinates.from_pandas_multiindex(coefficient_multiindex, dim="i").merge(
+                {"time": dataset.time.values}
+            )
             self.datasets[key] = dataset.drop_vars(
                 storage_representation.index_names
             ).assign_coords(coords)
@@ -144,11 +138,7 @@ class Timeseries:
 
         data_vars = {}
         for var in data:
-            values = FieldCoefficients(
-                self.field_spaces[key],
-                data[var],
-                name=f"{key}.{var}",
-            )
+            values = FieldCoefficients(self.field_spaces[key], data[var], name=f"{key}.{var}")
             data_vars[self.get_data_var_name(key, var)] = (
                 ["time", "i"],
                 values.to_vector().reshape((1, -1)),
@@ -273,12 +263,8 @@ class Timeseries:
                         (time - dataset_before.time.item())
                         / (dataset_after.time.item() - dataset_before.time.item())
                         * (
-                            dataset_after[
-                                self.get_data_var_name(key, var)
-                            ].values.reshape(-1)
-                            - dataset_before[
-                                self.get_data_var_name(key, var)
-                            ].values.reshape(-1)
+                            dataset_after[self.get_data_var_name(key, var)].values.reshape(-1)
+                            - dataset_before[self.get_data_var_name(key, var)].values.reshape(-1)
                         )
                     )
 

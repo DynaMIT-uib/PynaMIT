@@ -66,20 +66,13 @@ def cs_interpolate(projection, inlat, inlon, values, outlat, outlon, **kwargs):
         target_mask = output_block == block
         _, theta0, phi0 = projection.cube2spherical(0, 0, block)
         block_center_vector = np.array(
-            [
-                np.sin(theta0) * np.cos(phi0),
-                np.sin(theta0) * np.sin(phi0),
-                np.cos(theta0),
-            ]
+            [np.sin(theta0) * np.cos(phi0), np.sin(theta0) * np.sin(phi0), np.cos(theta0)]
         )
         source_visible_mask = (
-            np.sum(block_center_vector.reshape((-1, 1)) * input_radius_vectors, axis=0)
-            > 0
+            np.sum(block_center_vector.reshape((-1, 1)) * input_radius_vectors, axis=0) > 0
         )
         source_xi, source_eta, _ = projection.geo2cube(
-            inlon[source_visible_mask],
-            inlat[source_visible_mask],
-            block=block,
+            inlon[source_visible_mask], inlat[source_visible_mask], block=block
         )
         interpolated[target_mask] = griddata(
             np.vstack((source_xi, source_eta)).T,
@@ -122,17 +115,11 @@ def plot_global_polar_map(lon, lat, data, noon_longitude=0, scatter=False, **kwa
     returnplot = kwargs.pop("returnplot", False)
     coordinate_context = kwargs.pop("coordinate_context", None)
     if coordinate_context is None:
-        coordinate_context = MapCoordinateContext.from_noon_longitude(
-            noon_longitude,
-        )
+        coordinate_context = MapCoordinateContext.from_noon_longitude(noon_longitude)
 
     global_projection = coordinate_context.projection()
     global_axis = fig.add_subplot(2, 1, 2, projection=global_projection)
-    style_global_axis(
-        global_axis,
-        coordinate_context=coordinate_context,
-        coastline_color="grey",
-    )
+    style_global_axis(global_axis, coordinate_context=coordinate_context, coastline_color="grey")
     if scatter:
         global_axis.scatter(lon, lat, c=data, transform=ccrs.PlateCarree(), **kwargs)
     else:
@@ -144,43 +131,20 @@ def plot_global_polar_map(lon, lat, data, noon_longitude=0, scatter=False, **kwa
     north_axis = polplot.Polarplot(fig.add_subplot(2, 2, 1), minlat=50)
     south_axis = polplot.Polarplot(fig.add_subplot(2, 2, 2), minlat=50)
 
-    mlt = coordinate_context.longitude_to_local_time(
-        lon,
-        wrap=False,
-    )
+    mlt = coordinate_context.longitude_to_local_time(lon, wrap=False)
 
     north_mask = lat > 50
     if scatter:
-        north_axis.scatter(
-            lat[north_mask],
-            mlt[north_mask],
-            c=data[north_mask],
-            **kwargs,
-        )
+        north_axis.scatter(lat[north_mask], mlt[north_mask], c=data[north_mask], **kwargs)
     else:
-        north_axis.contourf(
-            lat[north_mask],
-            mlt[north_mask],
-            data[north_mask],
-            **kwargs,
-        )
+        north_axis.contourf(lat[north_mask], mlt[north_mask], data[north_mask], **kwargs)
     north_axis.ax.set_title("North")
 
     south_mask = lat < -50
     if scatter:
-        south_axis.scatter(
-            lat[south_mask],
-            mlt[south_mask],
-            c=data[south_mask],
-            **kwargs,
-        )
+        south_axis.scatter(lat[south_mask], mlt[south_mask], c=data[south_mask], **kwargs)
     else:
-        south_axis.contourf(
-            lat[south_mask],
-            mlt[south_mask],
-            data[south_mask],
-            **kwargs,
-        )
+        south_axis.contourf(lat[south_mask], mlt[south_mask], data[south_mask], **kwargs)
     south_axis.ax.set_title("South")
 
     plt.tight_layout()
@@ -197,11 +161,7 @@ def plot_global_polar_map(lon, lat, data, noon_longitude=0, scatter=False, **kwa
 
 
 def plot_state_diagnostics(
-    dynamics,
-    title=None,
-    filename=None,
-    noon_longitude=0,
-    coordinate_context=None,
+    dynamics, title=None, filename=None, noon_longitude=0, coordinate_context=None
 ):
     """Generate diagnostic plots of simulation state.
 
@@ -231,24 +191,15 @@ def plot_state_diagnostics(
     - Field-aligned currents normalized by radial field.
     - Equivalent current function.
     """
-    br_kwargs = {
-        "cmap": plt.cm.bwr,
-        "levels": np.linspace(-100, 100, 22) * 1e-9,
-        "extend": "both",
-    }
-    equivalent_current_kwargs = {
-        "colors": "black",
-        "levels": np.r_[-210:220:20] * 1e3,
-    }
+    br_kwargs = {"cmap": plt.cm.bwr, "levels": np.linspace(-100, 100, 22) * 1e-9, "extend": "both"}
+    equivalent_current_kwargs = {"colors": "black", "levels": np.r_[-210:220:20] * 1e3}
     fac_kwargs = {
         "cmap": plt.cm.bwr,
         "levels": np.linspace(-0.95, 0.95, 22) / 2 * 1e-6,
         "extend": "both",
     }
     if coordinate_context is None:
-        coordinate_context = MapCoordinateContext.from_noon_longitude(
-            noon_longitude,
-        )
+        coordinate_context = MapCoordinateContext.from_noon_longitude(noon_longitude)
 
     global_projection = coordinate_context.projection()
 
@@ -258,35 +209,14 @@ def plot_state_diagnostics(
     south_br_axis = Polarplot(plt.subplot2grid((3, 4), (0, 1)))
     north_current_axis = Polarplot(plt.subplot2grid((3, 4), (0, 2)))
     south_current_axis = Polarplot(plt.subplot2grid((3, 4), (0, 3)))
-    global_br_axis = plt.subplot2grid(
-        (3, 3),
-        (1, 0),
-        projection=global_projection,
-        rowspan=2,
-    )
-    global_current_axis = plt.subplot2grid(
-        (3, 3),
-        (1, 1),
-        projection=global_projection,
-        rowspan=2,
-    )
+    global_br_axis = plt.subplot2grid((3, 3), (1, 0), projection=global_projection, rowspan=2)
+    global_current_axis = plt.subplot2grid((3, 3), (1, 1), projection=global_projection, rowspan=2)
     global_equivalent_current_axis = plt.subplot2grid(
-        (3, 3),
-        (1, 2),
-        projection=global_projection,
-        rowspan=2,
+        (3, 3), (1, 2), projection=global_projection, rowspan=2
     )
 
-    for ax in [
-        global_br_axis,
-        global_current_axis,
-        global_equivalent_current_axis,
-    ]:
-        style_global_axis(
-            ax,
-            coordinate_context=coordinate_context,
-            coastline_color="grey",
-        )
+    for ax in [global_br_axis, global_current_axis, global_equivalent_current_axis]:
+        style_global_axis(ax, coordinate_context=coordinate_context, coastline_color="grey")
 
     # Set up plotting grid and evaluators.
     NLA, NLO = 50, 90
@@ -294,18 +224,12 @@ def plot_state_diagnostics(
     lat, lon = map(np.ravel, np.meshgrid(lat, lon))
     plt_grid = Grid(lat=lat, lon=lon)
     state_transform = SphericalTransform(dynamics.state.basis, plt_grid)
-    mainfield_evaluator = FieldEvaluator(
-        dynamics.mainfield,
-        plt_grid,
-        dynamics.state.RI,
-    )
+    mainfield_evaluator = FieldEvaluator(dynamics.mainfield, plt_grid, dynamics.state.RI)
 
     # Calculate values to plot.
     br_values = evaluate_Br(dynamics, state_transform)
     fac_values = evaluate_jr(dynamics, state_transform) / mainfield_evaluator.br
-    eq_current_function = evaluate_equivalent_current_function(
-        dynamics, state_transform
-    )
+    eq_current_function = evaluate_equivalent_current_function(dynamics, state_transform)
 
     # Make global plots.
     global_br_axis.contourf(
@@ -338,18 +262,10 @@ def plot_state_diagnostics(
     )
 
     # Make polar plots.
-    mlt = coordinate_context.longitude_to_local_time(
-        lon,
-        wrap=False,
-    )
+    mlt = coordinate_context.longitude_to_local_time(lon, wrap=False)
 
     north_mask = lat > 50
-    north_br_axis.contourf(
-        lat[north_mask],
-        mlt[north_mask],
-        br_values[north_mask],
-        **br_kwargs,
-    )
+    north_br_axis.contourf(lat[north_mask], mlt[north_mask], br_values[north_mask], **br_kwargs)
     north_current_axis.contour(
         lat[north_mask],
         mlt[north_mask],
@@ -357,19 +273,11 @@ def plot_state_diagnostics(
         **equivalent_current_kwargs,
     )
     north_current_axis.contourf(
-        lat[north_mask],
-        mlt[north_mask],
-        fac_values[north_mask],
-        **fac_kwargs,
+        lat[north_mask], mlt[north_mask], fac_values[north_mask], **fac_kwargs
     )
 
     south_mask = lat < -50
-    south_br_axis.contourf(
-        lat[south_mask],
-        mlt[south_mask],
-        br_values[south_mask],
-        **br_kwargs,
-    )
+    south_br_axis.contourf(lat[south_mask], mlt[south_mask], br_values[south_mask], **br_kwargs)
     south_current_axis.contour(
         lat[south_mask],
         mlt[south_mask],
@@ -377,23 +285,13 @@ def plot_state_diagnostics(
         **equivalent_current_kwargs,
     )
     south_current_axis.contourf(
-        lat[south_mask],
-        mlt[south_mask],
-        fac_values[south_mask],
-        **fac_kwargs,
+        lat[south_mask], mlt[south_mask], fac_values[south_mask], **fac_kwargs
     )
 
     if title is not None:
         global_current_axis.set_title(title)
 
-    plt.subplots_adjust(
-        top=0.89,
-        bottom=0.095,
-        left=0.025,
-        right=0.95,
-        hspace=0.0,
-        wspace=0.185,
-    )
+    plt.subplots_adjust(top=0.89, bottom=0.095, left=0.025, right=0.95, hspace=0.0, wspace=0.185)
     if filename is not None:
         fig.savefig(filename)
     else:
@@ -446,11 +344,7 @@ def compare_AMPS_jr_and_CF_currents(dynamics, a, d, date, lon0):
     mnv_grid = Grid(lat=mlatnv, lon=mltnv)
 
     paxes[0].contourf(
-        mn_grid.lat,
-        mn_grid.lon,
-        np.split(ju_amps, 2)[0],
-        levels=levels,
-        cmap=plt.cm.bwr,
+        mn_grid.lat, mn_grid.lon, np.split(ju_amps, 2)[0], levels=levels, cmap=plt.cm.bwr
     )
     paxes[0].quiver(
         mnv_grid.lat,
@@ -461,11 +355,7 @@ def compare_AMPS_jr_and_CF_currents(dynamics, a, d, date, lon0):
         color="black",
     )
     paxes[1].contourf(
-        mn_grid.lat,
-        mn_grid.lon,
-        np.split(ju_amps, 2)[1],
-        levels=levels,
-        cmap=plt.cm.bwr,
+        mn_grid.lat, mn_grid.lon, np.split(ju_amps, 2)[1], levels=levels, cmap=plt.cm.bwr
     )
     paxes[1].quiver(
         mnv_grid.lat,
@@ -476,14 +366,10 @@ def compare_AMPS_jr_and_CF_currents(dynamics, a, d, date, lon0):
         color="black",
     )
 
-    m_state_evaluator = SphericalTransform(
-        dynamics.horizontal_basis, Grid(lat=mlat, lon=lon)
-    )
+    m_state_evaluator = SphericalTransform(dynamics.horizontal_basis, Grid(lat=mlat, lon=lon))
     jr = evaluate_jr(dynamics, m_state_evaluator) * 1e6
 
-    mv_state_evaluator = SphericalTransform(
-        dynamics.horizontal_basis, Grid(lat=mlatv, lon=lonv)
-    )
+    mv_state_evaluator = SphericalTransform(dynamics.horizontal_basis, Grid(lat=mlatv, lon=lonv))
     js, je = evaluate_sheet_current(dynamics, mv_state_evaluator) * 1e3
     jn = -js
 
@@ -511,9 +397,7 @@ def compare_AMPS_jr_and_CF_currents(dynamics, a, d, date, lon0):
     plt.close()
 
     plt_grid = Grid(lat=lat, lon=lon)
-    plt_state_evaluator = SphericalTransform(
-        dynamics.horizontal_basis, plt_grid
-    )
+    plt_state_evaluator = SphericalTransform(dynamics.horizontal_basis, plt_grid)
     jr = evaluate_jr(dynamics, plt_state_evaluator)
 
     plot_global_polar_map(
@@ -544,18 +428,10 @@ def plot_AMPS_Br(a):
 
     Bu = a.get_ground_Buqd(height=a.height)
     paxes[0].contourf(
-        mn_grid.lat,
-        mn_grid.lon,
-        np.split(Bu, 2)[0],
-        levels=Blevels * 1e9,
-        cmap=plt.cm.bwr,
+        mn_grid.lat, mn_grid.lon, np.split(Bu, 2)[0], levels=Blevels * 1e9, cmap=plt.cm.bwr
     )
     paxes[1].contourf(
-        mn_grid.lat,
-        mn_grid.lon,
-        np.split(Bu, 2)[1],
-        levels=Blevels * 1e9,
-        cmap=plt.cm.bwr,
+        mn_grid.lat, mn_grid.lon, np.split(Bu, 2)[1], levels=Blevels * 1e9, cmap=plt.cm.bwr
     )
 
     plt.show()
@@ -622,9 +498,7 @@ def show_jr_and_conductance(dynamics, conductance_grid, hall, pedersen, lon0):
         save="pede.png",
     )
 
-    plt_state_evaluator = SphericalTransform(
-        dynamics.horizontal_basis, plt_grid
-    )
+    plt_state_evaluator = SphericalTransform(dynamics.horizontal_basis, plt_grid)
     jr = evaluate_jr(dynamics, plt_state_evaluator)
     plot_global_polar_map(
         plt_grid.lon.reshape(pltshape),

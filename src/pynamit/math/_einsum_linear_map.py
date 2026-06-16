@@ -33,9 +33,7 @@ def _batched_einsum_string(einsum_string: str, operand_index: int) -> Optional[s
         return None
 
     used_labels = set(lhs.replace(",", "") + rhs)
-    batch_label = next(
-        (label for label in _EINSUM_BATCH_LABELS if label not in used_labels), None
-    )
+    batch_label = next((label for label in _EINSUM_BATCH_LABELS if label not in used_labels), None)
     if batch_label is None:
         return None
 
@@ -87,11 +85,7 @@ def _allocate_labels(count: int, used_labels: set[str]) -> str:
     raise ValueError("Not enough einsum labels available for fused composition.")
 
 
-def _remap_subscript(
-    subscript: str,
-    label_map: dict[str, str],
-    used_labels: set[str],
-) -> str:
+def _remap_subscript(subscript: str, label_map: dict[str, str], used_labels: set[str]) -> str:
     """Return ``subscript`` with collision-free labels."""
     remapped = []
     for label in subscript:
@@ -102,22 +96,16 @@ def _remap_subscript(
 
 
 def _remap_component_subscripts(
-    component_subscripts: Sequence[str],
-    label_map: dict[str, str],
-    used_labels: set[str],
+    component_subscripts: Sequence[str], label_map: dict[str, str], used_labels: set[str]
 ) -> tuple[str, ...]:
     """Remap all component tensor subscripts for one einsum map."""
     return tuple(
-        _remap_subscript(subscript, label_map, used_labels)
-        for subscript in component_subscripts
+        _remap_subscript(subscript, label_map, used_labels) for subscript in component_subscripts
     )
 
 
 def _remap_einsum_components(
-    einsum_map: "_EinsumMap",
-    output_labels: str,
-    input_labels: str,
-    used_labels: set[str],
+    einsum_map: "_EinsumMap", output_labels: str, input_labels: str, used_labels: set[str]
 ) -> tuple[str, ...]:
     """Remap map component labels to requested external labels."""
     component_subscripts, _ = _parse_explicit_einsum(einsum_map.einsum_string_dense)
@@ -147,12 +135,8 @@ def compose_einsum_maps(left: "_EinsumMap", right: "_EinsumMap") -> "_EinsumMap"
 
     dense_output = output_labels + input_labels
     einsum_string_dense = ",".join(fused_components) + "->" + dense_output
-    einsum_string_matvec = (
-        ",".join(fused_components + (input_labels,)) + "->" + output_labels
-    )
-    einsum_string_rmatvec = (
-        ",".join((output_labels,) + fused_components) + "->" + input_labels
-    )
+    einsum_string_matvec = ",".join(fused_components + (input_labels,)) + "->" + output_labels
+    einsum_string_rmatvec = ",".join((output_labels,) + fused_components) + "->" + input_labels
     return _EinsumMap(
         component_tensors=left.component_tensors + right.component_tensors,
         einsum_string_dense=einsum_string_dense,
@@ -164,11 +148,7 @@ def compose_einsum_maps(left: "_EinsumMap", right: "_EinsumMap") -> "_EinsumMap"
 
 
 def compose_diagonal_einsum_map(
-    diagonal_values: Any,
-    diagonal_shape: tuple[int, ...],
-    einsum_map: "_EinsumMap",
-    *,
-    side: str,
+    diagonal_values: Any, diagonal_shape: tuple[int, ...], einsum_map: "_EinsumMap", *, side: str
 ) -> "_EinsumMap":
     """Fuse a shaped diagonal scale with an einsum map."""
     diagonal_shape = tuple(diagonal_shape)
@@ -197,12 +177,8 @@ def compose_diagonal_einsum_map(
 
     dense_output = output_labels + input_labels
     einsum_string_dense = ",".join(component_subscripts) + "->" + dense_output
-    einsum_string_matvec = (
-        ",".join(component_subscripts + (input_labels,)) + "->" + output_labels
-    )
-    einsum_string_rmatvec = (
-        ",".join((output_labels,) + component_subscripts) + "->" + input_labels
-    )
+    einsum_string_matvec = ",".join(component_subscripts + (input_labels,)) + "->" + output_labels
+    einsum_string_rmatvec = ",".join((output_labels,) + component_subscripts) + "->" + input_labels
     return _EinsumMap(
         component_tensors=component_tensors,
         einsum_string_dense=einsum_string_dense,
@@ -214,10 +190,7 @@ def compose_diagonal_einsum_map(
 
 
 def dense_tensor_einsum_map(
-    tensor: Any,
-    *,
-    output_shape: tuple[int, ...],
-    input_shape: tuple[int, ...],
+    tensor: Any, *, output_shape: tuple[int, ...], input_shape: tuple[int, ...]
 ) -> "_EinsumMap":
     """Return an einsum representation of an explicit dense tensor."""
     used_labels: set[str] = set()
@@ -238,9 +211,7 @@ def scale_einsum_map(einsum_map: "_EinsumMap", scalar: Any) -> "_EinsumMap":
     """Return an einsum map representing ``scalar * einsum_map``."""
     xp = get_array_module(scalar, *einsum_map.component_tensors)
     scalar_tensor = xp.asarray(scalar)
-    component_subscripts, dense_output = _parse_explicit_einsum(
-        einsum_map.einsum_string_dense
-    )
+    component_subscripts, dense_output = _parse_explicit_einsum(einsum_map.einsum_string_dense)
     output_labels, input_labels = _dense_axis_labels(einsum_map)
     scaled_components = ("",) + component_subscripts
 
@@ -259,9 +230,7 @@ def scale_einsum_map(einsum_map: "_EinsumMap", scalar: Any) -> "_EinsumMap":
 
 
 def _derive_einsum_strings_from_matvec(
-    einsum_string_matvec: str,
-    num_component_tensors: int,
-    input_operand_index: int,
+    einsum_string_matvec: str, num_component_tensors: int, input_operand_index: int
 ) -> tuple[str, str]:
     """Derive dense and adjoint einsum strings from a forward map."""
     spec = einsum_string_matvec.replace(" ", "")
@@ -343,14 +312,8 @@ class _EinsumMap:
         """Return dense matrix on the requested backend."""
         xp = get_array_module(*self.component_tensors) if xp is None else xp
         component_arrays = [xp.asarray(tensor) for tensor in self.component_tensors]
-        dense_matrix = xp.einsum(
-            self.einsum_string_dense,
-            *component_arrays,
-            optimize=True,
-        )
-        return dense_matrix.reshape(
-            math.prod(self.output_shape), math.prod(self.input_shape)
-        )
+        dense_matrix = xp.einsum(self.einsum_string_dense, *component_arrays, optimize=True)
+        return dense_matrix.reshape(math.prod(self.output_shape), math.prod(self.input_shape))
 
     def normal_matrix_diag(self) -> np.ndarray:
         """Compute ``diag(A* A)`` without building the dense matrix."""
@@ -386,9 +349,7 @@ class _EinsumMap:
             conj_components = _remap_einsum_components(
                 self, output_labels, input_labels, used_labels
             )
-            components = _remap_einsum_components(
-                self, output_labels, input_labels, used_labels
-            )
+            components = _remap_einsum_components(self, output_labels, input_labels, used_labels)
             self._einsum_string_normal_diag = (
                 ",".join(conj_components + components) + "->" + input_labels
             )
@@ -400,10 +361,7 @@ class _EinsumMap:
             component_arrays = self._numpy_component_arrays()
             conj_arrays = [arr.conj() for arr in component_arrays]
             self._einsum_path_normal_diag = np.einsum_path(
-                self._normal_diag_string(),
-                *conj_arrays,
-                *component_arrays,
-                optimize="greedy",
+                self._normal_diag_string(), *conj_arrays, *component_arrays, optimize="greedy"
             )[0]
         return self._einsum_path_normal_diag
 
@@ -452,17 +410,13 @@ class _EinsumMap:
     def _matmat_string(self) -> Optional[str]:
         """Return a batched matvec einsum string if possible."""
         if self._einsum_string_matmat is None:
-            self._einsum_string_matmat = _batched_einsum_string(
-                self.einsum_string_matvec, -1
-            )
+            self._einsum_string_matmat = _batched_einsum_string(self.einsum_string_matvec, -1)
         return self._einsum_string_matmat
 
     def _rmatmat_string(self) -> Optional[str]:
         """Return a batched adjoint einsum string if possible."""
         if self._einsum_string_rmatmat is None:
-            self._einsum_string_rmatmat = _batched_einsum_string(
-                self.einsum_string_rmatvec, 0
-            )
+            self._einsum_string_rmatmat = _batched_einsum_string(self.einsum_string_rmatvec, 0)
         return self._einsum_string_rmatmat
 
     def _matmat_path(self) -> Optional[list]:
@@ -473,10 +427,7 @@ class _EinsumMap:
         if self._einsum_path_matmat is None:
             dummy_input = np.empty(self.input_shape + (1,), dtype=self.dtype)
             self._einsum_path_matmat = np.einsum_path(
-                einsum_string,
-                *self._numpy_component_arrays(),
-                dummy_input,
-                optimize="greedy",
+                einsum_string, *self._numpy_component_arrays(), dummy_input, optimize="greedy"
             )[0]
         return self._einsum_path_matmat
 
@@ -511,10 +462,7 @@ class _EinsumMap:
         grad_tensor = np.asarray(y_flat).reshape(self.output_shape)
         conj_tensors = [arr.conj() for arr in self._numpy_component_arrays()]
         grad_x = np.einsum(
-            self.einsum_string_rmatvec,
-            grad_tensor,
-            *conj_tensors,
-            optimize=self._rmatvec_path(),
+            self.einsum_string_rmatvec, grad_tensor, *conj_tensors, optimize=self._rmatvec_path()
         )
         return grad_x.reshape(-1)
 
@@ -527,10 +475,7 @@ class _EinsumMap:
         block = np.asarray(x_block)
         x_tensor = block.reshape(self.input_shape + (block.shape[1],))
         res = np.einsum(
-            einsum_string,
-            *self._numpy_component_arrays(),
-            x_tensor,
-            optimize=einsum_path,
+            einsum_string, *self._numpy_component_arrays(), x_tensor, optimize=einsum_path
         )
         return res.reshape(math.prod(self.output_shape), block.shape[1])
 
@@ -543,9 +488,7 @@ class _EinsumMap:
         block = np.asarray(y_block)
         grad_tensor = block.reshape(self.output_shape + (block.shape[1],))
         conj_tensors = [arr.conj() for arr in self._numpy_component_arrays()]
-        grad_x = np.einsum(
-            einsum_string, grad_tensor, *conj_tensors, optimize=einsum_path
-        )
+        grad_x = np.einsum(einsum_string, grad_tensor, *conj_tensors, optimize=einsum_path)
         return grad_x.reshape(math.prod(self.input_shape), block.shape[1])
 
     def matvec(self, x_flat: Any) -> Any:
@@ -555,9 +498,7 @@ class _EinsumMap:
             return self._matvec_numpy(x_flat)
         component_arrays = [xp.asarray(t) for t in self.component_tensors]
         x_tensor = xp.asarray(x_flat).reshape(self.input_shape)
-        res = xp.einsum(
-            self.einsum_string_matvec, *component_arrays, x_tensor, optimize=True
-        )
+        res = xp.einsum(self.einsum_string_matvec, *component_arrays, x_tensor, optimize=True)
         return xp.reshape(res, (-1,))
 
     def rmatvec(self, y_flat: Any) -> Any:
@@ -567,12 +508,7 @@ class _EinsumMap:
             return self._rmatvec_numpy(y_flat)
         grad_tensor = xp.asarray(y_flat).reshape(self.output_shape)
         conj_tensors = [xp.conjugate(xp.asarray(t)) for t in self.component_tensors]
-        grad_x = xp.einsum(
-            self.einsum_string_rmatvec,
-            grad_tensor,
-            *conj_tensors,
-            optimize=True,
-        )
+        grad_x = xp.einsum(self.einsum_string_rmatvec, grad_tensor, *conj_tensors, optimize=True)
         return xp.reshape(grad_x, (-1,))
 
     def matmat(self, x_block: Any) -> Any:
@@ -608,9 +544,7 @@ class _EinsumMap:
         if einsum_string is not None:
             grad_tensor = y_arr.reshape(self.output_shape + (y_arr.shape[1],))
             conj_tensors = [xp.conjugate(xp.asarray(t)) for t in self.component_tensors]
-            grad_x = xp.einsum(
-                einsum_string, grad_tensor, *conj_tensors, optimize=True
-            )
+            grad_x = xp.einsum(einsum_string, grad_tensor, *conj_tensors, optimize=True)
             return xp.reshape(grad_x, (-1, y_arr.shape[1]))
         outputs = [self.rmatvec(y_arr[:, i]) for i in range(y_arr.shape[1])]
         return xp.stack(outputs, axis=1)
@@ -647,9 +581,7 @@ def einsum_linear_map_from_matvec(
     """Return an einsum-backed map from one forward contraction."""
     component_tensors = tuple(component_tensors)
     einsum_string_dense, einsum_string_rmatvec = _derive_einsum_strings_from_matvec(
-        einsum_string_matvec,
-        len(component_tensors),
-        input_operand_index,
+        einsum_string_matvec, len(component_tensors), input_operand_index
     )
     return einsum_linear_map(
         component_tensors=component_tensors,

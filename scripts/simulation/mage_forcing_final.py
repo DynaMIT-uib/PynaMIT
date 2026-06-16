@@ -60,10 +60,7 @@ DEFAULT_FORCING_CANDIDATES = (
     Path("/Users/andreasskeidsvoll/Gamera_Dong/prep_Pynamit/data_H_int.h5"),
 )
 DEFAULT_TIEGCM_CANDIDATES = (
-    Path(
-        "/disk/Gamera_Dong/"
-        "11OcA_sech_tie_2011-10-24T18-00-10_2011-10-24T19-00-00.nc"
-    ),
+    Path("/disk/Gamera_Dong/11OcA_sech_tie_2011-10-24T18-00-10_2011-10-24T19-00-00.nc"),
     Path(
         "/Users/andreasskeidsvoll/Gamera_Dong/"
         "11OcA_sech_tie_2011-10-24T18-00-10_2011-10-24T19-00-00.nc"
@@ -107,9 +104,7 @@ def dipole_radial_sampling(r_min: float, r_max: float, n_steps: int) -> np.ndarr
     return r_min / np.cos(np.deg2rad(angles)) ** 2
 
 
-def resolve_existing_path(
-    path: str | None, candidates: tuple[Path, ...], label: str
-) -> Path:
+def resolve_existing_path(path: str | None, candidates: tuple[Path, ...], label: str) -> Path:
     """Resolve an explicit path or the first existing candidate."""
     if path:
         resolved = Path(path).expanduser()
@@ -181,11 +176,7 @@ def gamera_mag_m0_from_h5(h5_file: Any) -> float | None:
     return None
 
 
-def gamera_internal_axis_from_h5(
-    h5_file: Any,
-    name: str,
-    fallback: np.ndarray,
-) -> np.ndarray:
+def gamera_internal_axis_from_h5(h5_file: Any, name: str, fallback: np.ndarray) -> np.ndarray:
     """Return a stored GAMERA internal axis or a fallback axis."""
     if name in h5_file.attrs:
         axis = np.asarray(h5_file.attrs[name], dtype=float)
@@ -210,14 +201,10 @@ def gamera_internal_dipole_details(h5_file: Any) -> dict[str, np.ndarray | float
     return {
         "mag_m0_nT": mag_m0_nT,
         "moment_axis": gamera_internal_axis_from_h5(
-            h5_file,
-            "gamera_internal_dipole_moment_axis",
-            moment_fallback,
+            h5_file, "gamera_internal_dipole_moment_axis", moment_fallback
         ),
         "north_axis": gamera_internal_axis_from_h5(
-            h5_file,
-            "gamera_internal_magnetic_north_axis",
-            north_fallback,
+            h5_file, "gamera_internal_magnetic_north_axis", north_fallback
         ),
     }
 
@@ -233,16 +220,12 @@ def read_tiegcm_step_variable(dataset: Any, name: str, step: int) -> np.ndarray:
     """Read one TIEGCM variable slice while silencing known fill-value warnings."""
     with warnings.catch_warnings():
         warnings.filterwarnings(
-            "ignore",
-            message="WARNING: missing_value not used since it.*",
-            category=UserWarning,
+            "ignore", message="WARNING: missing_value not used since it.*", category=UserWarning
         )
         return np.asarray(dataset.variables[name][step])
 
 
-def conductivity_weighted_winds_from_tiegcm_step(
-    dataset: Any, step: int
-) -> dict[str, np.ndarray]:
+def conductivity_weighted_winds_from_tiegcm_step(dataset: Any, step: int) -> dict[str, np.ndarray]:
     """Compute height-integrated conductances and weighted winds for one TIEGCM step.
 
     The returned winds are conductivity-weighted averages:
@@ -271,14 +254,9 @@ def conductivity_weighted_winds_from_tiegcm_step(
     ) -> tuple[np.ndarray, np.ndarray]:
         east_num = np.nansum(sigma_layer * east_layer * dz, axis=0)
         north_num = np.nansum(sigma_layer * north_layer * dz, axis=0)
-        east = np.divide(
-            east_num, sigma_int, out=np.zeros_like(east_num), where=sigma_int > 0.0
-        )
+        east = np.divide(east_num, sigma_int, out=np.zeros_like(east_num), where=sigma_int > 0.0)
         north = np.divide(
-            north_num,
-            sigma_int,
-            out=np.zeros_like(north_num),
-            where=sigma_int > 0.0,
+            north_num, sigma_int, out=np.zeros_like(north_num), where=sigma_int > 0.0
         )
         return east, north
 
@@ -296,11 +274,7 @@ def conductivity_weighted_winds_from_tiegcm_step(
 
 
 def load_weighted_winds(
-    h5_file: Any,
-    step: int,
-    *,
-    tiegcm_dataset: Any | None,
-    require_hall_weighted: bool,
+    h5_file: Any, step: int, *, tiegcm_dataset: Any | None, require_hall_weighted: bool
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray | None, np.ndarray | None]:
     """Load Pedersen- and optionally Hall-weighted winds for one step."""
     u_p_east = np.asarray(h5_file["We"][step], dtype=float)
@@ -396,14 +370,7 @@ def paper_q_eff_for_pynamit(
     q_p_phi = sigma_p * u_p_cross_B[2]
 
     u_h_cross_B = cross_spherical(zero, u_h_theta, u_h_phi, B_r, B_theta, B_phi)
-    q_h = cross_spherical(
-        b_r,
-        b_theta,
-        b_phi,
-        u_h_cross_B[0],
-        u_h_cross_B[1],
-        u_h_cross_B[2],
-    )
+    q_h = cross_spherical(b_r, b_theta, b_phi, u_h_cross_B[0], u_h_cross_B[1], u_h_cross_B[2])
     q_h_r = sigma_h * q_h[0]
     q_h_theta = sigma_h * q_h[1]
     q_h_phi = sigma_h * q_h[2]
@@ -414,42 +381,22 @@ def paper_q_eff_for_pynamit(
 
     if np.isinf(parallel_conductance):
         valid = np.abs(b_r) > br_floor
-        correction_theta = np.divide(
-            b_theta * q_r,
-            b_r,
-            out=np.zeros_like(q_r),
-            where=valid,
-        )
-        correction_phi = np.divide(
-            b_phi * q_r,
-            b_r,
-            out=np.zeros_like(q_r),
-            where=valid,
-        )
+        correction_theta = np.divide(b_theta * q_r, b_r, out=np.zeros_like(q_r), where=valid)
+        correction_phi = np.divide(b_phi * q_r, b_r, out=np.zeros_like(q_r), where=valid)
     else:
         sigma_parallel = float(parallel_conductance)
         denominator = sigma_p * (b_theta**2 + b_phi**2) + sigma_parallel * b_r**2
         r_cross_b_theta = -b_phi
         r_cross_b_phi = b_theta
         numerator_theta = (
-            (sigma_parallel - sigma_p) * b_r * b_theta
-            - sigma_h * r_cross_b_theta
+            (sigma_parallel - sigma_p) * b_r * b_theta - sigma_h * r_cross_b_theta
         ) * q_r
-        numerator_phi = (
-            (sigma_parallel - sigma_p) * b_r * b_phi
-            - sigma_h * r_cross_b_phi
-        ) * q_r
+        numerator_phi = ((sigma_parallel - sigma_p) * b_r * b_phi - sigma_h * r_cross_b_phi) * q_r
         correction_theta = np.divide(
-            numerator_theta,
-            denominator,
-            out=np.zeros_like(q_r),
-            where=denominator > 0.0,
+            numerator_theta, denominator, out=np.zeros_like(q_r), where=denominator > 0.0
         )
         correction_phi = np.divide(
-            numerator_phi,
-            denominator,
-            out=np.zeros_like(q_r),
-            where=denominator > 0.0,
+            numerator_phi, denominator, out=np.zeros_like(q_r), where=denominator > 0.0
         )
 
     q_eff_theta_physical = q_theta - correction_theta
@@ -476,18 +423,14 @@ def print_field_stats(label: str, values: np.ndarray) -> None:
 def build_arg_parser() -> argparse.ArgumentParser:
     """Create the command-line parser."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--forcing-h5", default=None, help="Prepared MAGE/TIEGCM HDF5 file."
-    )
+    parser.add_argument("--forcing-h5", default=None, help="Prepared MAGE/TIEGCM HDF5 file.")
     parser.add_argument(
         "--tiegcm-nc",
         default=None,
         help="Original TIEGCM NetCDF file, needed for q_eff if WeH/WnH are absent.",
     )
     parser.add_argument(
-        "--run-directory",
-        default=str(SETTINGS.run_directory),
-        help="PynaMIT output directory.",
+        "--run-directory", default=str(SETTINGS.run_directory), help="PynaMIT output directory."
     )
     parser.add_argument(
         "--wind-mode", choices=("q_eff", "neutral_wind", "none"), default=SETTINGS.wind_mode
@@ -553,9 +496,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--max-steps", type=int, default=None, help="Limit input steps for a short test run."
     )
     parser.add_argument("--br-lambda", type=float, default=SETTINGS.br_lambda)
-    parser.add_argument(
-        "--conductance-lambda", type=float, default=SETTINGS.conductance_lambda
-    )
+    parser.add_argument("--conductance-lambda", type=float, default=SETTINGS.conductance_lambda)
     parser.add_argument("--jr-lambda", type=float, default=SETTINGS.jr_lambda)
     parser.add_argument("--u-lambda", type=float, default=SETTINGS.u_lambda)
     parser.add_argument("--q-eff-lambda", type=float, default=SETTINGS.q_eff_lambda)
@@ -570,9 +511,7 @@ def main() -> None:
     """Run the configured MAGE/PynaMIT simulation."""
     args = build_arg_parser().parse_args()
 
-    h5_path = resolve_existing_path(
-        args.forcing_h5, DEFAULT_FORCING_CANDIDATES, "forcing HDF5"
-    )
+    h5_path = resolve_existing_path(args.forcing_h5, DEFAULT_FORCING_CANDIDATES, "forcing HDF5")
     tiegcm_path = None
     if args.wind_mode == "q_eff":
         explicit_tiegcm = args.tiegcm_nc
@@ -599,11 +538,7 @@ def main() -> None:
             dipole_epoch = decimal_year(event_time)
             RM = boundary_radius_from_h5(file, args.RM)
             dipole_B0 = dipole_B0_from_h5(file, args.dipole_B0)
-            mainfield = Mainfield(
-                kind=args.mainfield_kind,
-                epoch=dipole_epoch,
-                B0=dipole_B0,
-            )
+            mainfield = Mainfield(kind=args.mainfield_kind, epoch=dipole_epoch, B0=dipole_B0)
             gamera_dipole = gamera_internal_dipole_details(file)
             alignment = mainfield.alignment_metadata(event_time)
             rk = dipole_radial_sampling(RI, RM, n_steps=40)
@@ -613,9 +548,7 @@ def main() -> None:
             # PynaMIT's main-field geometry and PFAC matrix are built once,
             # so all inputs are expressed in one frozen SM frame.
             ionosphere_lat, ionosphere_lon = mainfield.geo_to_model_coordinates(
-                ionosphere_lat_geo,
-                ionosphere_lon_geo,
-                event_time=coordinate_time,
+                ionosphere_lat_geo, ionosphere_lon_geo, event_time=coordinate_time
             )
 
             magnetosphere_lat_raw = np.asarray(file["Blat"][:], dtype=float)
@@ -628,30 +561,18 @@ def main() -> None:
             print(f"Event time: {event_time.isoformat()}", flush=True)
             print(f"Coordinate frame time: {coordinate_time.isoformat()}", flush=True)
             print(f"Main field: {args.mainfield_kind}", flush=True)
-            print(
-                f"Dipole alignment model: {alignment['dipole_alignment_model']}",
-                flush=True,
-            )
+            print(f"Dipole alignment model: {alignment['dipole_alignment_model']}", flush=True)
             print(f"Dipole epoch: {dipole_epoch:.9f}", flush=True)
-            print(
-                f"Dipole B0: {dipole_B0:.6g} T ({dipole_B0 * 1e9:.6g} nT)",
-                flush=True,
-            )
+            print(f"Dipole B0: {dipole_B0:.6g} T ({dipole_B0 * 1e9:.6g} nT)", flush=True)
             if gamera_dipole["mag_m0_nT"] is not None:
-                print(
-                    f"GAMERA signed MagM0: {gamera_dipole['mag_m0_nT']:.6g} nT",
-                    flush=True,
-                )
+                print(f"GAMERA signed MagM0: {gamera_dipole['mag_m0_nT']:.6g} nT", flush=True)
             else:
                 print(
                     "GAMERA signed MagM0: not present in forcing file; "
                     "assuming Earth-like negative moment for internal-axis metadata",
                     flush=True,
                 )
-            print(
-                "GAMERA coordinates: SM; REMIX longitude 0 = noon",
-                flush=True,
-            )
+            print("GAMERA coordinates: SM; REMIX longitude 0 = noon", flush=True)
             print(
                 "GAMERA internal moment axis: "
                 f"{gamera_dipole['moment_axis'][0]:.3g}, "
@@ -685,8 +606,7 @@ def main() -> None:
             print(f"Wind mode: {args.wind_mode}", flush=True)
             print(f"FAC convention: {args.fac_convention}", flush=True)
             print(
-                f"Steady-state initialization: {SETTINGS.steady_state_initialization}",
-                flush=True,
+                f"Steady-state initialization: {SETTINGS.steady_state_initialization}", flush=True
             )
 
             dynamics = pynamit.Dynamics(
@@ -731,10 +651,7 @@ def main() -> None:
                     coordinate_time,
                     local_noon_longitude=MAGE_BR_LOCAL_NOON_LONGITUDE,
                 )
-                magnetosphere_grid = pynamit.Grid(
-                    lat=magnetosphere_lat,
-                    lon=magnetosphere_lon,
-                )
+                magnetosphere_grid = pynamit.Grid(lat=magnetosphere_lat, lon=magnetosphere_lon)
                 dynamics.set_Br(
                     delta_Br,
                     lat=magnetosphere_grid.lat,
@@ -804,8 +721,7 @@ def main() -> None:
                 u_p_theta = -np.asarray(u_p_north, dtype=float).reshape(-1)
                 u_p_phi = np.asarray(u_p_east, dtype=float).reshape(-1)
                 print_field_stats(
-                    "  Pedersen-weighted wind speed [m/s]",
-                    np.hypot(u_p_theta, u_p_phi),
+                    "  Pedersen-weighted wind speed [m/s]", np.hypot(u_p_theta, u_p_phi)
                 )
 
                 if args.wind_mode == "neutral_wind":
@@ -834,9 +750,7 @@ def main() -> None:
                 )
                 u_h_theta = -np.asarray(u_h_north, dtype=float).reshape(-1)
                 u_h_phi = np.asarray(u_h_east, dtype=float).reshape(-1)
-                print_field_stats(
-                    "  Hall-weighted wind speed [m/s]", np.hypot(u_h_theta, u_h_phi)
-                )
+                print_field_stats("  Hall-weighted wind speed [m/s]", np.hypot(u_h_theta, u_h_phi))
 
                 q_eff_theta, q_eff_phi = paper_q_eff_for_pynamit(
                     sigma_p=sigma_p,
@@ -849,9 +763,7 @@ def main() -> None:
                     parallel_conductance=args.parallel_conductance,
                     br_floor=args.br_floor,
                 )
-                print_field_stats(
-                    "  Q_eff magnitude [A/m]", np.hypot(q_eff_theta, q_eff_phi)
-                )
+                print_field_stats("  Q_eff magnitude [A/m]", np.hypot(q_eff_theta, q_eff_phi))
                 dynamics.set_Q_eff(
                     Q_eff_theta=q_eff_theta,
                     Q_eff_phi=q_eff_phi,

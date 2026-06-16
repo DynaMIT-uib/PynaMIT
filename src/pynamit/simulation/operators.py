@@ -12,12 +12,7 @@ from typing import Any, Optional, TYPE_CHECKING
 
 import numpy as np
 
-from pynamit.math.linear_map import (
-    LinearMap,
-    MatrixBackend,
-    as_linear_map,
-    identity_linear_map,
-)
+from pynamit.math.linear_map import LinearMap, MatrixBackend, as_linear_map, identity_linear_map
 
 if TYPE_CHECKING:
     from pynamit.simulation.state import State
@@ -85,9 +80,7 @@ class StateOperators:
     def direct_E_to_E_df(self) -> LinearMap:
         """Map direct E coefficients to total E_df forcing."""
         if getattr(self.state, "_direct_E_coeffs_to_E_df_operator", None) is None:
-            self.state._direct_E_coeffs_to_E_df_operator = (
-                self._create_direct_E_to_E_df()
-            )
+            self.state._direct_E_coeffs_to_E_df_operator = self._create_direct_E_to_E_df()
         return self.state._direct_E_coeffs_to_E_df_operator
 
     def _direct_E_feedback_maps(self) -> Optional[tuple[LinearMap, LinearMap]]:
@@ -123,13 +116,9 @@ class StateOperators:
             return self.E_coeffs_to_E_df
 
         m_imp_to_E, E_direct_to_m_imp = feedback
-        return self.E_coeffs_to_E_df + (
-            self.E_coeffs_to_E_df @ m_imp_to_E @ E_direct_to_m_imp
-        )
+        return self.E_coeffs_to_E_df + (self.E_coeffs_to_E_df @ m_imp_to_E @ E_direct_to_m_imp)
 
-    def E_df(
-        self, *, include_Br: bool = True, include_Q_eff: bool = True
-    ) -> dict[str, LinearMap]:
+    def E_df(self, *, include_Br: bool = True, include_Q_eff: bool = True) -> dict[str, LinearMap]:
         """Return named input/state to total E_df operators."""
         m_imp_to_E = self.state.m_imp_to_E_coeffs
         if m_imp_to_E is None:
@@ -137,9 +126,7 @@ class StateOperators:
 
         operators = {
             "edf_from_u": self.direct_E_to_E_df @ self.state.u_coeffs_to_E_coeffs,
-            "edf_from_jr": self.E_coeffs_to_E_df
-            @ m_imp_to_E
-            @ self.jr_to_m_imp,
+            "edf_from_jr": self.E_coeffs_to_E_df @ m_imp_to_E @ self.jr_to_m_imp,
             "edf_from_m_ind": self.state.m_ind_to_E_df_operator,
         }
 

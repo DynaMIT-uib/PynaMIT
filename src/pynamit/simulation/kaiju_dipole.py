@@ -47,23 +47,11 @@ class KaijuGeopackSM:
 
     def geo2sm(self, lat, lon, east=None, north=None):
         """Convert geocentric GEO coordinates and optional vectors to SM."""
-        return _rotate_spherical(
-            self.geo_to_sm_matrix,
-            lat,
-            lon,
-            east=east,
-            north=north,
-        )
+        return _rotate_spherical(self.geo_to_sm_matrix, lat, lon, east=east, north=north)
 
     def sm2geo(self, lat, lon, east=None, north=None):
         """Convert SM coordinates and optional vectors to geocentric GEO."""
-        return _rotate_spherical(
-            self.sm_to_geo_matrix,
-            lat,
-            lon,
-            east=east,
-            north=north,
-        )
+        return _rotate_spherical(self.sm_to_geo_matrix, lat, lon, east=east, north=north)
 
 
 GEOPACK_DIPOLE_COEFFICIENTS: dict[int, tuple[float, float, float]] = {
@@ -133,13 +121,7 @@ def _spherical_to_cartesian(lat, lon):
     lat_rad = np.deg2rad(lat)
     lon_rad = np.deg2rad(lon)
     cos_lat = np.cos(lat_rad)
-    return np.vstack(
-        (
-            cos_lat * np.cos(lon_rad),
-            cos_lat * np.sin(lon_rad),
-            np.sin(lat_rad),
-        )
-    )
+    return np.vstack((cos_lat * np.cos(lon_rad), cos_lat * np.sin(lon_rad), np.sin(lat_rad)))
 
 
 def _cartesian_to_spherical(cart):
@@ -160,11 +142,7 @@ def _east_north_unit_vectors(lat, lon):
     lon_rad = np.deg2rad(lon)
     east = np.vstack((-np.sin(lon_rad), np.cos(lon_rad), np.zeros_like(lon_rad)))
     north = np.vstack(
-        (
-            -np.sin(lat_rad) * np.cos(lon_rad),
-            -np.sin(lat_rad) * np.sin(lon_rad),
-            np.cos(lat_rad),
-        )
+        (-np.sin(lat_rad) * np.cos(lon_rad), -np.sin(lat_rad) * np.sin(lon_rad), np.cos(lat_rad))
     )
     return east, north
 
@@ -206,9 +184,7 @@ def _rotate_spherical(rotation, lat, lon, *, east=None, north=None):
 
 
 def _linear_coefficients(
-    epoch_value: float,
-    start_year: int,
-    end_year: int,
+    epoch_value: float, start_year: int, end_year: int
 ) -> GeopackDipoleCoefficients:
     """Linearly interpolate one five-year Geopack coefficient interval."""
     f2 = (epoch_value - start_year) / (end_year - start_year)
@@ -224,23 +200,14 @@ def _geopack_sun_08(epoch: datetime):
     rad = 57.295779513
     year = epoch.year
     iday = epoch.timetuple().tm_yday
-    seconds = (
-        epoch.hour * 3600.0
-        + epoch.minute * 60.0
-        + epoch.second
-        + epoch.microsecond * 1.0e-6
-    )
+    seconds = epoch.hour * 3600.0 + epoch.minute * 60.0 + epoch.second + epoch.microsecond * 1.0e-6
     fday = seconds / 86400.0
     dj = 365 * (year - 1900) + (year - 1901) // 4 + iday - 0.5 + fday
     t = dj / 36525.0
     vl = np.mod(279.696678 + 0.9856473354 * dj, 360.0)
     gst = np.mod(279.690983 + 0.9856473354 * dj + 360.0 * fday + 180.0, 360.0) / rad
     g = np.mod(358.475845 + 0.985600267 * dj, 360.0) / rad
-    slong = (
-        vl
-        + (1.91946 - 0.004789 * t) * np.sin(g)
-        + 0.020094 * np.sin(2.0 * g)
-    ) / rad
+    slong = (vl + (1.91946 - 0.004789 * t) * np.sin(g) + 0.020094 * np.sin(2.0 * g)) / rad
     if slong > 2.0 * np.pi:
         slong -= 2.0 * np.pi
     if slong < 0.0:
@@ -279,12 +246,7 @@ def _kaiju_geo_to_sm_matrix(epoch: datetime, coefficients: GeopackDipoleCoeffici
 
     year = epoch.year
     iday = epoch.timetuple().tm_yday
-    seconds = (
-        epoch.hour * 3600.0
-        + epoch.minute * 60.0
-        + epoch.second
-        + epoch.microsecond * 1.0e-6
-    )
+    seconds = epoch.hour * 3600.0 + epoch.minute * 60.0 + epoch.second + epoch.microsecond * 1.0e-6
     dj = 365 * (year - 1900) + (year - 1901) // 4 + iday - 0.5 + seconds / 86400.0
     t = dj / 36525.0
     obliq = (23.45229 - 0.0130125 * t) / 57.2957795
@@ -328,14 +290,7 @@ def _kaiju_geo_to_sm_matrix(epoch: datetime, coefficients: GeopackDipoleCoeffici
 
     sps = dip1 * x1 + dip2 * x2 + dip3 * x3
     cps = np.sqrt(1.0 - sps**2)
-    gsw_to_sm = np.array(
-        [
-            [cps, 0.0, -sps],
-            [0.0, 1.0, 0.0],
-            [sps, 0.0, cps],
-        ],
-        dtype=float,
-    )
+    gsw_to_sm = np.array([[cps, 0.0, -sps], [0.0, 1.0, 0.0], [sps, 0.0, cps]], dtype=float)
     return gsw_to_sm @ a
 
 
@@ -375,11 +330,7 @@ def kaiju_geopack_coefficients(epoch: float | datetime) -> GeopackDipoleCoeffici
     )
 
 
-def kaiju_geopack_dipole(
-    epoch: float | datetime,
-    *,
-    B0: float | None = None,
-) -> dipole.Dipole:
+def kaiju_geopack_dipole(epoch: float | datetime, *, B0: float | None = None) -> dipole.Dipole:
     """Return a ``dipole.Dipole`` fixed to Kaiju/Geopack's centered pole.
 
     Parameters
