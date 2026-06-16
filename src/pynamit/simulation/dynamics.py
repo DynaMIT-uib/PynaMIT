@@ -94,7 +94,7 @@ class Dynamics:
         RM_shielding : bool, optional
             Whether induced fields are solved with a shielding condition
             at the magnetospheric boundary ``RM``.
-        mainfield_kind : {'dipole', 'kaiju_dipole', 'igrf', 'radial'}, optional
+        mainfield_kind : {'dipole', 'kaiju_dipole', 'igrf', 'radial'}
             Type of main magnetic field model.
         mainfield_epoch : float, optional
             Decimal year for main field model.
@@ -874,6 +874,7 @@ class Dynamics:
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
         """
+        self._require_no_wind_proxy_conflict("u")
         if u_cf is not None or u_df is not None:
             self._validate_only_coefficients(
                 "u_cf/u_df",
@@ -954,6 +955,7 @@ class Dynamics:
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
         """
+        self._require_no_wind_proxy_conflict("Q_eff")
         if Q_eff_cf is not None or Q_eff_df is not None:
             self._validate_only_coefficients(
                 "Q_eff_cf/Q_eff_df",
@@ -1008,6 +1010,7 @@ class Dynamics:
         fit_coefficients=True,
     ):
         """Compute and store Q_eff from neutral wind and conductance."""
+        self._require_no_wind_proxy_conflict("Q_eff")
         if fit_coefficients:
             input_time, wind_coeff_rows = self._project_neutral_wind_coefficients(
                 u_theta,
@@ -1209,6 +1212,16 @@ class Dynamics:
             raise ValueError(
                 f"{label} are already projected coefficients and cannot be combined "
                 f"with {', '.join(supplied)}."
+            )
+
+    def _require_no_wind_proxy_conflict(self, key):
+        """Reject simultaneous direct-wind and Q_eff input datasets."""
+        conflicts = {"u": "Q_eff", "Q_eff": "u"}
+        other = conflicts.get(key)
+        if other is not None and other in self.input_timeseries.datasets:
+            raise ValueError(
+                "Neutral wind input 'u' and effective-current input 'Q_eff' "
+                "are mutually exclusive; use only one wind forcing representation."
             )
 
     def _wind_input_data(self, u_theta, u_phi):

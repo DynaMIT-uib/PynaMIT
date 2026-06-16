@@ -554,6 +554,11 @@ class State:
     def calculate_noind_coeffs(self) -> Tuple[np.ndarray, np.ndarray]:
         """Calculate E-field coefficients without induction effects."""
         E_shape = (2, self.basis.index_length)
+        if self.u is not None and getattr(self, "Q_eff", None) is not None:
+            raise ValueError(
+                "Neutral wind input 'u' and effective-current input 'Q_eff' "
+                "are mutually exclusive; use only one wind forcing representation."
+            )
         u_coeffs = 0 if self.u is None else xp.asarray(self.u.array)
         E_direct = self._apply_operator(self.u_coeffs_to_E_coeffs, u_coeffs, E_shape)
         if self.Br is not None:

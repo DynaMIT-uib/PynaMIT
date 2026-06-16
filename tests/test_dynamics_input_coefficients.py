@@ -116,6 +116,40 @@ def test_set_Q_eff_accepts_helmholtz_input_basis_coefficients(tmp_path):
     np.testing.assert_allclose(dataset.time.values, [3.0])
 
 
+def test_set_neutral_wind_rejects_existing_Q_eff_input(tmp_path):
+    """Direct wind and Q_eff are mutually exclusive."""
+    dynamics = _small_dynamics(tmp_path)
+    n_coeffs = dynamics.input_field_spaces["Q_eff"].index_length
+    cf_coeffs = np.arange(n_coeffs, dtype=float)
+    df_coeffs = -np.arange(n_coeffs, dtype=float)
+    dynamics.set_Q_eff(Q_eff_cf=cf_coeffs, Q_eff_df=df_coeffs, time=0.0)
+
+    with np.testing.assert_raises_regex(ValueError, "mutually exclusive"):
+        dynamics.set_neutral_wind(u_cf=cf_coeffs, u_df=df_coeffs, time=1.0)
+
+
+def test_set_Q_eff_rejects_existing_neutral_wind_input(tmp_path):
+    """Q_eff cannot be added after direct wind input."""
+    dynamics = _small_dynamics(tmp_path)
+    n_coeffs = dynamics.input_field_spaces["u"].index_length
+    cf_coeffs = np.arange(n_coeffs, dtype=float)
+    df_coeffs = -np.arange(n_coeffs, dtype=float)
+    dynamics.set_neutral_wind(u_cf=cf_coeffs, u_df=df_coeffs, time=0.0)
+
+    with np.testing.assert_raises_regex(ValueError, "mutually exclusive"):
+        dynamics.set_Q_eff(Q_eff_cf=cf_coeffs, Q_eff_df=df_coeffs, time=1.0)
+
+
+def test_state_calculation_rejects_simultaneous_wind_and_Q_eff(tmp_path):
+    """State calculation should not double-count wind forcing."""
+    dynamics = _small_dynamics(tmp_path)
+    dynamics.state.u = object()
+    dynamics.state.Q_eff = object()
+
+    with np.testing.assert_raises_regex(ValueError, "mutually exclusive"):
+        dynamics.state.calculate_noind_coeffs()
+
+
 def test_state_update_uses_field_coefficients_for_Q_eff(tmp_path):
     """Q_eff state storage keeps canonical coefficient shape."""
     dynamics = _small_dynamics(tmp_path)

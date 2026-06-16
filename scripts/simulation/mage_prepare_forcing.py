@@ -1,18 +1,21 @@
 """Prepare MAGE/GAMERA/TIEGCM forcing for ``mage_forcing_final.py``.
 
-The expensive TIEGCM height integration is done here once.  The output HDF5
-contains the fields used by the final simulation script:
+The expensive TIEGCM height integration is done here once.  The output
+HDF5 contains the fields used by the final simulation script:
 
 - ``SP`` and ``SH``: Pedersen and Hall conductance in S.
-- ``We``/``Wn``: Pedersen-weighted eastward/northward neutral wind in m/s.
+- ``We``/``Wn``: Pedersen-weighted eastward/northward wind in m/s.
 - ``WeH``/``WnH``: Hall-weighted eastward/northward neutral wind in m/s.
-- MAGE/REMIX FAC, conductance diagnostics, and inner-boundary magnetic field.
+- MAGE/REMIX FAC, conductance diagnostics, and inner-boundary magnetic
+  field.
 
 Typical use on the MAGE machine:
 
-    python scripts/simulation/mage_prepare_forcing.py --gamera-dir /disk/Gamera_Dong
+    python scripts/simulation/mage_prepare_forcing.py \
+        --gamera-dir /disk/Gamera_Dong
 
-By default, output is written under ``scripts/simulation/mage_prepared``.
+By default, output is written under
+``scripts/simulation/mage_prepared``.
 """
 
 from __future__ import annotations
@@ -40,9 +43,12 @@ FALLBACK_EARTH_RADIUS_M = 6371.0e3
 FILL_THRESHOLD = 1e30
 
 
-def wrap_longitude_180_value(value: float) -> float:
+def wrap_longitude_180_value(value: float | np.ndarray) -> float | np.ndarray:
     """Wrap longitude to [-180, 180) degrees."""
-    return float((value + 180.0) % 360.0 - 180.0)
+    wrapped = (np.asarray(value, dtype=float) + 180.0) % 360.0 - 180.0
+    if wrapped.ndim == 0:
+        return float(wrapped)
+    return wrapped
 
 
 def axis_lat_lon(axis: np.ndarray) -> np.ndarray:
@@ -63,9 +69,9 @@ def axis_lat_lon(axis: np.ndarray) -> np.ndarray:
 def gamera_internal_dipole_axes(mag_m0_nT: float | None) -> dict[str, np.ndarray]:
     """Return GAMERA internal dipole moment and magnetic-north axes.
 
-    GAMERA's ``MagM0`` is a signed dipole moment along the simulation Z axis.
-    For the Earth-like negative value in this run, the moment vector is -Z and
-    the magnetic-north axis is +Z.
+    GAMERA's ``MagM0`` is a signed dipole moment along the simulation
+    Z axis. For the Earth-like negative value in this run, the moment
+    vector is -Z and the magnetic-north axis is +Z.
     """
     sign = -1.0
     if mag_m0_nT is not None and np.isfinite(mag_m0_nT) and mag_m0_nT != 0.0:
@@ -80,7 +86,7 @@ def gamera_internal_dipole_axes(mag_m0_nT: float | None) -> dict[str, np.ndarray
 def centered_dipole_alignment_attrs(
     event_time: dt.datetime, mag_m0_nT: float | None
 ) -> dict[str, Any]:
-    """Return run-alignment metadata for the centered dipole and SM grid."""
+    """Return run-alignment metadata for the centered dipole."""
     mainfield = Mainfield(kind="kaiju_dipole", epoch=decimal_year(event_time))
     alignment = mainfield.alignment_metadata(event_time)
     internal = gamera_internal_dipole_axes(mag_m0_nT)
@@ -144,7 +150,7 @@ def resolve_gamera_run_dir(gamera_dir: Path, gamera_subdir: str, tag: str) -> Pa
 
 
 def gamera_length_scale_m(gsph: Any) -> float:
-    """Return the length scale that converts GAMERA coordinates to meters."""
+    """Return the GAMERA-to-meter length scale."""
     try:
         import h5py
 
@@ -161,7 +167,7 @@ def gamera_length_scale_m(gsph: Any) -> float:
 
 
 def gamera_magnetic_moment_nT(gsph: Any) -> float | None:
-    """Return the signed GAMERA dipole moment parameter in nT if available."""
+    """Return the signed GAMERA dipole moment in nT if available."""
     try:
         with h5py.File(gsph.f0, "r") as file:
             if "MagM0" in file.attrs:
@@ -172,7 +178,7 @@ def gamera_magnetic_moment_nT(gsph: Any) -> float | None:
 
 
 def read_nc_step(dataset: Any, name: str, step: int) -> np.ndarray:
-    """Read a NetCDF variable time slice while suppressing known warnings."""
+    """Read a NetCDF variable time slice while suppressing warnings."""
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore", message="WARNING: missing_value not used since it.*", category=UserWarning
@@ -215,7 +221,7 @@ def weighted_wind(
 def integrate_tiegcm_step(
     dataset: Any, step: int, conductance_source: str
 ) -> dict[str, np.ndarray]:
-    """Height-integrate TIEGCM conductivities and weighted winds for one step."""
+    """Height-integrate conductivities and weighted winds."""
     sigma_p = replace_fill(read_nc_step(dataset, "SIGMA_PED", step))
     sigma_h = replace_fill(read_nc_step(dataset, "SIGMA_HAL", step))
     height_m = replace_fill(read_nc_step(dataset, "ZG", step)) / 100.0
@@ -251,7 +257,7 @@ def integrate_tiegcm_step(
 def centered_inner_boundary_grid(
     gsph: Any, inner_index: int, length_scale_m: float
 ) -> tuple[np.ndarray, ...]:
-    """Return centered inner-boundary grid and spherical helper arrays."""
+    """Return centered inner-boundary grid and helper arrays."""
     x = gsph.X[inner_index]
     y = gsph.Y[inner_index]
     z = gsph.Z[inner_index]
@@ -308,7 +314,7 @@ def interpolate_to_tiegcm_grid(
 
 
 def merge_south_with_north(south: np.ndarray, north: np.ndarray) -> np.ndarray:
-    """Fill NaNs in the southern-grid interpolation with northern values."""
+    """Fill NaNs in southern interpolation with northern values."""
     output = np.array(south, copy=True)
     mask = np.isnan(output)
     output[mask] = north[mask]
@@ -542,8 +548,9 @@ def prepare_forcing(args: argparse.Namespace) -> Path:
         inner_lat, inner_lon, inner_r, sin_theta, cos_theta, sin_phi, cos_phi = (
             centered_inner_boundary_grid(gsph, args.inner_index, length_scale_m)
         )
-        # Kaiju gioH5 writes Bx/By/Bz as total field when Model%doBackground is
-        # true, and root Bx0/By0/Bz0 as Gr%B0. PynaMIT needs the perturbation.
+        # Kaiju gioH5 writes Bx/By/Bz as total field when
+        # Model%doBackground is true, and root Bx0/By0/Bz0 as Gr%B0.
+        # PynaMIT needs the perturbation.
         bx0 = gsph.GetVar("Bx0")[args.inner_index]
         by0 = gsph.GetVar("By0")[args.inner_index]
         bz0 = gsph.GetVar("Bz0")[args.inner_index]

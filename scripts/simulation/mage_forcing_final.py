@@ -3,18 +3,20 @@
 This is a cleaned-up version of the MAGE forcing workflow.  The default
 configuration assumes that the prepared HDF5 file contains TIEGCM
 ionospheric inputs on a geographic grid and a MAGE/REMIX inner-boundary
-magnetic grid whose longitude is local-time-like.  The default PynaMIT main
-field is ``kaiju_dipole``: a centered dipole with Kaiju/Geopack alignment,
-using SM coordinates as the model horizontal coordinates. The TIEGCM grid is
-converted through ``Mainfield.geo_to_model_coordinates`` and wind vectors are
-rotated into the model east/north basis before setting the inputs.
+magnetic grid whose longitude is local-time-like. The default PynaMIT
+main field is ``kaiju_dipole``: a centered dipole with Kaiju/Geopack
+alignment, using SM coordinates as the model horizontal coordinates.
+The TIEGCM grid is converted through ``Mainfield`` helpers, and wind
+vectors are rotated into the model east/north basis before setting the
+inputs.
 
-For neutral-wind forcing, the recommended default is ``--wind-mode q_eff``:
-compute the effective sheet-current input from Appendix A of Laundal et al.
-(2025), using both Pedersen- and Hall-weighted winds.
+For neutral-wind forcing, the recommended default is ``--wind-mode
+q_eff``: compute the effective sheet-current input from Appendix A of
+Laundal et al. (2025), using both Pedersen- and Hall-weighted winds.
 
 If the HDF5 file does not contain Hall-weighted winds named ``WeH`` and
-``WnH``, q_eff mode can derive them from the original TIEGCM NetCDF file.
+``WnH``, q_eff mode can derive them from the original TIEGCM NetCDF
+file.
 """
 
 from __future__ import annotations
@@ -42,12 +44,12 @@ LATITUDE_BOUNDARY = 35.0
 BR_LAMBDA = 0.1
 CONDUCTANCE_LAMBDA = 3.0
 JR_LAMBDA = 0.1
-U_LAMBDA = 0.1
 Q_EFF_LAMBDA = 0.1
 
-# Kaipy/REMIX polar plots place raw longitude 0 at noon. In kaiju_dipole mode
-# this is already the SM longitude origin used by the run. Legacy dipole mode
-# keeps the old MLT -> centered-dipole magnetic-longitude conversion.
+# Kaipy/REMIX polar plots place raw longitude 0 at noon. In
+# kaiju_dipole mode this is already the SM longitude origin used by
+# the run. Legacy dipole mode keeps the old MLT -> centered-dipole
+# magnetic-longitude conversion.
 MAGE_BR_LOCAL_NOON_LONGITUDE = 0.0
 MAGE_DIPOLE_B0_T = 29617.369174957275e-9
 CENTERED_DIPOLE_MODELS = ("kaiju_dipole", "dipole")
@@ -85,7 +87,6 @@ class MageForcingSettings:
     br_lambda: float = BR_LAMBDA
     conductance_lambda: float = CONDUCTANCE_LAMBDA
     jr_lambda: float = JR_LAMBDA
-    u_lambda: float = U_LAMBDA
     q_eff_lambda: float = Q_EFF_LAMBDA
     br_floor: float = 1e-3
     parallel_conductance: float = np.inf
@@ -159,7 +160,10 @@ def boundary_radius_from_h5(h5_file: Any, explicit_rm: float | None) -> float:
 
 
 def dipole_B0_from_h5(h5_file: Any, explicit_B0: float | None) -> float:
-    """Return the centered-dipole equatorial field magnitude in Tesla."""
+    """Return the centered-dipole equatorial field magnitude.
+
+    The return value is in tesla.
+    """
     if explicit_B0 is not None:
         return float(explicit_B0)
     if "gamera_dipole_B0_T" in h5_file.attrs:
@@ -191,7 +195,7 @@ def gamera_internal_axis_from_h5(h5_file: Any, name: str, fallback: np.ndarray) 
 
 
 def gamera_internal_dipole_details(h5_file: Any) -> dict[str, np.ndarray | float | None]:
-    """Return signed GAMERA dipole details encoded in prepared metadata."""
+    """Return signed GAMERA dipole details from prepared metadata."""
     mag_m0_nT = gamera_mag_m0_from_h5(h5_file)
     sign = -1.0
     if mag_m0_nT is not None and np.isfinite(mag_m0_nT) and mag_m0_nT != 0.0:
@@ -217,7 +221,7 @@ def replace_fill_values(values: np.ndarray, fill_threshold: float = 1e30) -> np.
 
 
 def read_tiegcm_step_variable(dataset: Any, name: str, step: int) -> np.ndarray:
-    """Read one TIEGCM variable slice while silencing known fill-value warnings."""
+    """Read one TIEGCM slice while silencing fill-value warnings."""
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore", message="WARNING: missing_value not used since it.*", category=UserWarning
@@ -226,7 +230,7 @@ def read_tiegcm_step_variable(dataset: Any, name: str, step: int) -> np.ndarray:
 
 
 def conductivity_weighted_winds_from_tiegcm_step(dataset: Any, step: int) -> dict[str, np.ndarray]:
-    """Compute height-integrated conductances and weighted winds for one TIEGCM step.
+    """Compute height-integrated conductances and winds.
 
     The returned winds are conductivity-weighted averages:
 
@@ -276,7 +280,7 @@ def conductivity_weighted_winds_from_tiegcm_step(dataset: Any, step: int) -> dic
 def load_weighted_winds(
     h5_file: Any, step: int, *, tiegcm_dataset: Any | None, require_hall_weighted: bool
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray | None, np.ndarray | None]:
-    """Load Pedersen- and optionally Hall-weighted winds for one step."""
+    """Load weighted winds for one step."""
     u_p_east = np.asarray(h5_file["We"][step], dtype=float)
     u_p_north = np.asarray(h5_file["Wn"][step], dtype=float)
 
@@ -331,22 +335,23 @@ def paper_q_eff_for_pynamit(
     parallel_conductance: float = np.inf,
     br_floor: float = 1e-3,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Compute PynaMIT Q_eff samples from Appendix A of Laundal et al. (2025).
+    """Compute PynaMIT Q_eff samples from Appendix A.
 
     Eq. (A3)-(A4) define Pedersen- and Hall-weighted wind-current terms,
     and Eq. (A8) projects the full height-integrated wind term into the
-    effective tangential sheet-current ``Q_eff``.  PynaMIT's ``set_Q_eff``
-    applies the supplied current proxy through ``+ A_res Q_eff``, whereas
-    the generalized Ohm's law in Eq. (A11) has ``A_res(J_S - Q_eff)``.
+    effective tangential sheet-current ``Q_eff``.  PynaMIT's
+    ``set_Q_eff`` applies the supplied current proxy through
+    ``+ A_res Q_eff``, whereas the generalized Ohm's law in Eq. (A11)
+    has ``A_res(J_S - Q_eff)``.
     The returned samples therefore use the sign convention expected by
     PynaMIT.
 
-    The Hall-weighted term below uses the Hall sign that is consistent with
-    PynaMIT's resistance tensor and with Eqs. (A1), (A2), (A11), and (11):
-    with identical Pedersen- and Hall-weighted winds it satisfies
-    ``A_res Q_eff = u x B`` before the final PynaMIT sign flip, so q_eff
-    mode reduces to direct neutral-wind forcing in the height-independent
-    limit.
+    The Hall-weighted term below uses the Hall sign that is consistent
+    with PynaMIT's resistance tensor and with Eqs. (A1), (A2), (A11),
+    and (11): with identical Pedersen- and Hall-weighted winds it
+    satisfies ``A_res Q_eff = u x B`` before the final PynaMIT sign
+    flip, so q_eff mode reduces to direct neutral-wind forcing in the
+    height-independent limit.
     """
     sigma_p = np.asarray(sigma_p, dtype=float).reshape(-1)
     sigma_h = np.asarray(sigma_h, dtype=float).reshape(-1)
@@ -433,7 +438,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--run-directory", default=str(SETTINGS.run_directory), help="PynaMIT output directory."
     )
     parser.add_argument(
-        "--wind-mode", choices=("q_eff", "neutral_wind", "none"), default=SETTINGS.wind_mode
+        "--wind-mode",
+        choices=("q_eff", "none"),
+        default=SETTINGS.wind_mode,
+        help="Use Eq. (A8) Q_eff wind forcing, or disable wind forcing for diagnostics.",
     )
     parser.add_argument(
         "--mainfield-kind",
@@ -498,7 +506,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--br-lambda", type=float, default=SETTINGS.br_lambda)
     parser.add_argument("--conductance-lambda", type=float, default=SETTINGS.conductance_lambda)
     parser.add_argument("--jr-lambda", type=float, default=SETTINGS.jr_lambda)
-    parser.add_argument("--u-lambda", type=float, default=SETTINGS.u_lambda)
     parser.add_argument("--q-eff-lambda", type=float, default=SETTINGS.q_eff_lambda)
     parser.add_argument("--br-floor", type=float, default=SETTINGS.br_floor)
     parser.add_argument(
@@ -545,8 +552,8 @@ def main() -> None:
 
             ionosphere_lat_geo = np.asarray(file["glat"][:], dtype=float)
             ionosphere_lon_geo = wrap_longitude_180(file["glon"][:])
-            # PynaMIT's main-field geometry and PFAC matrix are built once,
-            # so all inputs are expressed in one frozen SM frame.
+            # PynaMIT's main-field geometry and PFAC matrix are built
+            # once, so all inputs are expressed in one frozen SM frame.
             ionosphere_lat, ionosphere_lon = mainfield.geo_to_model_coordinates(
                 ionosphere_lat_geo, ionosphere_lon_geo, event_time=coordinate_time
             )
@@ -706,10 +713,7 @@ def main() -> None:
                     continue
 
                 u_p_east, u_p_north, u_h_east, u_h_north = load_weighted_winds(
-                    file,
-                    step,
-                    tiegcm_dataset=tiegcm_dataset,
-                    require_hall_weighted=args.wind_mode == "q_eff",
+                    file, step, tiegcm_dataset=tiegcm_dataset, require_hall_weighted=True
                 )
                 _, _, u_p_east, u_p_north = mainfield.geo_to_model_coordinates(
                     ionosphere_lat_geo,
@@ -723,18 +727,6 @@ def main() -> None:
                 print_field_stats(
                     "  Pedersen-weighted wind speed [m/s]", np.hypot(u_p_theta, u_p_phi)
                 )
-
-                if args.wind_mode == "neutral_wind":
-                    dynamics.set_neutral_wind(
-                        u_theta=u_p_theta,
-                        u_phi=u_p_phi,
-                        lat=ionosphere_grid.lat,
-                        lon=ionosphere_grid.lon,
-                        time=input_time,
-                        sqrt_weights=tangential_sqrt_weights(ionosphere_grid.lat),
-                        reg_lambda=args.u_lambda,
-                    )
-                    continue
 
                 if u_h_east is None or u_h_north is None:
                     raise RuntimeError(

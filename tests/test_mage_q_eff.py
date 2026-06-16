@@ -25,7 +25,7 @@ def _pynamit_resistance_tensor(sigma_p, sigma_h, br, btheta, bphi):
 
 
 def test_paper_q_eff_matches_appendix_a8_projection_with_pynamit_sign():
-    """Q_eff uses the Eq. (A8) tangential projection before PynaMIT's sign flip."""
+    """Q_eff uses Eq. (A8) before PynaMIT's sign flip."""
     sigma_p = np.array([7.0, 5.0])
     sigma_h = np.array([2.5, 1.0])
     sigma_parallel = 80.0
@@ -75,7 +75,7 @@ def test_paper_q_eff_matches_appendix_a8_projection_with_pynamit_sign():
 
 
 def test_q_eff_reduces_to_direct_neutral_wind_for_height_independent_wind():
-    """In the height-independent limit, M @ Q_eff equals the direct wind E term."""
+    """Height-independent Q_eff equals direct wind forcing."""
     sigma_p = np.array([8.0, 4.0, 6.0])
     sigma_h = np.array([3.0, 1.5, 2.0])
     br = np.array([-0.91, -0.62, 0.73])
