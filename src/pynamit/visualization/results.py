@@ -10,10 +10,14 @@ import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 import polplot
 from scipy.interpolate import griddata
-from polplot import Polarplot
 from pynamit.sphere import Grid
 from pynamit.sphere.spherical_transform import SphericalTransform
 from pynamit.primitives.field_evaluator import FieldEvaluator
+from pynamit.visualization.hemisphere import (
+    DEFAULT_HEMISPHERE_MIN_ABS_LATITUDE,
+    hemisphere_masks_for_latitude,
+    make_hemisphere_polarplot,
+)
 from pynamit.visualization.map_coordinates import MapCoordinateContext
 from pynamit.visualization.plot_helpers import style_global_axis
 from pynamit.visualization.state_fields import (
@@ -84,7 +88,15 @@ def cs_interpolate(projection, inlat, inlon, values, outlat, outlon, **kwargs):
     return interpolated.reshape(output_shape)
 
 
-def plot_global_polar_map(lon, lat, data, noon_longitude=0, scatter=False, **kwargs):
+def plot_global_polar_map(
+    lon,
+    lat,
+    data,
+    noon_longitude=0,
+    scatter=False,
+    hemisphere_min_abs_latitude=DEFAULT_HEMISPHERE_MIN_ABS_LATITUDE,
+    **kwargs,
+):
     """Create global and polar map panels for field data.
 
     Parameters
@@ -128,19 +140,20 @@ def plot_global_polar_map(lon, lat, data, noon_longitude=0, scatter=False, **kwa
     if title is not None:
         global_axis.set_title(title)
 
-    north_axis = polplot.Polarplot(fig.add_subplot(2, 2, 1), minlat=50)
-    south_axis = polplot.Polarplot(fig.add_subplot(2, 2, 2), minlat=50)
+    north_axis = make_hemisphere_polarplot(fig.add_subplot(2, 2, 1), hemisphere_min_abs_latitude)
+    south_axis = make_hemisphere_polarplot(fig.add_subplot(2, 2, 2), hemisphere_min_abs_latitude)
 
     mlt = coordinate_context.longitude_to_local_time(lon, wrap=False)
 
-    north_mask = lat > 50
+    north_mask, south_mask = hemisphere_masks_for_latitude(
+        lat, min_abs_latitude=hemisphere_min_abs_latitude
+    )
     if scatter:
         north_axis.scatter(lat[north_mask], mlt[north_mask], c=data[north_mask], **kwargs)
     else:
         north_axis.contourf(lat[north_mask], mlt[north_mask], data[north_mask], **kwargs)
     north_axis.ax.set_title("North")
 
-    south_mask = lat < -50
     if scatter:
         south_axis.scatter(lat[south_mask], mlt[south_mask], c=data[south_mask], **kwargs)
     else:
@@ -161,7 +174,12 @@ def plot_global_polar_map(lon, lat, data, noon_longitude=0, scatter=False, **kwa
 
 
 def plot_state_diagnostics(
-    dynamics, title=None, filename=None, noon_longitude=0, coordinate_context=None
+    dynamics,
+    title=None,
+    filename=None,
+    noon_longitude=0,
+    coordinate_context=None,
+    hemisphere_min_abs_latitude=DEFAULT_HEMISPHERE_MIN_ABS_LATITUDE,
 ):
     """Generate diagnostic plots of simulation state.
 
@@ -205,10 +223,18 @@ def plot_state_diagnostics(
 
     fig = plt.figure(figsize=(15, 10))
 
-    north_br_axis = Polarplot(plt.subplot2grid((3, 4), (0, 0)))
-    south_br_axis = Polarplot(plt.subplot2grid((3, 4), (0, 1)))
-    north_current_axis = Polarplot(plt.subplot2grid((3, 4), (0, 2)))
-    south_current_axis = Polarplot(plt.subplot2grid((3, 4), (0, 3)))
+    north_br_axis = make_hemisphere_polarplot(
+        plt.subplot2grid((3, 4), (0, 0)), hemisphere_min_abs_latitude
+    )
+    south_br_axis = make_hemisphere_polarplot(
+        plt.subplot2grid((3, 4), (0, 1)), hemisphere_min_abs_latitude
+    )
+    north_current_axis = make_hemisphere_polarplot(
+        plt.subplot2grid((3, 4), (0, 2)), hemisphere_min_abs_latitude
+    )
+    south_current_axis = make_hemisphere_polarplot(
+        plt.subplot2grid((3, 4), (0, 3)), hemisphere_min_abs_latitude
+    )
     global_br_axis = plt.subplot2grid((3, 3), (1, 0), projection=global_projection, rowspan=2)
     global_current_axis = plt.subplot2grid((3, 3), (1, 1), projection=global_projection, rowspan=2)
     global_equivalent_current_axis = plt.subplot2grid(
@@ -264,7 +290,9 @@ def plot_state_diagnostics(
     # Make polar plots.
     mlt = coordinate_context.longitude_to_local_time(lon, wrap=False)
 
-    north_mask = lat > 50
+    north_mask, south_mask = hemisphere_masks_for_latitude(
+        lat, min_abs_latitude=hemisphere_min_abs_latitude
+    )
     north_br_axis.contourf(lat[north_mask], mlt[north_mask], br_values[north_mask], **br_kwargs)
     north_current_axis.contour(
         lat[north_mask],
@@ -276,7 +304,6 @@ def plot_state_diagnostics(
         lat[north_mask], mlt[north_mask], fac_values[north_mask], **fac_kwargs
     )
 
-    south_mask = lat < -50
     south_br_axis.contourf(lat[south_mask], mlt[south_mask], br_values[south_mask], **br_kwargs)
     south_current_axis.contour(
         lat[south_mask],
@@ -564,7 +591,14 @@ def make_colorbars():
 
 
 def time_dependent_plot(
-    dynamics, fig_directory, filecount, lon0, plt_grid, pltshape, plt_state_evaluator
+    dynamics,
+    fig_directory,
+    filecount,
+    lon0,
+    plt_grid,
+    pltshape,
+    plt_state_evaluator,
+    hemisphere_min_abs_latitude=DEFAULT_HEMISPHERE_MIN_ABS_LATITUDE,
 ):
     """Create time series visualization frame.
 
@@ -612,13 +646,15 @@ def time_dependent_plot(
         levels=br_levels,
         cmap="bwr",
         noon_longitude=lon0,
+        hemisphere_min_abs_latitude=hemisphere_min_abs_latitude,
         extend="both",
     )
 
     phi_values = evaluate_Phi(dynamics, plt_state_evaluator) * 1e-3
 
-    north_mask = plt_grid.lat.reshape(-1) > 50
-    south_mask = plt_grid.lat.reshape(-1) < -50
+    north_mask, south_mask = hemisphere_masks_for_latitude(
+        plt_grid.lat.reshape(-1), min_abs_latitude=hemisphere_min_abs_latitude
+    )
     paxn.contour(
         plt_grid.lat[north_mask],
         (plt_grid.lon - lon0)[north_mask] / 15,

@@ -82,3 +82,33 @@ def test_plot_setup_helpers_are_visualization_api():
         visualization.suppress_empty_contour_warnings
         is plot_helpers.suppress_empty_contour_warnings
     )
+
+
+def test_map_curve_and_hemisphere_helpers_are_visualization_api():
+    """Notebook-independent map primitives are exported."""
+    visualization = importlib.import_module("pynamit.visualization")
+    hemisphere = importlib.import_module("pynamit.visualization.hemisphere")
+    map_curves = importlib.import_module("pynamit.visualization.map_curves")
+
+    assert visualization.hemisphere_masks_for_latitude is hemisphere.hemisphere_masks_for_latitude
+    assert visualization.build_even_global_sites is map_curves.build_even_global_sites
+    assert visualization.split_wrapped_curve is map_curves.split_wrapped_curve
+
+
+def test_time_series_helpers_are_visualization_api():
+    """Notebook-independent time-series primitives are exported."""
+    visualization = importlib.import_module("pynamit.visualization")
+    time_series = importlib.import_module("pynamit.visualization.time_series")
+
+    assert visualization.resample_series_to_times is time_series.resample_series_to_times
+    assert (
+        visualization.compute_centered_difference_series_at_times
+        is time_series.compute_centered_difference_series_at_times
+    )
+    assert (
+        visualization.compute_time_derivative_matrix is time_series.compute_time_derivative_matrix
+    )
+    assert (
+        visualization.vector_magnitude_from_component_series
+        is time_series.vector_magnitude_from_component_series
+    )

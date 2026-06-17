@@ -7,6 +7,7 @@ _LAZY_EXPORTS = {
         "apply_local_time_grid_labels",
     ),
     "artifact_path": ("pynamit.visualization.artifacts", "artifact_path"),
+    "build_even_global_sites": ("pynamit.visualization.map_curves", "build_even_global_sites"),
     "build_evaluator": ("pynamit.visualization.grid_evaluation", "build_evaluator"),
     "build_plot_grid": ("pynamit.visualization.grid_evaluation", "build_plot_grid"),
     "build_JS_operators": ("pynamit.visualization.grid_evaluation", "build_JS_operators"),
@@ -18,11 +19,31 @@ _LAZY_EXPORTS = {
         "pynamit.visualization.grid_evaluation",
         "compute_conversion_factors",
     ),
+    "compute_centered_difference_matrix_at_times": (
+        "pynamit.visualization.time_series",
+        "compute_centered_difference_matrix_at_times",
+    ),
+    "compute_centered_difference_series_at_times": (
+        "pynamit.visualization.time_series",
+        "compute_centered_difference_series_at_times",
+    ),
+    "compute_time_derivative_matrix": (
+        "pynamit.visualization.time_series",
+        "compute_time_derivative_matrix",
+    ),
+    "coerce_hemisphere_min_abs_latitude": (
+        "pynamit.visualization.hemisphere",
+        "coerce_hemisphere_min_abs_latitude",
+    ),
     "contour_kwargs_for_display": (
         "pynamit.visualization.plot_helpers",
         "contour_kwargs_for_display",
     ),
     "datetime_to_utc_hours": ("pynamit.visualization.local_time", "datetime_to_utc_hours"),
+    "datetime_index_to_epoch_ns": (
+        "pynamit.visualization.time_series",
+        "datetime_index_to_epoch_ns",
+    ),
     "evaluate_Br": ("pynamit.visualization.state_fields", "evaluate_Br"),
     "evaluate_Br_coefficients": ("pynamit.visualization.state_fields", "evaluate_Br_coefficients"),
     "evaluate_Phi": ("pynamit.visualization.state_fields", "evaluate_Phi"),
@@ -79,6 +100,18 @@ _LAZY_EXPORTS = {
         "format_local_time_longitude_label",
     ),
     "get_ticks_from_levels": ("pynamit.visualization.plot_helpers", "get_ticks_from_levels"),
+    "get_time_index_median_cadence_seconds": (
+        "pynamit.visualization.time_series",
+        "get_time_index_median_cadence_seconds",
+    ),
+    "geographic_local_time_mask": (
+        "pynamit.visualization.map_curves",
+        "geographic_local_time_mask",
+    ),
+    "hemisphere_masks_for_latitude": (
+        "pynamit.visualization.hemisphere",
+        "hemisphere_masks_for_latitude",
+    ),
     "load_dataarray_artifact": ("pynamit.visualization.artifacts", "load_dataarray_artifact"),
     "load_dataset_artifact": ("pynamit.visualization.artifacts", "load_dataset_artifact"),
     "load_settings_and_basis": (
@@ -98,6 +131,8 @@ _LAZY_EXPORTS = {
         "pynamit.visualization.local_time",
         "local_time_longitude_to_geographic",
     ),
+    "local_time_window_extent": ("pynamit.visualization.map_curves", "local_time_window_extent"),
+    "local_time_window_is_full": ("pynamit.visualization.map_curves", "local_time_window_is_full"),
     "longitude_to_local_time_from_noon_longitude": (
         "pynamit.visualization.local_time",
         "longitude_to_local_time_from_noon_longitude",
@@ -110,6 +145,7 @@ _LAZY_EXPORTS = {
         "pynamit.visualization.local_time",
         "make_local_time_longitude_formatter",
     ),
+    "make_hemisphere_polarplot": ("pynamit.visualization.hemisphere", "make_hemisphere_polarplot"),
     "MapCoordinateContext": ("pynamit.visualization.map_coordinates", "MapCoordinateContext"),
     "evaluate_projected_input": (
         "pynamit.visualization.input_projection",
@@ -117,6 +153,8 @@ _LAZY_EXPORTS = {
     ),
     "PynamEye": ("pynamit.visualization.pynameye", "PynamEye"),
     "remove_artists": ("pynamit.visualization.plot_helpers", "remove_artists"),
+    "resample_matrix_to_times": ("pynamit.visualization.time_series", "resample_matrix_to_times"),
+    "resample_series_to_times": ("pynamit.visualization.time_series", "resample_series_to_times"),
     "resistance_to_conductance": (
         "pynamit.visualization.grid_evaluation",
         "resistance_to_conductance",
@@ -130,6 +168,7 @@ _LAZY_EXPORTS = {
         "pynamit.visualization.plot_helpers",
         "set_contour_edges_to_face",
     ),
+    "split_wrapped_curve": ("pynamit.visualization.map_curves", "split_wrapped_curve"),
     "stabilize_polarplot": ("pynamit.visualization.plot_helpers", "stabilize_polarplot"),
     "style_global_axis": ("pynamit.visualization.plot_helpers", "style_global_axis"),
     "style_global_comparison_axis": (
@@ -145,7 +184,16 @@ _LAZY_EXPORTS = {
         "pynamit.visualization.plot_helpers",
         "symmetric_contour_levels_without_zero",
     ),
+    "vector_magnitude_from_component_series": (
+        "pynamit.visualization.time_series",
+        "vector_magnitude_from_component_series",
+    ),
+    "vector_magnitude_preserve_shape": (
+        "pynamit.visualization.time_series",
+        "vector_magnitude_preserve_shape",
+    ),
     "wrap_longitude_180": ("pynamit.visualization.local_time", "wrap_longitude_180"),
+    "wrap_longitudes": ("pynamit.visualization.map_curves", "wrap_longitudes"),
     "xarray_artifact_exists": ("pynamit.visualization.artifacts", "xarray_artifact_exists"),
 }
 

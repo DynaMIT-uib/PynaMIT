@@ -28,7 +28,18 @@ from pynamit.visualization.grid_evaluation import build_evaluator
 from pynamit.visualization.grid_evaluation import build_plot_grid
 from pynamit.visualization.grid_evaluation import build_JS_operators
 from pynamit.visualization.grid_evaluation import resistance_to_conductance
+from pynamit.visualization.hemisphere import (
+    coerce_hemisphere_min_abs_latitude,
+    hemisphere_masks_for_latitude,
+)
 from pynamit.visualization.local_time import local_time_grid_longitudes
+from pynamit.visualization.map_curves import (
+    build_even_global_sites,
+    geographic_local_time_mask,
+    local_time_window_extent,
+    split_wrapped_curve,
+    wrap_longitudes,
+)
 from pynamit.visualization.plot_helpers import (
     build_percentile_color_scale,
     contour_kwargs_for_display,
@@ -80,6 +91,18 @@ def test_noon_meridian_local_time_helper_preserves_plot_coordinate():
     )
 
 
+def test_hemisphere_helpers_are_parameterized_notebook_primitives():
+    """Hemisphere masks should use an explicit configurable cutoff."""
+    latitudes = np.array([-80.0, -40.0, 0.0, 45.0, 70.0])
+
+    assert coerce_hemisphere_min_abs_latitude("bad", default=40.0) == 40.0
+    assert coerce_hemisphere_min_abs_latitude(95.0) == 89.9
+    north, south = hemisphere_masks_for_latitude(latitudes, min_abs_latitude=40.0)
+
+    np.testing.assert_array_equal(north, np.array([False, False, False, True, True]))
+    np.testing.assert_array_equal(south, np.array([True, False, False, False, False]))
+
+
 def test_local_time_grid_and_source_longitude_conversion():
     """Local-time grid helpers match the notebook convention."""
     reference_time = dt.datetime(2011, 10, 24, 18, 30)
@@ -92,6 +115,88 @@ def test_local_time_grid_and_source_longitude_conversion():
             np.array([-180.0, 0.0, 90.0]), noon_longitude=-100.0, local_noon_longitude=0.0
         ),
         np.array([80.0, -100.0, -10.0]),
+    )
+
+
+def test_map_curve_sampling_matches_notebook_distribution():
+    """Global-site sampling keeps the notebook row-count rules."""
+    lon, lat = build_even_global_sites(
+        min_lat=-60.0, max_lat=60.0, lat_step=60.0, equatorial_count=12, min_sites_per_row=3
+    )
+
+    assert lat.size == 24
+    np.testing.assert_array_equal(np.unique(lat), np.array([-60.0, 0.0, 60.0]))
+    assert np.count_nonzero(lat == 0.0) == 12
+    assert np.count_nonzero(lat == -60.0) == 6
+    assert np.count_nonzero(lat == 60.0) == 6
+    assert np.all(lon >= -180.0)
+    assert np.all(lon < 180.0)
+
+
+def test_map_curve_sampling_can_use_local_time_rows():
+    """Local-time sampling should align rows around local noon."""
+    reference_time = dt.datetime(2011, 10, 24, 18, 0)
+
+    lon, lat = build_even_global_sites(
+        min_lat=0.0,
+        max_lat=0.0,
+        lat_count=1,
+        equatorial_count=4,
+        min_sites_per_row=1,
+        reference_time=reference_time,
+    )
+
+    np.testing.assert_array_equal(lat, np.zeros(4))
+    np.testing.assert_allclose(lon, np.array([90.0, -180.0, -90.0, 0.0]))
+
+
+def test_map_curve_wrapping_and_segmentation_are_reusable():
+    """Wrapped curves should split across dateline jumps and NaNs."""
+    np.testing.assert_allclose(
+        wrap_longitudes(np.array([-200.0, -170.0, 190.0]), central_longitude=0.0),
+        np.array([160.0, -170.0, -170.0]),
+    )
+
+    segments = split_wrapped_curve(
+        np.array([160.0, 170.0, -175.0, -160.0, np.nan, 10.0, 20.0]),
+        np.array([0.0, 1.0, 2.0, 3.0, np.nan, 4.0, 5.0]),
+    )
+
+    assert len(segments) == 3
+    np.testing.assert_allclose(segments[0][0], np.array([160.0, 170.0]))
+    np.testing.assert_allclose(segments[1][0], np.array([-175.0, -160.0]))
+    np.testing.assert_allclose(segments[2][0], np.array([10.0, 20.0]))
+
+
+def test_geographic_local_time_window_helpers_are_parameterized():
+    """Site masks and extents should not depend on notebook widgets."""
+    reference_time = dt.datetime(2011, 10, 24, 18, 0)
+    lat = np.array([-30.0, 0.0, 20.0, 70.0])
+    lon = np.array([-90.0, 0.0, 90.0, 180.0])
+
+    mask = geographic_local_time_mask(
+        lat,
+        lon,
+        lat_window=(-45.0, 45.0),
+        local_time_window=(6.0, 18.0),
+        reference_time=reference_time,
+    )
+
+    np.testing.assert_array_equal(mask, np.array([True, True, False, False]))
+    assert (
+        local_time_window_extent(
+            lat_window=(-90.0, 90.0), local_time_window=(0.0, 24.0), reference_time=reference_time
+        )
+        is None
+    )
+    np.testing.assert_allclose(
+        local_time_window_extent(
+            lat_window=(-30.0, 60.0),
+            local_time_window=(6.0, 18.0),
+            reference_time=reference_time,
+            central_longitude=0.0,
+        ),
+        np.array([-180.0, 0.0, -30.0, 60.0]),
     )
 
 
