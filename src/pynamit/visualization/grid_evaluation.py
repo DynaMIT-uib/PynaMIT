@@ -4,7 +4,7 @@ import numpy as np
 
 from pynamit.math.constants import mu0
 from pynamit.simulation.config import setting_value
-from pynamit.simulation.sheet_current import sheet_current_operator_bundle
+from pynamit.simulation.JS import JS_operator_bundle
 from pynamit.sphere import Grid, SHBasis, SolidHarmonics, SphericalTransform
 from pynamit.visualization.artifacts import load_dataset_artifact
 
@@ -56,8 +56,8 @@ def compute_conversion_factors(settings, sh_basis):
     }
 
 
-def build_sheet_current_operators(settings, sh_basis, transform, T_to_Ve=None):
-    """Build common coefficient-to-sheet-current matrices.
+def build_JS_operators(settings, sh_basis, transform, T_to_Ve=None):
+    """Build common coefficient-to-JS matrices.
 
     This is the low-level matrix bundle used by notebook and script
     visualizations that operate directly on saved coefficient arrays.
@@ -67,7 +67,7 @@ def build_sheet_current_operators(settings, sh_basis, transform, T_to_Ve=None):
         rm = float(rm)
     else:
         rm = None
-    return sheet_current_operator_bundle(
+    return JS_operator_bundle(
         SolidHarmonics(sh_basis),
         transform,
         radius=float(setting_value(settings, "RI")),
@@ -93,7 +93,7 @@ def resistance_to_conductance(etaP, etaH):
 __all__ = [
     "build_evaluator",
     "build_plot_grid",
-    "build_sheet_current_operators",
+    "build_JS_operators",
     "compute_conversion_factors",
     "load_settings_and_basis",
     "resistance_to_conductance",

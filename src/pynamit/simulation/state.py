@@ -72,6 +72,7 @@ class State:
         # (independent of conductance)
         self._u_coeffs_to_E_coeffs_cache: Optional[LinearMap] = None
         self._Q_eff_synthesis_operator_cache: dict[Any, LinearMap] = {}
+        self._E_source_to_E_operator_cache: dict[Any, LinearMap] = {}
 
         # The solver is configured here but remains stateless.
         self.m_imp_solver = LeastSquaresSolver(
@@ -81,6 +82,7 @@ class State:
         # Initialize state variables
         self.u: Optional[FieldCoefficients] = None
         self.Q_eff: Optional[FieldCoefficients] = None
+        self.E_source: Optional[FieldCoefficients] = None
         self.Br: Optional[FieldCoefficients] = None
         self.jr: Optional[FieldCoefficients] = None
         self.etaP: Optional[FieldCoefficients] = None
@@ -193,6 +195,47 @@ class State:
             )
         return self._Q_eff_to_E_coeffs_cache
 
+    def _create_E_source_to_E_operator_for_representation(self, representation) -> LinearMap:
+        """Map direct E-source coefficients to model E coefficients."""
+        if representation.coefficients_are_compatible_with(self.basis):
+            return identity_linear_map((2, self.basis.index_length))
+
+        cache_key = getattr(representation, "coefficient_space_signature", None)
+        if cache_key is None:
+            cache_key = getattr(representation, "signature", id(representation))
+        if cache_key not in self._E_source_to_E_operator_cache:
+            get_operator = getattr(representation, "get_helmholtz_synthesis_operator", None)
+            if not callable(get_operator):
+                raise ValueError(
+                    "E_source storage basis cannot evaluate tangential fields on "
+                    "the state/model grid."
+                )
+            source_synthesis = get_operator(self.geometry.grid)
+            grid_to_coeffs = as_linear_map(
+                xp.asarray(self.geometry.helmholtz_analysis_matrix),
+                input_shape=(2, self.geometry.grid.size),
+                output_shape=(2, self.basis.index_length),
+            )
+            self._E_source_to_E_operator_cache[cache_key] = grid_to_coeffs @ source_synthesis
+        return self._E_source_to_E_operator_cache[cache_key]
+
+    def E_source_to_E_coeffs_for_field_space(self, field_space) -> LinearMap:
+        """Return direct E-source map for one storage field space."""
+        return self._create_E_source_to_E_operator_for_representation(field_space.representation)
+
+    @property
+    def E_source_to_E_coeffs(self) -> Optional[LinearMap]:
+        """Linear map from direct E-source coeffs to E coeffs."""
+        if getattr(self, "E_source", None) is None:
+            return None
+        if self._E_source_to_E_coeffs_cache is None:
+            self._E_source_to_E_coeffs_cache = (
+                self._create_E_source_to_E_operator_for_representation(
+                    self.E_source.representation
+                )
+            )
+        return self._E_source_to_E_coeffs_cache
+
     def _invalidate_caches(self) -> None:
         """Invalidate all conductance-dependent cached properties."""
         self._M_total_on_grid: Optional[np.ndarray] = None
@@ -200,10 +243,12 @@ class State:
         self._m_imp_to_E_coeffs_cache: Optional[LinearMap] = None
         self._Br_to_E_coeffs_cache: Optional[LinearMap] = None
         self._Q_eff_to_E_coeffs_cache: Optional[LinearMap] = None
+        self._E_source_to_E_coeffs_cache: Optional[LinearMap] = None
         self._m_ind_to_E_coeffs_runtime_cache: Optional[LinearMap] = None
         self._m_imp_to_E_coeffs_runtime_cache: Optional[LinearMap] = None
         self._Br_to_E_coeffs_runtime_cache: Optional[LinearMap] = None
         self._Q_eff_to_E_coeffs_runtime_cache: Optional[LinearMap] = None
+        self._E_source_to_E_coeffs_runtime_cache: Optional[LinearMap] = None
         self._E_map_constraint_cache: Optional[LinearMap] = None
         self._m_ind_to_E_df_matrix: Optional[np.ndarray] = None
         self._m_ind_to_E_df_operator: Optional[LinearMap] = None
@@ -286,21 +331,19 @@ class State:
 
         raise ValueError("Conductance storage basis cannot be evaluated on the state/model grid.")
 
-    def _create_E_coeffs_operator(
-        self, source_to_sheet_current: Optional[np.ndarray]
-    ) -> Optional[LinearMap]:
-        if source_to_sheet_current is None:
+    def _create_E_coeffs_operator(self, source_to_JS: Optional[np.ndarray]) -> Optional[LinearMap]:
+        if source_to_JS is None:
             return None
         tensors = [
             xp.asarray(self.geometry.helmholtz_analysis_matrix),
             xp.asarray(self.M_total_on_grid),
-            xp.asarray(source_to_sheet_current),
+            xp.asarray(source_to_JS),
         ]
         return einsum_linear_map_from_matvec(
             component_tensors=tensors,
             einsum_string_matvec="cmpg,pqg,qgl,l->cm",
             output_shape=(2, self.basis.index_length),
-            input_shape=source_to_sheet_current.shape[2:],
+            input_shape=source_to_JS.shape[2:],
         )
 
     @property
@@ -308,7 +351,7 @@ class State:
         """Linear map from m_ind coefficients to E coefficients."""
         if self._m_ind_to_E_coeffs_cache is None:
             self._m_ind_to_E_coeffs_cache = self._create_E_coeffs_operator(
-                self.geometry.m_ind_to_gridded_sheet_current()
+                self.geometry.m_ind_to_gridded_JS()
             )
         return self._m_ind_to_E_coeffs_cache
 
@@ -317,7 +360,7 @@ class State:
         """Linear map from m_imp coefficients to E coefficients."""
         if self._m_imp_to_E_coeffs_cache is None:
             self._m_imp_to_E_coeffs_cache = self._create_E_coeffs_operator(
-                self.geometry.m_imp_to_gridded_sheet_current()
+                self.geometry.m_imp_to_gridded_JS()
             )
         return self._m_imp_to_E_coeffs_cache
 
@@ -326,7 +369,7 @@ class State:
         """Linear map from Br coefficients to E coefficients."""
         if self._Br_to_E_coeffs_cache is None:
             self._Br_to_E_coeffs_cache = self._create_E_coeffs_operator(
-                self.geometry.Br_to_gridded_sheet_current()
+                self.geometry.Br_to_gridded_JS()
             )
         return self._Br_to_E_coeffs_cache
 
@@ -372,6 +415,15 @@ class State:
                 self.Q_eff_to_E_coeffs
             )
         return self._Q_eff_to_E_coeffs_runtime_cache
+
+    @property
+    def _E_source_to_E_coeffs_runtime(self) -> Optional[LinearMap]:
+        """Runtime map from direct E-source coeffs to E coeffs."""
+        if getattr(self, "_E_source_to_E_coeffs_runtime_cache", None) is None:
+            self._E_source_to_E_coeffs_runtime_cache = self._runtime_E_coeffs_operator(
+                self.E_source_to_E_coeffs
+            )
+        return self._E_source_to_E_coeffs_runtime_cache
 
     @property
     def _E_map_constraint(self) -> Optional[LinearMap]:
@@ -518,6 +570,8 @@ class State:
                 self.u = FieldCoefficients(field_space, coeffs=updated_input["u"])
             elif key == "Q_eff":
                 self.Q_eff = FieldCoefficients(field_space, coeffs=updated_input["Q_eff"])
+            elif key == "E_source":
+                self.E_source = FieldCoefficients(field_space, coeffs=updated_input["E_source"])
 
         if conductance_updated:
             logger.info("Conductance updated: invalidating caches and problem definition.")
@@ -554,13 +608,21 @@ class State:
     def calculate_noind_coeffs(self) -> Tuple[np.ndarray, np.ndarray]:
         """Calculate E-field coefficients without induction effects."""
         E_shape = (2, self.basis.index_length)
-        if self.u is not None and getattr(self, "Q_eff", None) is not None:
+        active_wind_sources = [
+            name for name in ("u", "Q_eff", "E_source") if getattr(self, name, None) is not None
+        ]
+        if len(active_wind_sources) > 1:
             raise ValueError(
-                "Neutral wind input 'u' and effective-current input 'Q_eff' "
-                "are mutually exclusive; use only one wind forcing representation."
+                "Neutral wind input 'u', effective-current input 'Q_eff', and "
+                "direct electric-field input 'E_source' are mutually exclusive; "
+                "use only one wind forcing representation."
             )
         u_coeffs = 0 if self.u is None else xp.asarray(self.u.array)
         E_direct = self._apply_operator(self.u_coeffs_to_E_coeffs, u_coeffs, E_shape)
+        if getattr(self, "E_source", None) is not None:
+            E_direct += self._apply_operator(
+                self._E_source_to_E_coeffs_runtime, xp.asarray(self.E_source.array), E_shape
+            )
         if self.Br is not None:
             E_direct += self._apply_operator(
                 self._Br_to_E_coeffs_runtime, xp.asarray(self.Br.array), E_shape

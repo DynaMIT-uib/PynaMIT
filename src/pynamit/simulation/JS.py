@@ -1,4 +1,4 @@
-"""Sheet-current operator construction."""
+"""JS operator construction."""
 
 from __future__ import annotations
 
@@ -16,20 +16,18 @@ def coefficient_scale_values(values):
     return array.copy()
 
 
-def poloidal_to_gridded_sheet_current(
+def poloidal_to_gridded_JS(
     solid_harmonics, transform, *, horizontal_to_solid_harmonic=None, solid_scale=None
 ):
-    """Map poloidal coefficients to gridded sheet current."""
+    """Map poloidal coefficients to gridded JS."""
     scale = coefficient_scale_values(solid_harmonics.poloidal_to_boundary_potential_jump_factor)
     if solid_scale is not None:
         scale = scale * np.asarray(solid_scale)
-    sheet_current = (
-        -transform.scalar_coeffs_to_gridded_rhat_cross_gradient * scale.reshape(1, 1, -1) / mu0
-    )
+    JS = -transform.scalar_coeffs_to_gridded_rhat_cross_gradient * scale.reshape(1, 1, -1) / mu0
     if horizontal_to_solid_harmonic is None:
-        return sheet_current.copy()
-    xp = get_array_module(sheet_current, horizontal_to_solid_harmonic)
-    return xp.tensordot(sheet_current, xp.asarray(horizontal_to_solid_harmonic), axes=([2], [0]))
+        return JS.copy()
+    xp = get_array_module(JS, horizontal_to_solid_harmonic)
+    return xp.tensordot(JS, xp.asarray(horizontal_to_solid_harmonic), axes=([2], [0]))
 
 
 def reference_boundary_poloidal_scale(solid_harmonics, boundary_radius, radius):
@@ -59,7 +57,7 @@ def reference_boundary_br_to_poloidal_scale(solid_harmonics, boundary_radius, ra
     return -regular_shift / denominator / solid_harmonic_m_ind_to_Br
 
 
-def m_ind_to_gridded_sheet_current(
+def m_ind_to_gridded_JS(
     solid_harmonics,
     transform,
     *,
@@ -68,7 +66,7 @@ def m_ind_to_gridded_sheet_current(
     boundary_shielding=False,
     horizontal_to_solid_harmonic=None,
 ):
-    """Map induced-potential coefficients to gridded sheet current."""
+    """Map induced-potential coefficients to gridded JS."""
     solid_scale = None
     if boundary_radius is not None:
         if boundary_shielding:
@@ -77,7 +75,7 @@ def m_ind_to_gridded_sheet_current(
             )
         else:
             solid_scale = 1.0
-    return poloidal_to_gridded_sheet_current(
+    return poloidal_to_gridded_JS(
         solid_harmonics,
         transform,
         horizontal_to_solid_harmonic=horizontal_to_solid_harmonic,
@@ -85,12 +83,12 @@ def m_ind_to_gridded_sheet_current(
     )
 
 
-def Br_to_gridded_sheet_current(
+def Br_to_gridded_JS(
     solid_harmonics, transform, *, radius, boundary_radius, horizontal_to_solid_harmonic=None
 ):
-    """Map boundary-Br coefficients to gridded sheet current."""
+    """Map boundary-Br coefficients to gridded JS."""
     solid_scale = reference_boundary_br_to_poloidal_scale(solid_harmonics, boundary_radius, radius)
-    return poloidal_to_gridded_sheet_current(
+    return poloidal_to_gridded_JS(
         solid_harmonics,
         transform,
         horizontal_to_solid_harmonic=horizontal_to_solid_harmonic,
@@ -98,7 +96,7 @@ def Br_to_gridded_sheet_current(
     )
 
 
-def m_imp_to_gridded_sheet_current(
+def m_imp_to_gridded_JS(
     solid_harmonics,
     horizontal_transform,
     *,
@@ -106,19 +104,19 @@ def m_imp_to_gridded_sheet_current(
     horizontal_to_solid_harmonic=None,
     T_to_Ve=None,
 ):
-    """Map imposed-potential coefficients to gridded sheet current."""
+    """Map imposed-potential coefficients to gridded JS."""
     solid_transform = horizontal_transform if solid_transform is None else solid_transform
     toroidal = -horizontal_transform.scalar_coeffs_to_gridded_gradient / mu0
     if T_to_Ve is None:
         return toroidal
-    poloidal = poloidal_to_gridded_sheet_current(
+    poloidal = poloidal_to_gridded_JS(
         solid_harmonics, solid_transform, horizontal_to_solid_harmonic=horizontal_to_solid_harmonic
     )
     xp = get_array_module(toroidal, poloidal, T_to_Ve)
     return toroidal + xp.tensordot(poloidal, xp.asarray(T_to_Ve), axes=([2], [0]))
 
 
-def sheet_current_operator_bundle(
+def JS_operator_bundle(
     solid_harmonics,
     horizontal_transform,
     *,
@@ -129,9 +127,9 @@ def sheet_current_operator_bundle(
     horizontal_to_solid_harmonic=None,
     T_to_Ve=None,
 ):
-    """Return m_ind, m_imp, and boundary-Br sheet-current operators."""
+    """Return m_ind, m_imp, and boundary-Br JS operators."""
     solid_transform = horizontal_transform if solid_transform is None else solid_transform
-    m_ind_to_sheet = m_ind_to_gridded_sheet_current(
+    m_ind_to_JS = m_ind_to_gridded_JS(
         solid_harmonics,
         solid_transform,
         radius=radius,
@@ -139,7 +137,7 @@ def sheet_current_operator_bundle(
         boundary_shielding=boundary_shielding,
         horizontal_to_solid_harmonic=horizontal_to_solid_harmonic,
     )
-    m_imp_to_sheet = m_imp_to_gridded_sheet_current(
+    m_imp_to_JS = m_imp_to_gridded_JS(
         solid_harmonics,
         horizontal_transform,
         solid_transform=solid_transform,
@@ -147,30 +145,26 @@ def sheet_current_operator_bundle(
         T_to_Ve=T_to_Ve,
     )
     if boundary_radius is None:
-        xp = get_array_module(m_ind_to_sheet)
-        Br_to_sheet = xp.zeros_like(m_ind_to_sheet)
+        xp = get_array_module(m_ind_to_JS)
+        Br_to_JS = xp.zeros_like(m_ind_to_JS)
     else:
-        Br_to_sheet = Br_to_gridded_sheet_current(
+        Br_to_JS = Br_to_gridded_JS(
             solid_harmonics,
             solid_transform,
             radius=radius,
             boundary_radius=boundary_radius,
             horizontal_to_solid_harmonic=horizontal_to_solid_harmonic,
         )
-    return {
-        "G_m_ind_to_sheet_current": m_ind_to_sheet,
-        "G_m_imp_to_sheet_current": m_imp_to_sheet,
-        "G_Br_to_sheet_current": Br_to_sheet,
-    }
+    return {"G_m_ind_to_JS": m_ind_to_JS, "G_m_imp_to_JS": m_imp_to_JS, "G_Br_to_JS": Br_to_JS}
 
 
 __all__ = [
-    "Br_to_gridded_sheet_current",
+    "Br_to_gridded_JS",
     "coefficient_scale_values",
-    "m_imp_to_gridded_sheet_current",
-    "m_ind_to_gridded_sheet_current",
-    "poloidal_to_gridded_sheet_current",
+    "m_imp_to_gridded_JS",
+    "m_ind_to_gridded_JS",
+    "poloidal_to_gridded_JS",
     "reference_boundary_br_to_poloidal_scale",
     "reference_boundary_poloidal_scale",
-    "sheet_current_operator_bundle",
+    "JS_operator_bundle",
 ]

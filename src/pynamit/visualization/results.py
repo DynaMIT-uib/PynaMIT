@@ -21,7 +21,7 @@ from pynamit.visualization.state_fields import (
     evaluate_Phi,
     evaluate_equivalent_current_function,
     evaluate_jr,
-    evaluate_sheet_current,
+    evaluate_JS,
 )
 
 
@@ -370,7 +370,7 @@ def compare_AMPS_jr_and_CF_currents(dynamics, a, d, date, lon0):
     jr = evaluate_jr(dynamics, m_state_evaluator) * 1e6
 
     mv_state_evaluator = SphericalTransform(dynamics.horizontal_basis, Grid(lat=mlatv, lon=lonv))
-    js, je = evaluate_sheet_current(dynamics, mv_state_evaluator) * 1e3
+    js, je = evaluate_JS(dynamics, mv_state_evaluator) * 1e3
     jn = -js
 
     jrn, jrs = np.split(jr, 2)

@@ -83,7 +83,7 @@ class PynamEye:
         steady_state : bool, optional
             Whether to use steady state data.
         """
-        optional_datasets = ["u", "Q_eff"]
+        optional_datasets = ["u", "Q_eff", "E_source"]
         if steady_state:
             optional_datasets.append("steady_state")
         self.run_view = SavedRunView.from_directory(
@@ -178,18 +178,14 @@ class PynamEye:
         self.m_imp_to_jr_operator = self.geometry.m_imp_to_jr_operator
         self.W_to_dBr_dt = 1 / self.RI
         # Cache maps needed by Joule heating and E-from-B derivation.
-        self.m_ind_to_gridded_sheet_current_maps = {}
-        self.m_imp_to_gridded_sheet_current_maps = {}
+        self.m_ind_to_gridded_JS_maps = {}
+        self.m_imp_to_gridded_JS_maps = {}
         for region in ["global", "north", "south"]:
-            self.m_ind_to_gridded_sheet_current_maps[region] = (
-                self.geometry.m_ind_to_gridded_sheet_current(
-                    self.transforms[region], solid_transform=self.solid_harmonic_transforms[region]
-                )
+            self.m_ind_to_gridded_JS_maps[region] = self.geometry.m_ind_to_gridded_JS(
+                self.transforms[region], solid_transform=self.solid_harmonic_transforms[region]
             )
-            self.m_imp_to_gridded_sheet_current_maps[region] = (
-                self.geometry.m_imp_to_gridded_sheet_current(
-                    self.transforms[region], solid_transform=self.solid_harmonic_transforms[region]
-                )
+            self.m_imp_to_gridded_JS_maps[region] = self.geometry.m_imp_to_gridded_JS(
+                self.transforms[region], solid_transform=self.solid_harmonic_transforms[region]
             )
 
         self._define_defaults()
@@ -251,29 +247,21 @@ class PynamEye:
             self.bH_01 = self.b_evaluator.br
             self.bH_10 = -self.b_evaluator.br
 
-            self.m_ind_to_gridded_sheet_current_maps["num"] = (
-                self.geometry.m_ind_to_gridded_sheet_current(
-                    self.transforms["num"], solid_transform=self.solid_harmonic_transforms["num"]
-                )
+            self.m_ind_to_gridded_JS_maps["num"] = self.geometry.m_ind_to_gridded_JS(
+                self.transforms["num"], solid_transform=self.solid_harmonic_transforms["num"]
             )
-            self.m_imp_to_gridded_sheet_current_maps["num"] = (
-                self.geometry.m_imp_to_gridded_sheet_current(
-                    self.transforms["num"], solid_transform=self.solid_harmonic_transforms["num"]
-                )
+            self.m_imp_to_gridded_JS_maps["num"] = self.geometry.m_imp_to_gridded_JS(
+                self.transforms["num"], solid_transform=self.solid_harmonic_transforms["num"]
             )
 
             self._e_from_b_cache_ready = True
 
         # Calculate electric field values on state_grid.
         Js_ind, Je_ind = np.split(
-            self.m_ind_to_gridded_sheet_current_maps["num"].matvec(self.m_ind).reshape(2, -1),
-            2,
-            axis=0,
+            self.m_ind_to_gridded_JS_maps["num"].matvec(self.m_ind).reshape(2, -1), 2, axis=0
         )
         Js_imp, Je_imp = np.split(
-            self.m_imp_to_gridded_sheet_current_maps["num"].matvec(self.m_imp).reshape(2, -1),
-            2,
-            axis=0,
+            self.m_imp_to_gridded_JS_maps["num"].matvec(self.m_imp).reshape(2, -1), 2, axis=0
         )
         Js_ind, Je_ind = Js_ind[0], Je_ind[0]
         Js_imp, Je_imp = Js_imp[0], Je_imp[0]
@@ -370,7 +358,7 @@ class PynamEye:
         self.t = t
         self.time = self.t0 + datetime.timedelta(seconds=t)
 
-        for key in ["state", "steady_state", "u", "Q_eff", "conductance"]:
+        for key in ["state", "steady_state", "u", "Q_eff", "E_source", "conductance"]:
             self._ensure_dataset_covers_time(key)
 
         if steady_state and "steady_state" in self.datasets:
@@ -587,19 +575,19 @@ class PynamEye:
         """
         self._fill_plot_defaults(kwargs, self.joule_defaults)
 
-        Q, E, sheet_current = evaluate_joule_from_coefficients(
+        Q, E, JS = evaluate_joule_from_coefficients(
             self.transforms[region],
             self.m_imp,
             self.m_ind,
             self.m_Phi,
             self.m_W,
             self.RI,
-            m_imp_to_sheet=self.m_imp_to_gridded_sheet_current_maps[region],
-            m_ind_to_sheet=self.m_ind_to_gridded_sheet_current_maps[region],
+            m_imp_to_JS=self.m_imp_to_gridded_JS_maps[region],
+            m_ind_to_JS=self.m_ind_to_gridded_JS_maps[region],
         )
         self._Q = Q
         self._E = E
-        self._sheet_current = sheet_current
+        self._JS = JS
 
         # Plot.
         return self._plot_filled_contour(Q, ax, region, **kwargs)

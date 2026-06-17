@@ -10,18 +10,17 @@ The TIEGCM grid is converted through ``Mainfield`` helpers, and wind
 vectors are rotated into the model east/north basis before setting the
 inputs.
 
-For neutral-wind forcing, the recommended default is ``--wind-mode
-q_eff``: compute the effective sheet-current input from Appendix A of
-Laundal et al. (2025), using both Pedersen- and Hall-weighted winds.
+Neutral-wind forcing is applied as a direct electric-field source from
+the Pedersen- and Hall-weighted wind-current terms, using the same
+projected sheet resistance as PynaMIT.
 
 If the HDF5 file does not contain Hall-weighted winds named ``WeH`` and
-``WnH``, q_eff mode can derive them from the original TIEGCM NetCDF
+``WnH``, wind forcing can derive them from the original TIEGCM NetCDF
 file.
 """
 
 from __future__ import annotations
 
-import argparse
 import datetime as dt
 import warnings
 from dataclasses import dataclass
@@ -44,7 +43,7 @@ LATITUDE_BOUNDARY = 35.0
 BR_LAMBDA = 0.1
 CONDUCTANCE_LAMBDA = 3.0
 JR_LAMBDA = 0.1
-Q_EFF_LAMBDA = 0.1
+E_SOURCE_LAMBDA = 0.1
 
 # Kaipy/REMIX polar plots place raw longitude 0 at noon. In
 # kaiju_dipole mode this is already the SM longitude origin used by
@@ -55,7 +54,9 @@ MAGE_DIPOLE_B0_T = 29617.369174957275e-9
 CENTERED_DIPOLE_MODELS = ("kaiju_dipole", "dipole")
 
 DEFAULT_FORCING_CANDIDATES = (
+    SCRIPT_DIR / "mage_prepared" / "mage_prepared_forcing.h5",
     SCRIPT_DIR / "mage_prepared" / "data_H_int_qeff.h5",
+    Path("/disk/Gamera_Dong/prep_Pynamit/mage_prepared_forcing.h5"),
     Path("/disk/Gamera_Dong/prep_Pynamit/data_H_int_qeff.h5"),
     Path("mage_2011/data_H_int.h5"),
     Path("/disk/Gamera_Dong/prep_Pynamit/data_H_int.h5"),
@@ -74,22 +75,24 @@ DEFAULT_TIEGCM_CANDIDATES = (
 class MageForcingSettings:
     """Defaults intended to be edited in this script for normal runs."""
 
-    run_directory: Path = SCRIPT_DIR / "mage_runs" / "results_mage_2011_kaiju_qeff"
-    wind_mode: str = "q_eff"
+    forcing_h5: Path | None = None
+    tiegcm_nc: Path | None = None
+    run_directory: Path = SCRIPT_DIR / "mage_runs" / "results_mage_2011_kaiju_direct_e"
     mainfield_kind: str = "kaiju_dipole"
+    dipole_B0: float | None = None
     fac_convention: str = "upward"
+    RM: float | None = None
     RM_shielding: bool = False
     nmax: int = 80
     mmax: int = 80
     ncs: int = 60
     dt: float = 10.0
     final_time: float = 3600.0
+    max_steps: int | None = None
     br_lambda: float = BR_LAMBDA
     conductance_lambda: float = CONDUCTANCE_LAMBDA
     jr_lambda: float = JR_LAMBDA
-    q_eff_lambda: float = Q_EFF_LAMBDA
-    br_floor: float = 1e-3
-    parallel_conductance: float = np.inf
+    e_source_lambda: float = E_SOURCE_LAMBDA
     steady_state_initialization: bool = False
     save_steady_states: bool = False
 
@@ -105,7 +108,9 @@ def dipole_radial_sampling(r_min: float, r_max: float, n_steps: int) -> np.ndarr
     return r_min / np.cos(np.deg2rad(angles)) ** 2
 
 
-def resolve_existing_path(path: str | None, candidates: tuple[Path, ...], label: str) -> Path:
+def resolve_existing_path(
+    path: str | Path | None, candidates: tuple[Path, ...], label: str
+) -> Path:
     """Resolve an explicit path or the first existing candidate."""
     if path:
         resolved = Path(path).expanduser()
@@ -278,8 +283,8 @@ def conductivity_weighted_winds_from_tiegcm_step(dataset: Any, step: int) -> dic
 
 
 def load_weighted_winds(
-    h5_file: Any, step: int, *, tiegcm_dataset: Any | None, require_hall_weighted: bool
-) -> tuple[np.ndarray, np.ndarray, np.ndarray | None, np.ndarray | None]:
+    h5_file: Any, step: int, *, tiegcm_dataset: Any | None
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Load weighted winds for one step."""
     u_p_east = np.asarray(h5_file["We"][step], dtype=float)
     u_p_north = np.asarray(h5_file["Wn"][step], dtype=float)
@@ -298,13 +303,10 @@ def load_weighted_winds(
             weighted["hall_north"],
         )
 
-    if require_hall_weighted:
-        raise RuntimeError(
-            "Q_eff mode requires Hall-weighted wind. Provide HDF5 datasets WeH/WnH "
-            "or pass --tiegcm-nc so the script can compute U_H from SIGMA_HAL."
-        )
-
-    return u_p_east, u_p_north, None, None
+    raise RuntimeError(
+        "Weighted-wind forcing requires Hall-weighted wind. Provide HDF5 datasets WeH/WnH "
+        "or set SETTINGS.tiegcm_nc so the script can compute U_H from SIGMA_HAL."
+    )
 
 
 def cross_spherical(
@@ -323,7 +325,7 @@ def cross_spherical(
     )
 
 
-def paper_q_eff_for_pynamit(
+def weighted_wind_current_source(
     *,
     sigma_p: np.ndarray,
     sigma_h: np.ndarray,
@@ -332,26 +334,18 @@ def paper_q_eff_for_pynamit(
     u_h_theta: np.ndarray,
     u_h_phi: np.ndarray,
     field: FieldEvaluator,
-    parallel_conductance: float = np.inf,
-    br_floor: float = 1e-3,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Compute PynaMIT Q_eff samples from Appendix A.
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return the height-integrated Pedersen+Hall wind-current source.
 
-    Eq. (A3)-(A4) define Pedersen- and Hall-weighted wind-current terms,
-    and Eq. (A8) projects the full height-integrated wind term into the
-    effective tangential sheet-current ``Q_eff``.  PynaMIT's
-    ``set_Q_eff`` applies the supplied current proxy through
-    ``+ A_res Q_eff``, whereas the generalized Ohm's law in Eq. (A11)
-    has ``A_res(J_S - Q_eff)``.
-    The returned samples therefore use the sign convention expected by
-    PynaMIT.
+    The source follows the height-integrated Ohm's-law expansion
+    ``Q = SigmaP (U_P x B) + SigmaH b x (U_H x B)``. The Hall rotation
+    sign is the one required by PynaMIT's ``j x b`` resistance tensor
+    and by the height-independent limit: when ``U_P = U_H = u``, the
+    sheet resistance gives the ordinary ``-(u x B)`` electric field.
 
-    The Hall-weighted term below uses the Hall sign that is consistent
-    with PynaMIT's resistance tensor and with Eqs. (A1), (A2), (A11),
-    and (11): with identical Pedersen- and Hall-weighted winds it
-    satisfies ``A_res Q_eff = u x B`` before the final PynaMIT sign
-    flip, so q_eff mode reduces to direct neutral-wind forcing in the
-    height-independent limit.
+    ``field`` is evaluated at the PynaMIT sheet radius. This uses the
+    same sheet-constant main-field geometry as the ``JS -> E_S`` closure
+    instead of a height-varying ``B(z)`` integral.
     """
     sigma_p = np.asarray(sigma_p, dtype=float).reshape(-1)
     sigma_h = np.asarray(sigma_h, dtype=float).reshape(-1)
@@ -380,34 +374,65 @@ def paper_q_eff_for_pynamit(
     q_h_theta = sigma_h * q_h[1]
     q_h_phi = sigma_h * q_h[2]
 
-    q_r = q_p_r + q_h_r
-    q_theta = q_p_theta + q_h_theta
-    q_phi = q_p_phi + q_h_phi
+    return q_p_r + q_h_r, q_p_theta + q_h_theta, q_p_phi + q_h_phi
 
-    if np.isinf(parallel_conductance):
-        valid = np.abs(b_r) > br_floor
-        correction_theta = np.divide(b_theta * q_r, b_r, out=np.zeros_like(q_r), where=valid)
-        correction_phi = np.divide(b_phi * q_r, b_r, out=np.zeros_like(q_r), where=valid)
-    else:
-        sigma_parallel = float(parallel_conductance)
-        denominator = sigma_p * (b_theta**2 + b_phi**2) + sigma_parallel * b_r**2
-        r_cross_b_theta = -b_phi
-        r_cross_b_phi = b_theta
-        numerator_theta = (
-            (sigma_parallel - sigma_p) * b_r * b_theta - sigma_h * r_cross_b_theta
-        ) * q_r
-        numerator_phi = ((sigma_parallel - sigma_p) * b_r * b_phi - sigma_h * r_cross_b_phi) * q_r
-        correction_theta = np.divide(
-            numerator_theta, denominator, out=np.zeros_like(q_r), where=denominator > 0.0
-        )
-        correction_phi = np.divide(
-            numerator_phi, denominator, out=np.zeros_like(q_r), where=denominator > 0.0
-        )
 
-    q_eff_theta_physical = q_theta - correction_theta
-    q_eff_phi_physical = q_phi - correction_phi
+def projected_resistance_values(
+    dynamics: pynamit.Dynamics, grid: pynamit.Grid, time: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """Evaluate projected sheet resistance coefficients on ``grid``."""
+    conductance_entry = dynamics.input_timeseries.get_entry("conductance", time)
+    if conductance_entry is None:
+        raise RuntimeError("Conductance must be set before computing direct wind E_source.")
 
-    return -q_eff_theta_physical, -q_eff_phi_physical
+    field_space = dynamics.input_field_spaces["conductance"]
+    evaluator = field_space.representation.get_scalar_evaluation_operator(grid)
+    eta_p = np.asarray(evaluator.matvec(conductance_entry["etaP"])).reshape(-1)
+    eta_h = np.asarray(evaluator.matvec(conductance_entry["etaH"])).reshape(-1)
+    return eta_p, eta_h
+
+
+def direct_E_source_for_pynamit(
+    *,
+    sigma_p: np.ndarray,
+    sigma_h: np.ndarray,
+    u_p_theta: np.ndarray,
+    u_p_phi: np.ndarray,
+    u_h_theta: np.ndarray,
+    u_h_phi: np.ndarray,
+    field: FieldEvaluator,
+    eta_p: np.ndarray,
+    eta_h: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Compute direct wind electric-field source samples in V/m.
+
+    This evaluates ``-P_S R_3D Q`` in the ``eta_parallel = 0`` model
+    without constructing the Eq. (A8) current-equivalent ``Q_eff``.
+    """
+    q_r, q_theta, q_phi = weighted_wind_current_source(
+        sigma_p=sigma_p,
+        sigma_h=sigma_h,
+        u_p_theta=u_p_theta,
+        u_p_phi=u_p_phi,
+        u_h_theta=u_h_theta,
+        u_h_phi=u_h_phi,
+        field=field,
+    )
+
+    eta_p = np.asarray(eta_p, dtype=float).reshape(-1)
+    eta_h = np.asarray(eta_h, dtype=float).reshape(-1)
+    b_r = np.asarray(field.br, dtype=float).reshape(-1)
+    b_theta = np.asarray(field.btheta, dtype=float).reshape(-1)
+    b_phi = np.asarray(field.bphi, dtype=float).reshape(-1)
+
+    q_dot_b = q_r * b_r + q_theta * b_theta + q_phi * b_phi
+    q_perp_theta = q_theta - q_dot_b * b_theta
+    q_perp_phi = q_phi - q_dot_b * b_phi
+    q_cross_b = cross_spherical(q_r, q_theta, q_phi, b_r, b_theta, b_phi)
+
+    e_theta = -(eta_p * q_perp_theta + eta_h * q_cross_b[1])
+    e_phi = -(eta_p * q_perp_phi + eta_h * q_cross_b[2])
+    return e_theta, e_phi
 
 
 def print_field_stats(label: str, values: np.ndarray) -> None:
@@ -425,110 +450,31 @@ def print_field_stats(label: str, values: np.ndarray) -> None:
     )
 
 
-def build_arg_parser() -> argparse.ArgumentParser:
-    """Create the command-line parser."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--forcing-h5", default=None, help="Prepared MAGE/TIEGCM HDF5 file.")
-    parser.add_argument(
-        "--tiegcm-nc",
-        default=None,
-        help="Original TIEGCM NetCDF file, needed for q_eff if WeH/WnH are absent.",
-    )
-    parser.add_argument(
-        "--run-directory", default=str(SETTINGS.run_directory), help="PynaMIT output directory."
-    )
-    parser.add_argument(
-        "--wind-mode",
-        choices=("q_eff", "none"),
-        default=SETTINGS.wind_mode,
-        help="Use Eq. (A8) Q_eff wind forcing, or disable wind forcing for diagnostics.",
-    )
-    parser.add_argument(
-        "--mainfield-kind",
-        choices=CENTERED_DIPOLE_MODELS,
-        default=SETTINGS.mainfield_kind,
-        help=(
-            "Centered-dipole geometry used for PynaMIT and input coordinate "
-            "conversion. The default matches Kaiju/Geopack degree-1 IGRF "
-            "placement; 'dipole' preserves the previous klaundal/dipole path."
-        ),
-    )
-    parser.add_argument(
-        "--dipole-B0",
-        type=float,
-        default=None,
-        help=(
-            "Centered-dipole equatorial ground field in Tesla. Defaults to "
-            "gamera_dipole_B0_T from the prepared HDF5 file, falling back to "
-            f"{MAGE_DIPOLE_B0_T:.9g} T from Kaipy/GAMERA EarthM0g."
-        ),
-    )
-    parser.add_argument(
-        "--fac-convention",
-        choices=("upward", "field_aligned"),
-        default=SETTINGS.fac_convention,
-        help=(
-            "Convention for the HDF5 FAC dataset. 'upward' means radial outward "
-            "current density, as produced by kaipy.remix.init_vars(). "
-            "'field_aligned' means signed along the main magnetic field and is "
-            "converted to radial current with b_r."
-        ),
-    )
-    parser.add_argument(
-        "--RM",
-        dest="RM",
-        type=float,
-        default=None,
-        help=(
-            "Magnetospheric boundary radius in meters. Defaults to the mean "
-            "prepared HDF5 r dataset, falling back to 1.5*RI if absent."
-        ),
-    )
-    parser.add_argument(
-        "--RM-shielding",
-        action=argparse.BooleanOptionalAction,
-        default=SETTINGS.RM_shielding,
-        help=(
-            "Use the shielding reference-boundary condition for the induced "
-            "m_ind sheet-current operator at RM. Disabled by default for MAGE "
-            "forcing; Br boundary and PFAC finite-RM terms are still included "
-            "when RM is set."
-        ),
-    )
-    parser.add_argument("--nmax", type=int, default=SETTINGS.nmax)
-    parser.add_argument("--mmax", type=int, default=SETTINGS.mmax)
-    parser.add_argument("--ncs", type=int, default=SETTINGS.ncs)
-    parser.add_argument("--dt", type=float, default=SETTINGS.dt)
-    parser.add_argument("--final-time", type=float, default=SETTINGS.final_time)
-    parser.add_argument(
-        "--max-steps", type=int, default=None, help="Limit input steps for a short test run."
-    )
-    parser.add_argument("--br-lambda", type=float, default=SETTINGS.br_lambda)
-    parser.add_argument("--conductance-lambda", type=float, default=SETTINGS.conductance_lambda)
-    parser.add_argument("--jr-lambda", type=float, default=SETTINGS.jr_lambda)
-    parser.add_argument("--q-eff-lambda", type=float, default=SETTINGS.q_eff_lambda)
-    parser.add_argument("--br-floor", type=float, default=SETTINGS.br_floor)
-    parser.add_argument(
-        "--parallel-conductance", type=float, default=SETTINGS.parallel_conductance
-    )
-    return parser
-
-
-def main() -> None:
+def main(settings: MageForcingSettings = SETTINGS) -> None:
     """Run the configured MAGE/PynaMIT simulation."""
-    args = build_arg_parser().parse_args()
+    if settings.mainfield_kind not in CENTERED_DIPOLE_MODELS:
+        raise ValueError(
+            f"Unsupported mainfield_kind {settings.mainfield_kind!r}; "
+            f"expected one of {CENTERED_DIPOLE_MODELS}."
+        )
+    if settings.fac_convention not in ("upward", "field_aligned"):
+        raise ValueError(
+            "fac_convention must be either 'upward' or 'field_aligned'; "
+            f"got {settings.fac_convention!r}."
+        )
 
-    h5_path = resolve_existing_path(args.forcing_h5, DEFAULT_FORCING_CANDIDATES, "forcing HDF5")
+    h5_path = resolve_existing_path(
+        settings.forcing_h5, DEFAULT_FORCING_CANDIDATES, "forcing HDF5"
+    )
     tiegcm_path = None
-    if args.wind_mode == "q_eff":
-        explicit_tiegcm = args.tiegcm_nc
-        if explicit_tiegcm is not None:
-            tiegcm_path = resolve_existing_path(explicit_tiegcm, (), "TIEGCM NetCDF")
-        else:
-            for candidate in DEFAULT_TIEGCM_CANDIDATES:
-                if candidate.exists():
-                    tiegcm_path = candidate
-                    break
+    explicit_tiegcm = settings.tiegcm_nc
+    if explicit_tiegcm is not None:
+        tiegcm_path = resolve_existing_path(explicit_tiegcm, (), "TIEGCM NetCDF")
+    else:
+        for candidate in DEFAULT_TIEGCM_CANDIDATES:
+            if candidate.exists():
+                tiegcm_path = candidate
+                break
 
     import h5py
 
@@ -543,9 +489,9 @@ def main() -> None:
             event_time = parse_h5_time(file["time"][0])
             coordinate_time = event_time
             dipole_epoch = decimal_year(event_time)
-            RM = boundary_radius_from_h5(file, args.RM)
-            dipole_B0 = dipole_B0_from_h5(file, args.dipole_B0)
-            mainfield = Mainfield(kind=args.mainfield_kind, epoch=dipole_epoch, B0=dipole_B0)
+            RM = boundary_radius_from_h5(file, settings.RM)
+            dipole_B0 = dipole_B0_from_h5(file, settings.dipole_B0)
+            mainfield = Mainfield(kind=settings.mainfield_kind, epoch=dipole_epoch, B0=dipole_B0)
             gamera_dipole = gamera_internal_dipole_details(file)
             alignment = mainfield.alignment_metadata(event_time)
             rk = dipole_radial_sampling(RI, RM, n_steps=40)
@@ -567,7 +513,7 @@ def main() -> None:
                 print(f"Using TIEGCM file for weighted winds: {tiegcm_path}", flush=True)
             print(f"Event time: {event_time.isoformat()}", flush=True)
             print(f"Coordinate frame time: {coordinate_time.isoformat()}", flush=True)
-            print(f"Main field: {args.mainfield_kind}", flush=True)
+            print(f"Main field: {settings.mainfield_kind}", flush=True)
             print(f"Dipole alignment model: {alignment['dipole_alignment_model']}", flush=True)
             print(f"Dipole epoch: {dipole_epoch:.9f}", flush=True)
             print(f"Dipole B0: {dipole_B0:.6g} T ({dipole_B0 * 1e9:.6g} nT)", flush=True)
@@ -609,22 +555,22 @@ def main() -> None:
                 flush=True,
             )
             print(f"RM: {RM:.6g} m", flush=True)
-            print(f"Induced RM shielding: {args.RM_shielding}", flush=True)
-            print(f"Wind mode: {args.wind_mode}", flush=True)
-            print(f"FAC convention: {args.fac_convention}", flush=True)
+            print(f"Induced RM shielding: {settings.RM_shielding}", flush=True)
+            print("Wind forcing: direct E_source from Pedersen/Hall weighted winds", flush=True)
+            print(f"FAC convention: {settings.fac_convention}", flush=True)
             print(
-                f"Steady-state initialization: {SETTINGS.steady_state_initialization}", flush=True
+                f"Steady-state initialization: {settings.steady_state_initialization}", flush=True
             )
 
             dynamics = pynamit.Dynamics(
-                run_directory=args.run_directory,
-                Nmax=args.nmax,
-                Mmax=args.mmax,
-                Ncs=args.ncs,
+                run_directory=settings.run_directory,
+                Nmax=settings.nmax,
+                Mmax=settings.mmax,
+                Ncs=settings.ncs,
                 RI=RI,
                 RM=RM,
-                RM_shielding=args.RM_shielding,
-                mainfield_kind=args.mainfield_kind,
+                RM_shielding=settings.RM_shielding,
+                mainfield_kind=settings.mainfield_kind,
                 mainfield_epoch=dipole_epoch,
                 mainfield_B0=dipole_B0,
                 FAC_integration_steps=rk,
@@ -633,19 +579,19 @@ def main() -> None:
                 latitude_boundary=LATITUDE_BOUNDARY,
                 ih_constraint_scaling=1e-5,
                 t0=str(event_time),
-                save_steady_states=SETTINGS.save_steady_states,
+                save_steady_states=settings.save_steady_states,
                 integrator="exponential",
             )
 
             FAC_b_evaluator = FieldEvaluator(dynamics.mainfield, ionosphere_grid, RI)
-            q_eff_b_evaluator = FieldEvaluator(dynamics.mainfield, ionosphere_grid, RI)
+            wind_b_evaluator = FieldEvaluator(dynamics.mainfield, ionosphere_grid, RI)
 
             n_steps = file["time"].shape[0]
-            if args.max_steps is not None:
-                n_steps = min(n_steps, int(args.max_steps))
+            if settings.max_steps is not None:
+                n_steps = min(n_steps, int(settings.max_steps))
 
             for step in range(n_steps):
-                input_time = args.dt * step
+                input_time = settings.dt * step
                 print(f"Processing input step {step + 1} of {n_steps}", flush=True)
 
                 delta_Br = np.asarray(file["Bu"][step], dtype=float).reshape(-1) * 1e-9
@@ -665,14 +611,14 @@ def main() -> None:
                     lon=magnetosphere_grid.lon,
                     time=input_time,
                     sqrt_weights=area_sqrt_weights(magnetosphere_grid.lat),
-                    reg_lambda=args.br_lambda,
+                    reg_lambda=settings.br_lambda,
                 )
 
                 FAC = np.asarray(file["FAC"][step], dtype=float) * 1e-6
                 if np.any(~np.isfinite(FAC)):
                     print("  FAC contains non-finite values; setting them to 0.", flush=True)
                     FAC[~np.isfinite(FAC)] = 0.0
-                if args.fac_convention == "field_aligned":
+                if settings.fac_convention == "field_aligned":
                     jr = FAC.reshape(-1) * FAC_b_evaluator.br
                 else:
                     jr = FAC.reshape(-1)
@@ -684,7 +630,7 @@ def main() -> None:
                     lon=ionosphere_grid.lon,
                     time=input_time,
                     sqrt_weights=area_sqrt_weights(ionosphere_grid.lat),
-                    reg_lambda=args.jr_lambda,
+                    reg_lambda=settings.jr_lambda,
                 )
 
                 sigma_h = np.asarray(file["SH"][step], dtype=float).reshape(-1)
@@ -706,14 +652,11 @@ def main() -> None:
                     lon=ionosphere_grid.lon,
                     time=input_time,
                     sqrt_weights=area_sqrt_weights(ionosphere_grid.lat),
-                    reg_lambda=args.conductance_lambda,
+                    reg_lambda=settings.conductance_lambda,
                 )
 
-                if args.wind_mode == "none":
-                    continue
-
                 u_p_east, u_p_north, u_h_east, u_h_north = load_weighted_winds(
-                    file, step, tiegcm_dataset=tiegcm_dataset, require_hall_weighted=True
+                    file, step, tiegcm_dataset=tiegcm_dataset
                 )
                 _, _, u_p_east, u_p_north = mainfield.geo_to_model_coordinates(
                     ionosphere_lat_geo,
@@ -728,11 +671,6 @@ def main() -> None:
                     "  Pedersen-weighted wind speed [m/s]", np.hypot(u_p_theta, u_p_phi)
                 )
 
-                if u_h_east is None or u_h_north is None:
-                    raise RuntimeError(
-                        "Internal error: q_eff mode did not load Hall-weighted winds."
-                    )
-
                 _, _, u_h_east, u_h_north = mainfield.geo_to_model_coordinates(
                     ionosphere_lat_geo,
                     ionosphere_lon_geo,
@@ -744,36 +682,39 @@ def main() -> None:
                 u_h_phi = np.asarray(u_h_east, dtype=float).reshape(-1)
                 print_field_stats("  Hall-weighted wind speed [m/s]", np.hypot(u_h_theta, u_h_phi))
 
-                q_eff_theta, q_eff_phi = paper_q_eff_for_pynamit(
+                eta_p, eta_h = projected_resistance_values(dynamics, ionosphere_grid, input_time)
+                e_source_theta, e_source_phi = direct_E_source_for_pynamit(
                     sigma_p=sigma_p,
                     sigma_h=sigma_h,
                     u_p_theta=u_p_theta,
                     u_p_phi=u_p_phi,
                     u_h_theta=u_h_theta,
                     u_h_phi=u_h_phi,
-                    field=q_eff_b_evaluator,
-                    parallel_conductance=args.parallel_conductance,
-                    br_floor=args.br_floor,
+                    field=wind_b_evaluator,
+                    eta_p=eta_p,
+                    eta_h=eta_h,
                 )
-                print_field_stats("  Q_eff magnitude [A/m]", np.hypot(q_eff_theta, q_eff_phi))
-                dynamics.set_Q_eff(
-                    Q_eff_theta=q_eff_theta,
-                    Q_eff_phi=q_eff_phi,
+                print_field_stats(
+                    "  Direct wind E_source [V/m]", np.hypot(e_source_theta, e_source_phi)
+                )
+                dynamics.set_E_source(
+                    E_source_theta=e_source_theta,
+                    E_source_phi=e_source_phi,
                     lat=ionosphere_grid.lat,
                     lon=ionosphere_grid.lon,
                     time=input_time,
                     sqrt_weights=tangential_sqrt_weights(ionosphere_grid.lat),
-                    reg_lambda=args.q_eff_lambda,
+                    reg_lambda=settings.e_source_lambda,
                 )
 
             print("Time evolution", flush=True)
             dynamics.evolve_to_time(
-                args.final_time,
-                dt=args.dt,
+                settings.final_time,
+                dt=settings.dt,
                 sampling_step_interval=1,
                 saving_sample_interval=1,
-                steady_state_initialization=SETTINGS.steady_state_initialization,
-                run_steady_state=SETTINGS.save_steady_states,
+                steady_state_initialization=settings.steady_state_initialization,
+                run_steady_state=settings.save_steady_states,
             )
     finally:
         if tiegcm_dataset is not None:

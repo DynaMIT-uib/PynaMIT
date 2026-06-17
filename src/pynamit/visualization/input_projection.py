@@ -42,7 +42,7 @@ def evaluate_projected_input(
         Object containing projected input coefficient time series.
     key : str
         Input key, for example ``"jr"``, ``"Br"``, ``"conductance"``,
-        ``"u"``, or ``"Q_eff"``.
+        ``"u"``, ``"Q_eff"``, or ``"E_source"``.
     time : float
         Time value to select from the input time series.
     grid : Grid, optional

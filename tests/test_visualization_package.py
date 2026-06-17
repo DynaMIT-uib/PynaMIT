@@ -12,7 +12,7 @@ def test_visualization_package_exports_building_blocks():
 
     assert visualization.evaluate_Br is state_fields.evaluate_Br
     assert visualization.evaluate_jr is state_fields.evaluate_jr
-    assert visualization.evaluate_sheet_current is state_fields.evaluate_sheet_current
+    assert visualization.evaluate_JS is state_fields.evaluate_JS
 
 
 def test_pynameye_is_available_from_visualization():
@@ -69,10 +69,7 @@ def test_field_maps_are_visualization_api():
         visualization.evaluate_joule_from_coefficients
         is field_maps.evaluate_joule_from_coefficients
     )
-    assert (
-        visualization.evaluate_sheet_current_from_maps
-        is field_maps.evaluate_sheet_current_from_maps
-    )
+    assert visualization.evaluate_JS_from_maps is field_maps.evaluate_JS_from_maps
 
 
 def test_plot_setup_helpers_are_visualization_api():

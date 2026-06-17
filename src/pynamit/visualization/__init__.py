@@ -9,10 +9,7 @@ _LAZY_EXPORTS = {
     "artifact_path": ("pynamit.visualization.artifacts", "artifact_path"),
     "build_evaluator": ("pynamit.visualization.grid_evaluation", "build_evaluator"),
     "build_plot_grid": ("pynamit.visualization.grid_evaluation", "build_plot_grid"),
-    "build_sheet_current_operators": (
-        "pynamit.visualization.grid_evaluation",
-        "build_sheet_current_operators",
-    ),
+    "build_JS_operators": ("pynamit.visualization.grid_evaluation", "build_JS_operators"),
     "build_percentile_color_scale": (
         "pynamit.visualization.plot_helpers",
         "build_percentile_color_scale",
@@ -25,25 +22,16 @@ _LAZY_EXPORTS = {
         "pynamit.visualization.plot_helpers",
         "contour_kwargs_for_display",
     ),
-    "datetime_to_utc_hours": (
-        "pynamit.visualization.local_time",
-        "datetime_to_utc_hours",
-    ),
+    "datetime_to_utc_hours": ("pynamit.visualization.local_time", "datetime_to_utc_hours"),
     "evaluate_Br": ("pynamit.visualization.state_fields", "evaluate_Br"),
-    "evaluate_Br_coefficients": (
-        "pynamit.visualization.state_fields",
-        "evaluate_Br_coefficients",
-    ),
+    "evaluate_Br_coefficients": ("pynamit.visualization.state_fields", "evaluate_Br_coefficients"),
     "evaluate_Phi": ("pynamit.visualization.state_fields", "evaluate_Phi"),
     "evaluate_Phi_coefficients": (
         "pynamit.visualization.state_fields",
         "evaluate_Phi_coefficients",
     ),
     "evaluate_W": ("pynamit.visualization.state_fields", "evaluate_W"),
-    "evaluate_W_coefficients": (
-        "pynamit.visualization.state_fields",
-        "evaluate_W_coefficients",
-    ),
+    "evaluate_W_coefficients": ("pynamit.visualization.state_fields", "evaluate_W_coefficients"),
     "evaluate_equivalent_current_coefficients": (
         "pynamit.visualization.state_fields",
         "evaluate_equivalent_current_coefficients",
@@ -73,22 +61,10 @@ _LAZY_EXPORTS = {
         "evaluate_joule_from_fields",
     ),
     "evaluate_jr": ("pynamit.visualization.state_fields", "evaluate_jr"),
-    "evaluate_jr_coefficients": (
-        "pynamit.visualization.state_fields",
-        "evaluate_jr_coefficients",
-    ),
-    "evaluate_sheet_current": (
-        "pynamit.visualization.state_fields",
-        "evaluate_sheet_current",
-    ),
-    "evaluate_sheet_current_coefficients": (
-        "pynamit.visualization.state_fields",
-        "evaluate_sheet_current_coefficients",
-    ),
-    "evaluate_sheet_current_from_maps": (
-        "pynamit.visualization.field_maps",
-        "evaluate_sheet_current_from_maps",
-    ),
+    "evaluate_jr_coefficients": ("pynamit.visualization.state_fields", "evaluate_jr_coefficients"),
+    "evaluate_JS": ("pynamit.visualization.state_fields", "evaluate_JS"),
+    "evaluate_JS_coefficients": ("pynamit.visualization.state_fields", "evaluate_JS_coefficients"),
+    "evaluate_JS_from_maps": ("pynamit.visualization.field_maps", "evaluate_JS_from_maps"),
     "evaluate_tangential_coefficients": (
         "pynamit.visualization.field_maps",
         "evaluate_tangential_coefficients",
@@ -97,34 +73,19 @@ _LAZY_EXPORTS = {
         "pynamit.visualization.field_maps",
         "evaluate_wind_coefficients",
     ),
-    "format_contour_interval": (
-        "pynamit.visualization.plot_helpers",
-        "format_contour_interval",
-    ),
+    "format_contour_interval": ("pynamit.visualization.plot_helpers", "format_contour_interval"),
     "format_local_time_longitude_label": (
         "pynamit.visualization.local_time",
         "format_local_time_longitude_label",
     ),
-    "get_ticks_from_levels": (
-        "pynamit.visualization.plot_helpers",
-        "get_ticks_from_levels",
-    ),
-    "load_dataarray_artifact": (
-        "pynamit.visualization.artifacts",
-        "load_dataarray_artifact",
-    ),
-    "load_dataset_artifact": (
-        "pynamit.visualization.artifacts",
-        "load_dataset_artifact",
-    ),
+    "get_ticks_from_levels": ("pynamit.visualization.plot_helpers", "get_ticks_from_levels"),
+    "load_dataarray_artifact": ("pynamit.visualization.artifacts", "load_dataarray_artifact"),
+    "load_dataset_artifact": ("pynamit.visualization.artifacts", "load_dataset_artifact"),
     "load_settings_and_basis": (
         "pynamit.visualization.grid_evaluation",
         "load_settings_and_basis",
     ),
-    "local_noon_longitude": (
-        "pynamit.visualization.local_time",
-        "local_noon_longitude",
-    ),
+    "local_noon_longitude": ("pynamit.visualization.local_time", "local_noon_longitude"),
     "local_time_grid_longitudes": (
         "pynamit.visualization.local_time",
         "local_time_grid_longitudes",
@@ -149,10 +110,7 @@ _LAZY_EXPORTS = {
         "pynamit.visualization.local_time",
         "make_local_time_longitude_formatter",
     ),
-    "MapCoordinateContext": (
-        "pynamit.visualization.map_coordinates",
-        "MapCoordinateContext",
-    ),
+    "MapCoordinateContext": ("pynamit.visualization.map_coordinates", "MapCoordinateContext"),
     "evaluate_projected_input": (
         "pynamit.visualization.input_projection",
         "evaluate_projected_input",
@@ -172,22 +130,13 @@ _LAZY_EXPORTS = {
         "pynamit.visualization.plot_helpers",
         "set_contour_edges_to_face",
     ),
-    "stabilize_polarplot": (
-        "pynamit.visualization.plot_helpers",
-        "stabilize_polarplot",
-    ),
-    "style_global_axis": (
-        "pynamit.visualization.plot_helpers",
-        "style_global_axis",
-    ),
+    "stabilize_polarplot": ("pynamit.visualization.plot_helpers", "stabilize_polarplot"),
+    "style_global_axis": ("pynamit.visualization.plot_helpers", "style_global_axis"),
     "style_global_comparison_axis": (
         "pynamit.visualization.plot_helpers",
         "style_global_comparison_axis",
     ),
-    "style_global_input_axis": (
-        "pynamit.visualization.plot_helpers",
-        "style_global_input_axis",
-    ),
+    "style_global_input_axis": ("pynamit.visualization.plot_helpers", "style_global_input_axis"),
     "suppress_empty_contour_warnings": (
         "pynamit.visualization.plot_helpers",
         "suppress_empty_contour_warnings",
@@ -196,14 +145,8 @@ _LAZY_EXPORTS = {
         "pynamit.visualization.plot_helpers",
         "symmetric_contour_levels_without_zero",
     ),
-    "wrap_longitude_180": (
-        "pynamit.visualization.local_time",
-        "wrap_longitude_180",
-    ),
-    "xarray_artifact_exists": (
-        "pynamit.visualization.artifacts",
-        "xarray_artifact_exists",
-    ),
+    "wrap_longitude_180": ("pynamit.visualization.local_time", "wrap_longitude_180"),
+    "xarray_artifact_exists": ("pynamit.visualization.artifacts", "xarray_artifact_exists"),
 }
 
 

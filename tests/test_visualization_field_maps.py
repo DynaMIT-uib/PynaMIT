@@ -9,7 +9,7 @@ from pynamit.visualization.field_maps import (
     evaluate_electric_field_coefficients,
     evaluate_joule_from_coefficients,
     evaluate_joule_from_fields,
-    evaluate_sheet_current_from_maps,
+    evaluate_JS_from_maps,
     evaluate_tangential_coefficients,
     evaluate_wind_coefficients,
 )
@@ -90,20 +90,20 @@ def test_saved_e_coefficients_are_radius_scaled_to_volt_potentials():
     np.testing.assert_allclose(electric_field, np.stack([saved_phi, saved_w]))
 
 
-def test_joule_field_map_uses_sheet_current_dot_electric_field():
+def test_joule_field_map_uses_JS_dot_electric_field():
     """Joule evaluation handles direct fields and coefficient maps."""
-    sheet_current = np.array([[1.0, 2.0], [3.0, 4.0]])
+    JS = np.array([[1.0, 2.0], [3.0, 4.0]])
     electric_field = np.array([[5.0, 6.0], [7.0, 8.0]])
 
     np.testing.assert_allclose(
-        evaluate_joule_from_fields(sheet_current, electric_field), np.array([26.0, 44.0])
+        evaluate_joule_from_fields(JS, electric_field), np.array([26.0, 44.0])
     )
 
-    expected_current = evaluate_sheet_current_from_maps(
+    expected_current = evaluate_JS_from_maps(
         m_imp=np.array([1.0, 2.0]),
         m_ind=np.array([3.0, 4.0]),
-        m_imp_to_sheet=np.eye(4, 2),
-        m_ind_to_sheet=2.0 * np.eye(4, 2),
+        m_imp_to_JS=np.eye(4, 2),
+        m_ind_to_JS=2.0 * np.eye(4, 2),
     )
     joule, field, current = evaluate_joule_from_coefficients(
         ScalingTransform(),
@@ -112,8 +112,8 @@ def test_joule_field_map_uses_sheet_current_dot_electric_field():
         Phi=np.array([1.0, 1.0]),
         W=np.array([2.0, 2.0]),
         radius=2.0,
-        m_imp_to_sheet=np.eye(4, 2),
-        m_ind_to_sheet=2.0 * np.eye(4, 2),
+        m_imp_to_JS=np.eye(4, 2),
+        m_ind_to_JS=2.0 * np.eye(4, 2),
     )
 
     np.testing.assert_allclose(
@@ -127,13 +127,13 @@ def test_joule_field_map_uses_sheet_current_dot_electric_field():
     np.testing.assert_allclose(joule, current[0] * field[0] + current[1] * field[1])
 
 
-def test_sheet_current_map_accepts_sparse_operators():
+def test_JS_map_accepts_sparse_operators():
     """Visualization field maps use the shared LinearMap adapter."""
-    current = evaluate_sheet_current_from_maps(
+    current = evaluate_JS_from_maps(
         m_imp=np.array([1.0, 2.0]),
         m_ind=np.array([3.0, 4.0]),
-        m_imp_to_sheet=scipy.sparse.csr_matrix(np.eye(4, 2)),
-        m_ind_to_sheet=scipy.sparse.csr_matrix(2.0 * np.eye(4, 2)),
+        m_imp_to_JS=scipy.sparse.csr_matrix(np.eye(4, 2)),
+        m_ind_to_JS=scipy.sparse.csr_matrix(2.0 * np.eye(4, 2)),
     )
 
     np.testing.assert_allclose(current, np.array([[7.0, 10.0], [0.0, 0.0]]))

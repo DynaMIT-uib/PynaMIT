@@ -23,6 +23,7 @@ INPUT_VARIABLES = {
     "conductance": ("etaP", "etaH"),
     "u": ("u",),
     "Q_eff": ("Q_eff",),
+    "E_source": ("E_source",),
 }
 
 INPUT_FIELD_TYPES = {
@@ -31,6 +32,7 @@ INPUT_FIELD_TYPES = {
     "conductance": "scalar",
     "u": "tangential",
     "Q_eff": "tangential",
+    "E_source": "tangential",
 }
 
 OUTPUT_VARIABLES = {
@@ -115,6 +117,7 @@ def build_simulation_schema(
     projection_basis_kinds = {
         key: projection_settings[f"{key}_projection_basis"] for key in PROJECTION_BASIS_KEYS
     }
+    projection_basis_kinds["E_source"] = projection_basis_kinds["u"]
     conductance_projection_basis = projection_basis_kinds["conductance"]
 
     if horizontal_basis_kind == "CS":
@@ -124,8 +127,16 @@ def build_simulation_schema(
             "conductance": cs_basis,
             "u": cs_basis,
             "Q_eff": cs_basis,
+            "E_source": cs_basis,
         }
-        input_mean_free = {"jr": True, "Br": True, "conductance": False, "u": True, "Q_eff": True}
+        input_mean_free = {
+            "jr": True,
+            "Br": True,
+            "conductance": False,
+            "u": True,
+            "Q_eff": True,
+            "E_source": True,
+        }
         input_projection_bases = dict(input_bases)
     else:
         projection_bases = {"SH": sh_basis_mean_free, "CS": cs_basis}
@@ -135,6 +146,7 @@ def build_simulation_schema(
             "conductance": (sh_basis if conductance_projection_basis == "SH" else cs_basis),
             "u": sh_basis_mean_free,
             "Q_eff": sh_basis_mean_free,
+            "E_source": sh_basis_mean_free,
         }
         input_mean_free = None
         input_projection_bases = {
@@ -143,6 +155,7 @@ def build_simulation_schema(
             "conductance": (sh_basis if conductance_projection_basis == "SH" else cs_basis),
             "u": projection_bases[projection_basis_kinds["u"]],
             "Q_eff": projection_bases[projection_basis_kinds["Q_eff"]],
+            "E_source": projection_bases[projection_basis_kinds["E_source"]],
         }
 
     output_bases = {"state": horizontal_basis, "steady_state": horizontal_basis}

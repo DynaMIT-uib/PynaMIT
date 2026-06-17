@@ -3,7 +3,7 @@
 import numpy as np
 
 from pynamit.math.constants import mu0
-from pynamit.visualization.field_maps import evaluate_sheet_current_from_maps
+from pynamit.visualization.field_maps import evaluate_JS_from_maps
 from pynamit.visualization.grid_evaluation import transform_for_source
 
 
@@ -74,23 +74,21 @@ def evaluate_equivalent_current_function(dynamics, transform, *, key=None):
     )
 
 
-def evaluate_sheet_current_coefficients(geometry, m_imp, m_ind, transform):
-    """Evaluate total horizontal sheet current from coefficients."""
+def evaluate_JS_coefficients(geometry, m_imp, m_ind, transform):
+    """Evaluate total horizontal JS from coefficients."""
     m_imp = np.asarray(m_imp)
     m_ind = np.asarray(m_ind)
 
     horizontal_transform = transform_for_source(geometry.basis, transform)
-    m_imp_to_sheet = geometry.m_imp_to_gridded_sheet_current(horizontal_transform)
-    m_ind_to_sheet = geometry.m_ind_to_gridded_sheet_current(horizontal_transform)
-    return evaluate_sheet_current_from_maps(
-        m_imp, m_ind, m_imp_to_sheet=m_imp_to_sheet, m_ind_to_sheet=m_ind_to_sheet
-    )
+    m_imp_to_JS = geometry.m_imp_to_gridded_JS(horizontal_transform)
+    m_ind_to_JS = geometry.m_ind_to_gridded_JS(horizontal_transform)
+    return evaluate_JS_from_maps(m_imp, m_ind, m_imp_to_JS=m_imp_to_JS, m_ind_to_JS=m_ind_to_JS)
 
 
-def evaluate_sheet_current(dynamics, transform, *, key=None):
-    """Evaluate total horizontal sheet current."""
+def evaluate_JS(dynamics, transform, *, key=None):
+    """Evaluate total horizontal JS."""
     entry = current_output_entry(dynamics, key=key)
-    return evaluate_sheet_current_coefficients(
+    return evaluate_JS_coefficients(
         dynamics.state.geometry, entry["m_imp"], entry["m_ind"], transform
     )
 
@@ -130,6 +128,6 @@ __all__ = [
     "evaluate_equivalent_current_function",
     "evaluate_jr",
     "evaluate_jr_coefficients",
-    "evaluate_sheet_current",
-    "evaluate_sheet_current_coefficients",
+    "evaluate_JS",
+    "evaluate_JS_coefficients",
 ]

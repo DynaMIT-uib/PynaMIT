@@ -118,7 +118,9 @@ class StateOperators:
         m_imp_to_E, E_direct_to_m_imp = feedback
         return self.E_coeffs_to_E_df + (self.E_coeffs_to_E_df @ m_imp_to_E @ E_direct_to_m_imp)
 
-    def E_df(self, *, include_Br: bool = True, include_Q_eff: bool = True) -> dict[str, LinearMap]:
+    def E_df(
+        self, *, include_Br: bool = True, include_Q_eff: bool = True, include_E_source: bool = True
+    ) -> dict[str, LinearMap]:
         """Return named input/state to total E_df operators."""
         m_imp_to_E = self.state.m_imp_to_E_coeffs
         if m_imp_to_E is None:
@@ -140,17 +142,24 @@ class StateOperators:
             if Q_eff_to_E is not None:
                 operators["edf_from_Q_eff"] = self.direct_E_to_E_df @ Q_eff_to_E
 
+        if include_E_source:
+            E_source_to_E = self.state.E_source_to_E_coeffs
+            if E_source_to_E is not None:
+                operators["edf_from_E_source"] = self.direct_E_to_E_df @ E_source_to_E
+
         return operators
 
     def rates(
-        self, *, include_Br: bool = True, include_Q_eff: bool = True
+        self, *, include_Br: bool = True, include_Q_eff: bool = True, include_E_source: bool = True
     ) -> dict[str, LinearMap]:
         """Return named input/state to d(m_ind)/dt operators."""
         scale = float(self.state.geometry.E_df_to_d_m_ind_dt)
         return {
             key.replace("edf_from_", "dt_m_ind_from_"): scale * operator
             for key, operator in self.E_df(
-                include_Br=include_Br, include_Q_eff=include_Q_eff
+                include_Br=include_Br,
+                include_Q_eff=include_Q_eff,
+                include_E_source=include_E_source,
             ).items()
         }
 
@@ -159,13 +168,16 @@ class StateOperators:
         *,
         include_Br: bool = True,
         include_Q_eff: bool = True,
+        include_E_source: bool = True,
         backend: MatrixBackend | None = None,
     ) -> dict[str, Any]:
         """Return E_df maps as explicit matrices."""
         return {
             key: operator.to_matrix(backend=backend)
             for key, operator in self.E_df(
-                include_Br=include_Br, include_Q_eff=include_Q_eff
+                include_Br=include_Br,
+                include_Q_eff=include_Q_eff,
+                include_E_source=include_E_source,
             ).items()
         }
 
@@ -174,23 +186,37 @@ class StateOperators:
         *,
         include_Br: bool = True,
         include_Q_eff: bool = True,
+        include_E_source: bool = True,
         backend: MatrixBackend | None = None,
     ) -> dict[str, Any]:
         """Return d(m_ind)/dt maps as explicit matrices."""
         return {
             key: operator.to_matrix(backend=backend)
             for key, operator in self.rates(
-                include_Br=include_Br, include_Q_eff=include_Q_eff
+                include_Br=include_Br,
+                include_Q_eff=include_Q_eff,
+                include_E_source=include_E_source,
             ).items()
         }
 
     def model(
-        self, *, df_only: bool = False, include_Br: bool = True, include_Q_eff: bool = True
+        self,
+        *,
+        df_only: bool = False,
+        include_Br: bool = True,
+        include_Q_eff: bool = True,
+        include_E_source: bool = True,
     ) -> dict[str, LinearMap]:
         """Return simulation model maps."""
         if df_only:
-            return self.E_df(include_Br=include_Br, include_Q_eff=include_Q_eff)
-        return self.rates(include_Br=include_Br, include_Q_eff=include_Q_eff)
+            return self.E_df(
+                include_Br=include_Br,
+                include_Q_eff=include_Q_eff,
+                include_E_source=include_E_source,
+            )
+        return self.rates(
+            include_Br=include_Br, include_Q_eff=include_Q_eff, include_E_source=include_E_source
+        )
 
     def model_matrices(
         self,
@@ -198,12 +224,16 @@ class StateOperators:
         df_only: bool = False,
         include_Br: bool = True,
         include_Q_eff: bool = True,
+        include_E_source: bool = True,
         backend: MatrixBackend | None = None,
     ) -> dict[str, Any]:
         """Return simulation model maps as explicit matrices."""
         return {
             key: operator.to_matrix(backend=backend)
             for key, operator in self.model(
-                df_only=df_only, include_Br=include_Br, include_Q_eff=include_Q_eff
+                df_only=df_only,
+                include_Br=include_Br,
+                include_Q_eff=include_Q_eff,
+                include_E_source=include_E_source,
             ).items()
         }

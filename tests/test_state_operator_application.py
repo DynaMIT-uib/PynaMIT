@@ -404,7 +404,7 @@ def test_model_operator_accessors_match_runtime_operator_chain():
             divergence_free_potential, input_shape=(2, n), output_shape=(n,)
         ),
         E_df_to_d_m_ind_dt=scale,
-        Br_to_gridded_sheet_current=lambda: None,
+        Br_to_gridded_JS=lambda: None,
     )
     state._u_coeffs_to_E_coeffs_cache = einsum_linear_map(
         component_tensors=[u_to_E],
@@ -491,7 +491,7 @@ def test_model_matrix_accessors_accept_explicit_jax_backend():
             output_shape=(n,),
         ),
         E_df_to_d_m_ind_dt=1.0,
-        Br_to_gridded_sheet_current=lambda: None,
+        Br_to_gridded_JS=lambda: None,
     )
     state._u_coeffs_to_E_coeffs_cache = einsum_linear_map(
         component_tensors=[np.ones((2, n, 2, n))],

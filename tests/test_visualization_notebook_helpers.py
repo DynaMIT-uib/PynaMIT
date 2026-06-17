@@ -26,7 +26,7 @@ from pynamit.visualization.artifacts import (
 )
 from pynamit.visualization.grid_evaluation import build_evaluator
 from pynamit.visualization.grid_evaluation import build_plot_grid
-from pynamit.visualization.grid_evaluation import build_sheet_current_operators
+from pynamit.visualization.grid_evaluation import build_JS_operators
 from pynamit.visualization.grid_evaluation import resistance_to_conductance
 from pynamit.visualization.local_time import local_time_grid_longitudes
 from pynamit.visualization.plot_helpers import (
@@ -224,8 +224,8 @@ def test_grid_and_conductance_helpers_are_importable_from_visualization():
     )
 
 
-def test_sheet_current_operator_bundle_matches_core_formulas():
-    """Shared sheet-current helper follows geometry formulas."""
+def test_JS_operator_bundle_matches_core_formulas():
+    """Shared JS helper follows geometry formulas."""
 
     class Settings:
         RI = 1.0
@@ -238,34 +238,33 @@ def test_sheet_current_operator_bundle_matches_core_formulas():
     transform = build_evaluator(sh_basis, grid)
     t_to_ve = np.eye(sh_basis.index_length)
 
-    operators = build_sheet_current_operators(Settings, sh_basis, transform, T_to_Ve=t_to_ve)
+    operators = build_JS_operators(Settings, sh_basis, transform, T_to_Ve=t_to_ve)
 
-    poloidal_to_sheet = (
+    poloidal_to_JS = (
         -transform.scalar_coeffs_to_gridded_rhat_cross_gradient
         * solid_harmonics.poloidal_to_boundary_potential_jump_factor.reshape(1, 1, -1)
         / mu0
     )
-    toroidal_to_sheet = -transform.scalar_coeffs_to_gridded_gradient / mu0
+    toroidal_to_JS = -transform.scalar_coeffs_to_gridded_gradient / mu0
     regular_shift = solid_harmonics.regular_reference_shift(Settings.RM, Settings.RI)
     irregular_shift = solid_harmonics.irregular_reference_shift(Settings.RI, Settings.RM)
     denominator = 1.0 - regular_shift * irregular_shift
     m_ind_to_br = -(Settings.RI**2) * sh_basis.laplacian(Settings.RI)
 
     np.testing.assert_allclose(
-        operators["G_m_imp_to_sheet_current"],
-        toroidal_to_sheet + np.tensordot(poloidal_to_sheet, t_to_ve, axes=([2], [0])),
+        operators["G_m_imp_to_JS"],
+        toroidal_to_JS + np.tensordot(poloidal_to_JS, t_to_ve, axes=([2], [0])),
     )
     np.testing.assert_allclose(
-        operators["G_m_ind_to_sheet_current"],
-        poloidal_to_sheet * (1.0 + regular_shift * irregular_shift / denominator),
+        operators["G_m_ind_to_JS"],
+        poloidal_to_JS * (1.0 + regular_shift * irregular_shift / denominator),
     )
     np.testing.assert_allclose(
-        operators["G_Br_to_sheet_current"],
-        poloidal_to_sheet * (-regular_shift / (denominator * m_ind_to_br)),
+        operators["G_Br_to_JS"], poloidal_to_JS * (-regular_shift / (denominator * m_ind_to_br))
     )
 
 
-def test_sheet_current_operator_bundle_defaults_to_unshielded_rm():
+def test_JS_operator_bundle_defaults_to_unshielded_rm():
     """RM does not impose shielding unless requested."""
 
     class Settings:
@@ -277,18 +276,18 @@ def test_sheet_current_operator_bundle_defaults_to_unshielded_rm():
     _, _, grid = build_plot_grid(nlat=4, nlon=5)
     transform = build_evaluator(sh_basis, grid)
 
-    operators = build_sheet_current_operators(Settings, sh_basis, transform)
-    poloidal_to_sheet = (
+    operators = build_JS_operators(Settings, sh_basis, transform)
+    poloidal_to_JS = (
         -transform.scalar_coeffs_to_gridded_rhat_cross_gradient
         * solid_harmonics.poloidal_to_boundary_potential_jump_factor.reshape(1, 1, -1)
         / mu0
     )
 
-    np.testing.assert_allclose(operators["G_m_ind_to_sheet_current"], poloidal_to_sheet)
+    np.testing.assert_allclose(operators["G_m_ind_to_JS"], poloidal_to_JS)
 
 
-def test_sheet_current_operator_bundle_matches_geometry(tmp_path):
-    """Notebook helper matches Geometry sheet-current conventions."""
+def test_JS_operator_bundle_matches_geometry(tmp_path):
+    """Notebook helper matches Geometry JS conventions."""
     dynamics = Dynamics(
         run_directory=str(tmp_path / "run"),
         Nmax=2,
@@ -301,16 +300,10 @@ def test_sheet_current_operator_bundle_matches_geometry(tmp_path):
     geometry = dynamics.state.geometry
     _, _, grid = build_plot_grid(nlat=4, nlon=5)
     transform = build_evaluator(dynamics.horizontal_basis, grid)
-    operators = build_sheet_current_operators(
+    operators = build_JS_operators(
         dynamics.settings, dynamics.horizontal_basis, transform, T_to_Ve=geometry.T_to_Ve.values
     )
 
-    np.testing.assert_allclose(
-        operators["G_m_ind_to_sheet_current"], geometry.m_ind_to_gridded_sheet_current(transform)
-    )
-    np.testing.assert_allclose(
-        operators["G_m_imp_to_sheet_current"], geometry.m_imp_to_gridded_sheet_current(transform)
-    )
-    np.testing.assert_allclose(
-        operators["G_Br_to_sheet_current"], geometry.Br_to_gridded_sheet_current(transform)
-    )
+    np.testing.assert_allclose(operators["G_m_ind_to_JS"], geometry.m_ind_to_gridded_JS(transform))
+    np.testing.assert_allclose(operators["G_m_imp_to_JS"], geometry.m_imp_to_gridded_JS(transform))
+    np.testing.assert_allclose(operators["G_Br_to_JS"], geometry.Br_to_gridded_JS(transform))

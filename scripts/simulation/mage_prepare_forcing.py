@@ -9,20 +9,25 @@ HDF5 contains the fields used by the final simulation script:
 - MAGE/REMIX FAC, conductance diagnostics, and inner-boundary magnetic
   field.
 
+The wind integration intentionally stores conductivity-weighted winds,
+not a height-resolved ``u x B`` source.  The final forcing script uses
+the PynaMIT sheet-radius main field and sheet resistance, matching the
+thin-sheet ``JS -> E_S`` closure.
+
 Typical use on the MAGE machine:
 
-    python scripts/simulation/mage_prepare_forcing.py \
-        --gamera-dir /disk/Gamera_Dong
+    python scripts/simulation/mage_prepare_forcing.py
 
-By default, output is written under
+Edit ``SETTINGS`` below to change paths or run parameters. By default,
+the GAMERA directory is ``/disk/Gamera_Dong``. Output is written under
 ``scripts/simulation/mage_prepared``.
 """
 
 from __future__ import annotations
 
-import argparse
 import datetime as dt
 import warnings
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -36,11 +41,30 @@ from pynamit.simulation.mainfield import Mainfield, decimal_year
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_GAMERA_DIR = Path("/disk/Gamera_Dong")
 DEFAULT_OUTPUT_DIR = SCRIPT_DIR / "mage_prepared"
-DEFAULT_OUTPUT_NAME = "data_H_int_qeff.h5"
+DEFAULT_OUTPUT_NAME = "mage_prepared_forcing.h5"
 DEFAULT_TAG = "msphere"
 
 FALLBACK_EARTH_RADIUS_M = 6371.0e3
 FILL_THRESHOLD = 1e30
+
+
+@dataclass(frozen=True)
+class MagePrepareSettings:
+    """Defaults intended to be edited for preparation runs."""
+
+    gamera_dir: Path = DEFAULT_GAMERA_DIR
+    gamera_subdir: str = "gamera"
+    tag: str = DEFAULT_TAG
+    inner_index: int = 0
+    tiegcm_nc: Path | None = None
+    output_dir: Path = DEFAULT_OUTPUT_DIR
+    output_name: str = DEFAULT_OUTPUT_NAME
+    conductance_source: str = "computed"
+    compression: str = "lzf"
+    max_steps: int | None = None
+
+
+SETTINGS = MagePrepareSettings()
 
 
 def wrap_longitude_180_value(value: float | np.ndarray) -> float | np.ndarray:
@@ -106,7 +130,7 @@ def centered_dipole_alignment_attrs(
     }
 
 
-def resolve_tiegcm_path(gamera_dir: Path, explicit_path: str | None) -> Path:
+def resolve_tiegcm_path(gamera_dir: Path, explicit_path: str | Path | None) -> Path:
     """Resolve the TIEGCM NetCDF path."""
     if explicit_path is not None:
         path = Path(explicit_path).expanduser()
@@ -120,13 +144,6 @@ def resolve_tiegcm_path(gamera_dir: Path, explicit_path: str | None) -> Path:
     if len(matches) > 1:
         print(f"Found multiple TIEGCM files; using {matches[0]}", flush=True)
     return matches[0]
-
-
-def output_path_from_args(output_dir: str, output_name: str) -> Path:
-    """Return output HDF5 path."""
-    directory = Path(output_dir).expanduser()
-    directory.mkdir(parents=True, exist_ok=True)
-    return directory / output_name
 
 
 def resolve_gamera_run_dir(gamera_dir: Path, gamera_subdir: str, tag: str) -> Path:
@@ -439,7 +456,10 @@ def write_static_datasets(
     inner_lat: np.ndarray,
     inner_lon: np.ndarray,
     inner_r: np.ndarray,
-    args: argparse.Namespace,
+    settings: MagePrepareSettings,
+    gamera_run_dir: Path,
+    length_scale_m: float,
+    mag_m0_nT: float | None,
     tiegcm_path: Path,
 ) -> None:
     """Write static datasets and metadata."""
@@ -449,31 +469,50 @@ def write_static_datasets(
     output.create_dataset("Blat", data=inner_lat)
     output.create_dataset("Blon", data=inner_lon)
     output.create_dataset("r", data=inner_r)
-    output.attrs["gamera_dir"] = str(Path(args.gamera_dir).expanduser())
-    output.attrs["gamera_run_dir"] = str(Path(args.gamera_run_dir).expanduser())
+    output.attrs["gamera_dir"] = str(Path(settings.gamera_dir).expanduser())
+    output.attrs["gamera_run_dir"] = str(gamera_run_dir)
     output.attrs["tiegcm_nc"] = str(tiegcm_path)
-    output.attrs["conductance_source"] = args.conductance_source
-    output.attrs["wind_weighting"] = "Pedersen datasets We/Wn; Hall datasets WeH/WnH"
-    output.attrs["remix_tag"] = args.tag
+    output.attrs["conductance_source"] = settings.conductance_source
+    output.attrs["wind_weighting"] = (
+        "Pedersen datasets We/Wn; Hall datasets WeH/WnH; final forcing uses "
+        "sheet-radius B and b for the electrodynamic source"
+    )
+    output.attrs["remix_tag"] = settings.tag
     output.attrs["FAC_convention"] = "upward_positive_kaipy_remix_init_vars"
-    output.attrs["gamera_inner_index"] = int(args.inner_index)
-    output.attrs["gamera_length_scale_m"] = float(args.gamera_length_scale_m)
+    output.attrs["gamera_inner_index"] = int(settings.inner_index)
+    output.attrs["gamera_length_scale_m"] = float(length_scale_m)
     output.attrs["gamera_B_output"] = "Kaiju Bx/By/Bz total field, with B0 active"
     output.attrs["prepared_B_output"] = (
         "Bu/Bn/Be are perturbations from Bx/By/Bz minus Bx0/By0/Bz0"
     )
-    for name, value in centered_dipole_alignment_attrs(event_time, args.gamera_mag_m0_nT).items():
+    for name, value in centered_dipole_alignment_attrs(event_time, mag_m0_nT).items():
         output.attrs[name] = value
-    if args.gamera_mag_m0_nT is not None:
-        output.attrs["gamera_mag_m0_nT"] = float(args.gamera_mag_m0_nT)
-        output.attrs["gamera_dipole_B0_T"] = abs(float(args.gamera_mag_m0_nT)) * 1e-9
+    if mag_m0_nT is not None:
+        output.attrs["gamera_mag_m0_nT"] = float(mag_m0_nT)
+        output.attrs["gamera_dipole_B0_T"] = abs(float(mag_m0_nT)) * 1e-9
     output.attrs["RM"] = float(np.nanmean(inner_r))
     output.attrs["RM_min"] = float(np.nanmin(inner_r))
     output.attrs["RM_max"] = float(np.nanmax(inner_r))
 
 
-def prepare_forcing(args: argparse.Namespace) -> Path:
+def validate_settings(settings: MagePrepareSettings) -> None:
+    """Validate in-script preparation settings."""
+    if settings.conductance_source not in ("computed", "native"):
+        raise ValueError(
+            "conductance_source must be 'computed' or 'native'; "
+            f"got {settings.conductance_source!r}."
+        )
+    if settings.compression not in ("lzf", "gzip", "none"):
+        raise ValueError(
+            f"compression must be 'lzf', 'gzip', or 'none'; got {settings.compression!r}."
+        )
+    if settings.inner_index < 0:
+        raise ValueError(f"inner_index must be non-negative; got {settings.inner_index}.")
+
+
+def prepare_forcing(settings: MagePrepareSettings = SETTINGS) -> Path:
     """Prepare the HDF5 forcing file."""
+    validate_settings(settings)
     from netCDF4 import Dataset
 
     try:
@@ -485,28 +524,28 @@ def prepare_forcing(args: argparse.Namespace) -> Path:
             "where kaipy and its dependencies are installed."
         ) from exc
 
-    gamera_dir = Path(args.gamera_dir).expanduser()
-    tiegcm_path = resolve_tiegcm_path(gamera_dir, args.tiegcm_nc)
-    gamera_run_dir = resolve_gamera_run_dir(gamera_dir, args.gamera_subdir, args.tag)
-    args.gamera_run_dir = str(gamera_run_dir)
-    remix_file = gamera_run_dir / f"{args.tag}.mix.h5"
+    gamera_dir = Path(settings.gamera_dir).expanduser()
+    tiegcm_path = resolve_tiegcm_path(gamera_dir, settings.tiegcm_nc)
+    gamera_run_dir = resolve_gamera_run_dir(gamera_dir, settings.gamera_subdir, settings.tag)
+    remix_file = gamera_run_dir / f"{settings.tag}.mix.h5"
     if not remix_file.exists():
         raise FileNotFoundError(f"REMIX file does not exist: {remix_file}")
-    output_path = output_path_from_args(args.output_dir, args.output_name)
+    output_dir = Path(settings.output_dir).expanduser()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / settings.output_name
 
     print(f"Using GAMERA directory: {gamera_dir}", flush=True)
     print(f"Using TIEGCM file: {tiegcm_path}", flush=True)
     print(f"Using REMIX file: {remix_file}", flush=True)
     print(f"Writing prepared forcing: {output_path}", flush=True)
 
-    gsph = msph.GamsphPipe(str(gamera_run_dir), args.tag, doFast=False)
-    if args.inner_index < 0 or args.inner_index >= gsph.X.shape[0] - 1:
+    gsph = msph.GamsphPipe(str(gamera_run_dir), settings.tag, doFast=False)
+    if settings.inner_index >= gsph.X.shape[0] - 1:
         raise ValueError(
-            f"--inner-index must be between 0 and {gsph.X.shape[0] - 2}; got {args.inner_index}"
+            f"inner_index must be between 0 and {gsph.X.shape[0] - 2}; got {settings.inner_index}."
         )
     length_scale_m = gamera_length_scale_m(gsph)
-    args.gamera_length_scale_m = length_scale_m
-    args.gamera_mag_m0_nT = gamera_magnetic_moment_nT(gsph)
+    mag_m0_nT = gamera_magnetic_moment_nT(gsph)
     with h5py.File(gsph.f0, "r") as root_file:
         missing_background = [name for name in ("Bx0", "By0", "Bz0") if name not in root_file]
         if missing_background:
@@ -517,9 +556,9 @@ def prepare_forcing(args: argparse.Namespace) -> Path:
                 "root Bx0/By0/Bz0, and the prepared Br is total minus B0."
             )
     print(f"Using GAMERA length scale: {length_scale_m:.6g} m", flush=True)
-    if args.gamera_mag_m0_nT is not None:
-        axes = gamera_internal_dipole_axes(args.gamera_mag_m0_nT)
-        print(f"Using GAMERA dipole MagM0: {args.gamera_mag_m0_nT:.6g} nT", flush=True)
+    if mag_m0_nT is not None:
+        axes = gamera_internal_dipole_axes(mag_m0_nT)
+        print(f"Using GAMERA dipole MagM0: {mag_m0_nT:.6g} nT", flush=True)
         print(
             "GAMERA internal moment axis: "
             f"{axes['moment_axis'][0]:.3g}, {axes['moment_axis'][1]:.3g}, "
@@ -528,10 +567,10 @@ def prepare_forcing(args: argparse.Namespace) -> Path:
             f"{axes['north_axis'][2]:.3g}",
             flush=True,
         )
-    print(f"Using GAMERA inner index: {args.inner_index}", flush=True)
+    print(f"Using GAMERA inner index: {settings.inner_index}", flush=True)
     n_available = len(gsph.UT) - 1
-    if args.max_steps is not None:
-        n_available = min(n_available, int(args.max_steps))
+    if settings.max_steps is not None:
+        n_available = min(n_available, int(settings.max_steps))
 
     with Dataset(tiegcm_path, mode="r") as tiegcm:
         n_steps = min(n_available, tiegcm.variables["gzigm1"].shape[0])
@@ -546,14 +585,14 @@ def prepare_forcing(args: argparse.Namespace) -> Path:
         )
 
         inner_lat, inner_lon, inner_r, sin_theta, cos_theta, sin_phi, cos_phi = (
-            centered_inner_boundary_grid(gsph, args.inner_index, length_scale_m)
+            centered_inner_boundary_grid(gsph, settings.inner_index, length_scale_m)
         )
         # Kaiju gioH5 writes Bx/By/Bz as total field when
         # Model%doBackground is true, and root Bx0/By0/Bz0 as Gr%B0.
         # PynaMIT needs the perturbation.
-        bx0 = gsph.GetVar("Bx0")[args.inner_index]
-        by0 = gsph.GetVar("By0")[args.inner_index]
-        bz0 = gsph.GetVar("Bz0")[args.inner_index]
+        bx0 = gsph.GetVar("Bx0")[settings.inner_index]
+        by0 = gsph.GetVar("By0")[settings.inner_index]
+        bz0 = gsph.GetVar("Bz0")[settings.inner_index]
         br0, btheta0, bphi0 = spherical_components(
             bx0, by0, bz0, sin_theta, cos_theta, sin_phi, cos_phi
         )
@@ -568,11 +607,14 @@ def prepare_forcing(args: argparse.Namespace) -> Path:
                 inner_lat,
                 inner_lon,
                 inner_r,
-                args,
+                settings,
+                gamera_run_dir,
+                length_scale_m,
+                mag_m0_nT,
                 tiegcm_path,
             )
             create_output_datasets(
-                output, n_steps, tiegcm_lat.shape, inner_lat.shape, args.compression
+                output, n_steps, tiegcm_lat.shape, inner_lat.shape, settings.compression
             )
 
             for out_step in range(n_steps):
@@ -583,7 +625,7 @@ def prepare_forcing(args: argparse.Namespace) -> Path:
                     flush=True,
                 )
 
-                integrated = integrate_tiegcm_step(tiegcm, out_step, args.conductance_source)
+                integrated = integrate_tiegcm_step(tiegcm, out_step, settings.conductance_source)
                 for key, values in integrated.items():
                     output[key][out_step] = values
 
@@ -593,9 +635,9 @@ def prepare_forcing(args: argparse.Namespace) -> Path:
                 for key, values in remix_values.items():
                     output[key][out_step] = values.astype(np.float32)
 
-                bx = gsph.GetVar("Bx", gamera_step)[args.inner_index] - bx0
-                by = gsph.GetVar("By", gamera_step)[args.inner_index] - by0
-                bz = gsph.GetVar("Bz", gamera_step)[args.inner_index] - bz0
+                bx = gsph.GetVar("Bx", gamera_step)[settings.inner_index] - bx0
+                by = gsph.GetVar("By", gamera_step)[settings.inner_index] - by0
+                bz = gsph.GetVar("Bz", gamera_step)[settings.inner_index] - bz0
                 br, btheta, bphi = spherical_components(
                     bx, by, bz, sin_theta, cos_theta, sin_phi, cos_phi
                 )
@@ -609,60 +651,9 @@ def prepare_forcing(args: argparse.Namespace) -> Path:
     return output_path
 
 
-def build_arg_parser() -> argparse.ArgumentParser:
-    """Create command-line parser."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--gamera-dir",
-        default=str(DEFAULT_GAMERA_DIR),
-        help="Directory containing the GAMERA run and TIEGCM NetCDF.",
-    )
-    parser.add_argument(
-        "--gamera-subdir",
-        default="gamera",
-        help=(
-            "Fallback subdirectory under --gamera-dir containing msphere files. "
-            "The script first tries --gamera-dir itself."
-        ),
-    )
-    parser.add_argument("--tag", default=DEFAULT_TAG, help="GAMERA/REMIX file tag.")
-    parser.add_argument(
-        "--inner-index",
-        type=int,
-        default=0,
-        help="Radial index used for the GAMERA inner-boundary magnetic field.",
-    )
-    parser.add_argument("--tiegcm-nc", default=None, help="Explicit TIEGCM NetCDF path.")
-    parser.add_argument(
-        "--output-dir", default=str(DEFAULT_OUTPUT_DIR), help="Directory for prepared HDF5 output."
-    )
-    parser.add_argument(
-        "--output-name", default=DEFAULT_OUTPUT_NAME, help="Prepared HDF5 filename."
-    )
-    parser.add_argument(
-        "--conductance-source",
-        choices=("computed", "native"),
-        default="computed",
-        help=(
-            "Use computed vertical integrals for SP/SH, or TIEGCM native "
-            "gzigm1/gzigm2 conductances with matching wind numerators."
-        ),
-    )
-    parser.add_argument(
-        "--compression",
-        choices=("lzf", "gzip", "none"),
-        default="lzf",
-        help="HDF5 compression for large time-dependent fields.",
-    )
-    parser.add_argument(
-        "--max-steps", type=int, default=None, help="Limit steps for a quick test."
-    )
-    return parser
-
-
-def main() -> None:
-    """Prepare forcing from command-line arguments."""
-    output_path = prepare_forcing(build_arg_parser().parse_args())
+def main(settings: MagePrepareSettings = SETTINGS) -> None:
+    """Prepare forcing from in-script settings."""
+    output_path = prepare_forcing(settings)
     print(f"Prepared forcing written to {output_path}", flush=True)
 
 

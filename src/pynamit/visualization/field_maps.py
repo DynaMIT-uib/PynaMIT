@@ -71,30 +71,28 @@ def evaluate_electric_field_coefficients(transform, Phi, W, radius):
     return transform.synthesize_helmholtz(coeffs) / float(radius)
 
 
-def evaluate_joule_from_fields(sheet_current, electric_field):
-    """Evaluate Joule heating from sheet and electric field values."""
-    sheet_current = np.asarray(sheet_current).reshape(2, -1)
+def evaluate_joule_from_fields(JS, electric_field):
+    """Evaluate Joule heating from JS and electric field values."""
+    JS = np.asarray(JS).reshape(2, -1)
     electric_field = np.asarray(electric_field).reshape(2, -1)
-    return sheet_current[0] * electric_field[0] + sheet_current[1] * electric_field[1]
+    return JS[0] * electric_field[0] + JS[1] * electric_field[1]
 
 
-def evaluate_sheet_current_from_maps(m_imp, m_ind, *, m_imp_to_sheet, m_ind_to_sheet):
-    """Evaluate total sheet current from coefficient maps."""
-    return (
-        _apply_linear_map(m_imp_to_sheet, m_imp) + _apply_linear_map(m_ind_to_sheet, m_ind)
-    ).reshape(2, -1)
+def evaluate_JS_from_maps(m_imp, m_ind, *, m_imp_to_JS, m_ind_to_JS):
+    """Evaluate total JS from coefficient maps."""
+    return (_apply_linear_map(m_imp_to_JS, m_imp) + _apply_linear_map(m_ind_to_JS, m_ind)).reshape(
+        2, -1
+    )
 
 
 def evaluate_joule_from_coefficients(
-    transform, m_imp, m_ind, Phi, W, radius, *, m_imp_to_sheet, m_ind_to_sheet
+    transform, m_imp, m_ind, Phi, W, radius, *, m_imp_to_JS, m_ind_to_JS
 ):
     """Evaluate Joule heating from source and E coefficients."""
     electric_field = evaluate_electric_field_coefficients(transform, Phi, W, radius)
-    sheet_current = evaluate_sheet_current_from_maps(
-        m_imp, m_ind, m_imp_to_sheet=m_imp_to_sheet, m_ind_to_sheet=m_ind_to_sheet
-    )
-    joule = evaluate_joule_from_fields(sheet_current, electric_field)
-    return joule, electric_field, sheet_current
+    JS = evaluate_JS_from_maps(m_imp, m_ind, m_imp_to_JS=m_imp_to_JS, m_ind_to_JS=m_ind_to_JS)
+    joule = evaluate_joule_from_fields(JS, electric_field)
+    return joule, electric_field, JS
 
 
 __all__ = [
@@ -103,7 +101,7 @@ __all__ = [
     "evaluate_electric_field_coefficients",
     "evaluate_joule_from_coefficients",
     "evaluate_joule_from_fields",
-    "evaluate_sheet_current_from_maps",
+    "evaluate_JS_from_maps",
     "evaluate_tangential_coefficients",
     "evaluate_wind_coefficients",
 ]

@@ -928,8 +928,8 @@ class Dynamics:
     ):
         """Set effective wind-current input.
 
-        ``Q_eff`` is a tangential sheet-current proxy for the neutral
-        wind ``u x B`` term. It is added to the sheet current before
+        ``Q_eff`` is a tangential JS proxy for the neutral
+        wind ``u x B`` term. It is added to the JS before
         the conductance/resistance tensor maps currents to the electric
         field.
 
@@ -982,6 +982,89 @@ class Dynamics:
         input_data = self._tangential_input_data("Q_eff", Q_eff_theta, Q_eff_phi)
         self._project_and_add_input(
             "Q_eff",
+            input_data,
+            lat=lat,
+            lon=lon,
+            theta=theta,
+            phi=phi,
+            time=time,
+            sqrt_weights=sqrt_weights,
+            reg_lambda=reg_lambda,
+            pinv_rtol=pinv_rtol,
+        )
+
+    def set_E_source(
+        self,
+        E_source_theta=None,
+        E_source_phi=None,
+        lat=None,
+        lon=None,
+        theta=None,
+        phi=None,
+        time=None,
+        sqrt_weights=None,
+        reg_lambda=None,
+        pinv_rtol=1e-15,
+        *,
+        E_source_cf=None,
+        E_source_df=None,
+    ):
+        """Set a direct electric-field source input.
+
+        ``E_source`` is added to the non-induced electric field before
+        the imposed-current coupling is solved. It is an electric field
+        source in V/m, not an effective current, so it must not be
+        passed through ``set_Q_eff``.
+
+        Parameters
+        ----------
+        E_source_theta : array-like
+            Southward electric-field source component in V/m.
+        E_source_phi : array-like
+            Eastward electric-field source component in V/m.
+        E_source_cf, E_source_df : array-like, optional
+            Curl-free and divergence-free Helmholtz coefficients in the
+            input storage basis.
+        lat, lon : array-like, optional
+            Latitude/longitude coordinates in degrees.
+        theta, phi : array-like, optional
+            Colatitude/azimuth coordinates in degrees.
+        time : array-like, optional
+            Time points for the E-source data.
+        sqrt_weights : array-like, optional
+            sqrt_weights for the E-source data points.
+        reg_lambda : float, optional
+            Regularization parameter.
+        pinv_rtol : float, optional
+            Relative tolerance for the pseudo-inverse.
+        """
+        self._require_no_wind_proxy_conflict("E_source")
+        if E_source_cf is not None or E_source_df is not None:
+            self._validate_only_coefficients(
+                "E_source_cf/E_source_df",
+                lat=lat,
+                lon=lon,
+                theta=theta,
+                phi=phi,
+                sqrt_weights=sqrt_weights,
+                reg_lambda=reg_lambda,
+            )
+            self._require_complete_values(
+                "E_source coefficients", E_source_cf=E_source_cf, E_source_df=E_source_df
+            )
+            self._require_no_sample_values(
+                "E_source coefficients", E_source_theta=E_source_theta, E_source_phi=E_source_phi
+            )
+            input_data = self._tangential_input_data("E_source", E_source_cf, E_source_df)
+            self._add_input_coefficients("E_source", input_data, time)
+            return
+
+        self._require_complete_values(
+            "E_source samples", E_source_theta=E_source_theta, E_source_phi=E_source_phi
+        )
+        input_data = self._tangential_input_data("E_source", E_source_theta, E_source_phi)
+        self._project_and_add_input(
+            "E_source",
             input_data,
             lat=lat,
             lon=lon,
@@ -1215,13 +1298,15 @@ class Dynamics:
             )
 
     def _require_no_wind_proxy_conflict(self, key):
-        """Reject simultaneous direct-wind and Q_eff input datasets."""
-        conflicts = {"u": "Q_eff", "Q_eff": "u"}
-        other = conflicts.get(key)
-        if other is not None and other in self.input_timeseries.datasets:
+        """Reject simultaneous wind-forcing representation datasets."""
+        wind_keys = {"u", "Q_eff", "E_source"}
+        conflicts = sorted(wind_keys - {key})
+        present = [other for other in conflicts if other in self.input_timeseries.datasets]
+        if present:
             raise ValueError(
-                "Neutral wind input 'u' and effective-current input 'Q_eff' "
-                "are mutually exclusive; use only one wind forcing representation."
+                "Neutral wind input 'u', effective-current input 'Q_eff', and "
+                "direct electric-field input 'E_source' are mutually exclusive; "
+                "use only one wind forcing representation."
             )
 
     def _wind_input_data(self, u_theta, u_phi):
