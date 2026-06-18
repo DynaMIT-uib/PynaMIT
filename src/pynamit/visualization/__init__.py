@@ -15,6 +15,10 @@ _LAZY_EXPORTS = {
         "pynamit.visualization.plot_helpers",
         "build_percentile_color_scale",
     ),
+    "build_timeseries_curve_layers": (
+        "pynamit.visualization.map_curves",
+        "build_timeseries_curve_layers",
+    ),
     "compute_conversion_factors": (
         "pynamit.visualization.grid_evaluation",
         "compute_conversion_factors",
@@ -39,10 +43,22 @@ _LAZY_EXPORTS = {
         "pynamit.visualization.plot_helpers",
         "contour_kwargs_for_display",
     ),
+    "curve_layer_zoffset": ("pynamit.visualization.map_curves", "curve_layer_zoffset"),
+    "curve_site_group_zorders": ("pynamit.visualization.map_curves", "curve_site_group_zorders"),
     "datetime_to_utc_hours": ("pynamit.visualization.local_time", "datetime_to_utc_hours"),
     "datetime_index_to_epoch_ns": (
         "pynamit.visualization.time_series",
         "datetime_index_to_epoch_ns",
+    ),
+    "draw_timeseries_curve_map": ("pynamit.visualization.map_curves", "draw_timeseries_curve_map"),
+    "draw_field_comparison_artists": (
+        "pynamit.visualization.map_panels",
+        "draw_field_comparison_artists",
+    ),
+    "draw_line_contour_legend": ("pynamit.visualization.plot_helpers", "draw_line_contour_legend"),
+    "download_and_load_iaga2002_station_data": (
+        "pynamit.visualization.station_data",
+        "download_and_load_iaga2002_station_data",
     ),
     "evaluate_Br": ("pynamit.visualization.state_fields", "evaluate_Br"),
     "evaluate_Br_coefficients": ("pynamit.visualization.state_fields", "evaluate_Br_coefficients"),
@@ -99,6 +115,10 @@ _LAZY_EXPORTS = {
         "pynamit.visualization.local_time",
         "format_local_time_longitude_label",
     ),
+    "first_event_peak_abs_value_and_time": (
+        "pynamit.visualization.time_series",
+        "first_event_peak_abs_value_and_time",
+    ),
     "get_ticks_from_levels": ("pynamit.visualization.plot_helpers", "get_ticks_from_levels"),
     "get_time_index_median_cadence_seconds": (
         "pynamit.visualization.time_series",
@@ -112,11 +132,23 @@ _LAZY_EXPORTS = {
         "pynamit.visualization.hemisphere",
         "hemisphere_masks_for_latitude",
     ),
+    "interpolate_curve_value_at_normalized_position": (
+        "pynamit.visualization.map_curves",
+        "interpolate_curve_value_at_normalized_position",
+    ),
     "load_dataarray_artifact": ("pynamit.visualization.artifacts", "load_dataarray_artifact"),
     "load_dataset_artifact": ("pynamit.visualization.artifacts", "load_dataset_artifact"),
     "load_settings_and_basis": (
         "pynamit.visualization.grid_evaluation",
         "load_settings_and_basis",
+    ),
+    "load_iaga2002_magnetometer_data": (
+        "pynamit.visualization.station_data",
+        "load_iaga2002_magnetometer_data",
+    ),
+    "local_peak_abs_value_and_time": (
+        "pynamit.visualization.time_series",
+        "local_peak_abs_value_and_time",
     ),
     "local_noon_longitude": ("pynamit.visualization.local_time", "local_noon_longitude"),
     "local_time_grid_longitudes": (
@@ -147,9 +179,21 @@ _LAZY_EXPORTS = {
     ),
     "make_hemisphere_polarplot": ("pynamit.visualization.hemisphere", "make_hemisphere_polarplot"),
     "MapCoordinateContext": ("pynamit.visualization.map_coordinates", "MapCoordinateContext"),
+    "most_prominent_peak_abs_value_and_time": (
+        "pynamit.visualization.time_series",
+        "most_prominent_peak_abs_value_and_time",
+    ),
+    "normalize_station_metadata": (
+        "pynamit.visualization.station_data",
+        "normalize_station_metadata",
+    ),
     "evaluate_projected_input": (
         "pynamit.visualization.input_projection",
         "evaluate_projected_input",
+    ),
+    "prominent_peak_candidates": (
+        "pynamit.visualization.time_series",
+        "prominent_peak_candidates",
     ),
     "PynamEye": ("pynamit.visualization.pynameye", "PynamEye"),
     "remove_artists": ("pynamit.visualization.plot_helpers", "remove_artists"),
@@ -168,8 +212,28 @@ _LAZY_EXPORTS = {
         "pynamit.visualization.plot_helpers",
         "set_contour_edges_to_face",
     ),
+    "shift_station_datetime_index": (
+        "pynamit.visualization.station_data",
+        "shift_station_datetime_index",
+    ),
     "split_wrapped_curve": ("pynamit.visualization.map_curves", "split_wrapped_curve"),
     "stabilize_polarplot": ("pynamit.visualization.plot_helpers", "stabilize_polarplot"),
+    "station_component_columns": (
+        "pynamit.visualization.station_data",
+        "station_component_columns",
+    ),
+    "station_has_complete_nonzero_components_at_times": (
+        "pynamit.visualization.station_data",
+        "station_has_complete_nonzero_components_at_times",
+    ),
+    "station_source_time_window": (
+        "pynamit.visualization.station_data",
+        "station_source_time_window",
+    ),
+    "station_window_has_nonzero_measurements": (
+        "pynamit.visualization.station_data",
+        "station_window_has_nonzero_measurements",
+    ),
     "style_global_axis": ("pynamit.visualization.plot_helpers", "style_global_axis"),
     "style_global_comparison_axis": (
         "pynamit.visualization.plot_helpers",

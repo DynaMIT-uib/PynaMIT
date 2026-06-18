@@ -35,6 +35,7 @@ from pynamit.visualization.hemisphere import (
 from pynamit.visualization.local_time import local_time_grid_longitudes
 from pynamit.visualization.map_curves import (
     build_even_global_sites,
+    build_timeseries_curve_layers,
     geographic_local_time_mask,
     local_time_window_extent,
     split_wrapped_curve,
@@ -166,6 +167,20 @@ def test_map_curve_wrapping_and_segmentation_are_reusable():
     np.testing.assert_allclose(segments[0][0], np.array([160.0, 170.0]))
     np.testing.assert_allclose(segments[1][0], np.array([-175.0, -160.0]))
     np.testing.assert_allclose(segments[2][0], np.array([10.0, 20.0]))
+
+
+def test_map_curve_layer_builder_filters_visible_series():
+    """Curve layer specs should be reusable outside the notebook."""
+    layers = build_timeseries_curve_layers(
+        [
+            {"series_key": "measured", "label": "Measured", "values": [[1.0, 2.0]]},
+            {"series_key": "inductive", "label": "Inductive", "values": [[3.0, 4.0]]},
+        ],
+        visible_series={"inductive"},
+    )
+
+    assert [layer["series_key"] for layer in layers] == ["inductive"]
+    np.testing.assert_allclose(layers[0]["values"], np.array([[3.0, 4.0]]))
 
 
 def test_geographic_local_time_window_helpers_are_parameterized():

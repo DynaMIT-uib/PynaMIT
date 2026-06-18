@@ -9,7 +9,10 @@ from pynamit.visualization.time_series import (
     compute_centered_difference_series_at_times,
     compute_time_derivative_matrix,
     datetime_index_to_epoch_ns,
+    first_event_peak_abs_value_and_time,
     get_time_index_median_cadence_seconds,
+    local_peak_abs_value_and_time,
+    prominent_peak_candidates,
     resample_matrix_to_times,
     resample_series_to_times,
     vector_magnitude_from_component_series,
@@ -144,6 +147,46 @@ def test_compute_time_derivative_matrix_rejects_invalid_time_axis():
 
     assert np.all(np.isnan(derivative))
     assert np.all(np.isnan(mismatched))
+
+
+def test_prominent_peak_candidates_separate_events():
+    """Peak selection should prefer separated prominent peaks."""
+    index = pd.date_range("2020-01-01", periods=8, freq="10s")
+    values = np.array([0.0, 1.0, 0.0, 4.0, 0.0, 3.0, 0.0, 0.5])
+
+    candidates = prominent_peak_candidates(
+        values, index, min_separation_seconds=15.0, prominence_fraction=0.10
+    )
+
+    assert [candidate["index"] for candidate in candidates] == [1, 3, 5, 7]
+    peak_value, peak_time = first_event_peak_abs_value_and_time(
+        values,
+        index,
+        min_separation_seconds=15.0,
+        prominence_fraction=0.10,
+        noise_floor_fraction=0.20,
+    )
+    assert peak_value == 1.0
+    assert peak_time == index[1]
+
+
+def test_local_peak_abs_value_and_time_prefers_window():
+    """Local peak selection should use the requested event window."""
+    index = pd.date_range("2020-01-01", periods=8, freq="10s")
+    values = np.array([0.0, 1.0, 0.0, 4.0, 0.0, 3.0, 0.0, 0.5])
+
+    peak_value, peak_time = local_peak_abs_value_and_time(
+        values,
+        index,
+        center_time=index[5],
+        half_window_seconds=5.0,
+        min_separation_seconds=15.0,
+        prominence_fraction=0.10,
+        noise_floor_fraction=0.20,
+    )
+
+    assert peak_value == 3.0
+    assert peak_time == index[5]
 
 
 def test_vector_magnitude_helpers_preserve_nan_only_columns():

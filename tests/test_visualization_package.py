@@ -78,6 +78,7 @@ def test_plot_setup_helpers_are_visualization_api():
     plot_helpers = importlib.import_module("pynamit.visualization.plot_helpers")
 
     assert visualization.build_percentile_color_scale is plot_helpers.build_percentile_color_scale
+    assert visualization.draw_line_contour_legend is plot_helpers.draw_line_contour_legend
     assert (
         visualization.suppress_empty_contour_warnings
         is plot_helpers.suppress_empty_contour_warnings
@@ -89,10 +90,13 @@ def test_map_curve_and_hemisphere_helpers_are_visualization_api():
     visualization = importlib.import_module("pynamit.visualization")
     hemisphere = importlib.import_module("pynamit.visualization.hemisphere")
     map_curves = importlib.import_module("pynamit.visualization.map_curves")
+    map_panels = importlib.import_module("pynamit.visualization.map_panels")
 
     assert visualization.hemisphere_masks_for_latitude is hemisphere.hemisphere_masks_for_latitude
     assert visualization.build_even_global_sites is map_curves.build_even_global_sites
+    assert visualization.build_timeseries_curve_layers is map_curves.build_timeseries_curve_layers
     assert visualization.split_wrapped_curve is map_curves.split_wrapped_curve
+    assert visualization.draw_field_comparison_artists is map_panels.draw_field_comparison_artists
 
 
 def test_time_series_helpers_are_visualization_api():
@@ -108,7 +112,28 @@ def test_time_series_helpers_are_visualization_api():
     assert (
         visualization.compute_time_derivative_matrix is time_series.compute_time_derivative_matrix
     )
+    assert visualization.prominent_peak_candidates is time_series.prominent_peak_candidates
+    assert (
+        visualization.first_event_peak_abs_value_and_time
+        is time_series.first_event_peak_abs_value_and_time
+    )
     assert (
         visualization.vector_magnitude_from_component_series
         is time_series.vector_magnitude_from_component_series
+    )
+
+
+def test_station_data_helpers_are_visualization_api():
+    """Ground-station data primitives are exported."""
+    visualization = importlib.import_module("pynamit.visualization")
+    station_data = importlib.import_module("pynamit.visualization.station_data")
+
+    assert visualization.normalize_station_metadata is station_data.normalize_station_metadata
+    assert (
+        visualization.load_iaga2002_magnetometer_data
+        is station_data.load_iaga2002_magnetometer_data
+    )
+    assert (
+        visualization.station_window_has_nonzero_measurements
+        is station_data.station_window_has_nonzero_measurements
     )

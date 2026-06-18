@@ -39,6 +39,35 @@ def format_contour_interval(interval):
     return f"{interval:.2e}"
 
 
+def draw_line_contour_legend(ax, overlay_keys, kwargs_source, title="Line contours"):
+    """Draw a compact vertical legend for line-contour overlays."""
+    ax.cla()
+    ax.axis("off")
+    overlay_keys = list(overlay_keys)
+    if not overlay_keys:
+        return
+    y_pos = np.linspace(0.78, 0.22, len(overlay_keys)) if len(overlay_keys) > 1 else [0.5]
+    for y, var_key in zip(y_pos, overlay_keys):
+        kwargs = kwargs_source[var_key]
+        interval = kwargs["levels"][1] - kwargs["levels"][0]
+        label = (
+            f"{kwargs.get('symbol', '')}, interval: "
+            f"{format_contour_interval(interval)} {kwargs.get('units', '')}"
+        )
+        ax.text(
+            0.5,
+            y,
+            label,
+            ha="center",
+            va="center",
+            rotation="vertical",
+            color=kwargs.get("colors", "black"),
+            fontsize=12,
+        )
+    if title:
+        ax.set_title(title, fontsize=9, pad=6)
+
+
 def contour_kwargs_for_display(plot_kwargs):
     """Drop metadata keys before forwarding kwargs to Matplotlib."""
     return {
