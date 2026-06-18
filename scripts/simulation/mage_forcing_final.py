@@ -56,14 +56,14 @@ CENTERED_DIPOLE_MODELS = ("kaiju_dipole", "dipole")
 DEFAULT_FORCING_CANDIDATES = (
     SCRIPT_DIR / "mage_prepared" / "mage_prepared_forcing.h5",
     SCRIPT_DIR / "mage_prepared" / "data_H_int_qeff.h5",
-    Path("/disk/Gamera_Dong/prep_Pynamit/mage_prepared_forcing.h5"),
-    Path("/disk/Gamera_Dong/prep_Pynamit/data_H_int_qeff.h5"),
+    Path("~/Gamera_Dong/prep_Pynamit/mage_prepared_forcing.h5"),
+    Path("~/Gamera_Dong/prep_Pynamit/data_H_int_qeff.h5"),
     Path("mage_2011/data_H_int.h5"),
-    Path("/disk/Gamera_Dong/prep_Pynamit/data_H_int.h5"),
+    Path("~/Gamera_Dong/prep_Pynamit/data_H_int.h5"),
     Path("/Users/andreasskeidsvoll/Gamera_Dong/prep_Pynamit/data_H_int.h5"),
 )
 DEFAULT_TIEGCM_CANDIDATES = (
-    Path("/disk/Gamera_Dong/11OcA_sech_tie_2011-10-24T18-00-10_2011-10-24T19-00-00.nc"),
+    Path("~/Gamera_Dong/11OcA_sech_tie_2011-10-24T18-00-10_2011-10-24T19-00-00.nc"),
     Path(
         "/Users/andreasskeidsvoll/Gamera_Dong/"
         "11OcA_sech_tie_2011-10-24T18-00-10_2011-10-24T19-00-00.nc"
@@ -89,6 +89,8 @@ class MageForcingSettings:
     dt: float = 10.0
     final_time: float = 3600.0
     max_steps: int | None = None
+    sampling_step_interval: int = 1
+    saving_sample_interval: int = 6
     br_lambda: float = BR_LAMBDA
     conductance_lambda: float = CONDUCTANCE_LAMBDA
     jr_lambda: float = JR_LAMBDA
@@ -707,15 +709,22 @@ def main(settings: MageForcingSettings = SETTINGS) -> None:
                     reg_lambda=settings.e_source_lambda,
                 )
 
-            print("Time evolution", flush=True)
+            print(
+                "Time evolution: "
+                f"final_time={settings.final_time:g} s, dt={settings.dt:g} s, "
+                f"sample every {settings.sampling_step_interval} step(s), "
+                f"save every {settings.saving_sample_interval} sample(s)",
+                flush=True,
+            )
             dynamics.evolve_to_time(
                 settings.final_time,
                 dt=settings.dt,
-                sampling_step_interval=1,
-                saving_sample_interval=1,
+                sampling_step_interval=settings.sampling_step_interval,
+                saving_sample_interval=settings.saving_sample_interval,
                 steady_state_initialization=settings.steady_state_initialization,
                 run_steady_state=settings.save_steady_states,
             )
+            print("Time evolution complete", flush=True)
     finally:
         if tiegcm_dataset is not None:
             tiegcm_dataset.close()
