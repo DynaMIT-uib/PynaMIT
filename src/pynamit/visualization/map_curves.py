@@ -480,6 +480,137 @@ def draw_timeseries_curve_map(
     }
 
 
+def draw_curve_scale_inset(
+    ax,
+    *,
+    curve_width_deg,
+    curve_height_deg,
+    value_scale,
+    scale_display_value,
+    scale_annotation,
+    duration_annotation,
+    map_extent=None,
+    low_lat_scale_annotation="",
+    color="0.2",
+):
+    """Draw a compact map-curve time/value scale inset."""
+    if map_extent is None:
+        map_width_deg, map_height_deg = 360.0, 180.0
+    else:
+        extent = np.asarray(map_extent, dtype=float).reshape(-1)
+        if extent.size >= 4:
+            map_width_deg = abs(float(extent[1]) - float(extent[0]))
+            map_height_deg = abs(float(extent[3]) - float(extent[2]))
+        else:
+            map_width_deg, map_height_deg = 360.0, 180.0
+
+    if not np.isfinite(map_width_deg) or map_width_deg <= 0.0:
+        map_width_deg = 360.0
+    if not np.isfinite(map_height_deg) or map_height_deg <= 0.0:
+        map_height_deg = 180.0
+
+    curve_width_ax = max(float(curve_width_deg) / map_width_deg, 0.02)
+    trace_height_ax = max(2.0 * float(curve_height_deg) / map_height_deg, 0.025)
+    full_trace_scale = 2.0 * max(float(value_scale), np.finfo(float).tiny)
+    scale_ratio = float(scale_display_value) / full_trace_scale
+    bar_height_ax = trace_height_ax * max(scale_ratio, 1e-6)
+
+    left_margin_ax = 0.070
+    right_margin_ax = 0.006
+    bottom_margin_ax = 0.012
+    top_margin_ax = 0.012
+    inset_width_ax = left_margin_ax + curve_width_ax + right_margin_ax
+    inset_height_ax = bottom_margin_ax + bar_height_ax + top_margin_ax
+    x_origin = left_margin_ax / inset_width_ax
+    x_end = (left_margin_ax + curve_width_ax) / inset_width_ax
+    y_bottom = bottom_margin_ax / inset_height_ax
+    y_top = (bottom_margin_ax + bar_height_ax) / inset_height_ax
+    y_center = 0.5 * (y_bottom + y_top)
+
+    target_scale_axis_x = 0.044
+    min_scale_text_x = 0.010
+    scale_text_x_offset = inset_width_ax * (x_origin - 0.30)
+    x0 = max(target_scale_axis_x - left_margin_ax, min_scale_text_x - scale_text_x_offset)
+
+    scale_ax = ax.inset_axes(
+        [x0, 0.036, inset_width_ax, inset_height_ax],
+        transform=ax.transAxes,
+        zorder=11,
+    )
+    scale_ax.set_facecolor("none")
+    scale_ax.set_xlim(0.0, 1.0)
+    scale_ax.set_ylim(0.0, 1.0)
+    scale_ax.tick_params(
+        axis="both",
+        which="both",
+        labelbottom=False,
+        labelleft=False,
+        bottom=True,
+        left=True,
+        top=False,
+        right=False,
+        direction="out",
+        length=4.0,
+        width=1.0,
+        colors=color,
+        pad=1.0,
+    )
+    scale_ax.set_xticks([x_origin, x_end])
+    scale_ax.set_yticks([y_bottom, y_top])
+    scale_ax.patch.set_alpha(0.0)
+
+    for spine_name, spine in scale_ax.spines.items():
+        spine.set_visible(spine_name in {"left", "bottom"})
+        spine.set_color(color)
+        spine.set_linewidth(1.2)
+
+    scale_ax.spines["left"].set_position(("axes", x_origin))
+    scale_ax.spines["left"].set_bounds(y_bottom, y_top)
+    scale_ax.spines["bottom"].set_position(("axes", y_center))
+    scale_ax.spines["bottom"].set_bounds(x_origin, x_end)
+
+    duration_text = scale_ax.text(
+        0.5 * (x_origin + x_end),
+        y_bottom - 0.10,
+        str(duration_annotation),
+        ha="center",
+        va="top",
+        fontsize=9,
+        color=color,
+        transform=scale_ax.transAxes,
+        clip_on=False,
+    )
+    scale_text = scale_ax.text(
+        x_origin - 0.30,
+        0.5 * (y_bottom + y_top),
+        str(scale_annotation),
+        ha="center",
+        va="center",
+        rotation=90,
+        fontsize=9,
+        color=color,
+        transform=scale_ax.transAxes,
+        clip_on=False,
+    )
+    artists = [scale_ax, duration_text, scale_text]
+    if low_lat_scale_annotation:
+        artists.append(
+            scale_ax.text(
+                x_origin - 0.16,
+                0.5 * (y_bottom + y_top),
+                str(low_lat_scale_annotation),
+                ha="center",
+                va="center",
+                rotation=90,
+                fontsize=8.5,
+                color=color,
+                transform=scale_ax.transAxes,
+                clip_on=False,
+            )
+        )
+    return artists
+
+
 def local_time_window_is_full(lt_min, lt_max):
     """Return whether a local-time window covers the full day."""
     return float(lt_min) <= 0.0 and float(lt_max) >= 24.0
@@ -557,6 +688,7 @@ __all__ = [
     "build_timeseries_curve_layers",
     "curve_layer_zoffset",
     "curve_site_group_zorders",
+    "draw_curve_scale_inset",
     "draw_timeseries_curve_map",
     "geographic_local_time_mask",
     "interpolate_curve_value_at_normalized_position",

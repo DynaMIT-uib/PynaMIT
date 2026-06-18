@@ -3,6 +3,7 @@
 import importlib
 
 import pynamit
+import pytest
 
 
 def test_visualization_package_exports_building_blocks():
@@ -96,6 +97,7 @@ def test_map_curve_and_hemisphere_helpers_are_visualization_api():
     assert visualization.build_even_global_sites is map_curves.build_even_global_sites
     assert visualization.build_timeseries_curve_layers is map_curves.build_timeseries_curve_layers
     assert visualization.split_wrapped_curve is map_curves.split_wrapped_curve
+    assert visualization.draw_curve_scale_inset is map_curves.draw_curve_scale_inset
     assert visualization.draw_field_comparison_artists is map_panels.draw_field_comparison_artists
 
 
@@ -137,3 +139,73 @@ def test_station_data_helpers_are_visualization_api():
         visualization.station_window_has_nonzero_measurements
         is station_data.station_window_has_nonzero_measurements
     )
+
+
+def test_panel_figure_specs_are_visualization_api():
+    """Panel and publication-script primitives are exported lazily."""
+    visualization = importlib.import_module("pynamit.visualization")
+    figure_specs = importlib.import_module("pynamit.visualization.figure_specs")
+    figure_builder = importlib.import_module("pynamit.visualization.figure_builder")
+    run_fields = importlib.import_module("pynamit.visualization.run_fields")
+
+    assert visualization.PynamitFigureSpec is figure_specs.PynamitFigureSpec
+    assert (
+        visualization.figure_spec_from_run_defaults is figure_specs.figure_spec_from_run_defaults
+    )
+    assert visualization.find_run_plot_defaults is figure_specs.find_run_plot_defaults
+    assert visualization.load_run_plot_defaults is figure_specs.load_run_plot_defaults
+    assert visualization.publication_script_for_spec is figure_specs.publication_script_for_spec
+    assert visualization.render_pynamit_figure is figure_builder.render_pynamit_figure
+    assert visualization.SavedCoefficientFieldView is run_fields.SavedCoefficientFieldView
+
+
+def test_publication_script_export_is_jupyter_friendly():
+    """Figure specs can produce editable publication scripts."""
+    figure_specs = importlib.import_module("pynamit.visualization.figure_specs")
+
+    spec = figure_specs.PynamitFigureSpec(run_directory="run", plot_type="global")
+    script = figure_specs.publication_script_for_spec(spec, output_path="figures/test.png")
+
+    assert script.startswith("# %%")
+    assert "render_pynamit_figure" in script
+    assert '"run_directory": "run"' in script
+    assert "fig.savefig" in script
+
+
+def test_run_plot_defaults_are_applied(tmp_path):
+    """Run directories can carry plotting defaults."""
+    figure_specs = importlib.import_module("pynamit.visualization.figure_specs")
+
+    (tmp_path / "pynamit_plot_defaults.json").write_text(
+        """
+        {
+          "data_directory": "/tmp/mag_data",
+          "plot_defaults": {
+            "plot_type": "ground_timeseries",
+            "ground_station": "OTT",
+            "time_range": [4, 12],
+            "extra_frontend_note": "kept"
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    spec = figure_specs.figure_spec_from_run_defaults(tmp_path)
+
+    assert spec.run_directory == str(tmp_path)
+    assert spec.data_directory == "/tmp/mag_data"
+    assert spec.plot_type == "ground_timeseries"
+    assert spec.ground_station == "OTT"
+    assert spec.time_range == (4, 12)
+    assert spec.extra["extra_frontend_note"] == "kept"
+
+
+def test_panel_app_module_imports_when_panel_is_installed():
+    """Panel app construction API is importable when Panel exists."""
+    pytest.importorskip("panel")
+    visualization = importlib.import_module("pynamit.visualization")
+    panel_app = importlib.import_module("pynamit.visualization.panel_app")
+
+    assert visualization.PynamitPanelApp is panel_app.PynamitPanelApp
+    assert callable(panel_app.build_pynamit_panel_app)

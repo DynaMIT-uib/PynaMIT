@@ -15,6 +15,7 @@ _LAZY_EXPORTS = {
         "pynamit.visualization.plot_helpers",
         "build_percentile_color_scale",
     ),
+    "build_pynamit_panel_app": ("pynamit.visualization.panel_app", "build_pynamit_panel_app"),
     "build_timeseries_curve_layers": (
         "pynamit.visualization.map_curves",
         "build_timeseries_curve_layers",
@@ -22,6 +23,14 @@ _LAZY_EXPORTS = {
     "compute_conversion_factors": (
         "pynamit.visualization.grid_evaluation",
         "compute_conversion_factors",
+    ),
+    "compute_input_fields_at_index": (
+        "pynamit.visualization.run_fields",
+        "compute_input_fields_at_index",
+    ),
+    "compute_state_comparison_fields_at_index": (
+        "pynamit.visualization.run_fields",
+        "compute_state_comparison_fields_at_index",
     ),
     "compute_centered_difference_matrix_at_times": (
         "pynamit.visualization.time_series",
@@ -50,6 +59,7 @@ _LAZY_EXPORTS = {
         "pynamit.visualization.time_series",
         "datetime_index_to_epoch_ns",
     ),
+    "draw_curve_scale_inset": ("pynamit.visualization.map_curves", "draw_curve_scale_inset"),
     "draw_timeseries_curve_map": ("pynamit.visualization.map_curves", "draw_timeseries_curve_map"),
     "draw_field_comparison_artists": (
         "pynamit.visualization.map_panels",
@@ -196,6 +206,18 @@ _LAZY_EXPORTS = {
         "prominent_peak_candidates",
     ),
     "PynamEye": ("pynamit.visualization.pynameye", "PynamEye"),
+    "PynamitFigureSpec": ("pynamit.visualization.figure_specs", "PynamitFigureSpec"),
+    "PynamitPanelApp": ("pynamit.visualization.panel_app", "PynamitPanelApp"),
+    "figure_spec_from_run_defaults": (
+        "pynamit.visualization.figure_specs",
+        "figure_spec_from_run_defaults",
+    ),
+    "find_run_plot_defaults": ("pynamit.visualization.figure_specs", "find_run_plot_defaults"),
+    "load_run_plot_defaults": ("pynamit.visualization.figure_specs", "load_run_plot_defaults"),
+    "publication_script_for_spec": (
+        "pynamit.visualization.figure_specs",
+        "publication_script_for_spec",
+    ),
     "remove_artists": ("pynamit.visualization.plot_helpers", "remove_artists"),
     "resample_matrix_to_times": ("pynamit.visualization.time_series", "resample_matrix_to_times"),
     "resample_series_to_times": ("pynamit.visualization.time_series", "resample_series_to_times"),
@@ -204,10 +226,12 @@ _LAZY_EXPORTS = {
         "resistance_to_conductance",
     ),
     "SavedRunView": ("pynamit.visualization.saved_run", "SavedRunView"),
+    "SavedCoefficientFieldView": ("pynamit.visualization.run_fields", "SavedCoefficientFieldView"),
     "resolve_xarray_artifact_path": (
         "pynamit.visualization.artifacts",
         "resolve_xarray_artifact_path",
     ),
+    "render_pynamit_figure": ("pynamit.visualization.figure_builder", "render_pynamit_figure"),
     "set_contour_edges_to_face": (
         "pynamit.visualization.plot_helpers",
         "set_contour_edges_to_face",
