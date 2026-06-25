@@ -42,7 +42,7 @@ import os
 import pathlib
 import time
 
-path = pathlib.Path("scripts/simulation/dynamit_simulation.py")
+path = pathlib.Path("scripts/simulation/legacy/dynamit_simulation.py")
 src = path.read_text()
 out = pathlib.Path(os.environ["PYNAMIT_BENCH_OUT"])
 out.mkdir(parents=True, exist_ok=True)

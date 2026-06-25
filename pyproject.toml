@@ -15,6 +15,19 @@ dependencies = [
 jax = [
     "jax>=0.4.1",
 ]
+gui = [
+    "cartopy",
+    "h5py",
+    "matplotlib",
+    "netCDF4",
+    "panel",
+    "pillow",
+    "xarray",
+    "zarr",
+]
+
+[project.scripts]
+pynamit-gui = "pynamit.visualization.gui:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -23,7 +36,7 @@ where = ["src"]
 
 [tool.ruff]
 src = ["src", "tests", "scripts"]
-extend-exclude = ["__init__.py", "notebooks/"]
+extend-exclude = ["__init__.py", "notebooks/", "scripts/simulation/legacy/"]
 line-length = 99
 
 [tool.ruff.lint]

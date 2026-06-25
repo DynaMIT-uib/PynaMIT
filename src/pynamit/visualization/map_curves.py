@@ -224,16 +224,91 @@ def _reference_center_values(reference_line, layers, n_sites, n_times):
         center_values = np.asarray(center_values, dtype=float)
         if center_values.shape == (n_sites, n_times):
             return center_values
+    fallback_values = None
+    inductive_values = None
+    noninductive_values = None
     for layer in layers:
         series_key = str(layer.get("series_key", "")).lower()
         label = str(layer.get("label", "")).lower()
+        values = np.asarray(layer.get("values", []), dtype=float)
+        if values.shape != (n_sites, n_times):
+            continue
         if series_key == "measured" or "measured" in label:
-            values = np.asarray(layer.get("values", []), dtype=float)
-            return values if values.shape == (n_sites, n_times) else None
-    if layers:
-        values = np.asarray(layers[0].get("values", []), dtype=float)
-        return values if values.shape == (n_sites, n_times) else None
-    return None
+            return values
+        if series_key == "inductive" or ("inductive" in label and "non-inductive" not in label):
+            inductive_values = values
+        if series_key == "magnetostatic" or "magnetostatic" in label or "non-inductive" in label:
+            noninductive_values = values
+        if fallback_values is None:
+            fallback_values = values
+    if inductive_values is not None and noninductive_values is not None:
+        stacked = np.stack([inductive_values, noninductive_values], axis=0)
+        finite = np.isfinite(stacked)
+        count = finite.sum(axis=0)
+        total = np.where(finite, stacked, 0.0).sum(axis=0)
+        center = np.full(total.shape, np.nan, dtype=float)
+        np.divide(total, count, out=center, where=count > 0)
+        return center
+    return fallback_values
+
+
+def reference_aligned_curve_centers(
+    site_lon,
+    site_lat,
+    normalized_time,
+    layers,
+    *,
+    curve_width_deg,
+    curve_height_deg,
+    value_scale,
+    site_curve_scale=None,
+    reference_line=None,
+):
+    """Return reference-aligned curve centers.
+
+    Curve maps normally center the full time axis on the site.  With a
+    reference time, shift each curve so the reference sample intersects
+    the site position.  Only curve centers move; the layer values are
+    left unchanged.
+    """
+    lon_sites = np.asarray(site_lon, dtype=float).reshape(-1)
+    lat_sites = np.asarray(site_lat, dtype=float).reshape(-1)
+    time_arr = np.asarray(normalized_time, dtype=float).reshape(-1)
+    curve_lon = lon_sites.copy()
+    curve_lat = lat_sites.copy()
+    if lon_sites.size != lat_sites.size or reference_line is None or time_arr.size == 0:
+        return curve_lon, curve_lat
+
+    reference_position = float(reference_line.get("position", np.nan))
+    if not np.isfinite(reference_position):
+        return curve_lon, curve_lat
+
+    if site_curve_scale is None:
+        site_scale = np.ones(lon_sites.size, dtype=float)
+    else:
+        site_scale = np.asarray(site_curve_scale, dtype=float).reshape(-1)
+        if site_scale.size != lon_sites.size:
+            site_scale = np.ones(lon_sites.size, dtype=float)
+    site_scale = np.where(np.isfinite(site_scale) & (site_scale > 0.0), site_scale, 1.0)
+
+    center_values = _reference_center_values(reference_line, layers, lon_sites.size, time_arr.size)
+    if center_values is None:
+        return curve_lon, curve_lat
+
+    scale = max(float(value_scale), np.finfo(float).tiny)
+    for site_index in range(lon_sites.size):
+        center_value = interpolate_curve_value_at_normalized_position(
+            time_arr, center_values[site_index], reference_position
+        )
+        if not np.isfinite(center_value):
+            continue
+        curve_lon[site_index] = lon_sites[site_index] - float(curve_width_deg) * (
+            reference_position - 0.5
+        )
+        curve_lat[site_index] = lat_sites[site_index] - float(curve_height_deg) * site_scale[
+            site_index
+        ] * (center_value / scale)
+    return curve_lon, curve_lat
 
 
 def draw_timeseries_curve_map(
@@ -533,9 +608,7 @@ def draw_curve_scale_inset(
     x0 = max(target_scale_axis_x - left_margin_ax, min_scale_text_x - scale_text_x_offset)
 
     scale_ax = ax.inset_axes(
-        [x0, 0.036, inset_width_ax, inset_height_ax],
-        transform=ax.transAxes,
-        zorder=11,
+        [x0, 0.036, inset_width_ax, inset_height_ax], transform=ax.transAxes, zorder=11
     )
     scale_ax.set_facecolor("none")
     scale_ax.set_xlim(0.0, 1.0)
@@ -694,6 +767,7 @@ __all__ = [
     "interpolate_curve_value_at_normalized_position",
     "local_time_window_extent",
     "local_time_window_is_full",
+    "reference_aligned_curve_centers",
     "split_wrapped_curve",
     "wrap_longitudes",
 ]

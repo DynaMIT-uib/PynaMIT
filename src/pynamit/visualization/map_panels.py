@@ -38,11 +38,13 @@ def draw_field_comparison_artists(
     diff_kwargs,
     dipole_obj=None,
     hemisphere_min_abs_latitude=50.0,
+    panel_keys=("state", "steady", "diff"),
 ):
     """Draw state, steady-state, and difference fields."""
     new_artists, main_mappable, diff_mappable = [], None, None
     filled_key = None if str(filled_key) == "none" else str(filled_key)
     overlay_keys = list(overlay_keys)
+    panel_keys = list(panel_keys)
 
     if dipole_obj:
         magnetic_latitude, magnetic_longitude = dipole_obj.geo2mag(lat, lon)
@@ -54,25 +56,33 @@ def draw_field_comparison_artists(
     polar_north_mask, polar_south_mask = hemisphere_masks_for_latitude(
         polar_x, hemisphere_min_abs_latitude
     )
+    needs_steady = any(key in {"steady", "diff"} for key in panel_keys)
 
     if filled_key is not None:
         state_field = fields_dict[f"{filled_key}_state"]
-        steady_field = fields_dict[f"{filled_key}_steady"]
-        fill_kwargs = [plot_kwargs[filled_key], plot_kwargs[filled_key], diff_kwargs[filled_key]]
-        fill_fields = [state_field, steady_field, state_field - steady_field]
+        fill_kwargs = {"state": plot_kwargs[filled_key]}
+        fill_fields = {"state": state_field}
+        if needs_steady:
+            steady_field = fields_dict[f"{filled_key}_steady"]
+            fill_kwargs["steady"] = plot_kwargs[filled_key]
+            fill_kwargs["diff"] = diff_kwargs[filled_key]
+            fill_fields["steady"] = steady_field
+            fill_fields["diff"] = state_field - steady_field
     else:
-        fill_kwargs, fill_fields = [], []
+        fill_kwargs, fill_fields = {}, {}
 
     overlay_specs = []
     for overlay_key in overlay_keys:
         state_field = fields_dict[f"{overlay_key}_state"]
-        steady_field = fields_dict[f"{overlay_key}_steady"]
-        overlay_specs.append(
-            (
-                [plot_kwargs[overlay_key], plot_kwargs[overlay_key], diff_kwargs[overlay_key]],
-                [state_field, steady_field, state_field - steady_field],
-            )
-        )
+        overlay_kwargs = {"state": plot_kwargs[overlay_key]}
+        overlay_fields = {"state": state_field}
+        if needs_steady:
+            steady_field = fields_dict[f"{overlay_key}_steady"]
+            overlay_kwargs["steady"] = plot_kwargs[overlay_key]
+            overlay_kwargs["diff"] = diff_kwargs[overlay_key]
+            overlay_fields["steady"] = steady_field
+            overlay_fields["diff"] = state_field - steady_field
+        overlay_specs.append((overlay_kwargs, overlay_fields))
 
     for group_index, group in enumerate(axes_groups):
         axes = _axes_from_group(group)
@@ -86,29 +96,33 @@ def draw_field_comparison_artists(
             mask = None
 
         for panel_index, axis in enumerate(axes):
+            panel_key = panel_keys[panel_index] if panel_index < len(panel_keys) else "empty"
+            if panel_key not in {"state", "steady", "diff"}:
+                continue
+
             if filled_key is not None:
-                display_kwargs = contour_kwargs_for_display(fill_kwargs[panel_index])
+                display_kwargs = contour_kwargs_for_display(fill_kwargs[panel_key])
                 if is_polar:
-                    plot_args = (polar_x[mask], polar_y[mask], fill_fields[panel_index][mask])
+                    plot_args = (polar_x[mask], polar_y[mask], fill_fields[panel_key][mask])
                     transform_args = {}
                 else:
-                    plot_args = (lon, lat, fill_fields[panel_index])
+                    plot_args = (lon, lat, fill_fields[panel_key])
                     transform_args = {"transform": ccrs.PlateCarree()}
                 artist = axis.contourf(*plot_args, **transform_args, **display_kwargs)
                 set_contour_edges_to_face(artist)
                 new_artists.append(artist)
-                if panel_index < 2:
+                if panel_key in {"state", "steady"}:
                     main_mappable = artist
-                if panel_index == 2:
+                if panel_key == "diff":
                     diff_mappable = artist
 
             for overlay_kwargs, overlay_fields in overlay_specs:
-                display_kwargs = contour_kwargs_for_display(overlay_kwargs[panel_index])
+                display_kwargs = contour_kwargs_for_display(overlay_kwargs[panel_key])
                 if is_polar:
-                    plot_args = (polar_x[mask], polar_y[mask], overlay_fields[panel_index][mask])
+                    plot_args = (polar_x[mask], polar_y[mask], overlay_fields[panel_key][mask])
                     transform_args = {}
                 else:
-                    plot_args = (lon, lat, overlay_fields[panel_index])
+                    plot_args = (lon, lat, overlay_fields[panel_key])
                     transform_args = {"transform": ccrs.PlateCarree()}
                 new_artists.append(axis.contour(*plot_args, **transform_args, **display_kwargs))
 

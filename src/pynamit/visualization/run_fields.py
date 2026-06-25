@@ -58,12 +58,8 @@ def compute_state_comparison_fields_at_index(
     m_ind = datasets["state"].SH_m_ind.isel(time=index).values
     m_imp = datasets["state"].SH_m_imp.isel(time=index).values
     br_mag = datasets["Br_mag"].SH_Br.isel(time=index).values
-    m_ind_steady = datasets["steady_state"].SH_m_ind.isel(time=index).values
-    m_imp_steady = datasets["steady_state"].SH_m_imp.isel(time=index).values
     phi_coeffs = datasets["state"].SH_Phi.isel(time=index).values
     w_coeffs = datasets["state"].SH_W.isel(time=index).values
-    phi_coeffs_steady = datasets["steady_state"].SH_Phi.isel(time=index).values
-    w_coeffs_steady = datasets["steady_state"].SH_W.isel(time=index).values
 
     resistance_coeffs = datasets["resistance"].SH_etaP.isel(time=index).values
     resistance = conductance_evaluator.G.dot(resistance_coeffs)
@@ -76,27 +72,35 @@ def compute_state_comparison_fields_at_index(
         "Phi": evaluator.G.dot(e_potential_to_kv * phi_coeffs),
         "W": evaluator.G.dot(e_potential_to_kv * w_coeffs),
     }
-    steady_fields = {
-        "Br": evaluator.G.dot(conversion["m_ind_to_Br"] * m_ind_steady),
-        "jr": evaluator.G.dot(conversion["m_imp_to_jr"] * m_imp_steady),
-        "Jeq": evaluator.G.dot(conversion["m_ind_to_Jeq"] * m_ind_steady),
-        "Phi": evaluator.G.dot(e_potential_to_kv * phi_coeffs_steady),
-        "W": evaluator.G.dot(e_potential_to_kv * w_coeffs_steady),
-    }
 
     js_state = (
         js_operators["G_m_ind_to_JS"].dot(m_ind)
         + js_operators["G_m_imp_to_JS"].dot(m_imp)
         + js_operators["G_Br_to_JS"].dot(br_mag)
     )
-    js_steady = (
-        js_operators["G_m_ind_to_JS"].dot(m_ind_steady)
-        + js_operators["G_m_imp_to_JS"].dot(m_imp_steady)
-        + js_operators["G_Br_to_JS"].dot(br_mag)
-    )
     state_fields["joule"] = resistance * np.sum(js_state**2, axis=0)
-    steady_fields["joule"] = resistance * np.sum(js_steady**2, axis=0)
-    return {"state": state_fields, "steady": steady_fields}
+
+    result = {"state": state_fields}
+    if "steady_state" in datasets:
+        m_ind_steady = datasets["steady_state"].SH_m_ind.isel(time=index).values
+        m_imp_steady = datasets["steady_state"].SH_m_imp.isel(time=index).values
+        phi_coeffs_steady = datasets["steady_state"].SH_Phi.isel(time=index).values
+        w_coeffs_steady = datasets["steady_state"].SH_W.isel(time=index).values
+        steady_fields = {
+            "Br": evaluator.G.dot(conversion["m_ind_to_Br"] * m_ind_steady),
+            "jr": evaluator.G.dot(conversion["m_imp_to_jr"] * m_imp_steady),
+            "Jeq": evaluator.G.dot(conversion["m_ind_to_Jeq"] * m_ind_steady),
+            "Phi": evaluator.G.dot(e_potential_to_kv * phi_coeffs_steady),
+            "W": evaluator.G.dot(e_potential_to_kv * w_coeffs_steady),
+        }
+        js_steady = (
+            js_operators["G_m_ind_to_JS"].dot(m_ind_steady)
+            + js_operators["G_m_imp_to_JS"].dot(m_imp_steady)
+            + js_operators["G_Br_to_JS"].dot(br_mag)
+        )
+        steady_fields["joule"] = resistance * np.sum(js_steady**2, axis=0)
+        result["steady"] = steady_fields
+    return result
 
 
 def compute_input_fields_at_index(
@@ -152,13 +156,7 @@ class SavedCoefficientFieldView:
 
     @classmethod
     def from_directory(
-        cls,
-        run_directory,
-        *,
-        nlat=60,
-        nlon=100,
-        wind_nlat=19,
-        wind_nlon=37,
+        cls, run_directory, *, nlat=60, nlon=100, wind_nlat=19, wind_nlon=37
     ) -> "SavedCoefficientFieldView":
         """Load artifacts needed by map and input-driver figures."""
         run_dir = Path(run_directory).expanduser()
@@ -167,10 +165,7 @@ class SavedCoefficientFieldView:
         conductance_sh_basis = SHBasis(settings.Nmax, settings.Mmax, Nmin=0)
         lat, lon, grid = build_plot_grid(nlat=nlat, nlon=nlon)
         wind_lat, wind_lon, wind_grid = build_plot_grid(
-            nlat=wind_nlat,
-            nlon=wind_nlon,
-            lat_range=(-75.0, 75.0),
-            lon_range=(-180.0, 180.0),
+            nlat=wind_nlat, nlon=wind_nlon, lat_range=(-75.0, 75.0), lon_range=(-180.0, 180.0)
         )
         evaluator = build_evaluator(sh_basis, grid)
         conductance_evaluator = build_evaluator(conductance_sh_basis, grid)
@@ -185,29 +180,34 @@ class SavedCoefficientFieldView:
         )
         js_operators = build_JS_operators(settings, sh_basis, evaluator, T_to_Ve=t_to_ve)
 
-        artifact_names = {
-            "state": "state",
-            "steady_state": "steady_state",
+        input_artifact_names = {
             "Br_mag": "Br",
             "jr_input": "jr",
             "resistance": "conductance",
         }
         missing = [
             name
-            for name in artifact_names.values()
+            for name in input_artifact_names.values()
             if not xarray_artifact_exists(artifact_path(run_dir, name))
         ]
         if missing:
             raise ValueError(f"Missing saved artifact(s) in {run_dir}: {', '.join(missing)}")
         datasets = {
             key: load_dataset_artifact(artifact_path(run_dir, name))
-            for key, name in artifact_names.items()
+            for key, name in input_artifact_names.items()
         }
+        state_path = artifact_path(run_dir, "state")
+        if state_path and xarray_artifact_exists(state_path):
+            datasets["state"] = load_dataset_artifact(state_path)
+        steady_path = artifact_path(run_dir, "steady_state")
+        if steady_path and xarray_artifact_exists(steady_path):
+            datasets["steady_state"] = load_dataset_artifact(steady_path)
+        reference_dataset = datasets.get("state", datasets["Br_mag"])
         wind_path = artifact_path(run_dir, "u")
         datasets["wind"] = (
             load_dataset_artifact(wind_path)
             if wind_path and xarray_artifact_exists(wind_path)
-            else xr.Dataset(coords={"time": datasets["state"].time})
+            else xr.Dataset(coords={"time": reference_dataset.time})
         )
 
         min_len = min(len(dataset.time) for dataset in datasets.values())
@@ -235,22 +235,33 @@ class SavedCoefficientFieldView:
     @property
     def n_time(self):
         """Return the number of common saved time steps."""
-        return len(self.datasets["state"].time)
+        return len(self._time_dataset().time)
 
     @property
     def time_index(self):
         """Return saved times as datetimes."""
         return time_index_from_dataset(
-            self.datasets["state"], fallback_start_time=self._fallback_start_time()
+            self._time_dataset(), fallback_start_time=self._fallback_start_time()
         )
 
     def timestamp_at_index(self, index):
         """Return one saved time as a timestamp."""
         return datetime_at_index(
-            self.datasets["state"].time.values,
+            self._time_dataset().time.values,
             index,
             fallback_start_time=self._fallback_start_time(),
         )
+
+    @property
+    def has_output_state(self):
+        """Return whether evolved output state is present."""
+        return "state" in self.datasets
+
+    def _time_dataset(self):
+        """Return the dataset that defines display times."""
+        if "state" in self.datasets:
+            return self.datasets["state"]
+        return self.datasets["Br_mag"]
 
     def _fallback_start_time(self):
         """Return the configured start time for numeric saved times."""
@@ -258,6 +269,11 @@ class SavedCoefficientFieldView:
 
     def state_comparison_fields(self, index):
         """Return flattened state/steady fields for one time index."""
+        if "state" not in self.datasets:
+            raise ValueError(
+                "This directory contains projected inputs but no saved output state. "
+                "Choose 'Input drivers' or run a simulation first."
+            )
         return compute_state_comparison_fields_at_index(
             int(index),
             self.datasets,

@@ -19,6 +19,21 @@ from pynamit.math.backend import set_backend, to_jax, to_numpy, use_jax
 FLOAT_ERROR_MARGIN = 1e-6  # Safety margin for floating point errors
 
 
+def _maxrss_label():
+    """Return a compact max-RSS label when the platform exposes it."""
+    try:
+        import resource
+        import sys
+
+        maxrss = float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+    except Exception:
+        return ""
+    if not np.isfinite(maxrss) or maxrss <= 0.0:
+        return ""
+    mib = maxrss / (1024.0 * 1024.0) if sys.platform == "darwin" else maxrss / 1024.0
+    return f", max RSS ~{mib:.0f} MiB"
+
+
 class Dynamics:
     """Class for simulating dynamic MIT coupling.
 
@@ -351,6 +366,8 @@ class Dynamics:
 
         inductive_m_ind = None
         if run_inductive and "state" in self.output_timeseries.datasets.keys():
+            if not quiet:
+                print("Resuming inductive state from saved output.", flush=True)
             self.current_time = np.max(self.output_timeseries.datasets["state"].time.values)
             inductive_m_ind = self.output_timeseries.get_entry(
                 "state", self.current_time, interpolation=False
@@ -359,10 +376,14 @@ class Dynamics:
             inductive_m_ind = self.state.project_scalar_mean_free(inductive_m_ind)
         elif run_inductive:
             if steady_state_initialization:
+                if not quiet:
+                    print("Initializing inductive state from steady state.", flush=True)
                 self.state.update(self.input_timeseries, self.current_time)
                 E_coeffs_noind, _ = self.state.calculate_noind_coeffs()
                 inductive_m_ind = self.state.steady_state_m_ind(E_coeffs_noind)
             else:
+                if not quiet:
+                    print("Initializing inductive state from zero.", flush=True)
                 self.current_time = np.float64(0)
                 zeros = np.zeros(self.output_field_spaces["state"].index_length)
                 inductive_m_ind = to_jax(zeros) if use_jax() else zeros
@@ -373,8 +394,24 @@ class Dynamics:
             self.current_time = np.float64(0)
 
         step_increment = 1 if run_inductive else sampling_step_interval
+        report_step_interval = sampling_step_interval * saving_sample_interval
+        total_steps_estimate = max(
+            1,
+            int(
+                np.ceil(
+                    max(float(t) - float(self.current_time), 0.0)
+                    / max(float(dt) * step_increment, FLOAT_ERROR_MARGIN)
+                )
+            ),
+        )
 
         while True:
+            if not quiet and (step == 0 or step % report_step_interval == 0):
+                print(
+                    f"Evolution step {step}/{total_steps_estimate} "
+                    f"at t = {float(self.current_time):.2f} s{_maxrss_label()}",
+                    flush=True,
+                )
             self.state.update(self.input_timeseries, self.current_time)
 
             E_coeffs_noind, m_imp_noind = self.state.calculate_noind_coeffs()
@@ -388,6 +425,8 @@ class Dynamics:
             )
 
             if needs_steady_state:
+                if not quiet and self.config.integrator == "exponential":
+                    print("  Solving steady state required by exponential integrator.", flush=True)
                 steady_state_m_ind = self.state.steady_state_m_ind(E_coeffs_noind)
             else:
                 steady_state_m_ind = None
@@ -405,23 +444,24 @@ class Dynamics:
 
                 # Save state and steady state time series.
                 if should_save_sample:
+                    saved_outputs = []
                     if run_inductive:
                         self.data.save_output_dataset("state")
-                        if not quiet:
-                            print(
-                                "Saved state at t = {:.2f} s".format(self.current_time),
-                                end="\n" if run_steady_state else "\r",
-                                flush=True,
-                            )
+                        saved_outputs.append("state")
 
                     if run_steady_state:
                         self.data.save_output_dataset("steady_state")
-                        if not quiet:
-                            print(
-                                "Saved steady state at t = {:.2f} s".format(self.current_time),
-                                end="\x1b[F" if run_inductive else "\r",
-                                flush=True,
-                            )
+                        saved_outputs.append("steady state")
+
+                    if not quiet and saved_outputs:
+                        print(
+                            "Saved {} at t = {:.2f} s{}".format(
+                                " and ".join(saved_outputs),
+                                float(self.current_time),
+                                _maxrss_label(),
+                            ),
+                            flush=True,
+                        )
 
             next_time = self.current_time + dt * step_increment
 
@@ -431,6 +471,8 @@ class Dynamics:
                 break
 
             if run_inductive:
+                if not quiet and self.config.integrator == "exponential":
+                    print("  Applying dense exponential induction step.", flush=True)
                 inductive_m_ind = self.state.evolve_m_ind(
                     inductive_m_ind, dt, E_coeffs_noind, steady_state_m_ind
                 )

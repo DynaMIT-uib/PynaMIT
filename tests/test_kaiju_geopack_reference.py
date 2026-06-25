@@ -21,7 +21,7 @@ GEOPACK_SOURCES = (
 
 
 def _require_fortran_geopack():
-    """Return gfortran and Kaiju source paths, or skip the reference test."""
+    """Return gfortran and Kaiju paths, or skip the test."""
     gfortran = shutil.which("gfortran")
     if gfortran is None:
         pytest.skip("gfortran is not available on PATH")
@@ -32,7 +32,7 @@ def _require_fortran_geopack():
 
 
 def test_kaiju_geopack_sm_matches_compiled_geo2sm(tmp_path):
-    """Python GEO->SM matrix matches Kaiju's compiled GEO2SM basis rotation."""
+    """Python GEO->SM matches Kaiju's compiled GEO2SM basis."""
     gfortran = _require_fortran_geopack()
     program = tmp_path / "test_geo2sm.F90"
     program.write_text(

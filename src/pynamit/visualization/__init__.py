@@ -205,9 +205,16 @@ _LAZY_EXPORTS = {
         "pynamit.visualization.time_series",
         "prominent_peak_candidates",
     ),
+    "FieldComparisonRenderer": (
+        "pynamit.visualization.field_comparison_figures",
+        "FieldComparisonRenderer",
+    ),
+    "GroundFigureRenderer": ("pynamit.visualization.ground_figures", "GroundFigureRenderer"),
+    "InputDriverRenderer": ("pynamit.visualization.input_driver_figures", "InputDriverRenderer"),
     "PynamEye": ("pynamit.visualization.pynameye", "PynamEye"),
     "PynamitFigureSpec": ("pynamit.visualization.figure_specs", "PynamitFigureSpec"),
     "PynamitPanelApp": ("pynamit.visualization.panel_app", "PynamitPanelApp"),
+    "SavedRunFigureContext": ("pynamit.visualization.figure_context", "SavedRunFigureContext"),
     "figure_spec_from_run_defaults": (
         "pynamit.visualization.figure_specs",
         "figure_spec_from_run_defaults",
@@ -232,6 +239,23 @@ _LAZY_EXPORTS = {
         "resolve_xarray_artifact_path",
     ),
     "render_pynamit_figure": ("pynamit.visualization.figure_builder", "render_pynamit_figure"),
+    "render_field_comparison_figure": (
+        "pynamit.visualization.field_comparison_figures",
+        "render_field_comparison_figure",
+    ),
+    "render_ground_curve_map_figure": (
+        "pynamit.visualization.ground_figures",
+        "render_ground_curve_map_figure",
+    ),
+    "render_ground_timeseries_figure": (
+        "pynamit.visualization.ground_figures",
+        "render_ground_timeseries_figure",
+    ),
+    "render_input_summary_figure": (
+        "pynamit.visualization.input_driver_figures",
+        "render_input_summary_figure",
+    ),
+    "save_pynamit_movie": ("pynamit.visualization.figure_builder", "save_pynamit_movie"),
     "set_contour_edges_to_face": (
         "pynamit.visualization.plot_helpers",
         "set_contour_edges_to_face",

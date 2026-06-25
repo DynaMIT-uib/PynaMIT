@@ -27,7 +27,7 @@ class GeopackDipoleCoefficients:
 
     @property
     def axis(self) -> np.ndarray:
-        """Geographic unit vector toward the northern centered-dipole pole."""
+        """GEO unit vector toward the centered-dipole north pole."""
         axis = -np.array([self.g11, self.h11, self.g10], dtype=float)
         return axis / self.B0_nT
 
@@ -46,18 +46,18 @@ class KaijuGeopackSM:
         return self.geo_to_sm_matrix.T
 
     def geo2sm(self, lat, lon, east=None, north=None):
-        """Convert geocentric GEO coordinates and optional vectors to SM."""
+        """Convert GEO coordinates and optional vectors to SM."""
         return _rotate_spherical(self.geo_to_sm_matrix, lat, lon, east=east, north=north)
 
     def sm2geo(self, lat, lon, east=None, north=None):
-        """Convert SM coordinates and optional vectors to geocentric GEO."""
+        """Convert SM coordinates and optional vectors to GEO."""
         return _rotate_spherical(self.sm_to_geo_matrix, lat, lon, east=east, north=north)
 
 
 GEOPACK_DIPOLE_COEFFICIENTS: dict[int, tuple[float, float, float]] = {
     # Values are the degree-1 entries from Kaiju src/base/geopack.F90.
-    # The full Geopack table contains many higher-degree terms, but SM/CD
-    # placement only uses g10, g11, and h11.
+    # The full Geopack table contains many higher-degree terms, but
+    # SM/CD placement only uses g10, g11, and h11.
     1965: (-30334.0, -2119.0, 5776.0),
     1970: (-30220.0, -2068.0, 5737.0),
     1975: (-30100.0, -2013.0, 5675.0),
@@ -93,7 +93,7 @@ def _as_datetime(epoch: float | datetime) -> datetime:
 
 
 def _geopack_epoch_value(epoch: float | datetime) -> float:
-    """Return the year value used by Kaiju Geopack coefficient interpolation."""
+    """Return the year used by Kaiju Geopack interpolation."""
     if isinstance(epoch, datetime):
         return epoch.year + (epoch.timetuple().tm_yday - 1) / 365.25
     return float(epoch)
@@ -117,7 +117,7 @@ def axis_lat_lon(axis: np.ndarray) -> np.ndarray:
 
 
 def _spherical_to_cartesian(lat, lon):
-    """Return unit Cartesian vectors for latitude/longitude in degrees."""
+    """Return Cartesian unit vectors for lat/lon in degrees."""
     lat_rad = np.deg2rad(lat)
     lon_rad = np.deg2rad(lon)
     cos_lat = np.cos(lat_rad)
@@ -125,7 +125,7 @@ def _spherical_to_cartesian(lat, lon):
 
 
 def _cartesian_to_spherical(cart):
-    """Return latitude/longitude in degrees from Cartesian unit vectors."""
+    """Return latitude/longitude from Cartesian unit vectors."""
     x, y, z = cart
     norm = np.linalg.norm(cart, axis=0)
     x = x / norm
@@ -186,7 +186,7 @@ def _rotate_spherical(rotation, lat, lon, *, east=None, north=None):
 def _linear_coefficients(
     epoch_value: float, start_year: int, end_year: int
 ) -> GeopackDipoleCoefficients:
-    """Linearly interpolate one five-year Geopack coefficient interval."""
+    """Interpolate one five-year Geopack coefficient interval."""
     f2 = (epoch_value - start_year) / (end_year - start_year)
     f1 = 1.0 - f2
     start = np.array(GEOPACK_DIPOLE_COEFFICIENTS[start_year], dtype=float)
@@ -244,21 +244,8 @@ def _kaiju_geo_to_sm_matrix(epoch: datetime, coefficients: GeopackDipoleCoeffici
     s2 = np.sin(srasn) * np.cos(sdec)
     s3 = np.sin(sdec)
 
-    year = epoch.year
-    iday = epoch.timetuple().tm_yday
-    seconds = epoch.hour * 3600.0 + epoch.minute * 60.0 + epoch.second + epoch.microsecond * 1.0e-6
-    dj = 365 * (year - 1900) + (year - 1901) // 4 + iday - 0.5 + seconds / 86400.0
-    t = dj / 36525.0
-    obliq = (23.45229 - 0.0130125 * t) / 57.2957795
-    dz1 = 0.0
-    dz2 = -np.sin(obliq)
-    dz3 = np.cos(obliq)
-
-    dy1 = dz2 * s3 - dz3 * s2
-    dy2 = dz3 * s1 - dz1 * s3
-    dy3 = dz1 * s2 - dz2 * s1
-
-    # Kaiju RECALC uses VGSEX=-400, VGSEY=VGSEZ=0 in its wrapper, so GSW=GSM.
+    # Kaiju RECALC uses VGSEX=-400, VGSEY=VGSEZ=0 in its wrapper,
+    # so GSW=GSM.
     x1, x2, x3 = s1, s2, s3
 
     cgst = np.cos(gst)
@@ -297,9 +284,10 @@ def _kaiju_geo_to_sm_matrix(epoch: datetime, coefficients: GeopackDipoleCoeffici
 def kaiju_geopack_coefficients(epoch: float | datetime) -> GeopackDipoleCoefficients:
     """Return Kaiju/Geopack degree-1 dipole coefficients for an epoch.
 
-    Kaiju's ``RECALC_08`` uses the day of year, not the time of day, for
-    coefficient interpolation.  Passing a ``datetime`` reproduces that path.
-    Passing a decimal year uses the decimal value directly.
+    Kaiju's ``RECALC_08`` uses the day of year, not the time of
+    day, for coefficient interpolation. Passing a ``datetime``
+    reproduces that path. Passing a decimal year uses the decimal
+    value directly.
     """
     epoch_value = _geopack_epoch_value(epoch)
     if epoch_value < 2000.0:
@@ -331,7 +319,7 @@ def kaiju_geopack_coefficients(epoch: float | datetime) -> GeopackDipoleCoeffici
 
 
 def kaiju_geopack_dipole(epoch: float | datetime, *, B0: float | None = None) -> dipole.Dipole:
-    """Return a ``dipole.Dipole`` fixed to Kaiju/Geopack's centered pole.
+    """Return a ``dipole.Dipole`` with Kaiju/Geopack alignment.
 
     Parameters
     ----------
@@ -339,8 +327,8 @@ def kaiju_geopack_dipole(epoch: float | datetime, *, B0: float | None = None) ->
         Decimal year or ``datetime`` for Kaiju/Geopack coefficient
         interpolation.
     B0
-        Optional equatorial ground field magnitude in Tesla.  If omitted,
-        the degree-1 Geopack magnitude is used.
+        Optional equatorial ground field magnitude in Tesla. If
+        omitted, the degree-1 Geopack magnitude is used.
     """
     coefficients = kaiju_geopack_coefficients(epoch)
     north_pole = axis_lat_lon(coefficients.axis)
@@ -363,7 +351,7 @@ def kaiju_geopack_sm(epoch: float | datetime) -> KaijuGeopackSM:
 
 
 def kaiju_geopack_alignment(epoch: float | datetime) -> dict[str, Any]:
-    """Return serializable Kaiju/Geopack centered-dipole alignment metadata."""
+    """Return serializable Kaiju/Geopack alignment metadata."""
     dpl = kaiju_geopack_dipole(epoch)
     sm = kaiju_geopack_sm(epoch)
     coefficients = dpl.kaiju_geopack_coefficients

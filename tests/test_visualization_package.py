@@ -2,6 +2,7 @@
 
 import importlib
 
+import numpy as np
 import pynamit
 import pytest
 
@@ -146,6 +147,9 @@ def test_panel_figure_specs_are_visualization_api():
     visualization = importlib.import_module("pynamit.visualization")
     figure_specs = importlib.import_module("pynamit.visualization.figure_specs")
     figure_builder = importlib.import_module("pynamit.visualization.figure_builder")
+    field_figures = importlib.import_module("pynamit.visualization.field_comparison_figures")
+    ground_figures = importlib.import_module("pynamit.visualization.ground_figures")
+    input_figures = importlib.import_module("pynamit.visualization.input_driver_figures")
     run_fields = importlib.import_module("pynamit.visualization.run_fields")
 
     assert visualization.PynamitFigureSpec is figure_specs.PynamitFigureSpec
@@ -156,7 +160,53 @@ def test_panel_figure_specs_are_visualization_api():
     assert visualization.load_run_plot_defaults is figure_specs.load_run_plot_defaults
     assert visualization.publication_script_for_spec is figure_specs.publication_script_for_spec
     assert visualization.render_pynamit_figure is figure_builder.render_pynamit_figure
+    assert (
+        visualization.render_field_comparison_figure
+        is field_figures.render_field_comparison_figure
+    )
+    assert (
+        visualization.render_ground_curve_map_figure
+        is ground_figures.render_ground_curve_map_figure
+    )
+    assert (
+        visualization.render_ground_timeseries_figure
+        is ground_figures.render_ground_timeseries_figure
+    )
+    assert visualization.render_input_summary_figure is input_figures.render_input_summary_figure
+    assert visualization.save_pynamit_movie is figure_builder.save_pynamit_movie
     assert visualization.SavedCoefficientFieldView is run_fields.SavedCoefficientFieldView
+
+
+def test_saved_field_view_loads_projected_input_package_without_state(tmp_path):
+    """Projection packages should be inspectable before a run exists."""
+    run_fields = importlib.import_module("pynamit.visualization.run_fields")
+
+    dynamics = pynamit.Dynamics(
+        run_directory=tmp_path,
+        Nmax=2,
+        Mmax=1,
+        Ncs=8,
+        RM=4 * 6381e3,
+        ignore_PFAC=True,
+        artifact_storage="netcdf",
+    )
+    conductance_shape = dynamics.input_field_spaces["conductance"].coefficient_shape
+    eta_p = np.ones(conductance_shape)
+    eta_h = np.zeros(conductance_shape)
+    dynamics.set_resistance(etaP_coefficients=eta_p, etaH_coefficients=eta_h, time=0.0)
+
+    jr_shape = dynamics.input_field_spaces["jr"].coefficient_shape
+    dynamics.set_jr(jr_coefficients=np.zeros(jr_shape), time=0.0)
+
+    br_shape = dynamics.input_field_spaces["Br"].coefficient_shape
+    dynamics.set_Br(Br_coefficients=np.zeros(br_shape), time=0.0)
+
+    view = run_fields.SavedCoefficientFieldView.from_directory(tmp_path)
+
+    assert view.has_output_state is False
+    assert view.n_time == 1
+    assert "state" not in view.datasets
+    assert {"Br_mag", "jr_input", "resistance"}.issubset(view.datasets)
 
 
 def test_publication_script_export_is_jupyter_friendly():

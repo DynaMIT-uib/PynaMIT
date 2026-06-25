@@ -52,6 +52,17 @@ from .primitives.field_coefficients import FieldCoefficients
 from .primitives.field_evaluator import FieldEvaluator
 from .primitives.field_space import FieldSpace
 from .simulation.dynamics import Dynamics
+from .simulation.prepared_inputs import (
+    input_dataset_requirements,
+    input_geometry_settings,
+    input_projection_settings,
+    load_prepared_inputs_into_dynamics,
+    prepare_pynamit_inputs,
+    prepared_input_contract,
+    read_input_manifest,
+    run_pynamit_from_inputs,
+    validate_prepared_input_compatibility,
+)
 from .simulation.mainfield import Mainfield
 from .math import set_backend, use_jax
 from .external_inputs import set_input_source, get_input_source
@@ -101,8 +112,17 @@ __all__ = [
     "is_basis_kind",
     "is_cs_basis",
     "is_sh_basis",
+    "input_dataset_requirements",
+    "input_geometry_settings",
+    "input_projection_settings",
+    "load_prepared_inputs_into_dynamics",
+    "prepare_pynamit_inputs",
+    "prepared_input_contract",
+    "read_input_manifest",
+    "run_pynamit_from_inputs",
     "set_backend",
     "use_jax",
     "set_input_source",
     "get_input_source",
+    "validate_prepared_input_compatibility",
 ]

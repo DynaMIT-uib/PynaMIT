@@ -15,7 +15,7 @@ from pynamit.simulation.mainfield import Mainfield
 
 
 def test_dipole_B0_override_preserves_epoch_alignment():
-    """Dipole B0 changes magnitude without changing the epoch dipole pole."""
+    """Dipole B0 changes magnitude without moving the pole."""
     epoch = 2011
     b0 = 29617.369174957275e-9
 
@@ -50,7 +50,7 @@ def test_kaiju_geopack_dipole_uses_embedded_degree_one_coefficients():
 
 
 def test_kaiju_dipole_mainfield_B0_override_preserves_kaiju_alignment():
-    """Kaiju dipole B0 changes magnitude without changing the Geopack pole."""
+    """Kaiju dipole B0 changes magnitude without moving the pole."""
     epoch = 2011
     b0 = 29617.369174957275e-9
 
@@ -68,7 +68,7 @@ def test_kaiju_dipole_mainfield_B0_override_preserves_kaiju_alignment():
 
 
 def test_mainfield_coordinate_system_labels_are_explicit():
-    """Each main-field kind advertises the horizontal coordinate convention."""
+    """Main-field kinds advertise their horizontal coordinates."""
     assert Mainfield(kind="kaiju_dipole", epoch=2011).coordinate_system == "SM"
     assert Mainfield(kind="dipole", epoch=2011).coordinate_system == "centered_dipole_magnetic"
     assert Mainfield(kind="igrf", epoch=2011).coordinate_system == "geographic"
@@ -92,7 +92,7 @@ def test_mainfield_vector_transform_requires_east_and_north_pair():
 
 
 def test_kaiju_mainfield_geo_transform_uses_geopack_sm():
-    """The public Mainfield conversion delegates to the Kaiju SM transform."""
+    """Mainfield conversion delegates to the Kaiju SM transform."""
     event_time = dt.datetime(2011, 10, 24, 18, 0, 10)
     mainfield = Mainfield(kind="kaiju_dipole", epoch=2011)
     reference = kaiju_geopack_sm(event_time)
@@ -111,7 +111,7 @@ def test_kaiju_mainfield_geo_transform_uses_geopack_sm():
 
 
 def test_kaiju_mainfield_local_time_longitude_is_sm_longitude():
-    """REMIX noon-based longitude is already the SM longitude in kaiju_dipole mode."""
+    """REMIX noon-based longitude is the kaiju_dipole SM longitude."""
     mainfield = Mainfield(kind="kaiju_dipole", epoch=2011)
     lon = np.array([-180.0, -90.0, 0.0, 90.0, 180.0])
 
@@ -123,7 +123,7 @@ def test_kaiju_mainfield_local_time_longitude_is_sm_longitude():
 
 
 def test_kaiju_mainfield_alignment_metadata_is_sm_based():
-    """Kaiju alignment metadata keeps SM noon at model longitude zero."""
+    """Kaiju alignment metadata keeps SM noon at longitude zero."""
     event_time = dt.datetime(2011, 10, 24, 18, 0, 10)
     mainfield = Mainfield(kind="kaiju_dipole", epoch=2011)
 
@@ -138,7 +138,7 @@ def test_kaiju_mainfield_alignment_metadata_is_sm_based():
 
 
 def test_kaiju_sm_transform_uses_dipole_axis_as_z_axis():
-    """Kaiju SM transform has the Geopack dipole axis as its north pole."""
+    """Kaiju SM has the Geopack dipole axis as north pole."""
     sm = kaiju_geopack_sm(2011.0)
 
     np.testing.assert_allclose(sm.sm_to_geo_matrix[:, 2], sm.coefficients.axis, atol=1e-12)
@@ -149,7 +149,7 @@ def test_kaiju_sm_transform_uses_dipole_axis_as_z_axis():
 
 
 def test_kaiju_sm_transform_round_trips_coordinates_and_vectors():
-    """Kaiju GEO-SM conversion preserves coordinates and tangent vectors."""
+    """Kaiju GEO-SM preserves coordinates and tangent vectors."""
     sm = kaiju_geopack_sm(2011.0)
     lat = np.array([65.0, -50.0, 10.0])
     lon = np.array([-30.0, 120.0, 5.0])
@@ -163,6 +163,23 @@ def test_kaiju_sm_transform_round_trips_coordinates_and_vectors():
     np.testing.assert_allclose(((geo_lon - lon + 180.0) % 360.0) - 180.0, 0.0, atol=1e-12)
     np.testing.assert_allclose(geo_east, east, atol=1e-12)
     np.testing.assert_allclose(geo_north, north, atol=1e-12)
+
+
+def test_dipole_magnetic_latitude_trace_uses_geographic_conversion():
+    """Magnetic-latitude traces are geographic, not parallels."""
+    mainfield = Mainfield(kind="dipole", epoch=2011)
+    magnetic_longitude = np.array([-120.0, 0.0, 120.0])
+    magnetic_latitude = 65.0
+
+    geo_lon, geo_lat = mainfield.magnetic_latitude_trace_to_geo(
+        magnetic_latitude, magnetic_longitude
+    )
+    expected_lat, expected_lon = mainfield.dpl.mag2geo(
+        np.full_like(magnetic_longitude, magnetic_latitude), magnetic_longitude
+    )
+
+    np.testing.assert_allclose(geo_lat, expected_lat)
+    np.testing.assert_allclose(((geo_lon - expected_lon + 180.0) % 360.0) - 180.0, 0.0)
 
 
 def test_radial_default_B0_is_in_tesla():

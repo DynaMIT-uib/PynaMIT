@@ -41,6 +41,7 @@ def run_pynamit(
     static_preconditioner=False,
     m_imp_regularization_lambda=0.0,
     run_directory=None,
+    input_directory=None,
     artifact_storage="auto",
     horizontal_basis_kind="SH",
     area_weighted_least_squares=False,
@@ -123,6 +124,9 @@ def run_pynamit(
     run_directory : str, optional
         Directory for one persisted run. If omitted, a unique
         timestamped run directory is created under ``simulation/``.
+    input_directory : str, optional
+        Directory for the prepared input package. Defaults to a
+        ``prepared_inputs`` subdirectory in ``run_directory``.
     artifact_storage : {'auto', 'netcdf', 'zarr'}, optional
         Preferred storage backend for new saved xarray artifacts.
     horizontal_basis_kind : {'SH', 'CS'}, optional
@@ -141,40 +145,58 @@ def run_pynamit(
         The dynamics object for performing the simulation and handling
         the simulation results.
     """
-    import datetime
-    import numpy as np
+    from pathlib import Path
 
-    from pynamit.math.constants import RE
     from pynamit.primitives.io import IO
-    from pynamit.simulation.dynamics import Dynamics
-    from pynamit.external_inputs import get_conductance_inputs, get_jr_inputs, get_wind_inputs
+    from pynamit.simulation.prepared_inputs import prepare_pynamit_inputs, run_pynamit_from_inputs
 
     if run_directory is None:
         run_directory = IO.build_temporary_run_directory_in_directory("simulation")
     else:
         run_directory = IO.build_run_directory(run_directory)
 
-    # Initialize the 2D ionosphere object at 110 km altitude.
-    RI = RE + 110.0e3
-    dynamics = Dynamics(
-        run_directory=run_directory,
+    if input_directory is None:
+        input_directory = Path(run_directory) / "prepared_inputs"
+
+    prepare_pynamit_inputs(
+        input_directory=input_directory,
+        final_time=final_time,
         Nmax=Nmax,
         Mmax=Mmax,
         Ncs=Ncs,
-        RI=RI,
-        RM=RM,
         mainfield_kind=mainfield_kind,
-        ignore_PFAC=ignore_PFAC,
-        connect_hemispheres=connect_hemispheres,
-        latitude_boundary=latitude_boundary,
         jr_projection_basis=jr_projection_basis,
         Br_projection_basis=Br_projection_basis,
         conductance_projection_basis=conductance_projection_basis,
         u_projection_basis=u_projection_basis,
         Q_eff_projection_basis=Q_eff_projection_basis,
+        jr_lambda=jr_lambda,
+        conductance_lambda=conductance_lambda,
+        u_lambda=u_lambda,
+        Q_eff_lambda=Q_eff_lambda,
+        multi_data=multi_data,
+        artifact_storage=artifact_storage,
         horizontal_basis_kind=horizontal_basis_kind,
         area_weighted_least_squares=area_weighted_least_squares,
-        save_steady_states=run_steady_state,
+        use_wind=use_wind,
+        use_Q_eff=use_Q_eff,
+        use_jr=use_jr,
+    )
+
+    return run_pynamit_from_inputs(
+        input_directory,
+        run_directory=run_directory,
+        final_time=final_time,
+        plotsteps=plotsteps,
+        dt=dt,
+        RM=RM,
+        mainfield_kind=mainfield_kind,
+        ignore_PFAC=ignore_PFAC,
+        connect_hemispheres=connect_hemispheres,
+        latitude_boundary=latitude_boundary,
+        steady_state_initialization=steady_state_initialization,
+        run_inductive=run_inductive,
+        run_steady_state=run_steady_state,
         integrator=integrator,
         least_squares_solver=least_squares_solver,
         least_squares_preconditioner=least_squares_preconditioner,
@@ -183,71 +205,3 @@ def run_pynamit(
         artifact_storage=artifact_storage,
         RM_shielding=RM_shielding,
     )
-
-    date = datetime.datetime(2001, 5, 12, 21, 45)
-    time = np.linspace(0, final_time, 4) if multi_data else None
-
-    conductance_lat = dynamics.state.geometry.grid.lat
-    conductance_lon = dynamics.state.geometry.grid.lon
-
-    hall, pedersen, conductance_lat, conductance_lon = get_conductance_inputs(
-        date, conductance_lat, conductance_lon, time
-    )
-
-    if use_jr:
-        jr_lat = dynamics.state.geometry.grid.lat
-        jr_lon = dynamics.state.geometry.grid.lon
-        jr, jr_lat, jr_lon = get_jr_inputs(date, jr_lat, jr_lon, time)
-
-    wind_inputs = get_wind_inputs(date, use_wind=use_wind, time=time)
-    if use_Q_eff and wind_inputs is None:
-        raise ValueError("use_Q_eff=True requires use_wind=True in run_pynamit.")
-
-    if wind_inputs is not None:
-        u_theta, u_phi, u_lat, u_lon, weights = wind_inputs
-
-    dynamics.set_conductance(
-        hall,
-        pedersen,
-        lat=conductance_lat,
-        lon=conductance_lon,
-        reg_lambda=conductance_lambda,
-        time=time,
-    )
-
-    if use_jr:
-        dynamics.set_jr(jr, lat=jr_lat, lon=jr_lon, reg_lambda=jr_lambda, time=time)
-
-    if wind_inputs is not None and use_Q_eff:
-        dynamics.set_Q_eff_from_neutral_wind(
-            u_theta=u_theta,
-            u_phi=u_phi,
-            lat=u_lat,
-            lon=u_lon,
-            sqrt_weights=weights,
-            wind_reg_lambda=u_lambda,
-            Q_eff_reg_lambda=Q_eff_lambda,
-            time=time,
-        )
-    elif wind_inputs is not None:
-        dynamics.set_neutral_wind(
-            u_theta=u_theta,
-            u_phi=u_phi,
-            lat=u_lat,
-            lon=u_lon,
-            sqrt_weights=weights,
-            reg_lambda=u_lambda,
-            time=time,
-        )
-
-    dynamics.evolve_to_time(
-        t=final_time,
-        dt=dt,
-        sampling_step_interval=1,
-        saving_sample_interval=plotsteps,
-        steady_state_initialization=steady_state_initialization,
-        run_inductive=run_inductive,
-        run_steady_state=run_steady_state,
-    )
-
-    return dynamics

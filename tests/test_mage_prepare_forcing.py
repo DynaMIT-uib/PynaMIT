@@ -2,7 +2,14 @@
 
 import numpy as np
 
-from scripts.simulation.mage_forcing_final import DEFAULT_FORCING_CANDIDATES
+from scripts.simulation.mage_forcing_final import SETTINGS as MAGE_RUN_SETTINGS
+from scripts.simulation.mage_project_inputs import DEFAULT_FORCING_CANDIDATES
+from scripts.simulation.mage_project_inputs import DEFAULT_INPUT_DIRECTORY
+from scripts.simulation.mage_project_inputs import DEFAULT_RESULT_DIRECTORY
+from scripts.simulation.mage_project_inputs import SETTINGS as MAGE_PROJECT_SETTINGS
+from scripts.simulation.mage_project_inputs import h5_time_vector_seconds
+from scripts.simulation.mage_project_inputs import projection_directory_for_resolution
+from scripts.simulation.mage_project_inputs import result_directory_for_resolution
 from scripts.simulation.mage_prepare_forcing import (
     DEFAULT_OUTPUT_NAME,
     integrate_tiegcm_step,
@@ -40,6 +47,49 @@ def test_default_prepared_forcing_artifact_name_is_canonical():
     """Default HDF5 name should match the final script search path."""
     assert DEFAULT_OUTPUT_NAME == "mage_prepared_forcing.h5"
     assert DEFAULT_FORCING_CANDIDATES[0].name == DEFAULT_OUTPUT_NAME
+
+
+def test_projected_input_default_matches_run_input_directory():
+    """Projection and run scripts should agree on the input package."""
+    assert MAGE_PROJECT_SETTINGS.input_directory is None
+    assert MAGE_RUN_SETTINGS.input_directory is None
+    assert (
+        projection_directory_for_resolution(
+            MAGE_PROJECT_SETTINGS.nmax, MAGE_PROJECT_SETTINGS.mmax, MAGE_PROJECT_SETTINGS.ncs
+        )
+        == DEFAULT_INPUT_DIRECTORY
+    )
+    assert (
+        projection_directory_for_resolution(
+            MAGE_RUN_SETTINGS.nmax, MAGE_RUN_SETTINGS.mmax, MAGE_RUN_SETTINGS.ncs
+        )
+        == DEFAULT_INPUT_DIRECTORY
+    )
+    assert (
+        result_directory_for_resolution(
+            MAGE_RUN_SETTINGS.nmax, MAGE_RUN_SETTINGS.mmax, MAGE_RUN_SETTINGS.ncs
+        )
+        == DEFAULT_RESULT_DIRECTORY
+    )
+
+
+def test_mage_projection_uses_kaiju_dipole_by_default():
+    """MAGE projection should use the Kaiju/Geopack SM dipole."""
+    assert MAGE_PROJECT_SETTINGS.mainfield_kind == "kaiju_dipole"
+
+
+def test_mage_projection_times_are_relative_to_first_hdf5_time():
+    """Projection should preserve the 18:00:10 event-time origin."""
+    times, seconds = h5_time_vector_seconds(
+        [
+            b"2011-10-24T18:00:10",
+            b"2011-10-24T18:00:20",
+            b"2011-10-24T18:00:40",
+        ]
+    )
+
+    assert times[0].isoformat() == "2011-10-24T18:00:10"
+    np.testing.assert_allclose(seconds, np.array([0.0, 10.0, 30.0]))
 
 
 def test_integrate_tiegcm_step_computed_conductances_and_weighted_winds():

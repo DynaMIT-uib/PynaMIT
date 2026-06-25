@@ -23,7 +23,7 @@ MAINFIELD_KINDS = ("radial", "dipole", "kaiju_dipole", "igrf")
 
 
 def is_dipole_kind(kind):
-    """Return whether a main-field kind uses centered-dipole geometry."""
+    """Return whether a kind uses centered-dipole geometry."""
     return str(kind).lower() in DIPOLE_KINDS
 
 
@@ -50,7 +50,7 @@ def decimal_year(epoch):
 
 
 def _dipole_for_epoch(epoch, B0=None):
-    """Return an epoch-aligned dipole, optionally overriding magnitude."""
+    """Return an epoch-aligned dipole."""
     base = dipole.Dipole(epoch)
     if B0 is None:
         return base
@@ -58,7 +58,7 @@ def _dipole_for_epoch(epoch, B0=None):
 
 
 def _kaiju_dipole_for_epoch(epoch, B0=None):
-    """Return a Kaiju/Geopack-aligned dipole with optional magnitude override."""
+    """Return a Kaiju/Geopack-aligned dipole."""
     return kaiju_geopack_dipole(datetime_from_decimal_year(epoch), B0=B0)
 
 
@@ -73,9 +73,9 @@ class Mainfield:
     - dipole: Centered dipole magnetic field using IGRF coefficients for
       alignment. The moment can be overridden with ``B0``.
     - kaiju_dipole: Centered dipole aligned with the degree-1 IGRF
-      coefficients embedded in Kaiju's Geopack implementation. Coordinates
-      are SM, so geographic conversion requires an event time. The moment can
-      be overridden with ``B0``.
+      coefficients embedded in Kaiju's Geopack implementation.
+      Coordinates are SM, so geographic conversion requires an
+      event time. The moment can be overridden with ``B0``.
     - igrf: International Geomagnetic Reference Field in geocentric
       coordinates (with geodetic conversion ignored).
     - radial: Radial field lines with configurable magnitude.
@@ -91,10 +91,11 @@ class Mainfield:
 
     Notes
     -----
-    The models use different horizontal coordinate systems: ``dipole`` uses
-    centered-dipole magnetic coordinates, ``kaiju_dipole`` uses Kaiju/Geopack
-    SM coordinates, and ``igrf``/``radial`` use geocentric geographic
-    coordinates. For IGRF, geodetic height is approximated as ``h = r - RE``.
+    The models use different horizontal coordinate systems: ``dipole``
+    uses centered-dipole magnetic coordinates, ``kaiju_dipole`` uses
+    Kaiju/Geopack SM coordinates, and ``igrf``/``radial`` use
+    geocentric geographic coordinates. For IGRF, geodetic height is
+    approximated as ``h = r - RE``.
     """
 
     def __init__(self, kind="dipole", epoch=2020, hI=0.0, B0=None):
@@ -109,8 +110,8 @@ class Mainfield:
         hI : float, optional
             Ionospheric height in km.
         B0 : float, optional
-            Equatorial ground field magnitude for dipole/radial models in
-            Tesla. If None, uses reference field magnitude for epoch.
+            Equatorial ground field magnitude for dipole/radial models
+            in Tesla. If None, uses reference field magnitude for epoch.
         """
         if kind.lower() not in MAINFIELD_KINDS:
             raise ValueError(f"kind must be one of {', '.join(MAINFIELD_KINDS)}")
@@ -153,7 +154,7 @@ class Mainfield:
 
     @property
     def coordinate_system(self):
-        """Return the horizontal coordinate system expected by this model."""
+        """Return this model's horizontal coordinate system."""
         if self.kind == "kaiju_dipole":
             return "SM"
         if self.kind == "dipole":
@@ -162,11 +163,11 @@ class Mainfield:
 
     @property
     def geographic_transform_requires_event_time(self):
-        """Return whether GEO/model conversion requires an explicit time."""
+        """Return whether GEO/model conversion needs a time."""
         return self.kind == "kaiju_dipole"
 
     def _require_event_time(self, event_time):
-        """Return an event time, raising if the chosen model requires one."""
+        """Return an event time, raising if required."""
         if event_time is None and self.geographic_transform_requires_event_time:
             raise ValueError(
                 "kaiju_dipole geographic conversion requires event_time because "
@@ -182,23 +183,24 @@ class Mainfield:
         return east is not None
 
     def geo_to_model_coordinates(self, lat, lon, east=None, north=None, *, event_time=None):
-        """Convert geographic coordinates and optional vectors to model coordinates.
+        """Convert geographic coordinates to model coordinates.
 
         Parameters
         ----------
         lat, lon : array-like
             Geocentric geographic latitude and longitude in degrees.
         east, north : array-like, optional
-            Tangential vector components in the geographic east/north basis.
+            Tangential vector components in geographic east/north basis.
         event_time : datetime, optional
-            Required for ``kaiju_dipole`` because SM longitude depends on the
-            Sun-Earth geometry at the event time.
+            Required for ``kaiju_dipole`` because SM longitude depends
+            on the Sun-Earth geometry at the event time.
 
         Returns
         -------
         lat_model, lon_model[, east_model, north_model]
             Coordinates in the horizontal system returned by
-        :attr:`coordinate_system`. Longitudes are wrapped to [-180, 180).
+            :attr:`coordinate_system`. Longitudes are wrapped to
+            [-180, 180).
         """
         self._require_event_time(event_time)
         has_vector = self._has_tangent_vector(east, north)
@@ -220,7 +222,7 @@ class Mainfield:
         return (result[0], wrap_longitude_180(result[1]), *result[2:])
 
     def model_to_geo_coordinates(self, lat, lon, east=None, north=None, *, event_time=None):
-        """Convert model coordinates and optional vectors to geographic coordinates."""
+        """Convert model coordinates to geographic coordinates."""
         self._require_event_time(event_time)
         has_vector = self._has_tangent_vector(east, north)
 
@@ -240,14 +242,38 @@ class Mainfield:
         result = tuple(np.asarray(value) for value in result)
         return (result[0], wrap_longitude_180(result[1]), *result[2:])
 
+    def magnetic_latitude_trace_to_geo(
+        self, magnetic_latitude, magnetic_longitude=None, *, event_time=None, n_points=721
+    ):
+        """Return a magnetic-latitude trace in GEO coordinates.
+
+        For centered dipoles, magnetic latitude means the model latitude
+        returned by :meth:`geo_to_model_coordinates`. For IGRF, it means
+        apex latitude at this main-field reference height.
+        """
+        if magnetic_longitude is None:
+            magnetic_longitude = np.linspace(-180.0, 180.0, int(n_points))
+        mlon = np.asarray(magnetic_longitude, dtype=float)
+        mlat = np.full_like(mlon, float(magnetic_latitude), dtype=float)
+
+        if self.kind == "radial":
+            return np.full_like(mlon, np.nan), np.full_like(mlon, np.nan)
+        if self.kind == "igrf":
+            geo_lat, geo_lon, _ = self.apx.apex2geo(mlat, mlon, self.apx.refh)
+            return wrap_longitude_180(geo_lon), np.asarray(geo_lat, dtype=float)
+
+        geo_lat, geo_lon = self.model_to_geo_coordinates(mlat, mlon, event_time=event_time)
+        return wrap_longitude_180(geo_lon), np.asarray(geo_lat, dtype=float)
+
     def local_time_longitude_to_model_longitude(
         self, local_time_lon, event_time, *, local_noon_longitude=0.0
     ):
-        """Convert a REMIX/MAGE local-time longitude to this model longitude.
+        """Convert local-time longitude to model longitude.
 
-        REMIX polar grids place noon at raw longitude zero. In ``kaiju_dipole``
-        this is already the SM longitude origin. In legacy ``dipole`` mode it
-        is converted through the dipole package's MLT convention.
+        REMIX polar grids place noon at raw longitude zero. In
+        ``kaiju_dipole`` this is already the SM longitude origin. In
+        legacy ``dipole`` mode it is converted through the dipole
+        package's MLT convention.
         """
         if not is_dipole_kind(self.kind):
             raise ValueError(
@@ -260,7 +286,7 @@ class Mainfield:
         return wrap_longitude_180(self.dpl.mlt2mlon(mlt, event_time))
 
     def alignment_metadata(self, event_time=None):
-        """Return centered-field alignment metadata for logs and output files."""
+        """Return centered-field alignment metadata."""
         if not is_dipole_kind(self.kind):
             return {
                 "mainfield_kind": self.kind,

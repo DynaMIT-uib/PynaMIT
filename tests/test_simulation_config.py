@@ -79,7 +79,7 @@ def test_simulation_config_from_minimal_settings_accepts_missing_defaults():
 
 
 def test_simulation_config_preserves_decimal_mainfield_epoch():
-    """Main-field epochs can be decimal years for alignment consistency."""
+    """Main-field epochs can be decimal years."""
     config = SimulationConfig(mainfield_epoch=2011.813014015728)
     restored = SimulationConfig.from_settings(config.to_dataset())
 

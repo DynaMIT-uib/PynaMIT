@@ -117,7 +117,7 @@ def test_pynameye_uses_distinct_global_and_magnetic_contexts():
 
 
 def test_pynameye_uses_sm_noon_for_kaiju_dipole_context():
-    """Kaiju dipole runs use SM longitude, where noon is longitude zero."""
+    """Kaiju dipole runs use SM longitude with noon at zero."""
     eye = object.__new__(PynamEye)
     eye.time = dt.datetime(2011, 10, 24, 18, 30)
     eye.dp = FakeDipole()

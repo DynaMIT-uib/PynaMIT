@@ -45,7 +45,7 @@ class PynamitFigureSpec:
     data_directory: str = ""
     plot_type: str = "ground_curve_map"
     time_index: int = 0
-    time_range: tuple[int, int] = (0, 0)
+    time_range: tuple[int, int] = (182, 191)
     fill: str = "Br"
     lines: str = "none"
     show_north: bool = True
@@ -58,21 +58,35 @@ class PynamitFigureSpec:
     show_station_labels: bool = True
     show_inductive: bool = True
     show_noninductive: bool = False
+    show_difference: bool = True
     show_reference_line: bool = True
     reference_time_of_day_utc: str = "18:31:00"
     conductance_overlay: str = "none"
     sim_time_offset_seconds: float = 30.0
     data_time_offset_seconds: float = 0.0
+    dbdt_window_points: int = 1
+    ground_model_lt_count: int = 8
+    ground_model_lat_count: int = 7
+    ground_model_visual_even: bool = False
+    show_pedersen_conductance_overlay: bool = False
+    show_hall_conductance_overlay: bool = False
     min_abs_dip_latitude: float = 65.0
     low_latitude_scale: float = 3.0
+    show_dip_equator_curve: bool = True
+    show_low_latitude_curve: bool = True
     curve_scale_mode: str = "manual"
     curve_scale_value: float = 10.0
     curve_time_scale: float = 1.0
+    color_scale_mode: str = "fixed"
+    color_scale_percentile: float = 99.8
     geo_lat_min: float = -90.0
     geo_lat_max: float = 90.0
     local_time_min: float = 0.0
     local_time_max: float = 24.0
     zoom_window: bool = False
+    movie_filename: str = "pynamit_movie.gif"
+    movie_fps: float = 4.0
+    movie_dpi: int = 120
     extra: dict = field(default_factory=dict)
 
     def to_dict(self):
