@@ -13,7 +13,7 @@ High-level flow
 ``Dynamics`` remains the public orchestration object.  It normalizes user
 configuration with ``SimulationConfig``, builds a ``SimulationSchema``,
 creates persistence through ``SimulationData``, initializes ``State``, and
-coordinates input updates and time evolution.
+keeps the user-facing simulation methods in one place.
 
 The main setup path is:
 
@@ -25,8 +25,10 @@ The main setup path is:
 3. ``Dynamics`` builds reusable input transforms from those field spaces and
    attaches an ``InputProjector`` for all input validation, projection, and
    coefficient storage.
-4. ``State`` owns the evolving numerical state and operator application.
-5. ``SimulationData`` owns persisted settings, input time series, and output
+4. ``Dynamics`` attaches an ``EvolutionRunner`` for restart handling, sample
+   scheduling, progress reporting, and output save decisions.
+5. ``State`` owns the evolving numerical state and operator application.
+6. ``SimulationData`` owns persisted settings, input time series, and output
    time series.
 
 Keep this layering intact: configuration should not perform numerical work,
@@ -103,15 +105,14 @@ State and evolution
 
 ``State`` should remain the owner of derived model operators, coefficient
 updates, backend array conversion, and field evaluations that depend on the
-current physical state.  ``Dynamics`` should coordinate when the state is
-updated and when results are persisted, but it should not accumulate new
-low-level operator algebra.
+current physical state.  ``Dynamics`` exposes ``evolve_to_time`` as the stable
+public API, but delegates the run loop to ``EvolutionRunner``.
 
-The next likely long-lived split is an evolution or run controller if
-``evolve_to_time`` continues to grow.  That controller would own restart
-short-circuiting, sample scheduling, progress reporting, and output save
-decisions while leaving ``State`` responsible for physics and ``SimulationData``
-responsible for persistence.
+``EvolutionRunner`` owns restart short-circuiting, sample scheduling, progress
+reporting, and output save decisions.  It should stay focused on orchestration:
+the runner may decide when to update state or save outputs, but low-level
+operator algebra belongs in ``State`` and artifact details belong in
+``SimulationData``.
 
 Persistence
 -----------
@@ -151,6 +152,8 @@ Use these rules when extending the codebase:
 * Add persisted streams to ``simulation.schema`` before adding storage code.
 * Add input projection behavior to ``InputProjector`` and ``InputSpec`` before
   adding logic to ``Dynamics`` setters.
+* Add run-loop behavior to ``EvolutionRunner`` before expanding
+  ``Dynamics.evolve_to_time``.
 * Add cubed-sphere internals to the focused CS collaborator that owns the
   concept.
 * Move reusable script logic into package modules before testing it.

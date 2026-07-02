@@ -12,27 +12,11 @@ from pynamit.sphere.spherical_transform import SphericalTransform
 from pynamit.sphere import Grid
 from pynamit.primitives.io import IO
 from pynamit.simulation.data import SimulationData
+from pynamit.simulation.evolution import EvolutionRunner
 from pynamit.simulation.inputs import InputProjector
 from pynamit.simulation.mainfield import mainfield_from_config
 from pynamit.simulation.state import State
-from pynamit.math.backend import set_backend, to_jax, to_numpy, use_jax
-
-FLOAT_ERROR_MARGIN = 1e-6  # Safety margin for floating point errors
-
-
-def _maxrss_label():
-    """Return a compact max-RSS label when the platform exposes it."""
-    try:
-        import resource
-        import sys
-
-        maxrss = float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
-    except Exception:
-        return ""
-    if not np.isfinite(maxrss) or maxrss <= 0.0:
-        return ""
-    mib = maxrss / (1024.0 * 1024.0) if sys.platform == "darwin" else maxrss / 1024.0
-    return f", max RSS ~{mib:.0f} MiB"
+from pynamit.math.backend import set_backend, to_numpy
 
 
 class Dynamics:
@@ -279,6 +263,7 @@ class Dynamics:
             solid_harmonics=self.solid_harmonics,
         )
         self.horizontal_spherical_transform = self.state.geometry.spherical_transform
+        self.evolution_runner = EvolutionRunner(self)
 
         if "state" in self.output_timeseries.datasets.keys():
             self.current_time = np.max(self.output_timeseries.datasets["state"].time.values)
@@ -343,158 +328,16 @@ class Dynamics:
             Whether to calculate and save the algebraic steady-state
             solution. Defaults to ``self.settings.save_steady_states``.
         """
-        run_inductive = bool(run_inductive)
-        if run_steady_state is None:
-            run_steady_state = self.config.save_steady_states
-        else:
-            run_steady_state = bool(run_steady_state)
-
-        if not run_inductive and not run_steady_state:
-            raise ValueError("At least one of run_inductive or run_steady_state must be True.")
-
-        sampling_step_interval = int(sampling_step_interval)
-        saving_sample_interval = int(saving_sample_interval)
-        if sampling_step_interval < 1:
-            raise ValueError("sampling_step_interval must be >= 1.")
-        if saving_sample_interval < 1:
-            raise ValueError("saving_sample_interval must be >= 1.")
-
-        step = 0
-
-        inductive_m_ind = None
-        if run_inductive and "state" in self.output_timeseries.datasets.keys():
-            if not quiet:
-                print("Resuming inductive state from saved output.", flush=True)
-            self.current_time = np.max(self.output_timeseries.datasets["state"].time.values)
-            inductive_m_ind = self.output_timeseries.get_entry(
-                "state", self.current_time, interpolation=False
-            )["m_ind"]
-            inductive_m_ind = to_jax(inductive_m_ind) if use_jax() else inductive_m_ind
-            inductive_m_ind = self.state.project_scalar_mean_free(inductive_m_ind)
-        elif run_inductive:
-            if steady_state_initialization:
-                if not quiet:
-                    print("Initializing inductive state from steady state.", flush=True)
-                self.state.update(self.input_timeseries, self.current_time)
-                E_coeffs_noind, _ = self.state.calculate_noind_coeffs()
-                inductive_m_ind = self.state.steady_state_m_ind(E_coeffs_noind)
-            else:
-                if not quiet:
-                    print("Initializing inductive state from zero.", flush=True)
-                self.current_time = np.float64(0)
-                zeros = np.zeros(self.output_field_spaces["state"].index_length)
-                inductive_m_ind = to_jax(zeros) if use_jax() else zeros
-                inductive_m_ind = self.state.project_scalar_mean_free(inductive_m_ind)
-        elif "steady_state" in self.output_timeseries.datasets.keys():
-            self.current_time = np.max(self.output_timeseries.datasets["steady_state"].time.values)
-        else:
-            self.current_time = np.float64(0)
-
-        def _saved_output_reaches(dataset_key):
-            dataset = self.output_timeseries.datasets.get(dataset_key)
-            if dataset is None or "time" not in dataset:
-                return False
-            return float(np.max(dataset.time.values)) >= float(t) - FLOAT_ERROR_MARGIN
-
-        requested_outputs = []
-        if run_inductive:
-            requested_outputs.append("state")
-        if run_steady_state:
-            requested_outputs.append("steady_state")
-        if requested_outputs and all(_saved_output_reaches(key) for key in requested_outputs):
-            if not quiet:
-                print(
-                    f"Saved output already reaches t = {float(t):.2f} s; nothing to evolve.",
-                    flush=True,
-                )
-            return
-
-        step_increment = 1 if run_inductive else sampling_step_interval
-        report_step_interval = sampling_step_interval * saving_sample_interval
-        total_steps_estimate = max(
-            1,
-            int(
-                np.ceil(
-                    max(float(t) - float(self.current_time), 0.0)
-                    / max(float(dt) * step_increment, FLOAT_ERROR_MARGIN)
-                )
-            ),
+        return self.evolution_runner.evolve_to_time(
+            t,
+            dt=dt,
+            sampling_step_interval=sampling_step_interval,
+            saving_sample_interval=saving_sample_interval,
+            quiet=quiet,
+            steady_state_initialization=steady_state_initialization,
+            run_inductive=run_inductive,
+            run_steady_state=run_steady_state,
         )
-
-        while True:
-            if not quiet and (step == 0 or step % report_step_interval == 0):
-                print(
-                    f"Evolution step {step}/{total_steps_estimate} "
-                    f"at t = {float(self.current_time):.2f} s{_maxrss_label()}",
-                    flush=True,
-                )
-            self.state.update(self.input_timeseries, self.current_time)
-
-            E_coeffs_noind, m_imp_noind = self.state.calculate_noind_coeffs()
-
-            is_sample_step = step % sampling_step_interval == 0
-            should_save_sample = (
-                is_sample_step and step % (sampling_step_interval * saving_sample_interval) == 0
-            )
-            needs_steady_state = (run_inductive and self.config.integrator == "exponential") or (
-                run_steady_state and is_sample_step
-            )
-
-            if needs_steady_state:
-                if not quiet and self.config.integrator == "exponential":
-                    print("  Solving steady state required by exponential integrator.", flush=True)
-                steady_state_m_ind = self.state.steady_state_m_ind(E_coeffs_noind)
-            else:
-                steady_state_m_ind = None
-
-            if is_sample_step:
-                if run_inductive:
-                    self.add_state_to_timeseries(
-                        "state", inductive_m_ind, E_coeffs_noind, m_imp_noind
-                    )
-
-                if run_steady_state:
-                    self.add_state_to_timeseries(
-                        "steady_state", steady_state_m_ind, E_coeffs_noind, m_imp_noind
-                    )
-
-                # Save state and steady state time series.
-                if should_save_sample:
-                    saved_outputs = []
-                    if run_inductive:
-                        self.data.save_output_dataset("state")
-                        saved_outputs.append("state")
-
-                    if run_steady_state:
-                        self.data.save_output_dataset("steady_state")
-                        saved_outputs.append("steady state")
-
-                    if not quiet and saved_outputs:
-                        print(
-                            "Saved {} at t = {:.2f} s{}".format(
-                                " and ".join(saved_outputs),
-                                float(self.current_time),
-                                _maxrss_label(),
-                            ),
-                            flush=True,
-                        )
-
-            next_time = self.current_time + dt * step_increment
-
-            if next_time > t + FLOAT_ERROR_MARGIN:
-                if not quiet:
-                    print("\n\n")
-                break
-
-            if run_inductive:
-                if not quiet and self.config.integrator == "exponential":
-                    print("  Applying dense exponential induction step.", flush=True)
-                inductive_m_ind = self.state.evolve_m_ind(
-                    inductive_m_ind, dt, E_coeffs_noind, steady_state_m_ind
-                )
-            self.current_time = next_time
-
-            step += step_increment
 
     def impose_steady_state(self, time=None, interpolation=True, save=True, quiet=False):
         """Replace the current model state with the steady state."""
