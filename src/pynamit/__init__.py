@@ -22,8 +22,10 @@ Grid : class
     Class for grid management.
 Mainfield : class
     Class for main field evaluation.
+mainfield_from_config : function
+    Build a main-field evaluator from simulation settings.
 PynamEye : class
-    Class for visualization.
+    Legacy compatibility frontend for visualization.
 SHBasis : class
     Class for spherical harmonics basis functions.
 SolidHarmonics : class
@@ -61,9 +63,10 @@ from .simulation.prepared_inputs import (
     prepared_input_contract,
     read_input_manifest,
     run_pynamit_from_inputs,
+    validate_input_manifest,
     validate_prepared_input_compatibility,
 )
-from .simulation.mainfield import Mainfield
+from .simulation.mainfield import Mainfield, mainfield_from_config
 from .math import set_backend, use_jax
 from .external_inputs import set_input_source, get_input_source
 
@@ -100,6 +103,7 @@ __all__ = [
     "FieldSpace",
     "Grid",
     "Mainfield",
+    "mainfield_from_config",
     "PynamEye",
     "SHBasis",
     "SolidHarmonics",
@@ -124,5 +128,6 @@ __all__ = [
     "use_jax",
     "set_input_source",
     "get_input_source",
+    "validate_input_manifest",
     "validate_prepared_input_compatibility",
 ]

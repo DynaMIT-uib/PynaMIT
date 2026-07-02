@@ -25,31 +25,22 @@ import pynamit
 
 from pynamit.primitives.io import IO
 from pynamit.simulation.config import SimulationConfig
+from pynamit.simulation.mage_workflow import (
+    DEFAULT_MMAX,
+    DEFAULT_NCS,
+    DEFAULT_NMAX,
+    projection_directory_for_resolution,
+    result_directory_for_resolution,
+)
 from pynamit.simulation.prepared_inputs import (
     RUN_MANIFEST_FILENAME,
     load_prepared_inputs_into_dynamics,
 )
 
-try:
-    from scripts.simulation.mage_project_inputs import (
-        DEFAULT_NCS,
-        DEFAULT_NMAX,
-        DEFAULT_MMAX,
-        projection_directory_for_resolution,
-        result_directory_for_resolution,
-    )
-except ModuleNotFoundError:  # pragma: no cover - supports running from this directory
-    from mage_project_inputs import (
-        DEFAULT_NCS,
-        DEFAULT_NMAX,
-        DEFAULT_MMAX,
-        projection_directory_for_resolution,
-        result_directory_for_resolution,
-    )
-
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 LATITUDE_BOUNDARY = 35.0
+DEFAULT_MAGE_RUN_ROOT = SCRIPT_DIR / "mage_runs" / "mage_2011_kaiju_direct_e"
 
 
 @dataclass(frozen=True)
@@ -79,7 +70,9 @@ def main(settings: MageForcingSettings = SETTINGS) -> None:
     """Run PynaMIT from an already projected MAGE input package."""
     input_directory = Path(
         settings.input_directory
-        or projection_directory_for_resolution(settings.nmax, settings.mmax, settings.ncs)
+        or projection_directory_for_resolution(
+            settings.nmax, settings.mmax, settings.ncs, DEFAULT_MAGE_RUN_ROOT
+        )
     ).expanduser()
     if not input_directory.exists():
         raise FileNotFoundError(
@@ -114,7 +107,9 @@ def main(settings: MageForcingSettings = SETTINGS) -> None:
     print(f"Using projected input package: {input_directory}", flush=True)
     run_directory = Path(
         settings.run_directory
-        or result_directory_for_resolution(settings.nmax, settings.mmax, settings.ncs)
+        or result_directory_for_resolution(
+            settings.nmax, settings.mmax, settings.ncs, DEFAULT_MAGE_RUN_ROOT
+        )
     ).expanduser()
     print(f"Writing run directory: {run_directory}", flush=True)
     if mage_metadata:
@@ -143,9 +138,7 @@ def main(settings: MageForcingSettings = SETTINGS) -> None:
     print(f"Steady-state initialization: {settings.steady_state_initialization}", flush=True)
 
     dynamics = pynamit.Dynamics(
-        run_directory=run_directory,
-        artifact_storage=settings.artifact_storage,
-        **config_kwargs,
+        run_directory=run_directory, artifact_storage=settings.artifact_storage, **config_kwargs
     )
     state_size = int(dynamics.state.basis.index_length)
     dense_matrix_mib = state_size * state_size * 8.0 / 1024.0**2

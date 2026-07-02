@@ -11,7 +11,8 @@ from pynamit.simulation.kaiju_dipole import (
     kaiju_geopack_dipole,
     kaiju_geopack_sm,
 )
-from pynamit.simulation.mainfield import Mainfield
+from pynamit.simulation.config import SimulationConfig
+from pynamit.simulation.mainfield import Mainfield, mainfield_from_config
 
 
 def test_dipole_B0_override_preserves_epoch_alignment():
@@ -73,6 +74,23 @@ def test_mainfield_coordinate_system_labels_are_explicit():
     assert Mainfield(kind="dipole", epoch=2011).coordinate_system == "centered_dipole_magnetic"
     assert Mainfield(kind="igrf", epoch=2011).coordinate_system == "geographic"
     assert Mainfield(kind="radial", epoch=2011).coordinate_system == "geographic"
+
+
+def test_mainfield_from_config_uses_canonical_settings():
+    """Saved-run and dynamics code share one main-field constructor."""
+    config = SimulationConfig(
+        RI=RE + 130.0e3,
+        mainfield_kind="kaiju_dipole",
+        mainfield_epoch=2011.5,
+        mainfield_B0=29_000.0e-9,
+    )
+
+    mainfield = mainfield_from_config(config)
+
+    assert mainfield.kind == "kaiju_dipole"
+    assert mainfield.epoch == pytest.approx(2011.5)
+    assert mainfield.hI == pytest.approx(130.0)
+    assert mainfield.dpl.B0 == pytest.approx(29_000.0)
 
 
 def test_kaiju_mainfield_geo_transform_requires_event_time():

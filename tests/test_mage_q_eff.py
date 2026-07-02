@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from scripts.simulation.mage_project_inputs import (
+from pynamit.simulation.mage_workflow import (
     cross_spherical,
     direct_E_source_for_pynamit,
     weighted_wind_current_source,

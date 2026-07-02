@@ -2,10 +2,9 @@
 Helpers for loading conductance, currents, and winds.
 
 This module encapsulates optional dependencies (lompe, pyamps,
-pyhwm2014). When those libraries are not available, it falls back to
-bundled sample data stored under ``pynamit.data.fallback_inputs.json``.
-The fallback data represents a single snapshot that is sufficient for
-validation tests and simple examples.
+pyhwm2014). Bundled sample data are available for validation tests and
+small examples, but must be requested explicitly with
+``PYNAMIT_INPUT_SOURCE=fallback`` or ``set_input_source("fallback")``.
 """
 
 from __future__ import annotations
@@ -21,7 +20,9 @@ import numpy as np
 from pynamit.sphere.grid import Grid
 
 FALLBACK_RESOURCE = resources.files("pynamit.data") / "fallback_inputs.json"
-_INPUT_SOURCE = os.environ.get("PYNAMIT_INPUT_SOURCE", "auto").lower()
+_INPUT_SOURCE = os.environ.get("PYNAMIT_INPUT_SOURCE", "native").lower()
+if _INPUT_SOURCE == "auto":
+    _INPUT_SOURCE = "native"
 
 
 class OptionalLibs:
@@ -52,10 +53,12 @@ class OptionalLibs:
                 except ModuleNotFoundError:
                     parent = import_module(package)
                     module = getattr(parent, name)
-        except Exception:
-            if _INPUT_SOURCE == "native":
-                raise
-            module = None
+        except Exception as exc:
+            raise RuntimeError(
+                f"Native input source {package!r} is not available. "
+                "Install the native input dependencies or explicitly call "
+                "set_input_source('fallback') to use bundled sample data."
+            ) from exc
 
         self._imports[name] = module
         return module
@@ -89,22 +92,18 @@ def set_input_source(source: Optional[str]) -> str:
     global _INPUT_SOURCE
 
     if source is None:
-        source = "auto"
+        source = "native"
 
     normalized = source.strip().lower()
-    if normalized not in {"auto", "fallback", "native"}:
-        raise ValueError("Input source must be 'auto', 'fallback', or 'native'.")
-
-    if normalized == "native" and not native_inputs_available():
-        raise RuntimeError("Native input libraries are not available.")
+    if normalized == "auto":
+        normalized = "native"
+    if normalized not in {"fallback", "native"}:
+        raise ValueError("Input source must be 'fallback' or 'native'.")
 
     _INPUT_SOURCE = normalized
     OPTIONAL.clear()
 
-    if normalized == "auto":
-        os.environ.pop("PYNAMIT_INPUT_SOURCE", None)
-    else:
-        os.environ["PYNAMIT_INPUT_SOURCE"] = normalized
+    os.environ["PYNAMIT_INPUT_SOURCE"] = normalized
 
     return _INPUT_SOURCE
 
@@ -298,19 +297,14 @@ def get_conductance_inputs(
         pedersen = _expand_time_series(pedersen, time)
         return hall, pedersen, lat, lon
 
-    if source != "fallback" and lat.size > 0 and lon.size > 0 and native_inputs_available():
-        from lompe import conductance as native_conductance
+    if source == "fallback":
+        fallback = _load_fallback()
+        entry = _select_fallback_entry(fallback["conductance"], lat, lon, "conductance")
+        hall = _expand_time_series(entry["hall"], time)
+        pedersen = _expand_time_series(entry["pedersen"], time)
+        return hall, pedersen, entry["lat"], entry["lon"]
 
-        hall, pedersen = native_conductance.hardy_EUV(lon, lat, 5, date, starlight=1, dipole=True)
-        hall = _expand_time_series(hall, time)
-        pedersen = _expand_time_series(pedersen, time)
-        return hall, pedersen, lat, lon
-
-    fallback = _load_fallback()
-    entry = _select_fallback_entry(fallback["conductance"], lat, lon, "conductance")
-    hall = _expand_time_series(entry["hall"], time)
-    pedersen = _expand_time_series(entry["pedersen"], time)
-    return hall, pedersen, entry["lat"], entry["lon"]
+    raise RuntimeError("Native conductance inputs are not available.")
 
 
 def get_jr_inputs(
@@ -339,27 +333,13 @@ def get_jr_inputs(
         jr = _expand_time_series(jr, time)
         return jr, lat, lon
 
-    if source != "fallback" and lat.size > 0 and lon.size > 0 and native_inputs_available():
-        from dipole import Dipole
-        import pyamps
+    if source == "fallback":
+        fallback = _load_fallback()
+        entry = _select_fallback_entry(fallback["jr"], lat, lon, "jr")
+        jr = _expand_time_series(entry["jr"], time)
+        return jr, entry["lat"], entry["lon"]
 
-        d = Dipole(date.year)
-        coeff_path = (
-            Path(pyamps.__file__).resolve().parent
-            / "coefficients"
-            / "SW_OPER_MIO_SHA_2E_00000000T000000_99999999T999999_0104.txt"
-        )
-        amps = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50, coeff_fn=str(coeff_path))
-        mlt = d.mlon2mlt(lon, date)
-        jr_native = amps.get_upward_current(mlat=lat, mlt=mlt) * 1e-6
-        jr_native[np.abs(lat) < 50] = 0
-        jr_native = _expand_time_series(jr_native, time)
-        return jr_native, lat, lon
-
-    fallback = _load_fallback()
-    entry = _select_fallback_entry(fallback["jr"], lat, lon, "jr")
-    jr = _expand_time_series(entry["jr"], time)
-    return jr, entry["lat"], entry["lon"]
+    raise RuntimeError("Native FAC/jr inputs are not available.")
 
 
 def get_wind_inputs(
@@ -393,70 +373,11 @@ def get_wind_inputs(
         weights = np.tile(weights, (2, 1))
         return u_theta, u_phi, lat_grid.reshape(-1), lon_grid.reshape(-1), weights
 
-    if (
-        source != "fallback"
-        and time is not None
-        and np.size(time) > 1
-        and native_inputs_available()
-    ):
-        from pyhwm2014 import HWM142D
-
-        model = HWM142D(
-            alt=110.0,
-            ap=[35, 35],
-            glatlim=[-88.5, 88.5],
-            glatstp=1.5,
-            glonlim=[-180.0, 180.0],
-            glonstp=3.0,
-            option=6,
-            verbose=False,
-            ut=date.hour + date.minute / 60.0,
-            day=date.timetuple().tm_yday,
-        )
-        u_theta_native = -model.Vwind.reshape(-1)
-        u_phi_native = model.Uwind.reshape(-1)
-        lat_grid, lon_grid = np.meshgrid(model.glatbins, model.glonbins, indexing="ij")
-        u_theta_native = _expand_time_series(u_theta_native, time)
-        u_phi_native = _expand_time_series(u_phi_native, time)
-        weights = np.sqrt(np.sin(np.deg2rad(90.0 - lat_grid.reshape(-1))))
-        weights = np.tile(weights, (2, 1))
-        return (u_theta_native, u_phi_native, lat_grid.reshape(-1), lon_grid.reshape(-1), weights)
+    if source != "fallback":
+        raise RuntimeError("Native neutral-wind inputs are not available.")
 
     fallback = _load_fallback()
     wind_data = fallback["wind"]
-    if source != "fallback" and native_inputs_available():
-        lat_values = wind_data["lat"]
-        lon_values = wind_data["lon"]
-        if lat_values.size > 0 and lon_values.size > 0:
-            unique_lat = np.unique(lat_values)
-            unique_lon = np.unique(lon_values)
-            lat_step = unique_lat[1] - unique_lat[0] if unique_lat.size > 1 else 1.0
-            lon_step = unique_lon[1] - unique_lon[0] if unique_lon.size > 1 else 1.0
-            from pyhwm2014 import HWM142D
-
-            model = HWM142D(
-                alt=110.0,
-                ap=[35, 35],
-                glatlim=[float(unique_lat[0]), float(unique_lat[-1])],
-                glatstp=float(lat_step),
-                glonlim=[float(unique_lon[0]), float(unique_lon[-1]) + float(lon_step)],
-                glonstp=float(lon_step),
-                option=6,
-                verbose=False,
-                ut=date.hour + date.minute / 60.0,
-                day=date.timetuple().tm_yday,
-            )
-            u_theta_native = -model.Vwind[:, :-1].reshape(-1)
-            u_phi_native = model.Uwind[:, :-1].reshape(-1)
-            lat_grid, lon_grid = np.meshgrid(model.glatbins, model.glonbins[:-1], indexing="ij")
-            lat_flat = lat_grid.reshape(-1)
-            lon_flat = lon_grid.reshape(-1)
-            u_theta_native = _expand_time_series(u_theta_native, time)
-            u_phi_native = _expand_time_series(u_phi_native, time)
-            weights = np.sqrt(np.sin(np.deg2rad(90.0 - lat_flat)))
-            weights = np.tile(weights, (2, 1))
-            return u_theta_native, u_phi_native, lat_flat, lon_flat, weights
-
     lat_grid = wind_data["lat"]
     lon_grid = wind_data["lon"]
     u_theta = _expand_time_series(wind_data["u_theta"], time)

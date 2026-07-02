@@ -16,6 +16,7 @@ from pynamit.simulation.prepared_inputs import (
     prepared_input_contract,
     read_input_manifest,
     run_pynamit_from_inputs,
+    validate_input_manifest,
     validate_prepared_input_compatibility,
     write_input_manifest,
 )
@@ -31,6 +32,7 @@ def test_prepared_input_exports_are_public():
     assert pynamit.input_geometry_settings is prepared_inputs.input_geometry_settings
     assert pynamit.input_dataset_requirements is prepared_inputs.input_dataset_requirements
     assert pynamit.prepared_input_contract is prepared_inputs.prepared_input_contract
+    assert pynamit.validate_input_manifest is prepared_inputs.validate_input_manifest
     assert (
         pynamit.validate_prepared_input_compatibility
         is prepared_inputs.validate_prepared_input_compatibility
@@ -87,6 +89,12 @@ def test_input_manifest_records_projection_settings(tmp_path):
     assert loaded["input_contract"]["geometry"]["mainfield_coordinate_time"] == config.t0
     assert loaded["input_contract"]["input_datasets"] == ["conductance", "jr"]
     assert loaded["input_contract"]["dataset_requirements"] == {}
+    assert (
+        validate_input_manifest(
+            tmp_path, config.to_dataset(), available_inputs=("conductance", "jr")
+        )
+        == loaded
+    )
 
 
 def test_input_manifest_records_geometry_bound_dataset_requirements(tmp_path):
@@ -103,6 +111,41 @@ def test_input_manifest_records_geometry_bound_dataset_requirements(tmp_path):
     assert loaded["input_contract"]["geometry"]["mainfield_kind"] == "igrf"
     assert loaded["input_contract"]["dataset_requirements"] == {"Br": ["RM"]}
     assert input_dataset_requirements(("conductance", "u")) == {}
+
+
+def test_input_manifest_validation_catches_stale_dataset_lists(tmp_path):
+    """Manifest datasets should match the stored artifacts."""
+    config = SimulationConfig(Nmax=4, Mmax=3, Ncs=8)
+    write_input_manifest(tmp_path, config.to_dataset(), input_datasets=("jr",), source="test")
+
+    with pytest.raises(ValueError, match="listed but missing"):
+        validate_input_manifest(tmp_path, config.to_dataset(), available_inputs=())
+
+    with pytest.raises(ValueError, match="stored but not listed"):
+        validate_input_manifest(
+            tmp_path, config.to_dataset(), available_inputs=("jr", "conductance")
+        )
+    validate_input_manifest(
+        tmp_path, config.to_dataset(), available_inputs=("jr", "conductance"), allow_unlisted=True
+    )
+
+
+def test_input_manifest_validation_can_require_manifest(tmp_path):
+    """Run paths can reject input directories without a contract."""
+    assert validate_input_manifest(tmp_path, available_inputs=()) is None
+
+    with pytest.raises(ValueError, match=INPUT_MANIFEST_FILENAME):
+        validate_input_manifest(tmp_path, available_inputs=(), require=True)
+
+
+def test_input_manifest_validation_catches_contract_mismatch(tmp_path):
+    """Manifest contracts should describe the settings artifact."""
+    config = SimulationConfig(Nmax=4, Mmax=3, Ncs=8)
+    changed_config = SimulationConfig(Nmax=5, Mmax=3, Ncs=8)
+    write_input_manifest(tmp_path, config.to_dataset(), input_datasets=("jr",), source="test")
+
+    with pytest.raises(ValueError, match="does not match the settings artifact"):
+        validate_input_manifest(tmp_path, changed_config.to_dataset(), available_inputs=("jr",))
 
 
 def test_prepared_inputs_require_matching_mainfield():
@@ -168,3 +211,30 @@ def test_prepare_and_run_from_inputs_smoke(tmp_path):
     assert "conductance" in run.input_timeseries.datasets
     assert (run_directory / "conductance.ncdf").exists()
     assert (run_directory / RUN_MANIFEST_FILENAME).exists()
+
+
+def test_run_from_inputs_errors_on_requested_missing_dataset(tmp_path):
+    """Explicitly enabled inputs must exist in the prepared package."""
+    input_directory = tmp_path / "inputs"
+    run_directory = tmp_path / "run"
+
+    prepare_pynamit_inputs(
+        input_directory,
+        final_time=0.0,
+        Nmax=2,
+        Mmax=1,
+        Ncs=8,
+        artifact_storage="netcdf",
+        use_wind=False,
+    )
+
+    with pytest.raises(ValueError, match="Requested prepared input"):
+        run_pynamit_from_inputs(
+            input_directory,
+            run_directory=run_directory,
+            enabled_inputs=("u",),
+            final_time=0.0,
+            dt=0.01,
+            plotsteps=1,
+            artifact_storage="netcdf",
+        )

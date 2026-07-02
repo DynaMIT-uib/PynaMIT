@@ -168,7 +168,10 @@ scripts/visualization/figures
 
 
 *.ncdf
+*.h5
 *.png
+*.out
+*.err
 
 # Local simulation and notebook outputs
 /simulation/
@@ -178,6 +181,8 @@ scripts/visualization/figures
 /notebooks/mag_data/
 /notebooks/movie_*.mp4
 /notebooks/full_*_report*.csv
+/scripts/simulation/mage_prepared/
+/scripts/simulation/mage_runs/
 
 # Generated documentation outputs
 /docs/source/*.aux

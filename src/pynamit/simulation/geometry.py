@@ -556,21 +556,21 @@ class Geometry:
         )
         for i, rk in enumerate(rks):
             logger.debug("PFAC integration step %d/%d (rk=%s)", i + 1, rks.size, rk)
-            theta_mapped, phi_mapped = self.mainfield.map_coords(
-                self.RI, rk, self.grid.theta, self.grid.phi
+            theta_footpoint, phi_footpoint = self.mainfield.map_coords(
+                r_dest=self.RI, r=rk, theta=self.grid.theta, phi=self.grid.phi
             )
-            mapped_grid = Grid(theta=theta_mapped, phi=phi_mapped)
+            footpoint_grid = Grid(theta=theta_footpoint, phi=phi_footpoint)
             rk_b_evaluator = FieldEvaluator(self.mainfield, self.grid, rk)
-            mapped_b_evaluator = FieldEvaluator(self.mainfield, mapped_grid, self.RI)
-            mapped_spherical_transform = SphericalTransform(self.basis, mapped_grid)
+            footpoint_b_evaluator = FieldEvaluator(self.mainfield, footpoint_grid, self.RI)
+            footpoint_spherical_transform = SphericalTransform(self.basis, footpoint_grid)
 
-            m_imp_to_jr_grid = mapped_spherical_transform.contract_scalar_coeffs_to_grid(
+            m_imp_to_jr_grid = footpoint_spherical_transform.contract_scalar_coeffs_to_grid(
                 self.m_imp_to_jr_operator
             )
             jr_to_JS_rk = np.array(
                 [
-                    rk_b_evaluator.Btheta / mapped_b_evaluator.Br,
-                    rk_b_evaluator.Bphi / mapped_b_evaluator.Br,
+                    rk_b_evaluator.Btheta / footpoint_b_evaluator.Br,
+                    rk_b_evaluator.Bphi / footpoint_b_evaluator.Br,
                 ]
             )
             m_imp_to_JS_rk = np.einsum("ij,jk->ijk", jr_to_JS_rk, m_imp_to_jr_grid, optimize=True)

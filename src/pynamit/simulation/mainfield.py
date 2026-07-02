@@ -62,6 +62,23 @@ def _kaiju_dipole_for_epoch(epoch, B0=None):
     return kaiju_geopack_dipole(datetime_from_decimal_year(epoch), B0=B0)
 
 
+def mainfield_from_config(config_or_settings):
+    """Build the configured main field for a simulation or saved run."""
+    from pynamit.simulation.config import SimulationConfig
+
+    config = (
+        config_or_settings
+        if isinstance(config_or_settings, SimulationConfig)
+        else SimulationConfig.from_settings(config_or_settings)
+    )
+    return Mainfield(
+        kind=config.mainfield_kind,
+        epoch=config.mainfield_epoch,
+        hI=(config.RI - RE) * 1e-3,
+        B0=config.mainfield_B0,
+    )
+
+
 class Mainfield:
     """Class for representing the main magnetic field.
 
@@ -594,7 +611,6 @@ class Mainfield:
         phi = np.array(phi) % 360
 
         if self.kind == "radial":
-            print('dip_equator: Not defined for mainfield.kind=="radial"')
             return np.full_like(phi, np.nan)
 
         if is_dipole_kind(self.kind):

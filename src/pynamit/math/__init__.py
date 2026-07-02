@@ -3,6 +3,7 @@
 from pynamit.math.backend import (
     JAX_AVAILABLE,
     asarray,
+    backend_context,
     block_until_ready,
     get_array_module,
     jit,
@@ -33,6 +34,7 @@ __all__ = [
     "LinearMap",
     "as_linear_map",
     "asarray",
+    "backend_context",
     "block_until_ready",
     "diagonal_linear_map",
     "einsum_linear_map",

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import types
+from contextlib import contextmanager
 from functools import wraps
 from typing import Any, Iterable, Optional, Union
 
@@ -88,6 +89,22 @@ def set_backend(backend: Union[str, bool, None]) -> str:
     use_jax(target)
     os.environ["PYNAMIT_USE_JAX"] = "1" if target else "0"
     return "jax" if target else "numpy"
+
+
+@contextmanager
+def backend_context(backend: Union[str, bool, None]):
+    """Temporarily set the active array backend inside a context."""
+    previous_backend = use_jax()
+    previous_env = os.environ.get("PYNAMIT_USE_JAX")
+    active_backend = set_backend(backend)
+    try:
+        yield active_backend
+    finally:
+        set_backend(previous_backend)
+        if previous_env is None:
+            os.environ.pop("PYNAMIT_USE_JAX", None)
+        else:
+            os.environ["PYNAMIT_USE_JAX"] = previous_env
 
 
 def get_array_module(*arrays: Any) -> types.ModuleType:
@@ -215,6 +232,7 @@ __all__ = [
     "xp",
     "use_jax",
     "set_backend",
+    "backend_context",
     "get_array_module",
     "to_jax",
     "block_after_jax_linalg",

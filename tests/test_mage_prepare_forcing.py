@@ -1,19 +1,32 @@
 """Tests for the MAGE forcing preparation helpers."""
 
+from pathlib import Path
+
 import numpy as np
+import pytest
 
 from scripts.simulation.mage_forcing_final import SETTINGS as MAGE_RUN_SETTINGS
+from scripts.simulation.mage_forcing_final import DEFAULT_MAGE_RUN_ROOT as MAGE_RUN_ROOT
 from scripts.simulation.mage_project_inputs import DEFAULT_FORCING_CANDIDATES
 from scripts.simulation.mage_project_inputs import DEFAULT_INPUT_DIRECTORY
+from scripts.simulation.mage_project_inputs import DEFAULT_MAGE_RUN_ROOT as MAGE_PROJECT_ROOT
 from scripts.simulation.mage_project_inputs import DEFAULT_RESULT_DIRECTORY
 from scripts.simulation.mage_project_inputs import SETTINGS as MAGE_PROJECT_SETTINGS
-from scripts.simulation.mage_project_inputs import h5_time_vector_seconds
-from scripts.simulation.mage_project_inputs import projection_directory_for_resolution
-from scripts.simulation.mage_project_inputs import result_directory_for_resolution
 from scripts.simulation.mage_prepare_forcing import (
+    DEFAULT_GAMERA_DIR,
     DEFAULT_OUTPUT_NAME,
     integrate_tiegcm_step,
     wrap_longitude_180_value,
+)
+from pynamit.simulation.mage_workflow import (
+    boundary_radius_from_h5,
+    dipole_B0_from_h5,
+    file_fingerprint,
+    gamera_internal_dipole_details,
+    h5_time_vector_seconds,
+    load_weighted_winds,
+    projection_directory_for_resolution,
+    result_directory_for_resolution,
 )
 
 
@@ -28,6 +41,12 @@ class _FakeVariable:
 class _FakeDataset:
     def __init__(self, **variables):
         self.variables = {name: _FakeVariable(values) for name, values in variables.items()}
+
+
+class _FakeH5(dict):
+    def __init__(self, *args, attrs=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.attrs = dict(attrs or {})
 
 
 def _two_layer_tiegcm_dataset():
@@ -49,25 +68,33 @@ def test_default_prepared_forcing_artifact_name_is_canonical():
     assert DEFAULT_FORCING_CANDIDATES[0].name == DEFAULT_OUTPUT_NAME
 
 
+def test_default_gamera_directory_is_cluster_path():
+    """Preparation defaults to the intended MAGE machine data path."""
+    assert DEFAULT_GAMERA_DIR == Path("/disk/Gamera_Dong")
+
+
 def test_projected_input_default_matches_run_input_directory():
     """Projection and run scripts should agree on the input package."""
     assert MAGE_PROJECT_SETTINGS.input_directory is None
     assert MAGE_RUN_SETTINGS.input_directory is None
     assert (
         projection_directory_for_resolution(
-            MAGE_PROJECT_SETTINGS.nmax, MAGE_PROJECT_SETTINGS.mmax, MAGE_PROJECT_SETTINGS.ncs
+            MAGE_PROJECT_SETTINGS.nmax,
+            MAGE_PROJECT_SETTINGS.mmax,
+            MAGE_PROJECT_SETTINGS.ncs,
+            MAGE_PROJECT_ROOT,
         )
         == DEFAULT_INPUT_DIRECTORY
     )
     assert (
         projection_directory_for_resolution(
-            MAGE_RUN_SETTINGS.nmax, MAGE_RUN_SETTINGS.mmax, MAGE_RUN_SETTINGS.ncs
+            MAGE_RUN_SETTINGS.nmax, MAGE_RUN_SETTINGS.mmax, MAGE_RUN_SETTINGS.ncs, MAGE_RUN_ROOT
         )
         == DEFAULT_INPUT_DIRECTORY
     )
     assert (
         result_directory_for_resolution(
-            MAGE_RUN_SETTINGS.nmax, MAGE_RUN_SETTINGS.mmax, MAGE_RUN_SETTINGS.ncs
+            MAGE_RUN_SETTINGS.nmax, MAGE_RUN_SETTINGS.mmax, MAGE_RUN_SETTINGS.ncs, MAGE_RUN_ROOT
         )
         == DEFAULT_RESULT_DIRECTORY
     )
@@ -78,18 +105,91 @@ def test_mage_projection_uses_kaiju_dipole_by_default():
     assert MAGE_PROJECT_SETTINGS.mainfield_kind == "kaiju_dipole"
 
 
+def test_load_weighted_winds_requires_prepared_hall_products():
+    """Projection does not reconstruct missing winds from TIEGCM."""
+    h5_like = {"We": np.zeros((1, 2)), "Wn": np.zeros((1, 2))}
+
+    with pytest.raises(RuntimeError, match="WeH"):
+        load_weighted_winds(h5_like, 0)
+
+
+def test_load_weighted_winds_reads_all_prepared_products():
+    """Projection loads Pedersen and Hall weighted winds from HDF5."""
+    h5_like = {
+        "We": np.array([[1.0, 2.0]]),
+        "Wn": np.array([[3.0, 4.0]]),
+        "WeH": np.array([[5.0, 6.0]]),
+        "WnH": np.array([[7.0, 8.0]]),
+    }
+
+    loaded = load_weighted_winds(h5_like, 0)
+
+    for value, expected in zip(loaded, ([1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0])):
+        np.testing.assert_allclose(value, expected)
+
+
+def test_projection_geometry_requires_prepared_radius_or_explicit_value():
+    """RM must come from the prepared file or the edited settings."""
+    with pytest.raises(RuntimeError, match="radius dataset 'r'"):
+        boundary_radius_from_h5(_FakeH5(), explicit_rm=None)
+
+    assert boundary_radius_from_h5(_FakeH5(), explicit_rm=7.0) == 7.0
+
+
+def test_projection_geometry_requires_prepared_dipole_strength_or_explicit_value():
+    """B0 must come from prepared metadata or the edited settings."""
+    with pytest.raises(RuntimeError, match="dipole strength"):
+        dipole_B0_from_h5(_FakeH5(), explicit_B0=None)
+
+    assert dipole_B0_from_h5(_FakeH5(), explicit_B0=3.0e-5) == 3.0e-5
+    assert (
+        dipole_B0_from_h5(_FakeH5(attrs={"gamera_mag_m0_nT": -30_000.0}), explicit_B0=None)
+        == 3.0e-5
+    )
+
+
+def test_projection_geometry_requires_prepared_dipole_axes():
+    """GAMERA dipole axis metadata should not be guessed."""
+    with pytest.raises(RuntimeError, match="GAMERA dipole metadata"):
+        gamera_internal_dipole_details(_FakeH5(attrs={"gamera_mag_m0_nT": -30_000.0}))
+
+    details = gamera_internal_dipole_details(
+        _FakeH5(
+            attrs={
+                "gamera_mag_m0_nT": -30_000.0,
+                "gamera_internal_dipole_moment_axis": [0.0, 0.0, -2.0],
+                "gamera_internal_magnetic_north_axis": [0.0, 0.0, 4.0],
+            }
+        )
+    )
+
+    assert details["mag_m0_nT"] == -30_000.0
+    np.testing.assert_allclose(details["moment_axis"], [0.0, 0.0, -1.0])
+    np.testing.assert_allclose(details["north_axis"], [0.0, 0.0, 1.0])
+
+
 def test_mage_projection_times_are_relative_to_first_hdf5_time():
     """Projection should preserve the 18:00:10 event-time origin."""
     times, seconds = h5_time_vector_seconds(
-        [
-            b"2011-10-24T18:00:10",
-            b"2011-10-24T18:00:20",
-            b"2011-10-24T18:00:40",
-        ]
+        [b"2011-10-24T18:00:10", b"2011-10-24T18:00:20", b"2011-10-24T18:00:40"]
     )
 
     assert times[0].isoformat() == "2011-10-24T18:00:10"
     np.testing.assert_allclose(seconds, np.array([0.0, 10.0, 30.0]))
+
+
+def test_mage_source_file_fingerprint_is_lightweight(tmp_path):
+    """Projection provenance records source path, size, and mtime."""
+    source = tmp_path / "forcing.h5"
+    source.write_bytes(b"abc")
+
+    fingerprint = file_fingerprint(source)
+
+    assert fingerprint["path"] == str(source.resolve())
+    assert fingerprint["size_bytes"] == 3
+    assert fingerprint["mtime_ns"] > 0
+    assert "mtime" in fingerprint
+    assert file_fingerprint(None) is None
 
 
 def test_integrate_tiegcm_step_computed_conductances_and_weighted_winds():

@@ -201,6 +201,64 @@ def read_input_manifest(directory: str | Path) -> dict[str, Any] | None:
     return _read_json(Path(directory).resolve() / INPUT_MANIFEST_FILENAME)
 
 
+def validate_input_manifest(
+    directory: str | Path,
+    settings: Any | None = None,
+    *,
+    available_inputs: list[str] | tuple[str, ...] | None = None,
+    allow_unlisted: bool = False,
+    require: bool = False,
+) -> dict[str, Any] | None:
+    """Validate a prepared-input manifest against stored artifacts.
+
+    When a manifest is present it is treated as the package contract:
+    listed datasets must exist, and the serialized contract must match
+    the settings artifact when supplied.  Extra stored artifacts are
+    rejected by default; callers that explicitly select a subset may
+    allow them.  Set ``require=True`` for code paths that should not
+    accept legacy packages without a contract.
+    """
+    manifest = read_input_manifest(directory)
+    if manifest is None:
+        if require:
+            raise ValueError(
+                f"No {INPUT_MANIFEST_FILENAME} found in prepared input directory {directory!s}."
+            )
+        return None
+    if manifest.get("kind") != "pynamit_prepared_inputs":
+        raise ValueError(
+            f"{INPUT_MANIFEST_FILENAME} in {directory!s} is not a PynaMIT prepared-input manifest."
+        )
+
+    manifest_inputs = [str(key) for key in manifest.get("input_datasets", [])]
+    if available_inputs is None:
+        available_inputs = _available_input_datasets(IO(directory))
+    available_inputs = [str(key) for key in available_inputs]
+
+    missing = [key for key in manifest_inputs if key not in available_inputs]
+    unlisted = [key for key in available_inputs if key not in manifest_inputs]
+    if missing or (unlisted and not allow_unlisted):
+        details = []
+        if missing:
+            details.append(f"listed but missing: {missing}")
+        if unlisted and not allow_unlisted:
+            details.append(f"stored but not listed: {unlisted}")
+        raise ValueError(
+            f"Prepared input artifacts in {directory!s} do not match "
+            f"{INPUT_MANIFEST_FILENAME}: " + "; ".join(details)
+        )
+
+    if settings is not None:
+        expected_contract = prepared_input_contract(settings, manifest_inputs)
+        stored_contract = manifest.get("input_contract")
+        if stored_contract != expected_contract:
+            raise ValueError(
+                f"{INPUT_MANIFEST_FILENAME} in {directory!s} does not match the settings "
+                "artifact input contract."
+            )
+    return manifest
+
+
 def validate_prepared_input_compatibility(
     input_settings: Any,
     run_settings: Any,
@@ -271,6 +329,20 @@ def load_prepared_inputs_into_dynamics(
     unknown = set() if allowed is None else allowed - set(INPUT_DATASET_KEYS)
     if unknown:
         raise ValueError(f"Unknown input dataset key(s): {sorted(unknown)}.")
+    if allowed is not None:
+        missing_requested = sorted(allowed - set(available_inputs))
+        if missing_requested:
+            raise ValueError(
+                f"Requested prepared input dataset(s) are not available in {input_directory!r}: "
+                f"{missing_requested}."
+            )
+    validate_input_manifest(
+        input_directory,
+        input_settings,
+        available_inputs=available_inputs,
+        allow_unlisted=allowed is not None,
+        require=True,
+    )
     selected_inputs = (
         available_inputs
         if allowed is None
@@ -557,6 +629,7 @@ __all__ = [
     "prepared_input_contract",
     "write_input_manifest",
     "read_input_manifest",
+    "validate_input_manifest",
     "validate_prepared_input_compatibility",
     "load_prepared_inputs_into_dynamics",
     "prepare_pynamit_inputs",

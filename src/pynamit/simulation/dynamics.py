@@ -12,7 +12,8 @@ from pynamit.sphere.spherical_transform import SphericalTransform
 from pynamit.sphere import Grid
 from pynamit.primitives.io import IO
 from pynamit.simulation.data import SimulationData
-from pynamit.simulation.mainfield import Mainfield
+from pynamit.simulation.inputs import InputProjector
+from pynamit.simulation.mainfield import mainfield_from_config
 from pynamit.simulation.state import State
 from pynamit.math.backend import set_backend, to_jax, to_numpy, use_jax
 
@@ -66,7 +67,7 @@ class Dynamics:
         mainfield_kind="dipole",
         mainfield_epoch=2020,
         mainfield_B0=None,
-        FAC_integration_steps=np.logspace(np.log10(RE + 110.0e3), np.log10(4 * RE), 11),
+        FAC_integration_steps=None,
         ignore_PFAC=False,
         connect_hemispheres=False,
         latitude_boundary=50,
@@ -263,13 +264,9 @@ class Dynamics:
                     area_weighted=self.config.area_weighted_least_squares,
                 )
             self.input_transforms[key] = input_transform_cache[cache_key]
+        self.input_projector = InputProjector(self)
 
-        self.mainfield = Mainfield(
-            kind=self.config.mainfield_kind,
-            epoch=self.config.mainfield_epoch,
-            hI=(self.config.RI - RE) * 1e-3,
-            B0=self.config.mainfield_B0,
-        )
+        self.mainfield = mainfield_from_config(self.config)
 
         # Initialize the state of the ionosphere, restarting from the
         # last state checkpoint if available.
@@ -392,6 +389,25 @@ class Dynamics:
             self.current_time = np.max(self.output_timeseries.datasets["steady_state"].time.values)
         else:
             self.current_time = np.float64(0)
+
+        def _saved_output_reaches(dataset_key):
+            dataset = self.output_timeseries.datasets.get(dataset_key)
+            if dataset is None or "time" not in dataset:
+                return False
+            return float(np.max(dataset.time.values)) >= float(t) - FLOAT_ERROR_MARGIN
+
+        requested_outputs = []
+        if run_inductive:
+            requested_outputs.append("state")
+        if run_steady_state:
+            requested_outputs.append("steady_state")
+        if requested_outputs and all(_saved_output_reaches(key) for key in requested_outputs):
+            if not quiet:
+                print(
+                    f"Saved output already reaches t = {float(t):.2f} s; nothing to evolve.",
+                    flush=True,
+                )
+            return
 
         step_increment = 1 if run_inductive else sampling_step_interval
         report_step_interval = sampling_step_interval * saving_sample_interval
@@ -625,26 +641,12 @@ class Dynamics:
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
         """
-        if jr_coefficients is not None:
-            self._validate_only_coefficients(
-                "jr_coefficients",
-                lat=lat,
-                lon=lon,
-                theta=theta,
-                phi=phi,
-                sqrt_weights=sqrt_weights,
-                reg_lambda=reg_lambda,
-            )
-            self._require_no_sample_values("jr_coefficients", jr=jr)
-            input_data = {"jr": np.atleast_2d(jr_coefficients)}
-            self._add_input_coefficients("jr", input_data, time)
-            return
-
-        self._require_sample_values("jr", jr=jr)
-        input_data = {"jr": np.atleast_2d(jr)}
-        self._project_and_add_input(
+        self.input_projector.set_scalar_input(
             "jr",
-            input_data,
+            samples={"jr": jr},
+            coefficients={"jr": jr_coefficients},
+            sample_label="jr samples",
+            coefficient_label="jr_coefficients",
             lat=lat,
             lon=lon,
             theta=theta,
@@ -694,26 +696,12 @@ class Dynamics:
         if self.config.RM is None:
             raise ValueError("Br can only be set if magnetospheric radius (RM) is set.")
 
-        if Br_coefficients is not None:
-            self._validate_only_coefficients(
-                "Br_coefficients",
-                lat=lat,
-                lon=lon,
-                theta=theta,
-                phi=phi,
-                sqrt_weights=sqrt_weights,
-                reg_lambda=reg_lambda,
-            )
-            self._require_no_sample_values("Br_coefficients", Br=Br)
-            input_data = {"Br": np.atleast_2d(Br_coefficients)}
-            self._add_input_coefficients("Br", input_data, time)
-            return
-
-        self._require_sample_values("Br", Br=Br)
-        input_data = {"Br": np.atleast_2d(Br)}
-        self._project_and_add_input(
+        self.input_projector.set_scalar_input(
             "Br",
-            input_data,
+            samples={"Br": Br},
+            coefficients={"Br": Br_coefficients},
+            sample_label="Br samples",
+            coefficient_label="Br_coefficients",
             lat=lat,
             lon=lon,
             theta=theta,
@@ -765,42 +753,12 @@ class Dynamics:
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
         """
-        if etaP_coefficients is not None or etaH_coefficients is not None:
-            self._validate_only_coefficients(
-                "etaP_coefficients/etaH_coefficients",
-                lat=lat,
-                lon=lon,
-                theta=theta,
-                phi=phi,
-                sqrt_weights=sqrt_weights,
-                reg_lambda=reg_lambda,
-            )
-            self._require_complete_values(
-                "resistance coefficients",
-                etaP_coefficients=etaP_coefficients,
-                etaH_coefficients=etaH_coefficients,
-            )
-            self._require_no_sample_values("resistance coefficients", etaP=etaP, etaH=etaH)
-            input_data = {
-                "etaP": np.atleast_2d(etaP_coefficients),
-                "etaH": np.atleast_2d(etaH_coefficients),
-            }
-            self._add_input_coefficients("conductance", input_data, time)
-            return
-
-        self._require_complete_values("resistance samples", etaP=etaP, etaH=etaH)
-        input_data = {"etaP": np.atleast_2d(etaP), "etaH": np.atleast_2d(etaH)}
-        if self.config.conductance_projection_basis == "CS" and (
-            sqrt_weights is not None or reg_lambda is not None
-        ):
-            raise ValueError(
-                "sqrt_weights and reg_lambda are not supported for "
-                "conductance_projection_basis='CS'."
-            )
-
-        self._project_and_add_input(
+        self.input_projector.set_scalar_input(
             "conductance",
-            input_data,
+            samples={"etaP": etaP, "etaH": etaH},
+            coefficients={"etaP": etaP_coefficients, "etaH": etaH_coefficients},
+            sample_label="resistance samples",
+            coefficient_label="resistance coefficients",
             lat=lat,
             lon=lon,
             theta=theta,
@@ -916,28 +874,14 @@ class Dynamics:
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
         """
-        self._require_no_wind_proxy_conflict("u")
-        if u_cf is not None or u_df is not None:
-            self._validate_only_coefficients(
-                "u_cf/u_df",
-                lat=lat,
-                lon=lon,
-                theta=theta,
-                phi=phi,
-                sqrt_weights=sqrt_weights,
-                reg_lambda=reg_lambda,
-            )
-            self._require_complete_values("wind coefficients", u_cf=u_cf, u_df=u_df)
-            self._require_no_sample_values("wind coefficients", u_theta=u_theta, u_phi=u_phi)
-            input_data = self._wind_input_data(u_cf, u_df)
-            self._add_input_coefficients("u", input_data, time)
-            return
-
-        self._require_complete_values("wind samples", u_theta=u_theta, u_phi=u_phi)
-        input_data = self._wind_input_data(u_theta, u_phi)
-        self._project_and_add_input(
+        self.input_projector.set_tangential_input(
             "u",
-            input_data,
+            theta_component=u_theta,
+            phi_component=u_phi,
+            cf_coefficients=u_cf,
+            df_coefficients=u_df,
+            sample_label="wind samples",
+            coefficient_label="wind coefficients",
             lat=lat,
             lon=lon,
             theta=theta,
@@ -997,34 +941,14 @@ class Dynamics:
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
         """
-        self._require_no_wind_proxy_conflict("Q_eff")
-        if Q_eff_cf is not None or Q_eff_df is not None:
-            self._validate_only_coefficients(
-                "Q_eff_cf/Q_eff_df",
-                lat=lat,
-                lon=lon,
-                theta=theta,
-                phi=phi,
-                sqrt_weights=sqrt_weights,
-                reg_lambda=reg_lambda,
-            )
-            self._require_complete_values(
-                "Q_eff coefficients", Q_eff_cf=Q_eff_cf, Q_eff_df=Q_eff_df
-            )
-            self._require_no_sample_values(
-                "Q_eff coefficients", Q_eff_theta=Q_eff_theta, Q_eff_phi=Q_eff_phi
-            )
-            input_data = self._tangential_input_data("Q_eff", Q_eff_cf, Q_eff_df)
-            self._add_input_coefficients("Q_eff", input_data, time)
-            return
-
-        self._require_complete_values(
-            "Q_eff samples", Q_eff_theta=Q_eff_theta, Q_eff_phi=Q_eff_phi
-        )
-        input_data = self._tangential_input_data("Q_eff", Q_eff_theta, Q_eff_phi)
-        self._project_and_add_input(
+        self.input_projector.set_tangential_input(
             "Q_eff",
-            input_data,
+            theta_component=Q_eff_theta,
+            phi_component=Q_eff_phi,
+            cf_coefficients=Q_eff_cf,
+            df_coefficients=Q_eff_df,
+            sample_label="Q_eff samples",
+            coefficient_label="Q_eff coefficients",
             lat=lat,
             lon=lon,
             theta=theta,
@@ -1080,34 +1004,14 @@ class Dynamics:
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
         """
-        self._require_no_wind_proxy_conflict("E_source")
-        if E_source_cf is not None or E_source_df is not None:
-            self._validate_only_coefficients(
-                "E_source_cf/E_source_df",
-                lat=lat,
-                lon=lon,
-                theta=theta,
-                phi=phi,
-                sqrt_weights=sqrt_weights,
-                reg_lambda=reg_lambda,
-            )
-            self._require_complete_values(
-                "E_source coefficients", E_source_cf=E_source_cf, E_source_df=E_source_df
-            )
-            self._require_no_sample_values(
-                "E_source coefficients", E_source_theta=E_source_theta, E_source_phi=E_source_phi
-            )
-            input_data = self._tangential_input_data("E_source", E_source_cf, E_source_df)
-            self._add_input_coefficients("E_source", input_data, time)
-            return
-
-        self._require_complete_values(
-            "E_source samples", E_source_theta=E_source_theta, E_source_phi=E_source_phi
-        )
-        input_data = self._tangential_input_data("E_source", E_source_theta, E_source_phi)
-        self._project_and_add_input(
+        self.input_projector.set_tangential_input(
             "E_source",
-            input_data,
+            theta_component=E_source_theta,
+            phi_component=E_source_phi,
+            cf_coefficients=E_source_cf,
+            df_coefficients=E_source_df,
+            sample_label="E_source samples",
+            coefficient_label="E_source coefficients",
             lat=lat,
             lon=lon,
             theta=theta,
@@ -1244,23 +1148,19 @@ class Dynamics:
         pinv_rtol=1e-15,
     ):
         """Project wind samples to stored Helmholtz coefficients."""
-        input_data = self._wind_input_data(u_theta, u_phi)
-        input_time = self.adapt_input_time(time, input_data)
-        input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
-        wind_coeff_rows = self.input_transforms["u"].project_helmholtz(
-            input_data["u"],
-            input_grid=input_grid,
-            projection_basis=self.input_projection_bases["u"],
+        return self.input_projector.project_tangential_samples(
+            "u",
+            u_theta,
+            u_phi,
+            lat=lat,
+            lon=lon,
+            theta=theta,
+            phi=phi,
+            time=time,
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
         )
-        if wind_coeff_rows.shape[0] != input_time.size:
-            raise ValueError(
-                f"u has {wind_coeff_rows.shape[0]} projected time slices, "
-                f"but {input_time.size} time values were supplied."
-            )
-        return input_time, wind_coeff_rows
 
     def _fit_Q_eff_coefficients_from_wind(
         self, input_time, wind_coeff_rows, *, reg_lambda=None, pinv_rtol=1e-15
@@ -1286,28 +1186,15 @@ class Dynamics:
 
     def _require_sample_values(self, label, **values):
         """Require all named sample values."""
-        if any(value is None for value in values.values()):
-            names = ", ".join(values)
-            raise TypeError(f"{label} samples require {names}.")
+        return self.input_projector.require_sample_values(label, **values)
 
     def _require_complete_values(self, label, **values):
         """Require either all named values or none of them."""
-        supplied = [name for name, value in values.items() if value is not None]
-        if len(supplied) == len(values):
-            return
-        if supplied:
-            missing = ", ".join(name for name, value in values.items() if value is None)
-            raise ValueError(f"{label} are incomplete; missing {missing}.")
-        names = ", ".join(values)
-        raise TypeError(f"{label} require {names}.")
+        return self.input_projector.require_complete_values(label, **values)
 
     def _require_no_sample_values(self, label, **values):
         """Reject sample values when coefficient values are supplied."""
-        supplied = [name for name, value in values.items() if value is not None]
-        if supplied:
-            raise ValueError(
-                f"{label} cannot be combined with sample values: {', '.join(supplied)}."
-            )
+        return self.input_projector.require_no_sample_values(label, **values)
 
     def _validate_only_coefficients(
         self,
@@ -1321,47 +1208,27 @@ class Dynamics:
         reg_lambda=None,
     ):
         """Reject projection controls on direct coefficient inputs."""
-        supplied = [
-            name
-            for name, value in {
-                "lat": lat,
-                "lon": lon,
-                "theta": theta,
-                "phi": phi,
-                "sqrt_weights": sqrt_weights,
-                "reg_lambda": reg_lambda,
-            }.items()
-            if value is not None
-        ]
-        if supplied:
-            raise ValueError(
-                f"{label} are already projected coefficients and cannot be combined "
-                f"with {', '.join(supplied)}."
-            )
+        return self.input_projector.validate_only_coefficients(
+            label,
+            lat=lat,
+            lon=lon,
+            theta=theta,
+            phi=phi,
+            sqrt_weights=sqrt_weights,
+            reg_lambda=reg_lambda,
+        )
 
     def _require_no_wind_proxy_conflict(self, key):
         """Reject simultaneous wind-forcing representation datasets."""
-        wind_keys = {"u", "Q_eff", "E_source"}
-        conflicts = sorted(wind_keys - {key})
-        present = [other for other in conflicts if other in self.input_timeseries.datasets]
-        if present:
-            raise ValueError(
-                "Neutral wind input 'u', effective-current input 'Q_eff', and "
-                "direct electric-field input 'E_source' are mutually exclusive; "
-                "use only one wind forcing representation."
-            )
+        return self.input_projector.require_no_exclusive_conflict(key)
 
     def _wind_input_data(self, u_theta, u_phi):
         """Return wind input data with time before component."""
-        return self._tangential_input_data("u", u_theta, u_phi)
+        return self.input_projector.tangential_input_data("u", u_theta, u_phi)
 
     def _tangential_input_data(self, key, theta_component, phi_component):
         """Return tangential input data with time before component."""
-        input_data = {
-            key: np.array([np.atleast_2d(theta_component), np.atleast_2d(phi_component)])
-        }
-        input_data[key] = np.moveaxis(input_data[key], [0, 1], [1, 0])
-        return input_data
+        return self.input_projector.tangential_input_data(key, theta_component, phi_component)
 
     def _project_and_add_input(
         self,
@@ -1378,52 +1245,18 @@ class Dynamics:
         pinv_rtol=1e-15,
     ):
         """Project gridded input data and store coefficient entries."""
-        input_time = self.adapt_input_time(time, input_data)
-        input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
-        transform = self.input_transforms[key]
-        field_space = self.input_field_spaces[key]
-        if field_space.field_type == "scalar" and len(input_data) > 1:
-            projected_data = self._project_scalar_input_variables(
-                key,
-                input_data,
-                input_grid=input_grid,
-                input_time=input_time,
-                sqrt_weights=sqrt_weights,
-                reg_lambda=reg_lambda,
-                pinv_rtol=pinv_rtol,
-            )
-        else:
-            projected_data = {}
-            project = (
-                transform.project_helmholtz
-                if field_space.field_type == "tangential"
-                else transform.project_scalar
-            )
-
-            for var, values in input_data.items():
-                projected_values = project(
-                    values,
-                    input_grid=input_grid,
-                    projection_basis=self.input_projection_bases[key],
-                    sqrt_weights=sqrt_weights,
-                    reg_lambda=reg_lambda,
-                    pinv_rtol=pinv_rtol,
-                )
-                if projected_values.shape[0] != input_time.size:
-                    raise ValueError(
-                        f"{key}.{var} has {projected_values.shape[0]} projected time "
-                        f"slices, but {input_time.size} time values were supplied."
-                    )
-                projected_data[var] = projected_values
-
-        for time_index in range(input_time.size):
-            self.input_timeseries.add_entry(
-                key,
-                {var: projected_data[var][time_index] for var in projected_data},
-                input_time[time_index],
-            )
-
-        self.data.save_input_dataset(key)
+        return self.input_projector.project_and_add_input(
+            key,
+            input_data,
+            lat=lat,
+            lon=lon,
+            theta=theta,
+            phi=phi,
+            time=time,
+            sqrt_weights=sqrt_weights,
+            reg_lambda=reg_lambda,
+            pinv_rtol=pinv_rtol,
+        )
 
     def _project_scalar_input_variables(
         self,
@@ -1437,45 +1270,19 @@ class Dynamics:
         pinv_rtol=1e-15,
     ):
         """Project scalar input variables in one batched transform."""
-        transform = self.input_transforms[key]
-        normalized = {
-            var: transform.normalize_scalar_value_batch(values, input_grid)
-            for var, values in input_data.items()
-        }
-        for var, values in normalized.items():
-            if values.shape[0] != input_time.size:
-                raise ValueError(
-                    f"{key}.{var} has {values.shape[0]} projected time "
-                    f"slices, but {input_time.size} time values were supplied."
-                )
-
-        variables = tuple(normalized)
-        combined = np.concatenate([normalized[var] for var in variables], axis=0)
-        projected = transform.project_scalar(
-            combined,
+        return self.input_projector.project_scalar_input_variables(
+            key,
+            input_data,
             input_grid=input_grid,
-            projection_basis=self.input_projection_bases[key],
+            input_time=input_time,
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
         )
-        return {
-            var: projected[index * input_time.size : (index + 1) * input_time.size]
-            for index, var in enumerate(variables)
-        }
 
     def _add_input_coefficients(self, key, input_data, time):
         """Store input-basis coefficients directly in a time series."""
-        input_time = self.adapt_input_time(time, input_data)
-
-        for time_index in range(input_time.size):
-            self.input_timeseries.add_entry(
-                key,
-                {var: input_data[var][time_index] for var in input_data},
-                input_time[time_index],
-            )
-
-        self.data.save_input_dataset(key)
+        return self.input_projector.add_input_coefficients(key, input_data, time)
 
     def adapt_input_time(self, time, data):
         """Adapt array of time values given with the input data.
@@ -1502,11 +1309,8 @@ class Dynamics:
             If time is None and data is of a shape that suggests
             multiple time values.
         """
-        if time is None:
-            if any([data[var].shape[0] > 1 for var in data.keys()]):
-                raise ValueError(
-                    "Time must be specified if the input data is given for multiple time values."
-                )
-            return np.atleast_1d(self.current_time)
-        else:
-            return np.atleast_1d(time)
+        return self.input_projector.adapt_input_time(time, data)
+
+    def _validate_input_time_rows(self, key, input_time, input_data):
+        """Require input rows to match times."""
+        return self.input_projector.validate_input_time_rows(key, input_time, input_data)

@@ -39,7 +39,7 @@ from pynamit.simulation.mainfield import Mainfield, decimal_year
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_GAMERA_DIR = Path("~/Gamera_Dong")
+DEFAULT_GAMERA_DIR = Path("/disk/Gamera_Dong")
 DEFAULT_OUTPUT_DIR = SCRIPT_DIR / "mage_prepared"
 DEFAULT_OUTPUT_NAME = "mage_prepared_forcing.h5"
 DEFAULT_TAG = "msphere"
@@ -464,9 +464,7 @@ def write_static_datasets(
 ) -> None:
     """Write static datasets and metadata."""
     output.create_dataset(
-        "time",
-        data=np.asarray(time_values, dtype=str),
-        dtype=h5py.string_dtype(encoding="utf-8"),
+        "time", data=np.asarray(time_values, dtype=str), dtype=h5py.string_dtype(encoding="utf-8")
     )
     output.create_dataset("glat", data=tiegcm_lat)
     output.create_dataset("glon", data=tiegcm_lon)
