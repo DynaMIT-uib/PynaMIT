@@ -5,10 +5,13 @@ import pytest
 
 from pynamit.sphere import CSBasis, Grid, SHBasis, SphericalTransform
 from pynamit.default_run import run_pynamit
+from pynamit.visualization.figure_specs import PynamitFigureSpec
+from pynamit.visualization.ground_figures import GroundFigureRenderer
+from pynamit.visualization.run_fields import SavedCoefficientFieldView
 
 
 def test_2d_dipole_cs_surface_operators(tmp_path):
-    """Run a 2D dipole case with CS state and Helmholtz operators."""
+    """Run a 2D dipole case with CS state and saved-run views."""
     expected_coeff_norm = 3.21758062211637e-07
     expected_coeff_max = 1.0044485660736859e-07
     expected_coeff_min = -8.091092606324309e-08
@@ -118,3 +121,23 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
     assert dynamics.horizontal_basis.scalar_mean(dynamics.state.jr.array) == (
         pytest.approx(0.0, abs=1e-18)
     )
+
+    view = SavedCoefficientFieldView.from_directory(
+        dynamics.run_directory, nlat=8, nlon=12, wind_nlat=5, wind_nlon=7
+    )
+    fields = view.state_comparison_grid_fields(0)
+    assert isinstance(view.evaluator.source, CSBasis)
+    assert fields["Br_state"].shape == view.lat.shape
+    assert fields["jr_state"].shape == view.lat.shape
+    assert np.all(np.isfinite(fields["Br_state"]))
+    assert np.all(np.isfinite(fields["jr_state"]))
+
+    renderer = GroundFigureRenderer(
+        PynamitFigureSpec(run_directory=dynamics.run_directory, include_station_data=False),
+        view=view,
+    )
+    br_ind, bh_ind, _, _ = renderer.ground_field_matrices([65.0], [0.0])
+    assert br_ind.shape == (1, view.n_time)
+    assert bh_ind.shape == (2, 1, view.n_time)
+    assert np.all(np.isfinite(br_ind))
+    assert np.all(np.isfinite(bh_ind))
