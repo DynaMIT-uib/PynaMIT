@@ -1,0 +1,159 @@
+Architecture
+============
+
+PynaMIT is organized around a small number of durable responsibilities:
+configuration and schema construction, spatial bases, input preparation,
+time evolution, persistence, and visualization.  The simulation APIs should
+stay readable when used interactively, while the implementation keeps the
+physics-specific transformations in focused modules.
+
+High-level flow
+---------------
+
+``Dynamics`` remains the public orchestration object.  It normalizes user
+configuration with ``SimulationConfig``, builds a ``SimulationSchema``,
+creates persistence through ``SimulationData``, initializes ``State``, and
+coordinates input updates and time evolution.
+
+The main setup path is:
+
+1. ``SimulationConfig`` normalizes constructor settings, defaults, backend
+   options, basis choices, and persisted xarray attributes.
+2. ``build_simulation_schema`` creates the spherical-harmonic, solid-harmonic,
+   and cubed-sphere basis objects, then declares the input and output
+   ``FieldSpace`` metadata used by storage and transforms.
+3. ``Dynamics`` builds reusable input transforms from those field spaces and
+   attaches an ``InputProjector`` for all input validation, projection, and
+   coefficient storage.
+4. ``State`` owns the evolving numerical state and operator application.
+5. ``SimulationData`` owns persisted settings, input time series, and output
+   time series.
+
+Keep this layering intact: configuration should not perform numerical work,
+schema should not read run data, input projection should not evolve the model,
+and visualization should not mutate simulation state.
+
+Configuration and schema
+------------------------
+
+``pynamit.simulation.config`` is the canonical home for settings and default
+normalization.  New simulation settings should be added to
+``SimulationConfig`` first, then serialized through ``to_attrs``/
+``to_dataset``.  Avoid adding loose settings directly to ``Dynamics`` once a
+setting needs persistence or restart compatibility.
+
+``pynamit.simulation.schema`` is the canonical home for basis and field-space
+selection.  New persisted input or output streams should be declared through
+the schema tables and built into ``FieldSpace`` objects there.  This keeps
+storage names, field types, mean-free choices, and projection bases visible in
+one place.
+
+Spatial bases
+-------------
+
+Spherical harmonics and cubed-sphere support have different implementation
+needs, but they should present the same public basis contract wherever
+possible.  ``CSBasis`` is the public cubed-sphere basis facade.  Its
+implementation is split into:
+
+* ``CSCoordinateSystem`` for panel and coordinate transforms.
+* ``CSGridGeometry`` and ``CSGridRemapper`` for grid shape, indexing, and
+  remapping.
+* ``CSFiniteDifferences`` for derivative stencils and sparse operators.
+* ``CSVectorTransforms`` for vector-basis conversions.
+
+Prefer adding focused CS behavior to one of these collaborators instead of
+growing ``CSBasis`` again.  Keep the ``CS`` abbreviation in class names.
+
+Input preparation and projection
+--------------------------------
+
+Input projection is intentionally separated from ``Dynamics`` in
+``pynamit.simulation.inputs``.  ``InputSpec`` declares the variables, field
+type, mutual-exclusion group, and projection-control restrictions for each
+input stream.  ``InputProjector`` owns:
+
+* sample-vs-coefficient validation;
+* gridded scalar and tangential projection;
+* coefficient row and time-row validation;
+* storage of projected input rows; and
+* mutual exclusivity between ``u``, ``Q_eff``, and ``E_source``.
+
+Public setters such as ``set_jr``, ``set_resistance``, ``set_neutral_wind``,
+``set_Q_eff``, and ``set_E_source`` should remain thin API methods.  When a
+new input stream is added, prefer extending the schema and ``InputSpec`` table
+over hand-writing a new projection path inside ``Dynamics``.
+
+Prepared external inputs
+------------------------
+
+``pynamit.simulation.prepared_inputs`` and ``pynamit.simulation.mage_workflow``
+contain reusable, script-independent helpers for MAGE/GAMERA forcing.  Scripts
+under ``scripts/simulation`` should be workflow entry points: they may parse
+paths and settings, but they should delegate coordinate conversion, metadata
+validation, cadence summaries, source-current construction, and projection
+directory naming to package modules.
+
+This boundary matters because prepared-input logic is both user-facing and
+testable.  If a script needs behavior that should remain correct over time,
+move it into the package and test the behavior there.
+
+State and evolution
+-------------------
+
+``State`` should remain the owner of derived model operators, coefficient
+updates, backend array conversion, and field evaluations that depend on the
+current physical state.  ``Dynamics`` should coordinate when the state is
+updated and when results are persisted, but it should not accumulate new
+low-level operator algebra.
+
+The next likely long-lived split is an evolution or run controller if
+``evolve_to_time`` continues to grow.  That controller would own restart
+short-circuiting, sample scheduling, progress reporting, and output save
+decisions while leaving ``State`` responsible for physics and ``SimulationData``
+responsible for persistence.
+
+Persistence
+-----------
+
+``SimulationData`` and the time-series primitives are the persistence boundary.
+Numerical modules should pass normalized coefficient rows and times to the
+time-series APIs instead of writing xarray artifacts directly.  This makes
+restart behavior, netCDF/zarr differences, and schema compatibility easier to
+maintain.
+
+When adding persisted data, decide first whether it is configuration, input,
+output, or derived visualization metadata.  Configuration belongs in
+``SimulationConfig``; input and output coefficient time series belong in the
+simulation schema; visualization defaults belong in serializable figure specs.
+
+Visualization
+-------------
+
+Visualization code should treat saved runs as read-only inputs.  The newer
+``PynamitFigureSpec`` and panel binding layer make figure configuration
+serializable, reusable, and testable outside the GUI.  Keep option validation
+close to the spec, rendering close to figure builders, and widget binding close
+to panel-specific modules.
+
+Avoid adding simulation-specific calculations directly to GUI callbacks.  If a
+plot needs computed fields, expose them through saved-run, run-field, or
+figure-builder helpers so command-line scripts, notebooks, tests, and the GUI
+all use the same path.
+
+Extension rules
+---------------
+
+Use these rules when extending the codebase:
+
+* Add settings to ``SimulationConfig`` before threading ad hoc constructor
+  values through the system.
+* Add persisted streams to ``simulation.schema`` before adding storage code.
+* Add input projection behavior to ``InputProjector`` and ``InputSpec`` before
+  adding logic to ``Dynamics`` setters.
+* Add cubed-sphere internals to the focused CS collaborator that owns the
+  concept.
+* Move reusable script logic into package modules before testing it.
+* Keep visualization configuration serializable and renderer-agnostic.
+* Prefer functionality tests that assert scientific or user-facing behavior
+  over tests that encode a refactor's private implementation shape.
