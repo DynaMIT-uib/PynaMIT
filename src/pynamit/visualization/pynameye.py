@@ -1,7 +1,8 @@
-"""PynamEye module.
+"""Legacy PynamEye visualization frontend.
 
-This module contains the PynamEye class for visualizing simulation
-results.
+``PynamEye`` remains available for compatibility with older scripts.
+New interactive and publication workflows should prefer
+:mod:`pynamit.visualization.figure_builder` and the Panel app.
 """
 
 import numpy as np
@@ -41,7 +42,7 @@ from pynamit.visualization.state_fields import (
 
 
 class PynamEye:
-    """Class for visualizing simulation results.
+    """Compatibility frontend for visualizing simulation results.
 
     Attributes
     ----------

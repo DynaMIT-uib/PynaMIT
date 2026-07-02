@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
+from pynamit.primitives.io import RUN_ARTIFACTS
 from pynamit.visualization.figure_specs import PynamitFigureSpec
+from pynamit.visualization.artifacts import artifact_path, resolve_xarray_artifact_path
 from pynamit.visualization.run_fields import SavedCoefficientFieldView
 
 
-_VIEW_CACHE: dict[tuple[str, int, int], SavedCoefficientFieldView] = {}
+_CACHE_ARTIFACTS = tuple(sorted(RUN_ARTIFACTS))
+_VIEW_CACHE: dict[tuple[str, int, int, tuple], SavedCoefficientFieldView] = {}
 
 
 def as_figure_spec(spec):
@@ -23,10 +27,24 @@ def clear_saved_field_view_cache():
     _VIEW_CACHE.clear()
 
 
+def _artifact_fingerprint(run_directory):
+    run_dir = Path(run_directory).expanduser()
+    fingerprint = []
+    for name in _CACHE_ARTIFACTS:
+        path = Path(resolve_xarray_artifact_path(artifact_path(run_dir, name)))
+        if path.exists():
+            try:
+                mtime = path.stat().st_mtime_ns
+            except OSError:
+                mtime = None
+            fingerprint.append((name, str(path), mtime))
+    return tuple(fingerprint)
+
+
 def get_saved_field_view(spec):
     """Return a cached coefficient-field view for a figure spec."""
     spec = as_figure_spec(spec)
-    key = (str(spec.run_directory), 60, 100)
+    key = (str(spec.run_directory), 60, 100, _artifact_fingerprint(spec.run_directory))
     view = _VIEW_CACHE.get(key)
     if view is None:
         view = SavedCoefficientFieldView.from_directory(spec.run_directory)

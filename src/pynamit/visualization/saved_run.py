@@ -6,12 +6,11 @@ from dataclasses import dataclass
 
 import xarray as xr
 
-from pynamit.math.constants import RE
 from pynamit.primitives.io import IO
 from pynamit.primitives.timeseries import Timeseries
 from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.geometry import Geometry
-from pynamit.simulation.mainfield import Mainfield
+from pynamit.simulation.mainfield import Mainfield, mainfield_from_config
 from pynamit.simulation.schema import SimulationSchema, build_simulation_schema
 
 
@@ -55,12 +54,7 @@ class SavedRunView:
 
         config = SimulationConfig.from_settings(datasets["settings"])
         schema = build_simulation_schema(config)
-        mainfield = Mainfield(
-            kind=config.mainfield_kind,
-            epoch=config.mainfield_epoch,
-            hI=(config.RI - RE) * 1e-3,
-            B0=config.mainfield_B0,
-        )
+        mainfield = mainfield_from_config(config)
 
         pfac_matrix = None
         if require_pfac_matrix or build_geometry:

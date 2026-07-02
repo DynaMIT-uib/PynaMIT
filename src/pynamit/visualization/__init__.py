@@ -28,6 +28,10 @@ _LAZY_EXPORTS = {
         "pynamit.visualization.run_fields",
         "compute_input_fields_at_index",
     ),
+    "compute_input_fields_at_time": (
+        "pynamit.visualization.run_fields",
+        "compute_input_fields_at_time",
+    ),
     "compute_state_comparison_fields_at_index": (
         "pynamit.visualization.run_fields",
         "compute_state_comparison_fields_at_index",

@@ -18,9 +18,13 @@ from pynamit.visualization.figure_specs import (
     MAP_FILL_OPTIONS,
     MAP_LINE_OPTIONS,
     PLOT_TYPE_OPTIONS,
-    PynamitFigureSpec,
     figure_spec_from_run_defaults,
     publication_script_for_spec,
+)
+from pynamit.visualization.panel_spec_binding import (
+    apply_figure_spec_to_widgets,
+    current_figure_spec,
+    set_widget_value,
 )
 
 PANEL_PLOT_TYPE_OPTIONS = {label: key for key, label in PLOT_TYPE_OPTIONS.items()}
@@ -41,25 +45,23 @@ def _panel():
     return pn
 
 
+def _has_pynamit_settings(directory):
+    directory = Path(directory)
+    return (directory / "settings.zarr").exists() or (directory / "settings.ncdf").exists()
+
+
 def _default_run_directory():
-    candidates = [Path("."), Path("sim_dir"), Path("notebooks/sim_dir")]
-    candidates.extend(
-        [
-            Path("scripts/simulation/mage_runs/mage_2011_kaiju_direct_e/results/N50_M50_Ncs50"),
-            Path(
-                "scripts/simulation/mage_runs/mage_2011_kaiju_direct_e/"
-                "projections/N50_M50_Ncs50"
-            ),
-            Path("scripts/simulation/mage_prepared/pynamit_inputs_2011_kaiju_direct_e"),
-        ]
-    )
-    candidates.extend(sorted(Path("scripts/simulation/mage_runs").glob("*/results/*")))
-    candidates.extend(sorted(Path("scripts/simulation/mage_runs").glob("*/projections/*")))
-    candidates.extend(sorted(Path("scripts/simulation").glob("results_*")))
+    cwd = Path(".")
+    candidates = [cwd]
+    candidates.extend(sorted(cwd.glob("results/*")))
+    candidates.extend(sorted(cwd.glob("projections/*")))
+    candidates.extend(sorted(cwd.glob("mage_runs/*/results/*")))
+    candidates.extend(sorted(cwd.glob("mage_runs/*/projections/*")))
+    candidates.extend([Path("sim_dir"), Path("notebooks/sim_dir")])
     for candidate in candidates:
-        if (candidate / "settings.zarr").exists() or (candidate / "settings.ncdf").exists():
+        if _has_pynamit_settings(candidate):
             return str(candidate)
-    return "sim_dir"
+    return "."
 
 
 class PynamitPanelApp:
@@ -418,143 +420,46 @@ class PynamitPanelApp:
 
         self._load_run()
 
-    def _current_spec(self):
-        return PynamitFigureSpec(
-            run_directory=self.run_directory.value,
-            data_directory=self.spec.data_directory,
-            plot_type=self.plot_type.value,
-            time_index=int(self.time_index.value),
-            time_range=tuple(int(value) for value in self.time_range.value),
-            fill=self.fill.value,
-            lines=self.lines.value,
-            show_north=bool(self.show_north.value),
-            show_south=bool(self.show_south.value),
-            hemisphere_min_abs_latitude=float(self.min_abs_lat.value),
-            ground_station=str(self.station.value).upper(),
-            ground_component=self.ground_component.value,
-            ground_quantity=self.ground_quantity.value,
-            include_station_data=bool(self.include_station_data.value),
-            show_inductive=bool(self.show_inductive.value),
-            show_noninductive=bool(self.show_noninductive.value),
-            show_difference=bool(self.show_difference.value),
-            show_reference_line=bool(self.show_reference_line.value),
-            reference_time_of_day_utc=str(self.reference_time.value),
-            show_station_labels=bool(self.spec.show_station_labels),
-            conductance_overlay=self.spec.conductance_overlay,
-            sim_time_offset_seconds=float(self.sim_time_offset.value),
-            data_time_offset_seconds=float(self.data_time_offset.value),
-            dbdt_window_points=max(1, int(self.dbdt_window_points.value)),
-            ground_model_lt_count=max(1, int(self.ground_model_lt_count.value)),
-            ground_model_lat_count=max(1, int(self.ground_model_lat_count.value)),
-            ground_model_visual_even=bool(self.ground_model_visual_even.value),
-            show_pedersen_conductance_overlay=bool(self.show_pedersen_conductance_overlay.value),
-            show_hall_conductance_overlay=bool(self.show_hall_conductance_overlay.value),
-            min_abs_dip_latitude=float(self.low_lat_cutoff.value),
-            low_latitude_scale=float(self.low_lat_scale.value),
-            show_dip_equator_curve=bool(self.show_dip_equator_curve.value),
-            show_low_latitude_curve=bool(self.show_low_lat_curve.value),
-            curve_scale_mode=self.curve_scale_mode.value,
-            curve_scale_value=float(self.curve_scale.value),
-            curve_time_scale=float(self.time_scale.value),
-            color_scale_mode=self.color_scale_mode.value,
-            color_scale_percentile=float(self.color_scale_percentile.value),
-            geo_lat_min=float(self.geo_lat_min.value),
-            geo_lat_max=float(self.geo_lat_max.value),
-            local_time_min=float(self.local_time_min.value),
-            local_time_max=float(self.local_time_max.value),
-            zoom_window=bool(self.zoom_window.value),
-            movie_filename=str(self.movie_filename.value),
-            movie_fps=float(self.movie_fps.value),
-            movie_dpi=int(self.spec.movie_dpi),
-            extra=dict(self.spec.extra),
-        )
-
-    def _set_widget_value(self, widget, value):
-        if value != widget.value:
-            widget.value = value
-
-    def _apply_spec_to_widgets(self, spec):
-        plot_values = set(self.plot_type.options.values())
-        fill_values = set(self.fill.options.values())
-        line_values = set(self.lines.options.values())
-        component_values = set(self.ground_component.options.values())
-        quantity_values = set(self.ground_quantity.options.values())
-        max_time = int(self.time_index.end)
-        time_start, time_end = [int(value) for value in spec.time_range]
-        time_start = max(0, min(time_start, max_time))
-        time_end = max(time_start, min(time_end, max_time))
-        if time_start == 0 and time_end == 0 and max_time > 0:
-            time_end = min(max_time, 60)
-
-        self._set_widget_value(self.run_directory, spec.run_directory)
-        self._set_widget_value(
-            self.plot_type, spec.plot_type if spec.plot_type in plot_values else "ground_curve_map"
-        )
-        self._set_widget_value(self.time_index, max(0, min(int(spec.time_index), max_time)))
-        self._set_widget_value(self.time_range, (time_start, time_end))
-        self._set_widget_value(self.fill, spec.fill if spec.fill in fill_values else "Br")
-        self._set_widget_value(self.lines, spec.lines if spec.lines in line_values else "none")
-        self._set_widget_value(self.show_north, bool(spec.show_north))
-        self._set_widget_value(self.show_south, bool(spec.show_south))
-        self._set_widget_value(self.min_abs_lat, float(spec.hemisphere_min_abs_latitude))
-        self._set_widget_value(self.station, str(spec.ground_station).upper())
-        self._set_widget_value(
-            self.ground_component,
-            spec.ground_component if spec.ground_component in component_values else "Magnitude",
-        )
-        self._set_widget_value(
-            self.ground_quantity,
-            spec.ground_quantity if spec.ground_quantity in quantity_values else "dbdt",
-        )
-        self._set_widget_value(self.include_station_data, bool(spec.include_station_data))
-        self._set_widget_value(self.show_inductive, bool(spec.show_inductive))
-        self._set_widget_value(self.show_noninductive, bool(spec.show_noninductive))
-        self._set_widget_value(self.show_difference, bool(spec.show_difference))
-        self._set_widget_value(self.sim_time_offset, float(spec.sim_time_offset_seconds))
-        self._set_widget_value(self.data_time_offset, float(spec.data_time_offset_seconds))
-        self._set_widget_value(self.dbdt_window_points, max(1, int(spec.dbdt_window_points)))
-        self._set_widget_value(self.ground_model_lt_count, max(1, int(spec.ground_model_lt_count)))
-        self._set_widget_value(
-            self.ground_model_lat_count, max(1, int(spec.ground_model_lat_count))
-        )
-        self._set_widget_value(self.ground_model_visual_even, bool(spec.ground_model_visual_even))
-        self._set_widget_value(
-            self.show_pedersen_conductance_overlay, bool(spec.show_pedersen_conductance_overlay)
-        )
-        self._set_widget_value(
-            self.show_hall_conductance_overlay, bool(spec.show_hall_conductance_overlay)
-        )
-        self._set_widget_value(self.show_reference_line, bool(spec.show_reference_line))
-        self._set_widget_value(self.reference_time, str(spec.reference_time_of_day_utc))
-        self._set_widget_value(
-            self.curve_scale_mode,
-            spec.curve_scale_mode if spec.curve_scale_mode in {"manual", "auto"} else "manual",
-        )
-        self._set_widget_value(self.curve_scale, float(spec.curve_scale_value))
-        self._set_widget_value(self.time_scale, float(spec.curve_time_scale))
-        self._set_widget_value(self.low_lat_cutoff, float(spec.min_abs_dip_latitude))
-        self._set_widget_value(self.low_lat_scale, float(spec.low_latitude_scale))
-        self._set_widget_value(self.show_dip_equator_curve, bool(spec.show_dip_equator_curve))
-        self._set_widget_value(self.show_low_lat_curve, bool(spec.show_low_latitude_curve))
-        self._set_widget_value(
-            self.color_scale_mode,
-            spec.color_scale_mode if spec.color_scale_mode in {"fixed", "percentile"} else "fixed",
-        )
-        self._set_widget_value(self.color_scale_percentile, float(spec.color_scale_percentile))
-        self._set_widget_value(self.geo_lat_min, float(spec.geo_lat_min))
-        self._set_widget_value(self.geo_lat_max, float(spec.geo_lat_max))
-        self._set_widget_value(self.local_time_min, float(spec.local_time_min))
-        self._set_widget_value(self.local_time_max, float(spec.local_time_max))
-        self._set_widget_value(self.zoom_window, bool(spec.zoom_window))
-        self._set_widget_value(self.movie_filename, str(spec.movie_filename))
-        self._set_widget_value(self.movie_fps, float(spec.movie_fps))
-
     def _set_status(self, message, *, error=False):
         prefix = "**Error:** " if error else ""
         self.status.object = f"{prefix}{message}" if message else ""
 
     def _mode_changed(self, event=None):
+        if self.app_mode.value == "run_simulation":
+            self._sync_simulation_input_availability()
         self._sync_visibility()
+
+    def _simulation_input_widgets(self):
+        return {
+            "conductance": self.sim_use_conductance,
+            "jr": self.sim_use_jr,
+            "Br": self.sim_use_br,
+            "u": self.sim_use_u,
+            "Q_eff": self.sim_use_q_eff,
+            "E_source": self.sim_use_e_source,
+        }
+
+    def _available_simulation_inputs(self, input_directory):
+        from pynamit.primitives.io import IO
+        from pynamit.simulation.prepared_inputs import INPUT_DATASET_KEYS
+
+        input_directory = IO.discover_run_directory(Path(input_directory).expanduser())
+        artifacts = IO(input_directory).scan_run_artifacts()
+        return {key for key in INPUT_DATASET_KEYS if key in artifacts}
+
+    def _sync_simulation_input_availability(self):
+        try:
+            available = self._available_simulation_inputs(self.simulation_input_directory.value)
+        except Exception:
+            available = None
+        for key, widget in self._simulation_input_widgets().items():
+            if available is None:
+                widget.disabled = False
+                continue
+            present = key in available
+            widget.disabled = not present
+            if not present and widget.value:
+                set_widget_value(widget, False)
 
     def _selected_simulation_inputs(self):
         selected = []
@@ -596,8 +501,8 @@ class PynamitPanelApp:
                 horizontal_basis_kind=self.prepare_horizontal_basis.value,
             )
             prepared_path = Path(dynamics.run_directory)
-            self._set_widget_value(self.prepared_input_directory, str(prepared_path))
-            self._set_widget_value(self.simulation_input_directory, str(prepared_path))
+            set_widget_value(self.prepared_input_directory, str(prepared_path))
+            set_widget_value(self.simulation_input_directory, str(prepared_path))
             self._set_status(f"Prepared inputs in [`{prepared_path}`]({prepared_path}).")
         except Exception:
             self._set_status(traceback.format_exc(limit=8), error=True)
@@ -614,6 +519,7 @@ class PynamitPanelApp:
         try:
             from pynamit.simulation.prepared_inputs import run_pynamit_from_inputs
 
+            self._sync_simulation_input_availability()
             enabled_inputs = self._selected_simulation_inputs()
             if not enabled_inputs:
                 raise ValueError("Select at least one prepared input dataset.")
@@ -636,9 +542,9 @@ class PynamitPanelApp:
                 RM_shielding=bool(self.sim_rm_shielding.value),
             )
             run_path = Path(dynamics.run_directory)
-            self._set_widget_value(self.simulation_run_directory, str(run_path))
-            self._set_widget_value(self.run_directory, str(run_path))
-            self._set_widget_value(self.app_mode, "visualize")
+            set_widget_value(self.simulation_run_directory, str(run_path))
+            set_widget_value(self.run_directory, str(run_path))
+            set_widget_value(self.app_mode, "visualize")
             self._set_status(f"Finished run in [`{run_path}`]({run_path}).")
             should_load_run = True
         except Exception:
@@ -661,7 +567,7 @@ class PynamitPanelApp:
             if expanded_run_directory != self._loaded_run_directory:
                 self.spec = figure_spec_from_run_defaults(run_directory)
             else:
-                self.spec = self._current_spec()
+                self.spec = current_figure_spec(self)
             self.view = get_saved_field_view(self.spec)
             if not self.view.has_output_state and self.spec.plot_type != "input_summary":
                 spec_data = self.spec.to_dict()
@@ -671,7 +577,7 @@ class PynamitPanelApp:
             self.time_range.end = max(0, self.view.n_time - 1)
             if self.time_range.value == (0, 0):
                 self.time_range.value = (0, min(int(self.time_range.end), 60))
-            self._apply_spec_to_widgets(self.spec)
+            apply_figure_spec_to_widgets(self, self.spec)
             self._loaded_run_directory = expanded_run_directory
             self._set_status(f"Loaded `{Path(self.spec.run_directory).expanduser()}`.")
             should_redraw = True
@@ -689,7 +595,7 @@ class PynamitPanelApp:
             return
         if self.view is None:
             return
-        self.spec = self._current_spec()
+        self.spec = current_figure_spec(self)
         self._sync_visibility()
         self._set_status("Controls changed. Press **Redraw** to update the figure.")
 
@@ -698,7 +604,7 @@ class PynamitPanelApp:
             return
         self._busy = True
         try:
-            self.spec = self._current_spec()
+            self.spec = current_figure_spec(self)
             self._sync_visibility()
             view = self.view if self.view is not None else get_saved_field_view(self.spec)
             index = min(max(0, int(self.spec.time_index)), view.n_time - 1)
@@ -732,7 +638,7 @@ class PynamitPanelApp:
             return
         self._busy = True
         try:
-            spec = self._current_spec()
+            spec = current_figure_spec(self)
             path = save_pynamit_movie(
                 spec,
                 self.movie_filename.value,
@@ -746,12 +652,12 @@ class PynamitPanelApp:
             self._busy = False
 
     def _download_script(self):
-        spec = self._current_spec()
+        spec = current_figure_spec(self)
         text = publication_script_for_spec(spec, output_path=self.output_filename.value)
         return StringIO(text)
 
     def _download_spec(self):
-        return StringIO(self._current_spec().to_json())
+        return StringIO(current_figure_spec(self).to_json())
 
     def panel(self):
         """Return the Panel layout."""

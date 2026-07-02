@@ -44,11 +44,7 @@ def test_numeric_saved_times_use_mage_event_time_origin():
     )
 
     expected = pd.DatetimeIndex(
-        [
-            "2011-10-24 18:00:10",
-            "2011-10-24 18:00:20",
-            "2011-10-24 18:00:30",
-        ]
+        ["2011-10-24 18:00:10", "2011-10-24 18:00:20", "2011-10-24 18:00:30"]
     )
     np.testing.assert_array_equal(index.values, expected.values)
 

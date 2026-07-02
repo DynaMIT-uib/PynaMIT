@@ -46,7 +46,7 @@ class InputDriverRenderer:
         )
         global_projection = ccrs.PlateCarree()
         ax_br = fig.add_axes(layout["Br"], projection=global_projection)
-        ax_wind = fig.add_axes(layout["wind"], projection=global_projection)
+        ax_source = fig.add_axes(layout["source"], projection=global_projection)
         ax_sigma_p = fig.add_axes(layout["sigmaP"], projection=global_projection)
         ax_sigma_h = fig.add_axes(layout["sigmaH"], projection=global_projection)
 
@@ -54,11 +54,11 @@ class InputDriverRenderer:
         br_mappable, conductance_mappable = self._draw_global_scalars(
             fields, input_kwargs, ax_br, ax_sigma_p, ax_sigma_h
         )
-        self._draw_wind(fields, ax_wind)
+        self._draw_tangential_source(fields, ax_source)
 
         for label, axis in zip(
             ["a", "b", "c", "d", "e", "f"],
-            [pax_jr_n.ax, pax_jr_s.ax, ax_br, ax_wind, ax_sigma_p, ax_sigma_h],
+            [pax_jr_n.ax, pax_jr_s.ax, ax_br, ax_source, ax_sigma_p, ax_sigma_h],
         ):
             add_panel_label(axis, label)
 
@@ -94,6 +94,23 @@ class InputDriverRenderer:
         return kwargs
 
     @staticmethod
+    def _has_finite(values):
+        return np.any(np.isfinite(values))
+
+    @staticmethod
+    def _mark_missing(axis, message):
+        axis.text(
+            0.5,
+            0.5,
+            message,
+            transform=axis.transAxes,
+            ha="center",
+            va="center",
+            fontsize=10,
+            color="0.35",
+        )
+
+    @staticmethod
     def _layout():
         figure_aspect = 16.0 / 9.0
         top_center_y = 0.70
@@ -104,9 +121,9 @@ class InputDriverRenderer:
         polar_height = figure_aspect * polar_width
         br_map_height = polar_height
         br_map_width = 2.0 * br_map_height / figure_aspect
-        bottom_x = {"wind": 0.035, "sigmaP": 0.350, "sigmaH": 0.665}
+        bottom_x = {"source": 0.035, "sigmaP": 0.350, "sigmaH": 0.665}
         top_x = {
-            "jr_n": bottom_x["wind"] + 0.5 * (bottom_map_width - polar_width),
+            "jr_n": bottom_x["source"] + 0.5 * (bottom_map_width - polar_width),
             "jr_s": bottom_x["sigmaP"] + 0.5 * (bottom_map_width - polar_width),
             "Br": 0.985 - br_map_width,
         }
@@ -114,8 +131,8 @@ class InputDriverRenderer:
             "jr_n": [top_x["jr_n"], top_center_y - 0.5 * polar_height, polar_width, polar_height],
             "jr_s": [top_x["jr_s"], top_center_y - 0.5 * polar_height, polar_width, polar_height],
             "Br": [top_x["Br"], top_center_y - 0.5 * br_map_height, br_map_width, br_map_height],
-            "wind": [
-                bottom_x["wind"],
+            "source": [
+                bottom_x["source"],
                 bottom_center_y - 0.5 * bottom_map_height,
                 bottom_map_width,
                 bottom_map_height,
@@ -154,6 +171,12 @@ class InputDriverRenderer:
             self.view.lat, self.spec.hemisphere_min_abs_latitude
         )
         jr_display = fields["jr"] * jr_kwargs.get("scale", 1.0)
+        if not self._has_finite(jr_display):
+            for pax in (pax_jr_n, pax_jr_s):
+                self._mark_missing(pax.ax, "Input jr not stored")
+            pax_jr_n.ax.set_title(r"Input $j_r$ north", fontsize=11)
+            pax_jr_s.ax.set_title(r"Input $j_r$ south", fontsize=11)
+            return None
         jr_plot_kwargs = contour_kwargs_for_display(jr_kwargs)
         jr_n = pax_jr_n.contourf(
             self.view.lat[north_mask], mlt[north_mask], jr_display[north_mask], **jr_plot_kwargs
@@ -177,13 +200,33 @@ class InputDriverRenderer:
     def _draw_global_scalars(self, fields, input_kwargs, ax_br, ax_sigma_p, ax_sigma_h):
         br_mappable = None
         conductance_mappable = None
-        for axis, title, field_key, kwargs_key, left_labels, bottom_labels in [
-            (ax_br, r"Input $B_r$ at $R_M$", "Br", "Br", False, True),
-            (ax_sigma_p, "Pedersen conductance", "sigmaP", "conductance", False, True),
-            (ax_sigma_h, "Hall conductance", "sigmaH", "conductance", False, True),
+        for axis, title, missing_message, field_key, kwargs_key, left_labels, bottom_labels in [
+            (ax_br, r"Input $B_r$ at $R_M$", r"Input $B_r$ not stored", "Br", "Br", False, True),
+            (
+                ax_sigma_p,
+                "Pedersen conductance",
+                "Conductance not stored",
+                "sigmaP",
+                "conductance",
+                False,
+                True,
+            ),
+            (
+                ax_sigma_h,
+                "Hall conductance",
+                "Conductance not stored",
+                "sigmaH",
+                "conductance",
+                False,
+                True,
+            ),
         ]:
             style_global_input_axis(axis, left_labels=left_labels, bottom_labels=bottom_labels)
             plot_kwargs = input_kwargs[kwargs_key]
+            if not self._has_finite(fields[field_key]):
+                self._mark_missing(axis, missing_message)
+                axis.set_title(title, fontsize=11)
+                continue
             contour = axis.contourf(
                 self.view.lon,
                 self.view.lat,
@@ -199,19 +242,54 @@ class InputDriverRenderer:
                 conductance_mappable = contour
         return br_mappable, conductance_mappable
 
-    def _draw_wind(self, fields, axis):
+    def _draw_tangential_source(self, fields, axis):
         style_global_input_axis(axis, left_labels=True, bottom_labels=True)
-        u_north = -fields["wind_theta"]
-        u_east = fields["wind_phi"]
-        if np.any(np.isfinite(u_north) & np.isfinite(u_east)):
-            wind_quiver = axis.quiver(
+        source_options = [
+            {
+                "theta": fields["E_source_theta"],
+                "phi": fields["E_source_phi"],
+                "scale_factor": 1.0e3,
+                "title": r"Input direct $E_\mathrm{source}$",
+                "key_value": 10.0,
+                "key_label": "10 mV/m",
+                "scale": 90.0,
+            },
+            {
+                "theta": fields["Q_eff_theta"],
+                "phi": fields["Q_eff_phi"],
+                "scale_factor": 1.0e3,
+                "title": r"Input $Q_\mathrm{eff}$",
+                "key_value": 50.0,
+                "key_label": "50 mA/m",
+                "scale": 450.0,
+            },
+            {
+                "theta": fields["wind_theta"],
+                "phi": fields["wind_phi"],
+                "scale_factor": 1.0,
+                "title": "Input horizontal wind",
+                "key_value": 200.0,
+                "key_label": "200 m/s",
+                "scale": 1800.0,
+            },
+        ]
+        selected = None
+        for option in source_options:
+            north = -np.asarray(option["theta"], dtype=float) * option["scale_factor"]
+            east = np.asarray(option["phi"], dtype=float) * option["scale_factor"]
+            if np.any(np.isfinite(north) & np.isfinite(east)):
+                selected = {**option, "north": north, "east": east}
+                break
+
+        if selected is not None:
+            quiver = axis.quiver(
                 self.view.wind_lon,
                 self.view.wind_lat,
-                u_east,
-                u_north,
+                selected["east"],
+                selected["north"],
                 transform=ccrs.PlateCarree(),
                 color="0.08",
-                scale=1800,
+                scale=selected["scale"],
                 width=0.0022,
                 headwidth=3.4,
                 headaxislength=3.4,
@@ -219,52 +297,61 @@ class InputDriverRenderer:
                 zorder=4,
             )
             axis.quiverkey(
-                wind_quiver,
+                quiver,
                 0.08,
                 0.08,
-                200,
-                "200 m/s",
+                selected["key_value"],
+                selected["key_label"],
                 labelpos="E",
                 coordinates="axes",
                 fontproperties={"size": 8},
             )
+            axis.set_title(selected["title"], fontsize=11)
         else:
             axis.text(
                 0.5,
                 0.5,
-                "Ordinary wind u not stored for this run",
+                "No tangential wind/source input stored",
                 transform=axis.transAxes,
                 ha="center",
                 va="center",
                 fontsize=10,
                 color="0.35",
             )
-        axis.set_title("Input horizontal wind", fontsize=11)
+            axis.set_title("Input tangential source", fontsize=11)
 
     @staticmethod
     def _draw_colorbars(fig, layout, jr_n, br_mappable, conductance_mappable, input_kwargs):
-        jr_kwargs = input_kwargs["jr"]
-        jr_cbar = fig.colorbar(jr_n, cax=fig.add_axes(layout["jr_cbar"]), orientation="horizontal")
-        jr_cbar.set_label(f"{jr_kwargs['symbol']} ({jr_kwargs['units']})", size=10)
-        jr_cbar.ax.tick_params(labelsize=8)
+        jr_axis = fig.add_axes(layout["jr_cbar"])
+        if jr_n is not None:
+            jr_kwargs = input_kwargs["jr"]
+            jr_cbar = fig.colorbar(jr_n, cax=jr_axis, orientation="horizontal")
+            jr_cbar.set_label(f"{jr_kwargs['symbol']} ({jr_kwargs['units']})", size=10)
+            jr_cbar.ax.tick_params(labelsize=8)
+        else:
+            jr_axis.axis("off")
 
-        br_kwargs = input_kwargs["Br"]
-        br_cbar = fig.colorbar(
-            br_mappable, cax=fig.add_axes(layout["Br_cbar"]), orientation="horizontal"
-        )
-        br_cbar.set_label(f"{br_kwargs['symbol']} ({br_kwargs['units']})", size=10)
-        br_cbar.ax.tick_params(labelsize=8)
+        br_axis = fig.add_axes(layout["Br_cbar"])
+        if br_mappable is not None:
+            br_kwargs = input_kwargs["Br"]
+            br_cbar = fig.colorbar(br_mappable, cax=br_axis, orientation="horizontal")
+            br_cbar.set_label(f"{br_kwargs['symbol']} ({br_kwargs['units']})", size=10)
+            br_cbar.ax.tick_params(labelsize=8)
+        else:
+            br_axis.axis("off")
 
-        conductance_kwargs = input_kwargs["conductance"]
-        conductance_cbar = fig.colorbar(
-            conductance_mappable,
-            cax=fig.add_axes(layout["conductance_cbar"]),
-            orientation="vertical",
-        )
-        conductance_cbar.set_label(
-            f"{conductance_kwargs['symbol']} ({conductance_kwargs['units']})", size=10
-        )
-        conductance_cbar.ax.tick_params(labelsize=8)
+        conductance_axis = fig.add_axes(layout["conductance_cbar"])
+        if conductance_mappable is not None:
+            conductance_kwargs = input_kwargs["conductance"]
+            conductance_cbar = fig.colorbar(
+                conductance_mappable, cax=conductance_axis, orientation="vertical"
+            )
+            conductance_cbar.set_label(
+                f"{conductance_kwargs['symbol']} ({conductance_kwargs['units']})", size=10
+            )
+            conductance_cbar.ax.tick_params(labelsize=8)
+        else:
+            conductance_axis.axis("off")
 
 
 def render_input_summary_figure(spec, view=None):

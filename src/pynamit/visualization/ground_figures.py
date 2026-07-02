@@ -12,7 +12,7 @@ import pandas as pd
 
 from pynamit.math.constants import RE
 from pynamit.simulation.config import SimulationConfig, setting_value
-from pynamit.simulation.mainfield import Mainfield
+from pynamit.simulation.mainfield import mainfield_from_config
 from pynamit.sphere import Grid, SolidHarmonics
 from pynamit.visualization.figure_context import SavedRunFigureContext
 from pynamit.visualization.grid_evaluation import build_evaluator
@@ -338,21 +338,31 @@ class GroundFigureRenderer:
             return cached
 
         grid = Grid(lat=lat_arr, lon=lon_arr)
-        evaluator = build_evaluator(self.view.sh_basis, grid)
         ri = float(setting_value(self.view.settings, "RI"))
-        solid_harmonics = SolidHarmonics(self.view.sh_basis)
+        if self.view.geometry is None:
+            solid_harmonics = SolidHarmonics(self.view.sh_basis)
+            horizontal_to_solid = None
+        else:
+            solid_harmonics = self.view.geometry.solid_harmonics
+            horizontal_to_solid = self.view.geometry.horizontal_to_solid_harmonic
+        solid_basis = solid_harmonics.basis
+        evaluator = build_evaluator(solid_basis, grid)
         ve_to_ground = solid_harmonics.regular_reference_shift(ri, RE)
-        m_ind_to_br = -(ri**2) * self.view.sh_basis.laplacian(ri)
+        m_ind_to_br = -(ri**2) * solid_basis.laplacian(ri)
         m_ind_to_br_ground = ve_to_ground * m_ind_to_br * evaluator.G
-        m_ind_to_bh_ground = (self.view.sh_basis.n + 1) * ve_to_ground * evaluator.G_grad
+        m_ind_to_bh_ground = (solid_basis.n + 1) * ve_to_ground * evaluator.G_grad
 
-        m_ind = self.view.datasets["state"].SH_m_ind.values.T
+        m_ind = self.view.dataset_values("state", "m_ind").T
+        if horizontal_to_solid is not None:
+            m_ind = horizontal_to_solid.dot(m_ind)
         steady_dataset = self.view.datasets.get("steady_state")
         if steady_dataset is None:
             br_steady = None
             bh_steady = None
         else:
-            m_ind_steady = steady_dataset.SH_m_ind.values.T
+            m_ind_steady = self.view.dataset_values("steady_state", "m_ind").T
+            if horizontal_to_solid is not None:
+                m_ind_steady = horizontal_to_solid.dot(m_ind_steady)
             br_steady = m_ind_to_br_ground.dot(m_ind_steady)
             bh_steady = m_ind_to_bh_ground.dot(m_ind_steady)
         cached = (
@@ -647,20 +657,15 @@ class GroundFigureRenderer:
         """Return magnetic latitude used for low-latitude selection."""
         lat_arr = np.asarray(lat, dtype=float)
         lon_arr = np.asarray(lon, dtype=float)
-        try:
-            mainfield = self._mainfield_for_saved_run()
-            if mainfield.kind == "igrf":
-                height_km = (SimulationConfig.from_settings(self.view.settings).RI - RE) * 1e-3
-                mlat, _ = mainfield.apx.geo2apex(lat_arr, lon_arr, height_km)
-                return np.asarray(mlat, dtype=float)
-            if mainfield.kind in {"dipole", "kaiju_dipole"}:
-                mlat, _ = mainfield.geo_to_model_coordinates(
-                    lat_arr, lon_arr, event_time=event_time
-                )
-                return np.asarray(mlat, dtype=float)
-        except Exception:
-            pass
-        return lat_arr
+        mainfield = self._mainfield_for_saved_run()
+        if mainfield.kind == "igrf":
+            height_km = (SimulationConfig.from_settings(self.view.settings).RI - RE) * 1e-3
+            mlat, _ = mainfield.apx.geo2apex(lat_arr, lon_arr, height_km)
+            return np.asarray(mlat, dtype=float)
+        if mainfield.kind in {"dipole", "kaiju_dipole"}:
+            mlat, _ = mainfield.geo_to_model_coordinates(lat_arr, lon_arr, event_time=event_time)
+            return np.asarray(mlat, dtype=float)
+        raise ValueError(f"Unsupported mainfield kind for magnetic latitude: {mainfield.kind!r}")
 
     @staticmethod
     def ground_component_base(component):
@@ -858,14 +863,7 @@ class GroundFigureRenderer:
         ):
             return handles
 
-        try:
-            time_deltas = np.abs(
-                pd.DatetimeIndex(self.view.time_index) - pd.Timestamp(target_time)
-            )
-            input_index = int(np.argmin(time_deltas.to_numpy(dtype="timedelta64[ns]")))
-            fields = self.view.input_grid_fields(input_index)
-        except Exception:
-            return handles
+        fields = self.view.input_grid_fields_at_time(target_time)
 
         overlay_specs = [
             (
@@ -926,18 +924,10 @@ class GroundFigureRenderer:
 
     def _mainfield_for_saved_run(self):
         config = SimulationConfig.from_settings(self.view.settings)
-        return Mainfield(
-            kind=config.mainfield_kind,
-            epoch=config.mainfield_epoch,
-            hI=(config.RI - RE) * 1e-3,
-            B0=config.mainfield_B0,
-        )
+        return mainfield_from_config(config)
 
     def _draw_low_latitude_curves(self, axis, data_projection, central_longitude, reference_time):
-        try:
-            mainfield = self._mainfield_for_saved_run()
-        except Exception:
-            return []
+        mainfield = self._mainfield_for_saved_run()
         boundary = float(self.spec.min_abs_dip_latitude)
         dip_equator_style = {
             "color": "#0072B2",

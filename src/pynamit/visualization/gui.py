@@ -25,8 +25,7 @@ def default_websocket_origins(
 def build_arg_parser() -> argparse.ArgumentParser:
     """Return the ``pynamit-gui`` argument parser."""
     parser = argparse.ArgumentParser(
-        prog="pynamit-gui",
-        description="Serve the PynaMIT Panel visualization frontend.",
+        prog="pynamit-gui", description="Serve the PynaMIT Panel visualization frontend."
     )
     parser.add_argument(
         "run_directory",

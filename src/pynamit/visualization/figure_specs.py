@@ -30,6 +30,11 @@ PLOT_TYPE_OPTIONS = {
     "input_summary": "Input drivers",
 }
 
+GROUND_COMPONENT_OPTIONS = {"Magnitude", "North", "East", "Down", "AbsNorth", "AbsEast", "AbsDown"}
+GROUND_QUANTITY_OPTIONS = {"b", "dbdt"}
+CURVE_SCALE_MODE_OPTIONS = {"auto", "manual"}
+COLOR_SCALE_MODE_OPTIONS = {"fixed", "percentile"}
+
 RUN_PLOT_DEFAULT_FILENAMES = (
     "pynamit_plot_defaults.json",
     "plot_defaults.json",
@@ -88,6 +93,68 @@ class PynamitFigureSpec:
     movie_fps: float = 4.0
     movie_dpi: int = 120
     extra: dict = field(default_factory=dict)
+
+    def __post_init__(self):
+        """Normalize and validate renderer-facing options."""
+        self.time_range = self._validate_time_range(self.time_range)
+        self._validate_choice("plot_type", self.plot_type, PLOT_TYPE_OPTIONS)
+        self._validate_choice("fill", self.fill, MAP_FILL_OPTIONS)
+        self._validate_choice("lines", self.lines, MAP_LINE_OPTIONS)
+        self._validate_choice("ground_component", self.ground_component, GROUND_COMPONENT_OPTIONS)
+        self._validate_choice("ground_quantity", self.ground_quantity, GROUND_QUANTITY_OPTIONS)
+        self._validate_choice("curve_scale_mode", self.curve_scale_mode, CURVE_SCALE_MODE_OPTIONS)
+        self._validate_choice("color_scale_mode", self.color_scale_mode, COLOR_SCALE_MODE_OPTIONS)
+        self._validate_range(
+            "hemisphere_min_abs_latitude", self.hemisphere_min_abs_latitude, 0, 90
+        )
+        self._validate_range("min_abs_dip_latitude", self.min_abs_dip_latitude, 0, 90)
+        self._validate_ordered_range("geo_lat_min", "geo_lat_max", -90, 90)
+        self._validate_range("local_time_min", self.local_time_min, 0, 24)
+        self._validate_range("local_time_max", self.local_time_max, 0, 24)
+        self._validate_positive("dbdt_window_points", self.dbdt_window_points)
+        self._validate_positive("ground_model_lt_count", self.ground_model_lt_count)
+        self._validate_positive("ground_model_lat_count", self.ground_model_lat_count)
+        self._validate_positive("curve_scale_value", self.curve_scale_value)
+        self._validate_positive("curve_time_scale", self.curve_time_scale)
+        self._validate_positive("movie_fps", self.movie_fps)
+        self._validate_positive("movie_dpi", self.movie_dpi)
+        self._validate_range("color_scale_percentile", self.color_scale_percentile, 0, 100)
+
+    @staticmethod
+    def _validate_choice(name, value, options):
+        if value not in options:
+            allowed = ", ".join(sorted(options))
+            raise ValueError(f"{name} must be one of {allowed}; got {value!r}.")
+
+    @staticmethod
+    def _validate_time_range(value):
+        if len(value) != 2:
+            raise ValueError("time_range must contain exactly two indices.")
+        start, end = (int(value[0]), int(value[1]))
+        if start < 0 or end < 0:
+            raise ValueError("time_range indices must be non-negative.")
+        if end < start:
+            raise ValueError("time_range end must be greater than or equal to start.")
+        return (start, end)
+
+    @staticmethod
+    def _validate_range(name, value, minimum, maximum):
+        value = float(value)
+        if value < float(minimum) or value > float(maximum):
+            raise ValueError(f"{name} must be between {minimum} and {maximum}; got {value!r}.")
+
+    def _validate_ordered_range(self, minimum_name, maximum_name, minimum, maximum):
+        lower = float(getattr(self, minimum_name))
+        upper = float(getattr(self, maximum_name))
+        if lower > upper:
+            raise ValueError(f"{minimum_name} must be <= {maximum_name}.")
+        self._validate_range(minimum_name, lower, minimum, maximum)
+        self._validate_range(maximum_name, upper, minimum, maximum)
+
+    @staticmethod
+    def _validate_positive(name, value):
+        if float(value) <= 0.0:
+            raise ValueError(f"{name} must be positive; got {value!r}.")
 
     def to_dict(self):
         """Return a JSON-compatible dictionary."""

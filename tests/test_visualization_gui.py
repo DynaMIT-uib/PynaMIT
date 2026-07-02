@@ -34,13 +34,18 @@ def test_default_websocket_origins_allow_localhost_and_loopback():
 
 def test_default_websocket_origins_keep_explicit_origins():
     """Explicit websocket origins should be kept."""
-    origins = default_websocket_origins(
-        "0.0.0.0", 6006, ["myhost.example:6006", "localhost:6006"]
-    )
+    origins = default_websocket_origins("0.0.0.0", 6006, ["myhost.example:6006", "localhost:6006"])
 
-    assert origins == [
-        "localhost:6006",
-        "127.0.0.1:6006",
-        "0.0.0.0:6006",
-        "myhost.example:6006",
-    ]
+    assert origins == ["localhost:6006", "127.0.0.1:6006", "0.0.0.0:6006", "myhost.example:6006"]
+
+
+def test_panel_default_run_directory_finds_workflow_children(tmp_path, monkeypatch):
+    """GUI auto-detection should find workflow children."""
+    from pynamit.visualization.panel_app import _default_run_directory
+
+    run_dir = tmp_path / "results" / "N50_M50_Ncs50"
+    run_dir.mkdir(parents=True)
+    (run_dir / "settings.ncdf").write_text("", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    assert _default_run_directory() == str(run_dir.relative_to(tmp_path))
