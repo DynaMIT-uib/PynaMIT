@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from pynamit.math.backend import to_jax, use_jax
+from pynamit.simulation import induction
 
 _FLOAT_ERROR_MARGIN = 1e-6
 
@@ -98,20 +99,6 @@ class EvolutionRunner:
     def __init__(self, owner):
         self.owner = owner
 
-    @property
-    def state(self):
-        """Return the owner's current state object."""
-        return self.owner.state
-
-    @property
-    def current_time(self):
-        """Return the owner's current simulation time."""
-        return self.owner.current_time
-
-    @current_time.setter
-    def current_time(self, value) -> None:
-        self.owner.current_time = value
-
     def evolve_to_time(
         self,
         t,
@@ -156,9 +143,9 @@ class EvolutionRunner:
         if options.run_inductive:
             return self._new_inductive_state(options)
         if "steady_state" in output_datasets:
-            self.current_time = np.max(output_datasets["steady_state"].time.values)
+            self.owner.current_time = np.max(output_datasets["steady_state"].time.values)
         else:
-            self.current_time = np.float64(0)
+            self.owner.current_time = np.float64(0)
         return None
 
     def _resume_inductive_state(self, options: _EvolutionOptions):
@@ -166,28 +153,28 @@ class EvolutionRunner:
         if not options.quiet:
             print("Resuming inductive state from saved output.", flush=True)
         state_dataset = self.owner.output_timeseries.datasets["state"]
-        self.current_time = np.max(state_dataset.time.values)
+        self.owner.current_time = np.max(state_dataset.time.values)
         inductive_m_ind = self.owner.output_timeseries.get_entry(
-            "state", self.current_time, interpolation=False
+            "state", self.owner.current_time, interpolation=False
         )["m_ind"]
         inductive_m_ind = to_jax(inductive_m_ind) if use_jax() else inductive_m_ind
-        return self.state.project_scalar_mean_free(inductive_m_ind)
+        return self.owner.state.project_scalar_mean_free(inductive_m_ind)
 
     def _new_inductive_state(self, options: _EvolutionOptions):
         """Build a new inductive state from steady state or zero."""
         if options.steady_state_initialization:
             if not options.quiet:
                 print("Initializing inductive state from steady state.", flush=True)
-            self.state.update(self.owner.input_timeseries, self.current_time)
-            E_coeffs_noind, _ = self.state.calculate_noind_coeffs()
-            return self.state.steady_state_m_ind(E_coeffs_noind)
+            self.owner.state.update(self.owner.input_timeseries, self.owner.current_time)
+            E_coeffs_noind, _ = self.owner.state.calculate_noind_coeffs()
+            return induction.steady_state_m_ind(self.owner.state, E_coeffs_noind)
 
         if not options.quiet:
             print("Initializing inductive state from zero.", flush=True)
-        self.current_time = np.float64(0)
+        self.owner.current_time = np.float64(0)
         zeros = np.zeros(self.owner.output_field_spaces["state"].index_length)
         zeros = to_jax(zeros) if use_jax() else zeros
-        return self.state.project_scalar_mean_free(zeros)
+        return self.owner.state.project_scalar_mean_free(zeros)
 
     def _saved_outputs_reach_target(self, options: _EvolutionOptions) -> bool:
         """Return whether requested outputs reach target."""
@@ -215,9 +202,9 @@ class EvolutionRunner:
 
         while True:
             self._report_progress(step, total_steps_estimate, options)
-            self.state.update(self.owner.input_timeseries, self.current_time)
+            self.owner.state.update(self.owner.input_timeseries, self.owner.current_time)
 
-            E_coeffs_noind, m_imp_noind = self.state.calculate_noind_coeffs()
+            E_coeffs_noind, m_imp_noind = self.owner.state.calculate_noind_coeffs()
             is_sample_step = step % options.sampling_step_interval == 0
             should_save_sample = is_sample_step and step % options.report_step_interval == 0
             steady_state_m_ind = self._steady_state_for_step(
@@ -231,7 +218,7 @@ class EvolutionRunner:
                 if should_save_sample:
                     self._save_sample_outputs(options)
 
-            next_time = self.current_time + options.dt * options.step_increment
+            next_time = self.owner.current_time + options.dt * options.step_increment
 
             if next_time > options.target_time + _FLOAT_ERROR_MARGIN:
                 if not options.quiet:
@@ -241,10 +228,14 @@ class EvolutionRunner:
             if options.run_inductive:
                 if not options.quiet and self.owner.config.integrator == "exponential":
                     print("  Applying dense exponential induction step.", flush=True)
-                inductive_m_ind = self.state.evolve_m_ind(
-                    inductive_m_ind, options.dt, E_coeffs_noind, steady_state_m_ind
+                inductive_m_ind = induction.evolve_m_ind(
+                    self.owner.state,
+                    inductive_m_ind,
+                    options.dt,
+                    E_coeffs_noind,
+                    steady_state_m_ind,
                 )
-            self.current_time = next_time
+            self.owner.current_time = next_time
             step += options.step_increment
 
     def _total_steps_estimate(self, options: _EvolutionOptions) -> int:
@@ -253,7 +244,7 @@ class EvolutionRunner:
             1,
             int(
                 np.ceil(
-                    max(options.target_time - float(self.current_time), 0.0)
+                    max(options.target_time - float(self.owner.current_time), 0.0)
                     / max(float(options.dt) * options.step_increment, _FLOAT_ERROR_MARGIN)
                 )
             ),
@@ -267,7 +258,7 @@ class EvolutionRunner:
             return
         print(
             f"Evolution step {step}/{total_steps_estimate} "
-            f"at t = {float(self.current_time):.2f} s{_maxrss_label()}",
+            f"at t = {float(self.owner.current_time):.2f} s{_maxrss_label()}",
             flush=True,
         )
 
@@ -282,7 +273,7 @@ class EvolutionRunner:
 
         if not options.quiet and self.owner.config.integrator == "exponential":
             print("  Solving steady state required by exponential integrator.", flush=True)
-        return self.state.steady_state_m_ind(E_coeffs_noind)
+        return induction.steady_state_m_ind(self.owner.state, E_coeffs_noind)
 
     def _sample_outputs(
         self,
@@ -316,7 +307,9 @@ class EvolutionRunner:
         if not options.quiet and saved_outputs:
             print(
                 "Saved {} at t = {:.2f} s{}".format(
-                    " and ".join(saved_outputs), float(self.current_time), _maxrss_label()
+                    " and ".join(saved_outputs),
+                    float(self.owner.current_time),
+                    _maxrss_label(),
                 ),
                 flush=True,
             )

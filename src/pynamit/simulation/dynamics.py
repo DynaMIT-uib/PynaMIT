@@ -14,6 +14,7 @@ from pynamit.primitives.io import IO
 from pynamit.simulation.data import SimulationData
 from pynamit.simulation.evolution import EvolutionRunner
 from pynamit.simulation.inputs import InputProjector
+from pynamit.simulation import induction, ionospheric_closure
 from pynamit.simulation.mainfield import mainfield_from_config
 from pynamit.simulation.state import State
 from pynamit.math.backend import set_backend, to_numpy
@@ -165,7 +166,7 @@ class Dynamics:
             use ``sin(theta)``.
         """
         self.backend = set_backend(backend)
-        self.config = SimulationConfig(
+        config = SimulationConfig(
             Nmax=Nmax,
             Mmax=Mmax,
             Ncs=Ncs,
@@ -195,17 +196,14 @@ class Dynamics:
             static_preconditioner=static_preconditioner,
             m_imp_regularization_lambda=m_imp_regularization_lambda,
         )
-        self.settings = self.config.to_dataset()
-
         self.data = SimulationData.create(
-            self.config,
+            config,
             run_directory=run_directory,
             artifact_storage=artifact_storage,
             print_info=True,
         )
         self.config = self.data.config
         self.settings = self.data.settings
-        self.uses_temporary_run_directory = self.data.uses_temporary_run_directory
         self.io = self.data.io
         self.run_directory = self.data.run_directory
 
@@ -346,7 +344,7 @@ class Dynamics:
 
         self.state.update(self.input_timeseries, self.current_time, interpolation=interpolation)
         E_coeffs_noind, m_imp_noind = self.state.calculate_noind_coeffs()
-        steady_state_m_ind = self.state.steady_state_m_ind(E_coeffs_noind)
+        steady_state_m_ind = induction.steady_state_m_ind(self.state, E_coeffs_noind)
 
         if save:
             self.add_state_to_timeseries("state", steady_state_m_ind, E_coeffs_noind, m_imp_noind)
@@ -651,18 +649,7 @@ class Dynamics:
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
         """
-        Hall = np.atleast_2d(np.asarray(Hall, dtype=float))
-        Pedersen = np.atleast_2d(np.asarray(Pedersen, dtype=float))
-
-        etaP = np.empty_like(Pedersen)
-        etaH = np.empty_like(Hall)
-
-        # Convert conductances to resistances for all time points.
-        for i in range(max(etaP.shape[0], 1)):
-            etaP[i] = Pedersen[i] / (Hall[i] ** 2 + Pedersen[i] ** 2)
-
-        for i in range(max(etaH.shape[0], 1)):
-            etaH[i] = Hall[i] / (Hall[i] ** 2 + Pedersen[i] ** 2)
+        etaP, etaH = ionospheric_closure.conductance_to_resistance(Hall, Pedersen)
 
         self.set_resistance(
             etaP,
@@ -882,9 +869,10 @@ class Dynamics:
         fit_coefficients=True,
     ):
         """Compute and store Q_eff from neutral wind and conductance."""
-        self._require_no_wind_proxy_conflict("Q_eff")
+        self.input_projector.require_no_exclusive_conflict("Q_eff")
         if fit_coefficients:
-            input_time, wind_coeff_rows = self._project_neutral_wind_coefficients(
+            input_time, wind_coeff_rows = self.input_projector.project_tangential_samples(
+                "u",
                 u_theta,
                 u_phi,
                 lat=lat,
@@ -896,10 +884,18 @@ class Dynamics:
                 reg_lambda=wind_reg_lambda,
                 pinv_rtol=pinv_rtol,
             )
-            q_coeff_rows = self._fit_Q_eff_coefficients_from_wind(
-                input_time, wind_coeff_rows, reg_lambda=Q_eff_reg_lambda, pinv_rtol=pinv_rtol
+            q_coeff_rows = ionospheric_closure.fit_Q_eff_coefficients(
+                self.state,
+                self.input_timeseries,
+                self.input_field_spaces["Q_eff"],
+                input_time,
+                wind_coeff_rows,
+                reg_lambda=Q_eff_reg_lambda,
+                pinv_rtol=pinv_rtol,
             )
-            self._add_input_coefficients("Q_eff", {"Q_eff": q_coeff_rows}, input_time)
+            self.input_projector.add_input_coefficients(
+                "Q_eff", {"Q_eff": q_coeff_rows}, input_time
+            )
             return
 
         Q_eff_theta, Q_eff_phi, Q_lat, Q_lon = self.calculate_Q_eff_from_neutral_wind(
@@ -941,57 +937,7 @@ class Dynamics:
         if "conductance" not in self.input_timeseries.datasets:
             raise RuntimeError("Conductance must be set before calculating Q_eff from wind.")
 
-        input_time, wind_coeff_rows = self._project_neutral_wind_coefficients(
-            u_theta,
-            u_phi,
-            lat=lat,
-            lon=lon,
-            theta=theta,
-            phi=phi,
-            time=time,
-            sqrt_weights=sqrt_weights,
-            reg_lambda=reg_lambda,
-            pinv_rtol=pinv_rtol,
-        )
-        wind_synthesis = self.input_field_spaces[
-            "u"
-        ].representation.get_helmholtz_synthesis_operator(self.state.geometry.grid)
-        Q_eff_values = []
-        for time_value, wind_coeffs in zip(input_time, wind_coeff_rows):
-            self.state.update(self.input_timeseries, time_value)
-            wind_on_grid = np.asarray(wind_synthesis.matvec(wind_coeffs)).reshape(
-                (2, self.state.geometry.grid.size)
-            )
-            E_wind_on_grid = np.einsum(
-                "abg,bg->ag", np.asarray(self.state.geometry.bu), wind_on_grid, optimize=True
-            )
-            M = np.asarray(self.state.M_total_on_grid)
-            point_matrices = np.moveaxis(M, -1, 0)
-            Q_eff_on_grid = np.linalg.solve(point_matrices, E_wind_on_grid.T[..., np.newaxis])[
-                ..., 0
-            ].T
-            Q_eff_values.append(Q_eff_on_grid)
-
-        Q_eff_values = np.asarray(Q_eff_values)
-        grid = self.state.geometry.grid
-        return Q_eff_values[:, 0, :], Q_eff_values[:, 1, :], grid.lat, grid.lon
-
-    def _project_neutral_wind_coefficients(
-        self,
-        u_theta,
-        u_phi,
-        *,
-        lat=None,
-        lon=None,
-        theta=None,
-        phi=None,
-        time=None,
-        sqrt_weights=None,
-        reg_lambda=None,
-        pinv_rtol=1e-15,
-    ):
-        """Project wind samples to stored Helmholtz coefficients."""
-        return self.input_projector.project_tangential_samples(
+        input_time, wind_coeff_rows = self.input_projector.project_tangential_samples(
             "u",
             u_theta,
             u_phi,
@@ -1004,156 +950,10 @@ class Dynamics:
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
         )
-
-    def _fit_Q_eff_coefficients_from_wind(
-        self, input_time, wind_coeff_rows, *, reg_lambda=None, pinv_rtol=1e-15
-    ):
-        """Fit Q_eff coefficients to reproduce wind E coefficients."""
-        q_field_space = self.input_field_spaces["Q_eff"]
-        q_coeff_rows = []
-        for time_value, wind_coeffs in zip(input_time, wind_coeff_rows):
-            self.state.update(self.input_timeseries, time_value)
-            E_wind_coeffs = self.state.u_coeffs_to_E_coeffs.matvec(wind_coeffs)
-            q_to_E = self.state.Q_eff_to_E_coeffs_for_field_space(q_field_space)
-            matrix = np.asarray(q_to_E.to_matrix(backend="numpy"))
-            rhs = np.asarray(E_wind_coeffs).reshape(-1)
-            if reg_lambda is not None and float(reg_lambda) > 0.0:
-                weight = float(reg_lambda)
-                matrix = np.vstack([matrix, weight * np.eye(matrix.shape[1], dtype=matrix.dtype)])
-                rhs = np.concatenate([rhs, np.zeros(matrix.shape[1], dtype=rhs.dtype)])
-            q_coeffs, *_ = np.linalg.lstsq(matrix, rhs, rcond=pinv_rtol)
-            q_coeff_rows.append(
-                q_field_space.validate_coefficients(q_coeffs, name="Q_eff coefficients")
-            )
-        return np.asarray(q_coeff_rows)
-
-    def _require_sample_values(self, label, **values):
-        """Require all named sample values."""
-        return self.input_projector.require_sample_values(label, **values)
-
-    def _require_complete_values(self, label, **values):
-        """Require either all named values or none of them."""
-        return self.input_projector.require_complete_values(label, **values)
-
-    def _require_no_sample_values(self, label, **values):
-        """Reject sample values when coefficient values are supplied."""
-        return self.input_projector.require_no_sample_values(label, **values)
-
-    def _validate_only_coefficients(
-        self,
-        label,
-        *,
-        lat=None,
-        lon=None,
-        theta=None,
-        phi=None,
-        sqrt_weights=None,
-        reg_lambda=None,
-    ):
-        """Reject projection controls on direct coefficient inputs."""
-        return self.input_projector.validate_only_coefficients(
-            label,
-            lat=lat,
-            lon=lon,
-            theta=theta,
-            phi=phi,
-            sqrt_weights=sqrt_weights,
-            reg_lambda=reg_lambda,
+        return ionospheric_closure.Q_eff_from_neutral_wind(
+            self.state,
+            self.input_timeseries,
+            self.input_field_spaces["u"].representation,
+            input_time,
+            wind_coeff_rows,
         )
-
-    def _require_no_wind_proxy_conflict(self, key):
-        """Reject simultaneous wind-forcing representation datasets."""
-        return self.input_projector.require_no_exclusive_conflict(key)
-
-    def _wind_input_data(self, u_theta, u_phi):
-        """Return wind input data with time before component."""
-        return self.input_projector.tangential_input_data("u", u_theta, u_phi)
-
-    def _tangential_input_data(self, key, theta_component, phi_component):
-        """Return tangential input data with time before component."""
-        return self.input_projector.tangential_input_data(key, theta_component, phi_component)
-
-    def _project_and_add_input(
-        self,
-        key,
-        input_data,
-        *,
-        lat=None,
-        lon=None,
-        theta=None,
-        phi=None,
-        time=None,
-        sqrt_weights=None,
-        reg_lambda=None,
-        pinv_rtol=1e-15,
-    ):
-        """Project gridded input data and store coefficient entries."""
-        return self.input_projector.project_and_add_input(
-            key,
-            input_data,
-            lat=lat,
-            lon=lon,
-            theta=theta,
-            phi=phi,
-            time=time,
-            sqrt_weights=sqrt_weights,
-            reg_lambda=reg_lambda,
-            pinv_rtol=pinv_rtol,
-        )
-
-    def _project_scalar_input_variables(
-        self,
-        key,
-        input_data,
-        *,
-        input_grid,
-        input_time,
-        sqrt_weights=None,
-        reg_lambda=None,
-        pinv_rtol=1e-15,
-    ):
-        """Project scalar input variables in one batched transform."""
-        return self.input_projector.project_scalar_input_variables(
-            key,
-            input_data,
-            input_grid=input_grid,
-            input_time=input_time,
-            sqrt_weights=sqrt_weights,
-            reg_lambda=reg_lambda,
-            pinv_rtol=pinv_rtol,
-        )
-
-    def _add_input_coefficients(self, key, input_data, time):
-        """Store input-basis coefficients directly in a time series."""
-        return self.input_projector.add_input_coefficients(key, input_data, time)
-
-    def adapt_input_time(self, time, data):
-        """Adapt array of time values given with the input data.
-
-        Parameters
-        ----------
-        time : array-like, optional
-            Time values for the input data.
-        data : dict
-            Dictionary containing input data variables.
-
-        Returns
-        -------
-        time : array-like
-            Adapted time values.
-
-        Notes
-        -----
-        If time is None, the current time is used.
-
-        Raises
-        ------
-        ValueError
-            If time is None and data is of a shape that suggests
-            multiple time values.
-        """
-        return self.input_projector.adapt_input_time(time, data)
-
-    def _validate_input_time_rows(self, key, input_time, input_data):
-        """Require input rows to match times."""
-        return self.input_projector.validate_input_time_rows(key, input_time, input_data)

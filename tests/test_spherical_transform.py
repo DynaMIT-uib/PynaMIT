@@ -75,7 +75,6 @@ def test_basis_evaluator_is_spherical_transform_alias():
     evaluator = BasisEvaluator(basis, grid)
 
     assert BasisEvaluator is SphericalTransform
-    assert pynamit.BasisEvaluator is BasisEvaluator
     assert pynamit.SphericalTransform is SphericalTransform
 
     coeffs = np.zeros(basis.index_length)

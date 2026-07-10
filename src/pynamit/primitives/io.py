@@ -252,6 +252,13 @@ class IO:
             if (storages := self.get_dataset_storage_kinds(name))
         }
 
+    def remove_artifact(self, name: str) -> None:
+        """Remove all on-disk representations of one known artifact."""
+        if name not in RUN_ARTIFACTS:
+            raise ValueError(f"Unknown run artifact {name!r}.")
+        for storage in ("zarr", "netcdf"):
+            self._remove_path(self._path_for(name, storage=storage))
+
     def _resolve_dataset_storage_kind(self, name: str, storage: str | None) -> str:
         """Choose the storage kind for one dataset save."""
         normalized = "auto" if storage is None else str(storage)

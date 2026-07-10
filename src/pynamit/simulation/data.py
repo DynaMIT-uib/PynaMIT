@@ -28,9 +28,6 @@ class SimulationData:
     output_timeseries: Timeseries
     settings_on_file: xr.Dataset | None = None
     pfac_matrix: Any = None
-    uses_temporary_run_directory: bool = False
-    settings_loaded_from_file: bool = False
-    pfac_matrix_loaded_from_file: bool = False
 
     @classmethod
     def create(
@@ -51,8 +48,7 @@ class SimulationData:
         )
         settings = config.to_dataset()
 
-        uses_temporary_run_directory = run_directory is None
-        if uses_temporary_run_directory:
+        if run_directory is None:
             run_directory = IO.build_temporary_run_directory()
 
         io = IO(run_directory=run_directory, preferred_dataset_storage=artifact_storage)
@@ -87,25 +83,12 @@ class SimulationData:
             output_timeseries=output_timeseries,
             settings_on_file=settings_on_file,
             pfac_matrix=pfac_matrix,
-            uses_temporary_run_directory=uses_temporary_run_directory,
-            settings_loaded_from_file=settings_on_file is not None,
-            pfac_matrix_loaded_from_file=pfac_matrix is not None,
         )
 
     @property
     def run_directory(self):
         """Return the resolved run directory."""
         return self.io.run_directory
-
-    @property
-    def settings_from_file(self):
-        """Return whether settings were loaded from this run dir."""
-        return self.settings_loaded_from_file
-
-    @property
-    def pfac_matrix_from_file(self):
-        """Return whether PFAC was loaded from this run dir."""
-        return self.pfac_matrix_loaded_from_file
 
     def save_settings_if_missing(self, *, print_info=False):
         """Persist settings when this is a new run directory."""

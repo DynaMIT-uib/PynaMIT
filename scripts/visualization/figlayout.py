@@ -134,7 +134,9 @@ def plot_state_debug_summary(dynamics, title=None, filename=None, noon_longitude
     lat, lon = map(np.ravel, np.meshgrid(lat, lon))
     plt_grid = pynamit.Grid(lat=lat, lon=lon)
     plt_state_evaluator = pynamit.SphericalTransform(dynamics.horizontal_basis, plt_grid)
-    plt_b_evaluator = pynamit.FieldEvaluator(dynamics.state.mainfield, plt_grid, dynamics.state.RI)
+    plt_b_evaluator = pynamit.FieldEvaluator(
+        dynamics.mainfield, plt_grid, dynamics.config.RI
+    )
 
     # Calculate values to plot.
     Br = dynamics.state.get_Br(plt_state_evaluator)

@@ -27,7 +27,8 @@ The main setup path is:
    coefficient storage.
 4. ``Dynamics`` attaches an ``EvolutionRunner`` for restart handling, sample
    scheduling, progress reporting, and output save decisions.
-5. ``State`` owns the evolving numerical state and operator application.
+5. ``State`` owns the mutable numerical state and cached, run-specific
+   operator compositions.
 6. ``SimulationData`` owns persisted settings, input time series, and output
    time series.
 
@@ -100,19 +101,40 @@ This boundary matters because prepared-input logic is both user-facing and
 testable.  If a script needs behavior that should remain correct over time,
 move it into the package and test the behavior there.
 
+Electrodynamic physics
+----------------------
+
+The physics modules follow the direction of the model equations instead of
+mirroring the names of state variables:
+
+* ``magnetic_boundary`` maps magnetic boundary potentials and prescribed
+  boundary ``Br`` to the derived horizontal sheet current ``JS``.  Solid
+  harmonics own generic radial continuation; this module owns the particular
+  potential jump, shielding, and boundary-current relations used by PynaMIT.
+* ``ionospheric_closure`` applies the height-integrated Ohm-law closure.  It
+  converts Hall/Pedersen conductance to the stored resistance variables and
+  maps neutral motion or sheet current through the magnetic geometry and
+  resistance tensor to ``E``.
+* ``induction`` owns Faraday evolution of ``m_ind``, including Euler,
+  exponential, and SciPy integration and the corresponding steady state.
+
+``Geometry`` supplies run-specific grids, magnetic-field factors, transforms,
+radial field-line mapping, and interhemispheric constraint geometry to these
+equations.  ``State`` owns mutable input coefficients and caches the composed
+operators whose values depend on the current conductance.  ``StateOperators``
+exposes named compositions of those maps for inspection and solver use.  This
+keeps equation implementations out of the orchestration objects without
+introducing stateful physics collaborators.
+
 State and evolution
 -------------------
 
-``State`` should remain the owner of derived model operators, coefficient
-updates, backend array conversion, and field evaluations that depend on the
-current physical state.  ``Dynamics`` exposes ``evolve_to_time`` as the stable
-public API, but delegates the run loop to ``EvolutionRunner``.
-
-``EvolutionRunner`` owns restart short-circuiting, sample scheduling, progress
-reporting, and output save decisions.  It should stay focused on orchestration:
-the runner may decide when to update state or save outputs, but low-level
-operator algebra belongs in ``State`` and artifact details belong in
-``SimulationData``.
+``Dynamics`` exposes ``evolve_to_time`` as the stable public API, but delegates
+the run loop to ``EvolutionRunner``.  ``EvolutionRunner`` owns restart
+short-circuiting, sample scheduling, progress reporting, and output save
+decisions.  The runner may decide when to update state or save outputs, but
+time-stepping equations belong in ``induction``, run-specific operator caches
+belong in ``State``, and artifact details belong in ``SimulationData``.
 
 Persistence
 -----------
@@ -152,6 +174,9 @@ Use these rules when extending the codebase:
 * Add persisted streams to ``simulation.schema`` before adding storage code.
 * Add input projection behavior to ``InputProjector`` and ``InputSpec`` before
   adding logic to ``Dynamics`` setters.
+* Put reusable boundary-current equations in ``magnetic_boundary``,
+  constitutive ``JS``/wind-to-``E`` equations in ``ionospheric_closure``, and
+  magnetic time-stepping equations in ``induction``.
 * Add run-loop behavior to ``EvolutionRunner`` before expanding
   ``Dynamics.evolve_to_time``.
 * Add cubed-sphere internals to the focused CS collaborator that owns the

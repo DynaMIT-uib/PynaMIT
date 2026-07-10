@@ -12,6 +12,7 @@ from scripts.simulation.mage_project_inputs import DEFAULT_INPUT_DIRECTORY
 from scripts.simulation.mage_project_inputs import DEFAULT_MAGE_RUN_ROOT as MAGE_PROJECT_ROOT
 from scripts.simulation.mage_project_inputs import DEFAULT_RESULT_DIRECTORY
 from scripts.simulation.mage_project_inputs import SETTINGS as MAGE_PROJECT_SETTINGS
+from scripts.simulation.mage_project_inputs import _clear_existing_input_package
 from scripts.simulation.mage_prepare_forcing import (
     DEFAULT_GAMERA_DIR,
     DEFAULT_OUTPUT_NAME,
@@ -103,6 +104,26 @@ def test_projected_input_default_matches_run_input_directory():
 def test_mage_projection_uses_kaiju_dipole_by_default():
     """MAGE projection should use the Kaiju/Geopack SM dipole."""
     assert MAGE_PROJECT_SETTINGS.mainfield_kind == "kaiju_dipole"
+
+
+def test_mage_projection_replaces_stale_pynamit_input_artifacts(tmp_path):
+    """Reprojection must not retain old forcing or source artifacts."""
+    stale_artifacts = (tmp_path / "jr.ncdf", tmp_path / "state.ncdf")
+    for path in stale_artifacts:
+        path.write_text("stale", encoding="utf-8")
+    (tmp_path / "u.zarr").mkdir()
+    (tmp_path / "pynamit_input_manifest.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "mage_input_metadata.json").write_text("{}", encoding="utf-8")
+    unrelated_path = tmp_path / "notes.txt"
+    unrelated_path.write_text("keep", encoding="utf-8")
+
+    _clear_existing_input_package(tmp_path, artifact_storage="netcdf")
+
+    assert not any(path.exists() for path in stale_artifacts)
+    assert not (tmp_path / "u.zarr").exists()
+    assert not (tmp_path / "pynamit_input_manifest.json").exists()
+    assert not (tmp_path / "mage_input_metadata.json").exists()
+    assert unrelated_path.read_text(encoding="utf-8") == "keep"
 
 
 def test_load_weighted_winds_requires_prepared_hall_products():

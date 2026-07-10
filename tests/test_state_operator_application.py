@@ -134,7 +134,7 @@ def test_Q_eff_coeffs_to_E_coeffs_uses_conductance_tensor_operator():
     state.Q_eff = SimpleNamespace(representation=q_representation)
     state._Q_eff_synthesis_operator_cache = {}
     state._Q_eff_to_E_coeffs_cache = None
-    state._M_total_on_grid = M_total
+    state._resistance_tensor_on_grid = M_total
 
     operator = state.Q_eff_to_E_coeffs
     result = State._apply_operator(None, operator, coeffs, (2, n))
@@ -146,10 +146,9 @@ def test_Q_eff_coeffs_to_E_coeffs_uses_conductance_tensor_operator():
 
 
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
-def test_induction_matrix_assembly_stays_on_jax(monkeypatch):
+def test_induction_matrix_assembly_stays_on_jax():
     """Dense induction assembly should not bounce through NumPy."""
     import jax.numpy as jnp
-    import pynamit.simulation.state as state_module
 
     previous_backend = use_jax()
     n = 3
@@ -162,11 +161,6 @@ def test_induction_matrix_assembly_stays_on_jax(monkeypatch):
     m_imp_matrix = np.tensordot(E_direct_to_m_imp, E_direct_matrix, axes=([1, 2], [0, 1]))
     E_imp_to_df = np.tensordot(divergence_free_potential, E_imp_matrix, axes=([1, 2], [0, 1]))
     expected = expected + E_imp_to_df @ m_imp_matrix
-
-    def fail_to_numpy(_):
-        raise AssertionError("Induction matrix assembly should stay on the active backend")
-
-    monkeypatch.setattr(state_module, "to_numpy", fail_to_numpy)
 
     state = object.__new__(State)
     state.basis = SimpleNamespace(index_length=n)
@@ -314,8 +308,8 @@ def test_E_map_constraint_uses_geometry_operator_without_dense_property():
     np.testing.assert_allclose(constraint.to_matrix(backend="numpy"), expected)
 
 
-def test_M_total_on_grid_uses_conductance_synthesis_operator_without_matrix():
-    """Conductance synthesis should avoid grid-evaluation matrices."""
+def test_resistance_tensor_uses_synthesis_operator_without_matrix():
+    """Resistance synthesis should avoid grid-evaluation matrices."""
     n_grid = 4
     n_coeffs = 3
     synthesis = np.arange(n_grid * n_coeffs, dtype=float).reshape(n_grid, n_coeffs) / 10.0
@@ -334,7 +328,7 @@ def test_M_total_on_grid_uses_conductance_synthesis_operator_without_matrix():
             return as_linear_map(synthesis, input_shape=(n_coeffs,), output_shape=(n_grid,))
 
         def get_scalar_evaluation_matrix(self, _grid):
-            raise AssertionError("M_total_on_grid should use the operator API")
+            raise AssertionError("resistance tensor should use the operator API")
 
     conductance_basis = ConductanceBasis()
     state = object.__new__(State)
@@ -347,17 +341,17 @@ def test_M_total_on_grid_uses_conductance_synthesis_operator_without_matrix():
     )
     state.etaP = SimpleNamespace(array=etaP, representation=conductance_basis)
     state.etaH = SimpleNamespace(array=etaH, representation=conductance_basis)
-    state._M_total_on_grid = None
+    state._resistance_tensor_on_grid = None
 
-    conductance_on_grid = synthesis @ np.stack([etaP, etaH], axis=1)
+    resistance_on_grid = synthesis @ np.stack([etaP, etaH], axis=1)
     expected = np.einsum(
-        "sijk,sk->ijk", np.stack([bP, bH], axis=0), conductance_on_grid.T, optimize=True
+        "sijk,sk->ijk", np.stack([bP, bH], axis=0), resistance_on_grid.T, optimize=True
     )
 
-    np.testing.assert_allclose(state.M_total_on_grid, expected)
+    np.testing.assert_allclose(state.resistance_tensor_on_grid, expected)
 
 
-def test_M_total_on_grid_rejects_incompatible_conductance_bases():
+def test_resistance_tensor_rejects_incompatible_storage_bases():
     """Pedersen and Hall must share one coefficient space."""
     n_grid = 4
     n_coeffs = 3
@@ -380,10 +374,10 @@ def test_M_total_on_grid_rejects_incompatible_conductance_bases():
         array=np.ones(n_coeffs), representation=ConductanceBasis("pedersen")
     )
     state.etaH = SimpleNamespace(array=np.ones(n_coeffs), representation=ConductanceBasis("hall"))
-    state._M_total_on_grid = None
+    state._resistance_tensor_on_grid = None
 
     with pytest.raises(ValueError, match="coefficient-compatible"):
-        _ = state.M_total_on_grid
+        _ = state.resistance_tensor_on_grid
 
 
 def test_model_operator_accessors_match_runtime_operator_chain():

@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 from pynamit.math.linear_map import as_linear_map
-from pynamit.visualization.grid_evaluation import resistance_to_conductance
+from pynamit.simulation.ionospheric_closure import resistance_to_conductance
 
 
 def _coefficient_array(coeffs):
@@ -83,7 +83,6 @@ def evaluate_JS_from_maps(m_imp, m_ind, *, m_imp_to_JS, m_ind_to_JS):
     return (_apply_linear_map(m_imp_to_JS, m_imp) + _apply_linear_map(m_ind_to_JS, m_ind)).reshape(
         2, -1
     )
-
 
 def evaluate_joule_from_coefficients(
     transform, m_imp, m_ind, Phi, W, radius, *, m_imp_to_JS, m_ind_to_JS

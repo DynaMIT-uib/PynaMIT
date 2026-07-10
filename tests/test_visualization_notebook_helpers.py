@@ -4,8 +4,6 @@ import datetime as dt
 
 import numpy as np
 
-import pynamit.coordinates as coordinates
-import pynamit.visualization as visualization
 from pynamit.math.constants import RE, mu0
 from pynamit.simulation.dynamics import Dynamics
 from pynamit.sphere import SHBasis
@@ -27,7 +25,6 @@ from pynamit.visualization.artifacts import (
 from pynamit.visualization.grid_evaluation import build_evaluator
 from pynamit.visualization.grid_evaluation import build_plot_grid
 from pynamit.visualization.grid_evaluation import build_JS_operators
-from pynamit.visualization.grid_evaluation import resistance_to_conductance
 from pynamit.visualization.hemisphere import (
     coerce_hemisphere_min_abs_latitude,
     hemisphere_masks_for_latitude,
@@ -321,27 +318,13 @@ def test_style_global_axis_centralizes_map_setup():
     assert gridliner.right_labels is False
 
 
-def test_grid_and_conductance_helpers_are_importable_from_visualization():
+def test_grid_helpers_are_importable_from_visualization():
     """Grid/evaluation helpers are available through the package."""
     lat, lon, grid = build_plot_grid(nlat=3, nlon=4)
     assert lat.shape == (3, 4)
     assert lon.shape == (3, 4)
     assert grid.size == 12
 
-    sigmaP, sigmaH = resistance_to_conductance(np.array([2.0, 0.0]), np.array([1.0, 0.0]))
-    np.testing.assert_allclose(sigmaP[0], 0.4)
-    np.testing.assert_allclose(sigmaH[0], 0.2)
-    assert np.isnan(sigmaP[1])
-    assert np.isnan(sigmaH[1])
-
-    assert visualization.wrap_longitude_180 is wrap_longitude_180
-    assert visualization.wrap_longitude_180 is coordinates.wrap_longitude_180
-    assert visualization.build_plot_grid is build_plot_grid
-    assert visualization.resistance_to_conductance is resistance_to_conductance
-    assert (
-        visualization.longitude_to_local_time_from_noon_longitude
-        is longitude_to_local_time_from_noon_longitude
-    )
 
 
 def test_JS_operator_bundle_matches_core_formulas():

@@ -92,7 +92,6 @@ def evaluate_JS(dynamics, transform, *, key=None):
         dynamics.state.geometry, entry["m_imp"], entry["m_ind"], transform
     )
 
-
 def evaluate_Phi_coefficients(geometry, Phi, transform):
     """Evaluate saved curl-free E coefficients as potential in volts."""
     return geometry.RI * transform_for_source(geometry.basis, transform).synthesize_scalar(Phi)

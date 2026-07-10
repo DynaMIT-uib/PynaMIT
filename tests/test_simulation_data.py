@@ -30,8 +30,8 @@ def test_simulation_data_owns_schema_io_and_timeseries(tmp_path):
     data = SimulationData.create(settings, run_directory=run_dir, artifact_storage="netcdf")
 
     assert data.run_directory == str(run_dir.resolve())
-    assert not data.settings_from_file
-    assert not data.pfac_matrix_from_file
+    assert data.settings_on_file is None
+    assert data.pfac_matrix is None
     assert data.config.horizontal_basis_kind == "CS"
     assert data.settings.attrs["horizontal_basis_kind"] == "CS"
     assert data.settings.attrs["jr_projection_basis"] == "CS"
@@ -52,8 +52,8 @@ def test_simulation_data_owns_schema_io_and_timeseries(tmp_path):
 
     reloaded = SimulationData.create(settings, run_directory=run_dir, artifact_storage="netcdf")
 
-    assert reloaded.settings_from_file
-    assert reloaded.pfac_matrix_from_file
+    assert reloaded.settings_on_file is not None
+    assert reloaded.pfac_matrix is not None
     assert "jr" in reloaded.input_timeseries.datasets
     assert "state" in reloaded.output_timeseries.datasets
     np.testing.assert_allclose(reloaded.pfac_matrix.values, np.eye(n_state))

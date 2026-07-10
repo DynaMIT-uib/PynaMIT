@@ -56,8 +56,8 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
         geometry.surface_laplacian_operator.to_matrix(backend="numpy"),
         dynamics.horizontal_basis.get_surface_laplacian_matrix(geometry.RI),
     )
-    assert geometry._poloidal_to_boundary_potential_jump_factor is None
-    assert geometry._horizontal_to_boundary_potential_jump_factor is None
+    assert "poloidal_to_boundary_potential_jump_factor" not in geometry.__dict__
+    assert "horizontal_to_boundary_potential_jump_factor" not in geometry.__dict__
     expected_boundary_potential_jump_factor = (
         np.diag(dynamics.solid_harmonics.poloidal_to_boundary_potential_jump_factor)
         @ geometry.horizontal_to_solid_harmonic

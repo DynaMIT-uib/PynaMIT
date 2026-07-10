@@ -1,5 +1,7 @@
 """Tests for the installable Panel frontend entry point."""
 
+from types import SimpleNamespace
+
 from pynamit.visualization.gui import build_arg_parser, default_websocket_origins
 
 
@@ -49,3 +51,29 @@ def test_panel_default_run_directory_finds_workflow_children(tmp_path, monkeypat
     monkeypatch.chdir(tmp_path)
 
     assert _default_run_directory() == str(run_dir.relative_to(tmp_path))
+
+
+def test_panel_run_preserves_the_prepared_input_mainfield(tmp_path, monkeypatch):
+    """The Panel must preserve an input package's main field."""
+    from pynamit.visualization.panel_app import PynamitPanelApp
+
+    captured = {}
+
+    def fake_run_pynamit_from_inputs(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(run_directory=str(tmp_path / "run"))
+
+    monkeypatch.setattr(
+        "pynamit.simulation.prepared_inputs.run_pynamit_from_inputs",
+        fake_run_pynamit_from_inputs,
+    )
+    app = PynamitPanelApp(run_directory=tmp_path)
+    monkeypatch.setattr(app, "_load_run", lambda: None)
+    app.simulation_input_directory.value = str(tmp_path / "inputs")
+    app.simulation_run_directory.value = str(tmp_path / "run")
+
+    app._run_simulation()
+
+    assert captured["args"] == (tmp_path / "inputs",)
+    assert "mainfield_kind" not in captured["kwargs"]

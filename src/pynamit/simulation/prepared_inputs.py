@@ -170,6 +170,24 @@ def _available_input_datasets(io: IO) -> list[str]:
     return [key for key in INPUT_DATASET_KEYS if key in artifacts]
 
 
+def clear_prepared_input_package(
+    directory: str | Path, *, artifact_storage: str = "auto"
+) -> tuple[str, ...]:
+    """Remove generated artifacts before rewriting an input package.
+
+    Input setters only replace matching time coordinates. Clearing first
+    prevents stale forcing rows and obsolete input streams in a newly
+    projected package.
+    """
+    directory = Path(directory).resolve()
+    io = IO(directory, preferred_dataset_storage=artifact_storage)
+    artifact_names = tuple(sorted(io.scan_run_artifacts()))
+    for name in artifact_names:
+        io.remove_artifact(name)
+    (directory / INPUT_MANIFEST_FILENAME).unlink(missing_ok=True)
+    return artifact_names
+
+
 def write_input_manifest(
     directory: str | Path,
     settings: Any,
@@ -425,6 +443,7 @@ def prepare_pynamit_inputs(
         raise ValueError("use_Q_eff=True requires use_wind=True in prepare_pynamit_inputs.")
 
     input_directory = _input_directory(input_directory)
+    clear_prepared_input_package(input_directory, artifact_storage=artifact_storage)
     dynamics = Dynamics(
         run_directory=input_directory,
         Nmax=Nmax,
@@ -627,6 +646,7 @@ __all__ = [
     "input_geometry_settings",
     "input_dataset_requirements",
     "prepared_input_contract",
+    "clear_prepared_input_package",
     "write_input_manifest",
     "read_input_manifest",
     "validate_input_manifest",

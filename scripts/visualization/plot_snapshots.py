@@ -1,11 +1,12 @@
 """Snapshot plotting."""
 
-import pynamit
 import polplot
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 import dipole
+from pynamit import Grid, SphericalTransform
+from pynamit.visualization.pynameye import PynamEye
 from pynamit.visualization.state_fields import evaluate_Phi_coefficients
 
 ts = [0, 0.5, 1, 2, 3, 5, 10, 15, 20, 30, 40, 50, 60, 90, 120, 150, 180, 240, 300, 420]
@@ -20,7 +21,7 @@ path = (
 #        "simulation/data/steady_state"
 # )
 
-a = pynamit.PynamEye(path)
+a = PynamEye(path)
 
 GLOBAL_TIMESERIES = True
 POLAR_TIMESERIES = True
@@ -245,9 +246,9 @@ if EQUATORIAL_EFIELD:
 
         glat, glon, error = a.apx.apex2geo(mlat, mlon, 110)
 
-        grid = pynamit.Grid(lat=glat, lon=glon)
+        grid = Grid(lat=glat, lon=glon)
 
-        evaluator = pynamit.SphericalTransform(a.basis, grid)
+        evaluator = SphericalTransform(a.basis, grid)
 
         phi = evaluate_Phi_coefficients(a.geometry, a.Phi_coeffs, evaluator)
 

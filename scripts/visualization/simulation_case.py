@@ -1,17 +1,17 @@
 """Visualize the simulation case."""
 
 import numpy as np
-import pynamit
 import matplotlib.pyplot as plt
 import datetime
 from polplot import Polarplot
 from string import ascii_lowercase as abc
+from pynamit.visualization.pynameye import PynamEye
 from pynamit.visualization.state_fields import evaluate_Phi_coefficients
 
 path = "../simulation/data/pynamit_paper_simulation"  # Where the save files are located
 
 print(datetime.datetime.now(), "making PynamEye object")
-a = pynamit.PynamEye(path, steady_state=True)
+a = PynamEye(path, steady_state=True)
 
 for plot_num, simulation_time in enumerate([0, 480]):
     a.set_time(simulation_time, steady_state=True)

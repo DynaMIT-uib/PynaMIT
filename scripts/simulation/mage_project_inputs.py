@@ -43,7 +43,10 @@ from pynamit.simulation.mage_workflow import (
     summarize_input_cadence,
     tangential_sqrt_weights,
 )
-from pynamit.simulation.prepared_inputs import INPUT_DATASET_KEYS, write_input_manifest
+from pynamit.simulation.prepared_inputs import (
+    clear_prepared_input_package,
+    write_input_manifest,
+)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 RE = 6381e3
@@ -172,10 +175,13 @@ def _write_mage_metadata(path: Path, payload: dict[str, Any]) -> None:
     )
 
 
-def _prepared_input_datasets(dynamics: pynamit.Dynamics) -> list[str]:
-    """Return projected input artifacts present in ``dynamics``."""
-    artifacts = dynamics.io.scan_run_artifacts()
-    return [key for key in INPUT_DATASET_KEYS if key in artifacts]
+def _clear_existing_input_package(directory: Path, artifact_storage: str) -> None:
+    """Clear the package and MAGE sidecar before reprojection."""
+    artifact_names = clear_prepared_input_package(directory, artifact_storage=artifact_storage)
+    if artifact_names:
+        names = ", ".join(artifact_names)
+        print(f"Replacing existing PynaMIT artifacts: {names}", flush=True)
+    (directory / MAGE_INPUT_METADATA_FILENAME).unlink(missing_ok=True)
 
 
 def project_mage_inputs(settings: MageInputProjectionSettings = SETTINGS) -> Path:
@@ -204,6 +210,7 @@ def project_mage_inputs(settings: MageInputProjectionSettings = SETTINGS) -> Pat
         )
     ).expanduser()
     input_directory.mkdir(parents=True, exist_ok=True)
+    _clear_existing_input_package(input_directory, settings.artifact_storage)
 
     with h5py.File(h5_path, "r") as file:
         forcing_times, input_times = h5_time_vector_seconds(file["time"][:])
@@ -392,7 +399,9 @@ def project_mage_inputs(settings: MageInputProjectionSettings = SETTINGS) -> Pat
                 reg_lambda=settings.e_source_lambda,
             )
 
-        projected_datasets = _prepared_input_datasets(dynamics)
+        projected_datasets = [
+            key for key in dynamics.schema.input_vars if key in dynamics.input_timeseries.datasets
+        ]
         source_tiegcm = file.attrs.get("tiegcm_nc", None)
         if isinstance(source_tiegcm, bytes):
             source_tiegcm = source_tiegcm.decode("utf-8", errors="replace")

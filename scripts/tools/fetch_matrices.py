@@ -63,7 +63,7 @@ def fetch_model_dense_matrices(
     dynamics: Dynamics, *, df_only: bool = False, include_Br: bool = True
 ) -> dict[str, np.ndarray]:
     """Return dense matrices from the active simulation state."""
-    matrices = dynamics.state.operators.model_dense(df_only=df_only, include_Br=include_Br)
+    matrices = dynamics.state.operators.model_matrices(df_only=df_only, include_Br=include_Br)
     return {
         key: np.asarray(to_numpy(block_until_ready(matrix))) for key, matrix in matrices.items()
     }

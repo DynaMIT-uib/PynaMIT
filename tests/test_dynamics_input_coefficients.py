@@ -230,7 +230,7 @@ def test_set_resistance_can_store_native_cs_grid_values(tmp_path):
     np.testing.assert_allclose(dynamics.state.etaP.array, etaP)
     np.testing.assert_allclose(dynamics.state.etaH.array, etaH)
     np.testing.assert_allclose(
-        dynamics.state._conductance_synthesis_operator().to_matrix(backend="numpy"),
+        dynamics.state._resistance_synthesis_operator().to_matrix(backend="numpy"),
         np.eye(grid.size),
         atol=1e-12,
     )

@@ -9,6 +9,7 @@ from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.prepared_inputs import (
     INPUT_MANIFEST_FILENAME,
     RUN_MANIFEST_FILENAME,
+    clear_prepared_input_package,
     input_dataset_requirements,
     input_geometry_settings,
     input_projection_settings,
@@ -22,21 +23,12 @@ from pynamit.simulation.prepared_inputs import (
 )
 
 
-def test_prepared_input_exports_are_public():
-    """Prepared-input helpers are available from the package surface."""
+def test_prepared_input_workflows_are_public():
+    """High-level prepared-input workflows are package exports."""
     prepared_inputs = importlib.import_module("pynamit.simulation.prepared_inputs")
 
     assert pynamit.prepare_pynamit_inputs is prepared_inputs.prepare_pynamit_inputs
     assert pynamit.run_pynamit_from_inputs is prepared_inputs.run_pynamit_from_inputs
-    assert pynamit.input_projection_settings is prepared_inputs.input_projection_settings
-    assert pynamit.input_geometry_settings is prepared_inputs.input_geometry_settings
-    assert pynamit.input_dataset_requirements is prepared_inputs.input_dataset_requirements
-    assert pynamit.prepared_input_contract is prepared_inputs.prepared_input_contract
-    assert pynamit.validate_input_manifest is prepared_inputs.validate_input_manifest
-    assert (
-        pynamit.validate_prepared_input_compatibility
-        is prepared_inputs.validate_prepared_input_compatibility
-    )
 
 
 def test_prepared_input_compatibility_ignores_run_only_settings():
@@ -136,6 +128,23 @@ def test_input_manifest_validation_can_require_manifest(tmp_path):
 
     with pytest.raises(ValueError, match=INPUT_MANIFEST_FILENAME):
         validate_input_manifest(tmp_path, available_inputs=(), require=True)
+
+
+def test_clear_prepared_input_package_removes_only_pynamit_artifacts(tmp_path):
+    """Repreparing inputs must not retain old PynaMIT artifacts."""
+    (tmp_path / "jr.ncdf").write_text("stale", encoding="utf-8")
+    (tmp_path / "state.zarr").mkdir()
+    (tmp_path / INPUT_MANIFEST_FILENAME).write_text("{}", encoding="utf-8")
+    notes = tmp_path / "notes.txt"
+    notes.write_text("keep", encoding="utf-8")
+
+    removed = clear_prepared_input_package(tmp_path, artifact_storage="netcdf")
+
+    assert removed == ("jr", "state")
+    assert not (tmp_path / "jr.ncdf").exists()
+    assert not (tmp_path / "state.zarr").exists()
+    assert not (tmp_path / INPUT_MANIFEST_FILENAME).exists()
+    assert notes.read_text(encoding="utf-8") == "keep"
 
 
 def test_input_manifest_validation_catches_contract_mismatch(tmp_path):

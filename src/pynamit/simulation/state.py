@@ -11,29 +11,25 @@ import logging
 from typing import Any, Optional, Tuple
 
 import numpy as np
-from scipy.integrate import solve_ivp
-from scipy.linalg import expm
 
 from pynamit.primitives.field_coefficients import FieldCoefficients
-from pynamit.math import einsum_linear_map_from_matvec
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver, get_default_least_squares_solver
 from pynamit.math.linear_map import (
     LinearMap,
     as_linear_map,
     identity_linear_map,
-    pointwise_matrix_linear_map,
 )
 from pynamit.math.backend import (
     block_after_jax_linalg,
     get_array_module,
     to_jax,
-    to_numpy,
     use_jax,
     xp,
 )
 from pynamit.sphere import CSBasis, SolidHarmonics, SurfaceOperators
 from pynamit.simulation.geometry import Geometry
+from pynamit.simulation import ionospheric_closure
 from pynamit.simulation.operators import StateOperators
 from pynamit.simulation.config import setting_value
 
@@ -41,13 +37,12 @@ logger = logging.getLogger(__name__)
 
 
 class State:
-    """Manages the ionospheric electrodynamic state.
+    """Own the mutable ionospheric state and its cached operators.
 
-    This class encapsulates the physical state (e.g., potentials,
-    currents), handles the construction of all necessary numerical
-    operators based on the provided geometry and settings, and
-    orchestrates the time evolution of the system. It uses a Geometry
-    object to manage the underlying grid and mappings.
+    The state stores the current input coefficients and assembles the
+    run-specific electrodynamic operators that depend on geometry and
+    conductance. Time integration itself belongs to ``induction`` and
+    run scheduling belongs to ``EvolutionRunner``.
     """
 
     def __init__(
@@ -74,11 +69,6 @@ class State:
         self._Q_eff_synthesis_operator_cache: dict[Any, LinearMap] = {}
         self._E_source_to_E_operator_cache: dict[Any, LinearMap] = {}
 
-        # The solver is configured here but remains stateless.
-        self.m_imp_solver = LeastSquaresSolver(
-            solver=self.solver_type, preconditioner=self.preconditioner
-        )
-
         # Initialize state variables
         self.u: Optional[FieldCoefficients] = None
         self.Q_eff: Optional[FieldCoefficients] = None
@@ -95,18 +85,19 @@ class State:
 
     def _init_settings(self, settings: Any) -> None:
         """Extract and store configuration from the settings object."""
-        self.solver_type = setting_value(
-            settings, "least_squares_solver", get_default_least_squares_solver()
+        self.m_imp_solver = LeastSquaresSolver(
+            solver=setting_value(
+                settings, "least_squares_solver", get_default_least_squares_solver()
+            ),
+            preconditioner=setting_value(
+                settings, "least_squares_preconditioner", "pinv"
+            ),
         )
-        self.preconditioner = setting_value(settings, "least_squares_preconditioner", "pinv")
         self.static_preconditioner = setting_value(settings, "static_preconditioner", False)
         self.integrator = setting_value(settings, "integrator")
         self.m_imp_regularization_lambda = setting_value(
             settings, "m_imp_regularization_lambda", 0.0
         )
-        self.RI = setting_value(settings, "RI")
-        rm = setting_value(settings, "RM")
-        self.RM = None if rm == 0 else rm
         self.ih_constraint_scaling = setting_value(settings, "ih_constraint_scaling")
         self.connect_hemispheres = bool(setting_value(settings, "connect_hemispheres"))
 
@@ -135,15 +126,10 @@ class State:
         helmholtz_synthesis = xp.asarray(
             self.geometry.spherical_transform.helmholtz_coeffs_to_gridded_vector
         )
-        return einsum_linear_map_from_matvec(
-            component_tensors=[
-                xp.asarray(self.geometry.helmholtz_analysis_matrix),
-                xp.asarray(self.geometry.bu),
-                helmholtz_synthesis,
-            ],
-            einsum_string_matvec="cmpg,pqg,qgrs,rs->cm",
-            output_shape=(2, self.basis.index_length),
-            input_shape=helmholtz_synthesis.shape[2:],
+        return ionospheric_closure.wind_to_E_coeffs_operator(
+            self.geometry.helmholtz_analysis_matrix,
+            self.geometry.bu,
+            helmholtz_synthesis,
         )
 
     @property
@@ -172,17 +158,11 @@ class State:
         """Map effective-current coefficients to E coefficients."""
         q_synthesis = self._Q_eff_synthesis_operator_for_representation(representation)
 
-        grid_to_coeffs = as_linear_map(
+        return ionospheric_closure.tangential_current_to_E_coeffs_operator(
             xp.asarray(self.geometry.helmholtz_analysis_matrix),
-            input_shape=(2, self.geometry.grid.size),
-            output_shape=(2, self.basis.index_length),
+            xp.asarray(self.resistance_tensor_on_grid),
+            q_synthesis,
         )
-        current_to_E_grid = pointwise_matrix_linear_map(xp.asarray(self.M_total_on_grid))
-        return grid_to_coeffs @ current_to_E_grid @ q_synthesis
-
-    def Q_eff_to_E_coeffs_for_field_space(self, field_space) -> LinearMap:
-        """Return Q_eff-to-E map for an explicit storage field space."""
-        return self._create_Q_eff_to_E_operator_for_representation(field_space.representation)
 
     @property
     def Q_eff_to_E_coeffs(self) -> Optional[LinearMap]:
@@ -219,10 +199,6 @@ class State:
             self._E_source_to_E_operator_cache[cache_key] = grid_to_coeffs @ source_synthesis
         return self._E_source_to_E_operator_cache[cache_key]
 
-    def E_source_to_E_coeffs_for_field_space(self, field_space) -> LinearMap:
-        """Return direct E-source map for one storage field space."""
-        return self._create_E_source_to_E_operator_for_representation(field_space.representation)
-
     @property
     def E_source_to_E_coeffs(self) -> Optional[LinearMap]:
         """Linear map from direct E-source coeffs to E coeffs."""
@@ -238,7 +214,7 @@ class State:
 
     def _invalidate_caches(self) -> None:
         """Invalidate all conductance-dependent cached properties."""
-        self._M_total_on_grid: Optional[np.ndarray] = None
+        self._resistance_tensor_on_grid: Optional[np.ndarray] = None
         self._m_ind_to_E_coeffs_cache: Optional[LinearMap] = None
         self._m_imp_to_E_coeffs_cache: Optional[LinearMap] = None
         self._Br_to_E_coeffs_cache: Optional[LinearMap] = None
@@ -264,46 +240,47 @@ class State:
         self._m_imp_preconditioner: Optional[LinearMap] = None
         self._m_imp_preconditioner_ready = False
 
-    # ----- Cached Physical Properties (dependent on conductance) -----
+    # ----- Cached Physical Properties (dependent on resistance) -----
 
     @property
-    def M_total_on_grid(self) -> np.ndarray:
+    def resistance_tensor_on_grid(self) -> np.ndarray:
         """Resistance tensor on the spatial grid."""
-        if self._M_total_on_grid is None:
+        if self._resistance_tensor_on_grid is None:
             if self.etaP is None or self.etaH is None:
                 raise RuntimeError(
-                    "Conductance must be set before accessing conductance-dependent properties."
+                    "Resistance or conductance must be set before accessing "
+                    "closure-dependent properties."
                 )
             eta_stacked = xp.stack(
                 [xp.asarray(self.etaP.array), xp.asarray(self.etaH.array)], axis=0
             )
-            conductance_synthesis = self._conductance_synthesis_operator()
-            conductance_on_grid = xp.asarray(
-                conductance_synthesis.matmat(xp.swapaxes(eta_stacked, 0, 1))
+            resistance_synthesis = self._resistance_synthesis_operator()
+            resistance_on_grid = xp.asarray(
+                resistance_synthesis.matmat(xp.swapaxes(eta_stacked, 0, 1))
             )
-            conductance_on_grid = xp.swapaxes(conductance_on_grid, 0, 1)
-            b_stacked = xp.stack(
-                [xp.asarray(self.geometry.bP), xp.asarray(self.geometry.bH)], axis=0
+            resistance_on_grid = xp.swapaxes(resistance_on_grid, 0, 1)
+            self._resistance_tensor_on_grid = ionospheric_closure.resistance_tensor_on_grid(
+                resistance_on_grid[0],
+                resistance_on_grid[1],
+                self.geometry.bP,
+                self.geometry.bH,
             )
-            self._M_total_on_grid = xp.einsum(
-                "sijk,sk->ijk", b_stacked, conductance_on_grid, optimize=True
-            )
-        return self._M_total_on_grid
+        return self._resistance_tensor_on_grid
 
-    def _conductance_storage_basis(self):
-        """Return the shared conductance storage basis."""
+    def _resistance_storage_basis(self):
+        """Return the shared resistance storage basis."""
         basis = self.etaP.representation
         hall_basis = self.etaH.representation
         if hall_basis is not basis:
             compatible = getattr(hall_basis, "coefficients_are_compatible_with", None)
             if not callable(compatible) or not compatible(basis):
                 raise ValueError(
-                    "Pedersen and Hall conductance storage bases must be coefficient-compatible."
+                    "Pedersen and Hall resistance storage bases must be coefficient-compatible."
                 )
         return basis
 
-    def _compatible_conductance_transform(self, basis) -> Optional[Any]:
-        """Return a synthesis transform compatible with basis."""
+    def _compatible_resistance_transform(self, basis) -> Optional[Any]:
+        """Return a compatible resistance synthesis transform."""
         if basis.coefficients_are_compatible_with(self.basis):
             return self.geometry.spherical_transform
 
@@ -313,15 +290,15 @@ class State:
 
         return None
 
-    def _conductance_synthesis_operator(self) -> LinearMap:
-        """Return stored-conductance synthesis to the model grid."""
-        basis = self._conductance_storage_basis()
+    def _resistance_synthesis_operator(self) -> LinearMap:
+        """Return stored-resistance synthesis to the model grid."""
+        basis = self._resistance_storage_basis()
 
         get_operator = getattr(basis, "get_scalar_evaluation_operator", None)
         if callable(get_operator):
             return get_operator(self.geometry.grid)
 
-        transform = self._compatible_conductance_transform(basis)
+        transform = self._compatible_resistance_transform(basis)
         if transform is not None:
             return transform.scalar_coeffs_to_grid_operator
 
@@ -329,21 +306,16 @@ class State:
         if callable(get_matrix):
             return as_linear_map(get_matrix(self.geometry.grid))
 
-        raise ValueError("Conductance storage basis cannot be evaluated on the state/model grid.")
+        raise ValueError("Resistance storage basis cannot be evaluated on the state/model grid.")
 
     def _create_E_coeffs_operator(self, source_to_JS: Optional[np.ndarray]) -> Optional[LinearMap]:
         if source_to_JS is None:
             return None
-        tensors = [
-            xp.asarray(self.geometry.helmholtz_analysis_matrix),
-            xp.asarray(self.M_total_on_grid),
-            xp.asarray(source_to_JS),
-        ]
-        return einsum_linear_map_from_matvec(
-            component_tensors=tensors,
-            einsum_string_matvec="cmpg,pqg,qgl,l->cm",
-            output_shape=(2, self.basis.index_length),
-            input_shape=source_to_JS.shape[2:],
+        return ionospheric_closure.source_to_E_coeffs_operator(
+            self.geometry.helmholtz_analysis_matrix,
+            self.resistance_tensor_on_grid,
+            source_to_JS,
+            self.basis.index_length,
         )
 
     @property
@@ -475,10 +447,6 @@ class State:
     @property
     def m_imp_preconditioner(self) -> Optional[LinearMap]:
         """Preconditioner for the m_imp least-squares problem."""
-        return self._get_m_imp_preconditioner()
-
-    def _get_m_imp_preconditioner(self) -> Optional[LinearMap]:
-        """Return a cached preconditioner for the base m_imp system."""
         if self.m_imp_solver.solver not in ("lsmr", "cgls"):
             return None
         if not self._m_imp_preconditioner_ready:
@@ -563,7 +531,7 @@ class State:
             elif key == "jr":
                 self.jr = FieldCoefficients(field_space, coeffs=updated_input["jr"])
             elif key == "Br":
-                if self.RM is None:
+                if self.geometry.RM is None:
                     raise ValueError("Br input can only be set if RM is not None.")
                 self.Br = FieldCoefficients(field_space, coeffs=updated_input["Br"])
             elif key == "u":
@@ -645,7 +613,7 @@ class State:
         )
         return self._calculate_total_E_field(E_direct_ind, None)
 
-    # ----- Time Evolution -----
+    # ----- Induction Operators -----
 
     @property
     def m_ind_to_E_df_matrix(self) -> np.ndarray:
@@ -697,98 +665,3 @@ class State:
         logger.info("Building dense induction operator matrix (m_ind -> E_df)...")
         self._m_ind_to_E_df_matrix = self.m_ind_to_E_df_operator.to_matrix()
         logger.info("Dense induction operator built.")
-
-    def _calculate_d_m_ind_dt(self, m_ind: np.ndarray, E_coeffs_noind: np.ndarray) -> np.ndarray:
-        """Calculate the time derivative of the induced potential.
-
-        This is the right-hand side of the ODE: d(m_ind)/dt = f(m_ind).
-        The non-induced E-field is treated as a constant parameter for
-        the ODE.
-        """
-        # Total divergence-free E-field is the sum of induced and
-        # non-induced parts.
-        E_df_total = self.m_ind_to_E_df_operator.matvec(m_ind)
-        E_df_total += self.geometry.helmholtz_divergence_free_potential_operator.matvec(
-            E_coeffs_noind
-        )
-
-        # Calculate the time derivative using the geometry operator.
-        d_m_ind_dt = self.geometry.E_df_to_d_m_ind_dt * E_df_total
-        return d_m_ind_dt
-
-    def evolve_m_ind(
-        self,
-        m_ind: np.ndarray,
-        dt: float,
-        E_coeffs_noind: np.ndarray,
-        steady_state_m_ind: Optional[np.ndarray] = None,
-    ) -> np.ndarray:
-        """Evolves the induced potential `m_ind` forward in time.
-
-        Uses the integration scheme specified by `self.integrator`.
-        Supports 'euler', 'exponential', and any method supported by
-        `scipy.solve_ivp`.
-        """
-        backend_m_ind = xp.asarray(m_ind)
-        backend_E_noind = xp.asarray(E_coeffs_noind)
-
-        if self.integrator == "euler":
-            d_m_ind_dt = self._calculate_d_m_ind_dt(backend_m_ind, backend_E_noind)
-            return self.project_scalar_mean_free(backend_m_ind + dt * d_m_ind_dt)
-
-        elif self.integrator == "exponential":
-            # The exponential integrator requires the dense operator
-            # matrix.
-            op_A = xp.asarray(self.geometry.E_df_to_d_m_ind_dt * self.m_ind_to_E_df_matrix)
-
-            if steady_state_m_ind is None:
-                steady_state_m_ind = self.steady_state_m_ind(backend_E_noind)
-            diff = backend_m_ind - xp.asarray(steady_state_m_ind)
-
-            evolved = expm(dt * to_numpy(op_A)) @ to_numpy(diff) + to_numpy(steady_state_m_ind)
-            return self.project_scalar_mean_free(evolved)
-
-        else:
-            # Fallback to scipy.solve_ivp for other integrators
-            logger.debug(f"Using scipy.solve_ivp with method='{self.integrator}'.")
-
-            m_ind_to_E_df_matrix = to_numpy(self.m_ind_to_E_df_matrix)
-            E_noind_df = to_numpy(
-                self.geometry.helmholtz_divergence_free_potential_operator.matvec(backend_E_noind)
-            )
-            rhs_scale = float(self.geometry.E_df_to_d_m_ind_dt)
-
-            def rhs(t, y):
-                del t
-                return rhs_scale * (m_ind_to_E_df_matrix @ y + E_noind_df)
-
-            # Integrate from t=0 to t=dt. The ODE is autonomous
-            # (not t-dependent).
-            sol = solve_ivp(
-                fun=rhs,
-                t_span=(0, dt),
-                y0=to_numpy(backend_m_ind),
-                method=self.integrator,
-                t_eval=[dt],  # We only need the final state
-                dense_output=False,
-            )
-
-            if not sol.success:
-                logger.warning(
-                    f"solve_ivp integrator '{self.integrator}' failed with "
-                    f"status {sol.status}: {sol.message}"
-                )
-
-            # The result shape is (n_vars, n_times),
-            # so we take the last time point.
-            result = sol.y[:, -1]
-            result = self.project_scalar_mean_free(result)
-            return to_jax(result) if use_jax() else result
-
-    def steady_state_m_ind(self, E_coeffs_noind: np.ndarray) -> np.ndarray:
-        """Calculate the steady-state induced potential."""
-        E_noind_df = self.geometry.helmholtz_divergence_free_potential_operator.matvec(
-            E_coeffs_noind
-        )
-        steady = self.E_noind_to_m_ind_steady_operator.matvec(E_noind_df)
-        return self.project_scalar_mean_free(steady)

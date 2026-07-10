@@ -155,7 +155,7 @@ if COMPARE_TO_SECS:
     r = np.full(lat.size, RI - 1)
     lat_secs, lon_secs = dynamics.state.geometry.grid.lat, dynamics.state.geometry.grid.lon
     b_evaluator = pynamit.FieldEvaluator(
-        dynamics.state.mainfield, pynamit.Grid(lat=lat_secs, lon=lon_secs), RI
+        dynamics.mainfield, pynamit.Grid(lat=lat_secs, lon=lon_secs), RI
     )
     Be, Bn, Br = b_evaluator.bphi, -b_evaluator.btheta, b_evaluator.br
     Ge, Gn, Gu = secsy.get_CF_SECS_B_G_matrices_for_inclined_field(

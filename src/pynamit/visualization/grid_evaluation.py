@@ -2,9 +2,8 @@
 
 import numpy as np
 
-from pynamit.math.constants import mu0
 from pynamit.simulation.config import setting_value
-from pynamit.simulation.JS import JS_operator_bundle
+from pynamit.simulation.magnetic_boundary import JS_operator_bundle
 from pynamit.sphere import Grid, SHBasis, SolidHarmonics, SphericalTransform
 from pynamit.visualization.artifacts import load_dataset_artifact
 
@@ -44,18 +43,6 @@ def transform_for_source(source, transform):
     )
 
 
-def compute_conversion_factors(settings, sh_basis):
-    """Compute common SH coefficient conversion factors."""
-    ri = float(setting_value(settings, "RI"))
-    solid_harmonics = SolidHarmonics(sh_basis)
-    return {
-        "RI": ri,
-        "m_ind_to_Br": -(ri**2) * sh_basis.laplacian(ri),
-        "m_imp_to_jr": ri / mu0 * sh_basis.laplacian(ri),
-        "m_ind_to_Jeq": (-ri / mu0 * solid_harmonics.poloidal_to_boundary_potential_jump_factor),
-    }
-
-
 def build_JS_operators(settings, sh_basis, transform, T_to_Ve=None):
     """Build common coefficient-to-JS matrices.
 
@@ -75,27 +62,10 @@ def build_JS_operators(settings, sh_basis, transform, T_to_Ve=None):
         boundary_shielding=bool(setting_value(settings, "RM_shielding", False)),
         T_to_Ve=T_to_Ve,
     )
-
-
-def resistance_to_conductance(etaP, etaH):
-    """Convert Pedersen/Hall resistance coefficients to conductance."""
-    etaP = np.asarray(etaP, dtype=float)
-    etaH = np.asarray(etaH, dtype=float)
-    den = etaP**2 + etaH**2
-    valid = np.isfinite(den) & (den > np.finfo(float).tiny)
-    sigmaP = np.full_like(etaP, np.nan, dtype=float)
-    sigmaH = np.full_like(etaH, np.nan, dtype=float)
-    sigmaP[valid] = etaP[valid] / den[valid]
-    sigmaH[valid] = etaH[valid] / den[valid]
-    return sigmaP, sigmaH
-
-
 __all__ = [
     "build_evaluator",
     "build_plot_grid",
     "build_JS_operators",
-    "compute_conversion_factors",
     "load_settings_and_basis",
-    "resistance_to_conductance",
     "transform_for_source",
 ]

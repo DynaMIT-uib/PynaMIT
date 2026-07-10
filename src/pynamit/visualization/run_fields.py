@@ -12,6 +12,7 @@ import xarray as xr
 from pynamit.math.constants import mu0
 from pynamit.simulation.config import setting_value
 from pynamit.simulation.geometry import Geometry
+from pynamit.simulation.ionospheric_closure import resistance_to_conductance
 from pynamit.simulation.mainfield import mainfield_from_config
 from pynamit.simulation.schema import build_simulation_schema
 from pynamit.sphere import SHBasis
@@ -25,7 +26,6 @@ from pynamit.visualization.grid_evaluation import (
     build_evaluator,
     build_plot_grid,
     load_settings_and_basis,
-    resistance_to_conductance,
 )
 
 INPUT_ARTIFACT_KEYS = ("Br", "jr", "conductance", "u", "Q_eff", "E_source")

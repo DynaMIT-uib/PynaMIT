@@ -6,7 +6,6 @@ from types import SimpleNamespace
 import numpy as np
 import cartopy.crs as ccrs
 
-import pynamit.visualization as visualization
 from pynamit.coordinates import local_noon_longitude
 from pynamit.visualization.map_coordinates import MapCoordinateContext
 from pynamit.visualization.pynameye import PynamEye
@@ -92,7 +91,6 @@ def test_context_converts_source_local_time_longitude_to_plot_coordinate():
         ),
         np.array([80.0, -100.0, -10.0]),
     )
-    assert visualization.MapCoordinateContext is MapCoordinateContext
 
 
 def test_pynameye_uses_distinct_global_and_magnetic_contexts():

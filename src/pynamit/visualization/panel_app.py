@@ -77,7 +77,7 @@ class PynamitPanelApp:
 
         pn = self.pn
         self.app_mode = pn.widgets.Select(
-            name="Mode",
+            label="Mode",
             options={
                 "Visualize run": "visualize",
                 "Prepare inputs": "prepare_inputs",
@@ -87,75 +87,69 @@ class PynamitPanelApp:
             width=180,
         )
         self.run_directory = pn.widgets.TextInput(
-            name="Run directory", value=self.spec.run_directory, min_width=280
+            label="Run directory", value=self.spec.run_directory, min_width=280
         )
-        self.load_button = pn.widgets.Button(name="Load", button_type="primary", width=85)
+        self.load_button = pn.widgets.Button(label="Load", color="primary", width=85)
         default_input_directory = str(
             Path(self.spec.run_directory).expanduser() / "prepared_inputs"
         )
         self.prepared_input_directory = pn.widgets.TextInput(
-            name="Input package", value=default_input_directory, min_width=280
+            label="Input package", value=default_input_directory, min_width=280
         )
-        self.prepare_Nmax = pn.widgets.IntInput(name="Nmax", value=20, start=1, width=90)
-        self.prepare_Mmax = pn.widgets.IntInput(name="Mmax", value=20, start=0, width=90)
-        self.prepare_Ncs = pn.widgets.IntInput(name="Ncs", value=30, start=4, width=90)
+        self.prepare_Nmax = pn.widgets.IntInput(label="Nmax", value=20, start=1, width=90)
+        self.prepare_Mmax = pn.widgets.IntInput(label="Mmax", value=20, start=0, width=90)
+        self.prepare_Ncs = pn.widgets.IntInput(label="Ncs", value=30, start=4, width=90)
         self.prepare_final_time = pn.widgets.FloatInput(
-            name="Input final time", value=100.0, start=0.0, width=140
+            label="Input final time", value=100.0, start=0.0, width=140
         )
         self.prepare_horizontal_basis = pn.widgets.Select(
-            name="Basis",
+            label="Basis",
             options={"Spherical harmonics": "SH", "Cubed sphere": "CS"},
             value="SH",
             width=170,
         )
-        self.prepare_use_jr = pn.widgets.Checkbox(name="jr", value=True, width=70)
-        self.prepare_use_wind = pn.widgets.Checkbox(name="u", value=False, width=70)
-        self.prepare_use_q_eff = pn.widgets.Checkbox(name="Q_eff from u", value=False, width=120)
-        self.prepare_multi_data = pn.widgets.Checkbox(name="multi-time", value=False, width=120)
+        self.prepare_use_jr = pn.widgets.Checkbox(label="jr", value=True, width=70)
+        self.prepare_use_wind = pn.widgets.Checkbox(label="u", value=False, width=70)
+        self.prepare_use_q_eff = pn.widgets.Checkbox(label="Q_eff from u", value=False, width=120)
+        self.prepare_multi_data = pn.widgets.Checkbox(label="multi-time", value=False, width=120)
         self.prepare_button = pn.widgets.Button(
-            name="Prepare input package", button_type="primary", width=180
+            label="Prepare input package", color="primary", width=180
         )
         self.simulation_input_directory = pn.widgets.TextInput(
-            name="Input package", value=default_input_directory, min_width=280
+            label="Input package", value=default_input_directory, min_width=280
         )
         self.simulation_run_directory = pn.widgets.TextInput(
-            name="Run output", value=self.spec.run_directory, min_width=280
+            label="Run output", value=self.spec.run_directory, min_width=280
         )
         self.sim_final_time = pn.widgets.FloatInput(
-            name="Final time", value=100.0, start=0.0, width=120
+            label="Final time", value=100.0, start=0.0, width=120
         )
-        self.sim_dt = pn.widgets.FloatInput(name="dt", value=5e-4, start=1e-12, width=110)
-        self.sim_plotsteps = pn.widgets.IntInput(name="Save every", value=200, start=1, width=120)
-        self.sim_mainfield_kind = pn.widgets.Select(
-            name="Main field",
-            options=["dipole", "kaiju_dipole", "igrf", "radial"],
-            value="dipole",
-            width=150,
-        )
+        self.sim_dt = pn.widgets.FloatInput(label="dt", value=5e-4, start=1e-12, width=110)
+        self.sim_plotsteps = pn.widgets.IntInput(label="Save every", value=200, start=1, width=120)
         self.sim_integrator = pn.widgets.Select(
-            name="Integrator", options=["euler", "exponential"], value="euler", width=140
+            label="Integrator", options=["euler", "exponential"], value="euler", width=140
         )
-        self.sim_ignore_pfac = pn.widgets.Checkbox(name="Ignore PFAC", value=True, width=120)
+        self.sim_ignore_pfac = pn.widgets.Checkbox(label="Ignore PFAC", value=True, width=120)
         self.sim_connect_hemispheres = pn.widgets.Checkbox(
-            name="Connect hemispheres", value=False, width=170
+            label="Connect hemispheres", value=False, width=170
         )
-        self.sim_rm_shielding = pn.widgets.Checkbox(name="RM shielding", value=False, width=130)
-        self.sim_run_inductive = pn.widgets.Checkbox(name="Inductive", value=True, width=110)
-        self.sim_run_steady = pn.widgets.Checkbox(name="Steady state", value=True, width=130)
+        self.sim_rm_shielding = pn.widgets.Checkbox(label="RM shielding", value=False, width=130)
+        self.sim_run_inductive = pn.widgets.Checkbox(label="Inductive", value=True, width=110)
+        self.sim_run_steady = pn.widgets.Checkbox(label="Steady state", value=True, width=130)
         self.sim_latitude_boundary = pn.widgets.FloatInput(
-            name="Lat boundary", value=50.0, width=120
+            label="Lat boundary", value=50.0, width=120
         )
-        self.sim_use_conductance = pn.widgets.Checkbox(name="conductance", value=True, width=120)
-        self.sim_use_jr = pn.widgets.Checkbox(name="jr", value=True, width=70)
-        self.sim_use_br = pn.widgets.Checkbox(name="Br", value=True, width=70)
-        self.sim_use_u = pn.widgets.Checkbox(name="u", value=True, width=70)
-        self.sim_use_q_eff = pn.widgets.Checkbox(name="Q_eff", value=True, width=90)
-        self.sim_use_e_source = pn.widgets.Checkbox(name="E_source", value=True, width=110)
+        self.sim_use_conductance = pn.widgets.Checkbox(label="conductance", value=True, width=120)
+        self.sim_use_jr = pn.widgets.Checkbox(label="jr", value=True, width=70)
+        self.sim_use_br = pn.widgets.Checkbox(label="Br", value=True, width=70)
+        self.sim_use_u = pn.widgets.Checkbox(label="u", value=True, width=70)
+        self.sim_use_q_eff = pn.widgets.Checkbox(label="Q_eff", value=True, width=90)
+        self.sim_use_e_source = pn.widgets.Checkbox(label="E_source", value=True, width=110)
         self.run_simulation_button = pn.widgets.Button(
-            name="Run from inputs", button_type="primary", width=150
+            label="Run from inputs", color="primary", width=150
         )
         self.plot_type = pn.widgets.Select(
-            name="Plot",
+            label="Plot",
             options=PANEL_PLOT_TYPE_OPTIONS,
             value=(
                 self.spec.plot_type
@@ -165,39 +159,39 @@ class PynamitPanelApp:
             width=180,
         )
         self.time_index = pn.widgets.IntSlider(
-            name="Time", start=0, end=0, value=0, step=1, min_width=320
+            label="Time", start=0, end=0, value=0, step=1, min_width=320
         )
         self.time_label = pn.pane.Markdown("", width=260)
         self.time_range = pn.widgets.IntRangeSlider(
-            name="Time range", start=0, end=0, value=(0, 0), step=1, min_width=320
+            label="Time range", start=0, end=0, value=(0, 0), step=1, min_width=320
         )
 
         self.fill = pn.widgets.Select(
-            name="Filled contours",
+            label="Filled contours",
             options={label: key for key, label in MAP_FILL_OPTIONS.items()},
             value=self.spec.fill if self.spec.fill in MAP_FILL_OPTIONS else "Br",
             width=210,
         )
         self.lines = pn.widgets.Select(
-            name="Contour lines",
+            label="Contour lines",
             options={label: key for key, label in MAP_LINE_OPTIONS.items()},
             value=self.spec.lines if self.spec.lines in MAP_LINE_OPTIONS else "none",
             width=210,
         )
-        self.show_north = pn.widgets.Checkbox(name="North", value=self.spec.show_north, width=90)
-        self.show_south = pn.widgets.Checkbox(name="South", value=self.spec.show_south, width=90)
+        self.show_north = pn.widgets.Checkbox(label="North", value=self.spec.show_north, width=90)
+        self.show_south = pn.widgets.Checkbox(label="South", value=self.spec.show_south, width=90)
         self.min_abs_lat = pn.widgets.FloatInput(
-            name="Min |lat|",
+            label="Min |lat|",
             value=self.spec.hemisphere_min_abs_latitude,
             start=0,
             end=89.9,
             width=130,
         )
         self.station = pn.widgets.TextInput(
-            name="Station", value=self.spec.ground_station, width=120
+            label="Station", value=self.spec.ground_station, width=120
         )
         self.ground_component = pn.widgets.Select(
-            name="Component",
+            label="Component",
             options={
                 "Magnitude": "Magnitude",
                 "|North|": "AbsNorth",
@@ -212,7 +206,7 @@ class PynamitPanelApp:
             width=150,
         )
         self.ground_quantity = pn.widgets.Select(
-            name="Signal",
+            label="Signal",
             options={"dB/dt": "dbdt", "B": "b"},
             value=(
                 self.spec.ground_quantity if self.spec.ground_quantity in {"dbdt", "b"} else "dbdt"
@@ -220,61 +214,61 @@ class PynamitPanelApp:
             width=110,
         )
         self.include_station_data = pn.widgets.Checkbox(
-            name="Measured", value=self.spec.include_station_data, width=95
+            label="Measured", value=self.spec.include_station_data, width=95
         )
         self.show_inductive = pn.widgets.Checkbox(
-            name="Inductive", value=self.spec.show_inductive, width=100
+            label="Inductive", value=self.spec.show_inductive, width=100
         )
         self.show_noninductive = pn.widgets.Checkbox(
-            name="Non-inductive", value=self.spec.show_noninductive, width=130
+            label="Non-inductive", value=self.spec.show_noninductive, width=130
         )
         self.show_difference = pn.widgets.Checkbox(
-            name="Difference", value=self.spec.show_difference, width=120
+            label="Difference", value=self.spec.show_difference, width=120
         )
         self.sim_time_offset = pn.widgets.FloatInput(
-            name="Sim shift (s)", value=self.spec.sim_time_offset_seconds, width=130
+            label="Sim shift (s)", value=self.spec.sim_time_offset_seconds, width=130
         )
         self.data_time_offset = pn.widgets.FloatInput(
-            name="Data shift (s)", value=self.spec.data_time_offset_seconds, width=130
+            label="Data shift (s)", value=self.spec.data_time_offset_seconds, width=130
         )
         self.dbdt_window_points = pn.widgets.IntInput(
-            name="dB/dt pts",
+            label="dB/dt pts",
             value=max(1, int(self.spec.dbdt_window_points)),
             start=1,
             end=20,
             width=120,
         )
         self.ground_model_lt_count = pn.widgets.IntInput(
-            name="Model LT n",
+            label="Model LT n",
             value=max(1, int(self.spec.ground_model_lt_count)),
             start=1,
             end=72,
             width=120,
         )
         self.ground_model_lat_count = pn.widgets.IntInput(
-            name="Model lat n",
+            label="Model lat n",
             value=max(1, int(self.spec.ground_model_lat_count)),
             start=1,
             end=60,
             width=125,
         )
         self.ground_model_visual_even = pn.widgets.Checkbox(
-            name="Visual grid", value=self.spec.ground_model_visual_even, width=110
+            label="Visual grid", value=self.spec.ground_model_visual_even, width=110
         )
         self.show_pedersen_conductance_overlay = pn.widgets.Checkbox(
-            name="Pedersen contours", value=self.spec.show_pedersen_conductance_overlay, width=145
+            label="Pedersen contours", value=self.spec.show_pedersen_conductance_overlay, width=145
         )
         self.show_hall_conductance_overlay = pn.widgets.Checkbox(
-            name="Hall contours", value=self.spec.show_hall_conductance_overlay, width=120
+            label="Hall contours", value=self.spec.show_hall_conductance_overlay, width=120
         )
         self.show_reference_line = pn.widgets.Checkbox(
-            name="Reference line", value=self.spec.show_reference_line, width=130
+            label="Reference line", value=self.spec.show_reference_line, width=130
         )
         self.reference_time = pn.widgets.TextInput(
-            name="Ref. UTC", value=self.spec.reference_time_of_day_utc, width=130
+            label="Ref. UTC", value=self.spec.reference_time_of_day_utc, width=130
         )
         self.curve_scale_mode = pn.widgets.Select(
-            name="Curve scale",
+            label="Curve scale",
             options={"Manual": "manual", "Automatic": "auto"},
             value=self.spec.curve_scale_mode
             if self.spec.curve_scale_mode in {"manual", "auto"}
@@ -282,25 +276,25 @@ class PynamitPanelApp:
             width=130,
         )
         self.curve_scale = pn.widgets.FloatInput(
-            name="Scale value", value=self.spec.curve_scale_value, start=0.01, width=120
+            label="Scale value", value=self.spec.curve_scale_value, start=0.01, width=120
         )
         self.time_scale = pn.widgets.FloatInput(
-            name="Time x", value=self.spec.curve_time_scale, start=0.1, width=110
+            label="Time x", value=self.spec.curve_time_scale, start=0.1, width=110
         )
         self.low_lat_cutoff = pn.widgets.FloatInput(
-            name="Low-lat selection", value=self.spec.min_abs_dip_latitude, start=0.0, width=155
+            label="Low-lat selection", value=self.spec.min_abs_dip_latitude, start=0.0, width=155
         )
         self.low_lat_scale = pn.widgets.FloatInput(
-            name="Low-lat x", value=self.spec.low_latitude_scale, start=0.01, width=110
+            label="Low-lat x", value=self.spec.low_latitude_scale, start=0.01, width=110
         )
         self.show_dip_equator_curve = pn.widgets.Checkbox(
-            name="Dip equator", value=self.spec.show_dip_equator_curve, width=120
+            label="Dip equator", value=self.spec.show_dip_equator_curve, width=120
         )
         self.show_low_lat_curve = pn.widgets.Checkbox(
-            name="Low-lat curve", value=self.spec.show_low_latitude_curve, width=125
+            label="Low-lat curve", value=self.spec.show_low_latitude_curve, width=125
         )
         self.color_scale_mode = pn.widgets.Select(
-            name="Color scale",
+            label="Color scale",
             options={"Fixed": "fixed", "Percentile": "percentile"},
             value=self.spec.color_scale_mode
             if self.spec.color_scale_mode in {"fixed", "percentile"}
@@ -308,54 +302,54 @@ class PynamitPanelApp:
             width=130,
         )
         self.color_scale_percentile = pn.widgets.FloatInput(
-            name="Percentile",
+            label="Percentile",
             value=self.spec.color_scale_percentile,
             start=0.0,
             end=100.0,
             width=110,
         )
         self.geo_lat_min = pn.widgets.FloatInput(
-            name="Geo lat min", value=self.spec.geo_lat_min, width=130
+            label="Geo lat min", value=self.spec.geo_lat_min, width=130
         )
         self.geo_lat_max = pn.widgets.FloatInput(
-            name="Geo lat max", value=self.spec.geo_lat_max, width=130
+            label="Geo lat max", value=self.spec.geo_lat_max, width=130
         )
         self.local_time_min = pn.widgets.FloatInput(
-            name="LT min", value=self.spec.local_time_min, start=0.0, end=24.0, width=110
+            label="LT min", value=self.spec.local_time_min, start=0.0, end=24.0, width=110
         )
         self.local_time_max = pn.widgets.FloatInput(
-            name="LT max", value=self.spec.local_time_max, start=0.0, end=24.0, width=110
+            label="LT max", value=self.spec.local_time_max, start=0.0, end=24.0, width=110
         )
         self.zoom_window = pn.widgets.Checkbox(
-            name="Zoom window", value=self.spec.zoom_window, width=130
+            label="Zoom window", value=self.spec.zoom_window, width=130
         )
 
-        self.redraw_button = pn.widgets.Button(name="Redraw", button_type="primary", width=95)
-        self.save_button = pn.widgets.Button(name="Save figure", button_type="warning", width=120)
+        self.redraw_button = pn.widgets.Button(label="Redraw", color="primary", width=95)
+        self.save_button = pn.widgets.Button(label="Save figure", color="warning", width=120)
         self.save_movie_button = pn.widgets.Button(
-            name="Save movie", button_type="warning", width=120
+            label="Save movie", color="warning", width=120
         )
         self.output_filename = pn.widgets.TextInput(
-            name="Output", value="pynamit_figure.png", width=260
+            label="Output", value="pynamit_figure.png", width=260
         )
         self.movie_filename = pn.widgets.TextInput(
-            name="Movie", value=self.spec.movie_filename, width=260
+            label="Movie", value=self.spec.movie_filename, width=260
         )
         self.movie_fps = pn.widgets.FloatInput(
-            name="FPS", value=self.spec.movie_fps, start=0.1, width=90
+            label="FPS", value=self.spec.movie_fps, start=0.1, width=90
         )
         self.script_download = pn.widgets.FileDownload(
             label="Download .py",
             filename="pynamit_figure.py",
             callback=self._download_script,
-            button_type="success",
+            color="success",
             width=130,
         )
         self.spec_download = pn.widgets.FileDownload(
             label="Download spec",
             filename="pynamit_figure.json",
             callback=self._download_spec,
-            button_type="success",
+            color="success",
             width=135,
         )
         self.status = pn.pane.Markdown("", sizing_mode="stretch_width")
@@ -532,7 +526,6 @@ class PynamitPanelApp:
                 final_time=float(self.sim_final_time.value),
                 plotsteps=int(self.sim_plotsteps.value),
                 dt=float(self.sim_dt.value),
-                mainfield_kind=self.sim_mainfield_kind.value,
                 ignore_PFAC=bool(self.sim_ignore_pfac.value),
                 connect_hemispheres=bool(self.sim_connect_hemispheres.value),
                 latitude_boundary=float(self.sim_latitude_boundary.value),
@@ -701,7 +694,6 @@ class PynamitPanelApp:
                 self.sim_final_time,
                 self.sim_dt,
                 self.sim_plotsteps,
-                self.sim_mainfield_kind,
                 self.sim_integrator,
             ),
             self._control_row(

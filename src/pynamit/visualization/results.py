@@ -250,7 +250,7 @@ def plot_state_diagnostics(
     lat, lon = map(np.ravel, np.meshgrid(lat, lon))
     plt_grid = Grid(lat=lat, lon=lon)
     state_transform = SphericalTransform(dynamics.state.basis, plt_grid)
-    mainfield_evaluator = FieldEvaluator(dynamics.mainfield, plt_grid, dynamics.state.RI)
+    mainfield_evaluator = FieldEvaluator(dynamics.mainfield, plt_grid, dynamics.config.RI)
 
     # Calculate values to plot.
     br_values = evaluate_Br(dynamics, state_transform)

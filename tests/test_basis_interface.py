@@ -46,9 +46,6 @@ def test_public_sphere_package_is_canonical():
     assert pynamit.CSBasis is CSBasis
     assert pynamit.SHBasis is SHBasis
     assert pynamit.SolidHarmonics is SolidHarmonics
-    assert pynamit.SphericalBasis is SphericalBasis
-    assert pynamit.SphericalRepresentation is SphericalRepresentation
-    assert pynamit.BasisView is BasisView
 
 
 def test_concrete_bases_implement_basis_interface():

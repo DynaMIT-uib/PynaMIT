@@ -24,9 +24,8 @@ def test_default_horizontal_basis_is_sh(tmp_path):
     assert dynamics.horizontal_basis is dynamics.solid_harmonics.basis
     geometry = dynamics.state.geometry
     assert geometry.horizontal_solid_projection_is_identity
-    assert geometry._horizontal_to_solid_harmonic is None
-    assert geometry._solid_harmonic_to_horizontal is None
-    assert geometry._horizontal_to_solid_harmonic is None
+    assert "horizontal_to_solid_harmonic" not in geometry.__dict__
+    assert "solid_harmonic_to_horizontal" not in geometry.__dict__
 
 
 def test_horizontal_basis_kind_is_persisted(tmp_path):
@@ -210,7 +209,7 @@ def test_connected_E_apex_constraint_operator_is_lazy(tmp_path):
     geometry = dynamics.state.geometry
     operator = geometry.E_coeffs_to_E_apex_ll_diff_operator
     assert operator is not None
-    assert geometry._E_coeffs_to_E_apex_ll_diff is None
+    assert "E_coeffs_to_E_apex_ll_diff" not in geometry.__dict__
 
     rng = np.random.default_rng(20260612)
     coeffs = rng.standard_normal(operator.input_shape)

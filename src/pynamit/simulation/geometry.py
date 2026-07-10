@@ -6,6 +6,7 @@ interhemispheric mappings.
 """
 
 from __future__ import annotations
+from functools import cached_property
 import logging
 from typing import Any, Optional
 
@@ -28,16 +29,14 @@ from pynamit.primitives.field_evaluator import FieldEvaluator
 from pynamit.math.tensor_operations import weighted_tensor_pinv
 from pynamit.simulation.config import setting_value
 from pynamit.simulation.mainfield import is_dipole_kind
-from pynamit.simulation import JS as JS_ops
-from pynamit.simulation.JS import coefficient_scale_values as _coefficient_scale_values
+from pynamit.simulation import magnetic_boundary
 from pynamit.sphere import CSBasis, is_sh_basis
 
 logger = logging.getLogger(__name__)
 
 
-def _extended_scalar_basis_for_potential(basis, settings):
+def _potential_scalar_basis(basis):
     """Return the scalar potential basis including the monopole."""
-    del settings
     if is_sh_basis(basis):
         return basis.get_extended_basis()
     return basis
@@ -70,7 +69,6 @@ class Geometry:
         self.solid_harmonics = solid_harmonics or (
             SolidHarmonics(basis) if is_sh_basis(basis) else None
         )
-        self.settings = settings
         self.mainfield = mainfield
         self.cs_basis = cs_basis
 
@@ -91,11 +89,6 @@ class Geometry:
         self._init_evaluators(cs_basis)
         self._init_constraint_mappings()
 
-        # Caches for expensive properties
-        self._bP: Optional[np.ndarray] = None
-        self._bH: Optional[np.ndarray] = None
-        self._bu: Optional[np.ndarray] = None
-
         # Allow pre-computed PFAC matrix
         if PFAC_matrix is not None:
             self._T_to_Ve = PFAC_matrix
@@ -103,133 +96,93 @@ class Geometry:
             self._T_to_Ve: Optional[xr.DataArray] = None
 
         self.surface_laplacian_operator = self.basis.get_surface_laplacian_operator(self.RI)
-        self._helmholtz_curl_free_potential = None
         self.helmholtz_curl_free_potential_operator = (
             self.basis.get_helmholtz_curl_free_potential_operator()
         )
-        self._helmholtz_divergence_free_potential = None
         self.helmholtz_divergence_free_potential_operator = (
             self.basis.get_helmholtz_divergence_free_potential_operator()
         )
         self.m_imp_to_jr_operator = self.RI / mu0 * self.surface_laplacian_operator
         self.m_ind_to_Br_operator = -(self.RI**2) * self.surface_laplacian_operator
-        self._m_imp_to_jr = None
         self.E_df_to_d_m_ind_dt = 1.0 / self.RI
-        self._m_ind_to_Br = None
         if self.solid_harmonics is None:
             raise NotImplementedError(
                 f"{type(self.basis).__name__} requires solid harmonics for JS coupling."
             )
 
-        self._horizontal_solid_projection_is_identity = (
+        self.horizontal_solid_projection_is_identity = (
             self.solid_harmonics.basis.coefficients_are_compatible_with(self.basis)
         )
         self.horizontal_to_solid_harmonic_operator = (
             self._build_horizontal_to_solid_harmonic_operator()
         )
-        self._horizontal_to_solid_harmonic = None
         self.solid_harmonic_to_horizontal_operator = (
             self._build_solid_harmonic_to_horizontal_operator()
         )
-        self._solid_harmonic_to_horizontal = None
         self.poloidal_to_boundary_potential_jump_factor_operator = diagonal_linear_map(
             self.solid_harmonics.poloidal_to_boundary_potential_jump_factor
         )
-        self._poloidal_to_boundary_potential_jump_factor = None
         self.horizontal_to_boundary_potential_jump_factor_operator = (
             self.poloidal_to_boundary_potential_jump_factor_operator
             @ self.horizontal_to_solid_harmonic_operator
         )
-        self._horizontal_to_boundary_potential_jump_factor = None
 
-        self._helmholtz_analysis_matrix = None
         self._solid_transform_cache = {}
 
-    @property
-    def horizontal_solid_projection_is_identity(self) -> bool:
-        """Return whether horizontal and solid coefficients match."""
-        return self._horizontal_solid_projection_is_identity
-
-    @property
+    @cached_property
     def horizontal_to_solid_harmonic(self) -> np.ndarray:
         """Return the explicit horizontal-to-solid matrix."""
-        if self._horizontal_to_solid_harmonic is None:
-            self._horizontal_to_solid_harmonic = np.asarray(
-                self.horizontal_to_solid_harmonic_operator.to_matrix(backend="numpy")
-            )
-        return self._horizontal_to_solid_harmonic
+        return np.asarray(
+            self.horizontal_to_solid_harmonic_operator.to_matrix(backend="numpy")
+        )
 
-    @property
+    @cached_property
     def solid_harmonic_to_horizontal(self) -> np.ndarray:
         """Return the explicit solid-to-horizontal matrix."""
-        if self._solid_harmonic_to_horizontal is None:
-            self._solid_harmonic_to_horizontal = np.asarray(
-                self.solid_harmonic_to_horizontal_operator.to_matrix(backend="numpy")
-            )
-        return self._solid_harmonic_to_horizontal
+        return np.asarray(
+            self.solid_harmonic_to_horizontal_operator.to_matrix(backend="numpy")
+        )
 
-    @property
+    @cached_property
     def helmholtz_curl_free_potential(self) -> np.ndarray:
         """Return the curl-free Helmholtz-potential selector."""
-        if self._helmholtz_curl_free_potential is None:
-            self._helmholtz_curl_free_potential = self.helmholtz_curl_free_potential_operator.array
-        return self._helmholtz_curl_free_potential
+        return self.helmholtz_curl_free_potential_operator.array
 
-    @property
+    @cached_property
     def helmholtz_divergence_free_potential(self) -> np.ndarray:
         """Return the divergence-free Helmholtz-potential selector."""
-        if self._helmholtz_divergence_free_potential is None:
-            self._helmholtz_divergence_free_potential = (
-                self.helmholtz_divergence_free_potential_operator.array
-            )
-        return self._helmholtz_divergence_free_potential
+        return self.helmholtz_divergence_free_potential_operator.array
 
-    @property
+    @cached_property
     def m_imp_to_jr(self) -> np.ndarray:
         """Return the explicit imposed-potential to jr matrix."""
-        if self._m_imp_to_jr is None:
-            self._m_imp_to_jr = np.asarray(
-                self.m_imp_to_jr_operator.to_matrix(backend="numpy")
-            ).copy()
-        return self._m_imp_to_jr
+        return np.asarray(self.m_imp_to_jr_operator.to_matrix(backend="numpy")).copy()
 
-    @property
+    @cached_property
     def m_ind_to_Br(self) -> np.ndarray:
         """Return the explicit induced-potential to Br matrix."""
-        if self._m_ind_to_Br is None:
-            self._m_ind_to_Br = np.asarray(
-                self.m_ind_to_Br_operator.to_matrix(backend="numpy")
-            ).copy()
-        return self._m_ind_to_Br
+        return np.asarray(self.m_ind_to_Br_operator.to_matrix(backend="numpy")).copy()
 
-    @property
+    @cached_property
     def poloidal_to_boundary_potential_jump_factor(self) -> np.ndarray:
         """Return the explicit solid-harmonic jump-factor matrix."""
-        if self._poloidal_to_boundary_potential_jump_factor is None:
-            self._poloidal_to_boundary_potential_jump_factor = np.asarray(
-                self.poloidal_to_boundary_potential_jump_factor_operator.to_matrix(backend="numpy")
-            ).copy()
-        return self._poloidal_to_boundary_potential_jump_factor
+        return np.asarray(
+            self.poloidal_to_boundary_potential_jump_factor_operator.to_matrix(backend="numpy")
+        ).copy()
 
-    @property
+    @cached_property
     def horizontal_to_boundary_potential_jump_factor(self) -> np.ndarray:
         """Return the explicit horizontal-to-jump-factor matrix."""
-        if self._horizontal_to_boundary_potential_jump_factor is None:
-            self._horizontal_to_boundary_potential_jump_factor = np.asarray(
-                self.horizontal_to_boundary_potential_jump_factor_operator.to_matrix(
-                    backend="numpy"
-                )
-            ).copy()
-        return self._horizontal_to_boundary_potential_jump_factor
+        return np.asarray(
+            self.horizontal_to_boundary_potential_jump_factor_operator.to_matrix(backend="numpy")
+        ).copy()
 
-    @property
+    @cached_property
     def jr_coeffs_to_j_apex(self) -> np.ndarray:
         """Return the explicit radial-current to apex-current matrix."""
-        if self._jr_coeffs_to_j_apex is None:
-            self._jr_coeffs_to_j_apex = np.asarray(
-                self.jr_coeffs_to_j_apex_operator.to_matrix(backend="numpy")
-            ).copy()
-        return self._jr_coeffs_to_j_apex
+        return np.asarray(
+            self.jr_coeffs_to_j_apex_operator.to_matrix(backend="numpy")
+        ).copy()
 
     def tangential_to_helmholtz(self, vec: np.ndarray) -> np.ndarray:
         """Convert tangential vector field to Helmholtz coeffs."""
@@ -237,16 +190,14 @@ class Geometry:
         projector = getattr(self.basis, "project_helmholtz_mean_free", None)
         return projector(coeffs) if callable(projector) else coeffs
 
-    @property
+    @cached_property
     def helmholtz_analysis_matrix(self) -> np.ndarray:
         """Matrix mapping gridded vectors to Helmholtz coefficients."""
-        if self._helmholtz_analysis_matrix is None:
-            self._helmholtz_analysis_matrix = weighted_tensor_pinv(
-                self.spherical_transform.helmholtz_coeffs_to_gridded_vector,
-                sqrt_weights=self.grid_sqrt_weights(vector=True),
-                n_leading_flattened=2,
-            )
-        return self._helmholtz_analysis_matrix
+        return weighted_tensor_pinv(
+            self.spherical_transform.helmholtz_coeffs_to_gridded_vector,
+            sqrt_weights=self.grid_sqrt_weights(vector=True),
+            n_leading_flattened=2,
+        )
 
     def _init_evaluators(self, cs_basis: CSBasis) -> None:
         """Set up grid, spherical transforms, and field evaluators."""
@@ -257,7 +208,7 @@ class Geometry:
             self.basis, self.grid, area_weighted=self.area_weighted_least_squares
         )
         self.spherical_transform_zero_added = SphericalTransform(
-            _extended_scalar_basis_for_potential(self.basis, self.settings),
+            _potential_scalar_basis(self.basis),
             self.grid,
             area_weighted=self.area_weighted_least_squares,
         )
@@ -300,7 +251,7 @@ class Geometry:
         least-squares projection from CS nodal values to those SH
         coefficients; for the SH path it is the identity.
         """
-        if self._horizontal_solid_projection_is_identity:
+        if self.horizontal_solid_projection_is_identity:
             return identity_linear_map((self.basis.index_length,))
         solid_to_grid = self.solid_harmonic_transform.scalar_coeffs_to_grid
         horizontal_to_grid = self.spherical_transform.scalar_coeffs_to_grid
@@ -315,7 +266,7 @@ class Geometry:
 
     def _build_solid_harmonic_to_horizontal_operator(self):
         """Project solid-harmonic coefficients to horizontal space."""
-        if self._horizontal_solid_projection_is_identity:
+        if self.horizontal_solid_projection_is_identity:
             return identity_linear_map((self.basis.index_length,))
         horizontal_to_grid = self.spherical_transform.scalar_coeffs_to_grid
         solid_to_grid = self.solid_harmonic_transform.scalar_coeffs_to_grid
@@ -330,7 +281,7 @@ class Geometry:
 
     def _horizontal_to_solid_harmonic_matrix(self):
         """Return an explicit horizontal-to-solid map when needed."""
-        if self._horizontal_solid_projection_is_identity:
+        if self.horizontal_solid_projection_is_identity:
             return None
         return self.horizontal_to_solid_harmonic
 
@@ -364,7 +315,7 @@ class Geometry:
                 if transform is None
                 else self.solid_transform_for(transform)
             )
-        return JS_ops.m_ind_to_gridded_JS(
+        return magnetic_boundary.m_ind_to_gridded_JS(
             self.solid_harmonics,
             solid_transform,
             radius=self.RI,
@@ -383,7 +334,7 @@ class Geometry:
         transform = self.spherical_transform if transform is None else transform
         if solid_transform is None:
             solid_transform = self.solid_transform_for(transform)
-        return JS_ops.m_imp_to_gridded_JS(
+        return magnetic_boundary.m_imp_to_gridded_JS(
             self.solid_harmonics,
             transform,
             solid_transform=solid_transform,
@@ -393,7 +344,7 @@ class Geometry:
 
     def _solid_to_horizontal_coefficients(self, values):
         """Map solid-harmonic coefficient rows to horizontal rows."""
-        if self._horizontal_solid_projection_is_identity:
+        if self.horizontal_solid_projection_is_identity:
             return values
         return np.tensordot(self.solid_harmonic_to_horizontal, values, axes=([1], [0]))
 
@@ -410,9 +361,7 @@ class Geometry:
         else:
             self.ll_mask = np.zeros(self.grid.size, dtype=bool)
 
-        self._jr_coeffs_to_j_apex = None
         self.jr_coeffs_to_j_apex_operator = self._build_jr_coeffs_to_j_apex_operator()
-        self._E_coeffs_to_E_apex_ll_diff = None
         self.E_coeffs_to_E_apex_ll_diff_operator = None
 
         if self.connect_hemispheres:
@@ -483,41 +432,33 @@ class Geometry:
             @ transform.helmholtz_coeffs_to_gridded_vector_operator
         )
 
-    @property
+    @cached_property
     def E_coeffs_to_E_apex_ll_diff(self) -> Optional[np.ndarray]:
         """Return explicit low-latitude E-apex difference tensor."""
         operator = self.E_coeffs_to_E_apex_ll_diff_operator
         if operator is None:
             return None
-        if self._E_coeffs_to_E_apex_ll_diff is None:
-            self._E_coeffs_to_E_apex_ll_diff = to_numpy(operator.array)
-        return self._E_coeffs_to_E_apex_ll_diff
+        return to_numpy(operator.array)
 
-    @property
+    @cached_property
     def bP(self) -> np.ndarray:
         """Pedersen geometric factor for conductance tensor."""
-        if self._bP is None:
-            b_th, b_ph, b_r = self.b_evaluator.btheta, self.b_evaluator.bphi, self.b_evaluator.br
-            self._bP = np.array(
-                [[b_ph**2 + b_r**2, -b_th * b_ph], [-b_th * b_ph, b_th**2 + b_r**2]]
-            )
-        return self._bP
+        b_th, b_ph, b_r = self.b_evaluator.btheta, self.b_evaluator.bphi, self.b_evaluator.br
+        return np.array(
+            [[b_ph**2 + b_r**2, -b_th * b_ph], [-b_th * b_ph, b_th**2 + b_r**2]]
+        )
 
-    @property
+    @cached_property
     def bH(self) -> np.ndarray:
         """Hall geometric factor for conductance tensor."""
-        if self._bH is None:
-            br = self.b_evaluator.br
-            self._bH = np.array([[np.zeros_like(br), br], [-br, np.zeros_like(br)]])
-        return self._bH
+        br = self.b_evaluator.br
+        return np.array([[np.zeros_like(br), br], [-br, np.zeros_like(br)]])
 
-    @property
+    @cached_property
     def bu(self) -> np.ndarray:
         """Geometric factor for u x B electric field."""
-        if self._bu is None:
-            Br = self.b_evaluator.Br
-            self._bu = -np.array([[np.zeros_like(Br), Br], [-Br, np.zeros_like(Br)]])
-        return self._bu
+        Br = self.b_evaluator.Br
+        return -np.array([[np.zeros_like(Br), Br], [-Br, np.zeros_like(Br)]])
 
     @property
     def T_to_Ve(self) -> xr.DataArray:
@@ -545,7 +486,7 @@ class Geometry:
                 "All FAC integration steps must be inside the magnetospheric boundary (RM)."
             )
 
-        solid_poloidal_to_gridded_JS = JS_ops.poloidal_to_gridded_JS(
+        solid_poloidal_to_gridded_JS = magnetic_boundary.poloidal_to_gridded_JS(
             self.solid_harmonics, self.solid_harmonic_transform
         )
         JS_rk_to_solid_poloidal_rk = weighted_tensor_pinv(
@@ -575,24 +516,24 @@ class Geometry:
             )
             m_imp_to_JS_rk = np.einsum("ij,jk->ijk", jr_to_JS_rk, m_imp_to_jr_grid, optimize=True)
 
-            regular_poloidal_rk_to_ri = _coefficient_scale_values(
+            regular_poloidal_rk_to_ri = magnetic_boundary.solid_harmonic_scale_values(
                 self.solid_harmonics.regular_reference_shift(rk, self.RI)
             ).reshape((-1, 1, 1))
             if self.RM is not None:
                 regular_poloidal_rk_to_ri -= (
-                    _coefficient_scale_values(
+                    magnetic_boundary.solid_harmonic_scale_values(
                         self.solid_harmonics.regular_reference_shift(self.RM, self.RI)
                     )
-                    * _coefficient_scale_values(
+                    * magnetic_boundary.solid_harmonic_scale_values(
                         self.solid_harmonics.irregular_reference_shift(rk, self.RM)
                     )
                 ).reshape((-1, 1, 1))
                 factor = -1.0 / (
                     1.0
-                    - _coefficient_scale_values(
+                    - magnetic_boundary.solid_harmonic_scale_values(
                         self.solid_harmonics.regular_reference_shift(self.RM, self.RI)
                     )
-                    * _coefficient_scale_values(
+                    * magnetic_boundary.solid_harmonic_scale_values(
                         self.solid_harmonics.irregular_reference_shift(self.RI, self.RM)
                     )
                 )
@@ -626,7 +567,7 @@ class Geometry:
                 if transform is None
                 else self.solid_transform_for(transform)
             )
-        return JS_ops.Br_to_gridded_JS(
+        return magnetic_boundary.Br_to_gridded_JS(
             self.solid_harmonics,
             solid_transform,
             radius=self.RI,
