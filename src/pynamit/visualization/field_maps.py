@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 from pynamit.math.linear_map import as_linear_map
-from pynamit.simulation.ionospheric_closure import resistance_to_conductance
+from pynamit.simulation.electrodynamics.ionospheric_closure import resistance_to_conductance
 
 
 def _coefficient_array(coeffs):
@@ -59,47 +59,19 @@ def evaluate_wind_coefficients(transform, coeffs, *, include_magnitude=True):
     return values
 
 
-def evaluate_electric_field_coefficients(transform, Phi, W, radius):
-    """Evaluate E from physical potential coefficients.
-
-    ``Phi`` and ``W`` must be volt-scaled potential coefficients.
-    Saved state output stores Helmholtz E-field coefficients in the
-    unit-sphere gradient convention; multiply those coefficients by
-    ``radius`` before using this helper.
-    """
-    coeffs = np.stack([_coefficient_array(Phi).reshape(-1), _coefficient_array(W).reshape(-1)])
-    return transform.synthesize_helmholtz(coeffs) / float(radius)
-
-
-def evaluate_joule_from_fields(JS, electric_field):
-    """Evaluate Joule heating from JS and electric field values."""
-    JS = np.asarray(JS).reshape(2, -1)
-    electric_field = np.asarray(electric_field).reshape(2, -1)
-    return JS[0] * electric_field[0] + JS[1] * electric_field[1]
-
-
-def evaluate_JS_from_maps(m_imp, m_ind, *, m_imp_to_JS, m_ind_to_JS):
-    """Evaluate total JS from coefficient maps."""
-    return (_apply_linear_map(m_imp_to_JS, m_imp) + _apply_linear_map(m_ind_to_JS, m_ind)).reshape(
-        2, -1
-    )
-
-def evaluate_joule_from_coefficients(
-    transform, m_imp, m_ind, Phi, W, radius, *, m_imp_to_JS, m_ind_to_JS
-):
-    """Evaluate Joule heating from source and E coefficients."""
-    electric_field = evaluate_electric_field_coefficients(transform, Phi, W, radius)
-    JS = evaluate_JS_from_maps(m_imp, m_ind, m_imp_to_JS=m_imp_to_JS, m_ind_to_JS=m_ind_to_JS)
-    joule = evaluate_joule_from_fields(JS, electric_field)
-    return joule, electric_field, JS
+def evaluate_JS_from_maps(m_imp, m_ind, *, m_imp_to_JS, m_ind_to_JS, Br=None, Br_to_JS=None):
+    """Evaluate total JS from magnetic and boundary-field maps."""
+    current = _apply_linear_map(m_imp_to_JS, m_imp) + _apply_linear_map(m_ind_to_JS, m_ind)
+    if Br is not None:
+        if Br_to_JS is None:
+            raise ValueError("Br_to_JS is required when Br coefficients are provided.")
+        current += _apply_linear_map(Br_to_JS, Br)
+    return current.reshape(2, -1)
 
 
 __all__ = [
     "evaluate_conductance_coefficients",
     "evaluate_conductance_values",
-    "evaluate_electric_field_coefficients",
-    "evaluate_joule_from_coefficients",
-    "evaluate_joule_from_fields",
     "evaluate_JS_from_maps",
     "evaluate_tangential_coefficients",
     "evaluate_wind_coefficients",

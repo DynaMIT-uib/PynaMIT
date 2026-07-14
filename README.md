@@ -55,9 +55,11 @@ standard environment, but GPU/TPU-specific installations may require replacing
 or updating the JAX packages according to the
 [official JAX installation instructions](https://docs.jax.dev/en/latest/installation.html).
 
-The minimal package dependencies declared in `pyproject.toml` are intentionally
-small (`numpy`, `pandas`, and `scipy`). Use the requirements files above when
-setting up a complete development or simulation environment.
+The core dependencies declared in `pyproject.toml` are sufficient to import
+and run the simulation API. Install `pynamit[gui]` for the Panel and plotting
+stack, and `pynamit[inputs]` for the optional native input models. The
+requirements files above remain the reproducible development-environment
+definition.
 
 ## Testing
 

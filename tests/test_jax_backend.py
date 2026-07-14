@@ -2,11 +2,9 @@
 
 import os
 
-import numpy as np
 import pytest
 
-from pynamit.math.tensor_operations import tensor_product
-from pynamit.math import backend_context, set_backend, to_jax, to_numpy, use_jax
+from pynamit.math import backend_context, set_backend, use_jax
 
 
 def test_backend_context_restores_backend_and_environment(monkeypatch):
@@ -45,18 +43,3 @@ def test_backend_toggle_round_trip(backend: str, data_source: str):
         assert use_jax() is False
     finally:
         use_jax(previous)
-
-
-@pytest.mark.requires_jax
-@pytest.mark.parametrize("backend", ["jax"], ids=["backend=jax"])
-@pytest.mark.parametrize("data_source", ["fallback"], ids=["data=fallback"])
-def test_tensor_product_backend_parity(backend: str, data_source: str):
-    """Ensure tensor_product produces identical results with JAX."""
-    rng = np.random.default_rng(0)
-    A = rng.random((3, 4, 5))
-    B = rng.random((5, 6, 2))
-
-    numpy_result = tensor_product(A, B, n_contracted=1)
-    jax_result = tensor_product(to_jax(A), to_jax(B), n_contracted=1)
-
-    np.testing.assert_allclose(to_numpy(jax_result), numpy_result)

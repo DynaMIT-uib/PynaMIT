@@ -8,10 +8,12 @@ from dataclasses import dataclass
 import numpy as np
 import scipy.sparse as sp
 from scipy.spatial import Delaunay
+from scipy.interpolate import griddata
 
 from pynamit.math import as_linear_map, identity_linear_map
 from pynamit.math.backend import to_numpy, use_jax
-from pynamit.sphere.cubed_sphere import arrayutils
+from pynamit.sphere.core import _owned_readonly_array
+from pynamit.sphere.cubed_sphere.arrayutils import determinants_3x3
 
 
 @dataclass(frozen=True)
@@ -28,6 +30,20 @@ class CSGridGeometry:
     sqrt_detg: np.ndarray
     unit_area: np.ndarray
 
+    def __post_init__(self):
+        """Own immutable arrays used by basis and cache identity."""
+        for name in (
+            "arr_xi",
+            "arr_eta",
+            "arr_block",
+            "arr_theta",
+            "arr_phi",
+            "metric_tensor",
+            "sqrt_detg",
+            "unit_area",
+        ):
+            object.__setattr__(self, name, _owned_readonly_array(getattr(self, name)))
+
     @property
     def index_length(self):
         """Total number of native cells."""
@@ -43,7 +59,7 @@ class CSGridGeometry:
 
         _, arr_theta, arr_phi = basis.cube2spherical(arr_xi, arr_eta, arr_block, deg=True)
         metric_tensor = basis.get_metric_tensor(arr_xi, arr_eta)
-        sqrt_detg = np.sqrt(arrayutils.get_3D_determinants(metric_tensor))
+        sqrt_detg = np.sqrt(determinants_3x3(metric_tensor))
         unit_area = cls._cell_areas(basis, N)
 
         return cls(
@@ -123,14 +139,14 @@ class CSGridRemapper:
 
     def _cached_remap_matrix(self, key, build):
         """Return a bounded shared remap matrix cache entry."""
-        cache = self.basis._shared_remap_matrix_cache
+        cache = self._shared_remap_matrix_cache
         if key in cache:
             cache.move_to_end(key)
             return cache[key]
 
         matrix = build()
         cache[key] = matrix
-        if len(cache) > self.basis._shared_remap_matrix_cache_size:
+        if len(cache) > self._shared_remap_matrix_cache_size:
             cache.popitem(last=False)
         return matrix
 
@@ -279,8 +295,7 @@ class CSGridRemapper:
         key = ("scalar_grid_remap", matrix_key, bool(use_jax()))
         if key not in self.operator_cache:
             matrix = self._cached_remap_matrix(
-                matrix_key,
-                lambda: self.basis._build_scalar_grid_remap_matrix(source_grid, target_grid),
+                matrix_key, lambda: self.build_scalar_grid_remap_matrix(source_grid, target_grid)
             )
             self.operator_cache[key] = as_linear_map(
                 matrix, input_shape=(source_grid.size,), output_shape=(target_grid.size,)
@@ -298,12 +313,142 @@ class CSGridRemapper:
         if key not in self.operator_cache:
             matrix = self._cached_remap_matrix(
                 matrix_key,
-                lambda: self.basis._build_tangential_grid_remap_matrix(source_grid, target_grid),
+                lambda: self.build_tangential_grid_remap_matrix(source_grid, target_grid),
             )
             self.operator_cache[key] = as_linear_map(
                 matrix, input_shape=(2, source_grid.size), output_shape=(2, target_grid.size)
             )
         return self.operator_cache[key]
+
+    def interpolate_vector_components(
+        self, u_east, u_north, u_r, theta, phi, theta_target, phi_target, **kwargs
+    ):
+        """Interpolate spherical vector components through CS panels."""
+        basis = self.basis
+        theta_target, phi_target = np.broadcast_arrays(theta_target, phi_target)
+        target_shape = theta_target.shape
+        xi, eta, block = basis.geo2cube(phi_target, 90 - theta_target)
+        xi, eta, block = xi.reshape(-1), eta.reshape(-1), block.reshape(-1)
+
+        theta, phi = np.broadcast_arrays(theta, phi)
+        source_shape = theta.shape
+        theta, phi = theta.reshape(-1), phi.reshape(-1)
+
+        u_east = np.asarray(u_east)
+        u_north = np.asarray(u_north)
+        u_r = np.asarray(u_r)
+        if u_east.shape[: len(source_shape)] == source_shape:
+            value_shape = u_east.shape[len(source_shape) :]
+            u_east_values = u_east.reshape((theta.size,) + value_shape)
+            u_north_values = u_north.reshape((theta.size,) + value_shape)
+            u_r_values = u_r.reshape((theta.size,) + value_shape)
+        else:
+            u_east_values, u_north_values, u_r_values, theta_b, phi_b = np.broadcast_arrays(
+                u_east, u_north, u_r, theta.reshape(source_shape), phi.reshape(source_shape)
+            )
+            value_shape = ()
+            u_east_values = u_east_values.reshape(-1)
+            u_north_values = u_north_values.reshape(-1)
+            u_r_values = u_r_values.reshape(-1)
+            theta = theta_b.reshape(-1)
+            phi = phi_b.reshape(-1)
+
+        th, ph = np.deg2rad(theta), np.deg2rad(phi)
+        position = np.vstack((np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th)))
+
+        u_xi, u_eta, u_block = basis.geo2cube(phi, 90 - theta)
+        spherical_to_panel = basis.get_Ps(u_xi, u_eta, r=1, block=u_block)
+        geographic_to_spherical = basis.get_Q(90 - theta, r=1, inverse=True)
+        geographic_to_panel = np.einsum(
+            "nij,njk->nik", spherical_to_panel, geographic_to_spherical
+        )
+        spherical_values = np.stack([u_east_values, u_north_values, u_r_values], axis=1)
+        panel_values = np.einsum("nij,nj...->ni...", geographic_to_panel, spherical_values)
+
+        interpolated_panel = np.empty((block.size, 3) + value_shape, dtype=np.float64)
+        for block_index in range(6):
+            panel_rotation = basis.get_Qij(u_xi, u_eta, u_block, block_index)
+            values_on_panel = np.einsum("nij,nj...->ni...", panel_rotation, panel_values)
+
+            _, panel_theta, panel_phi = basis.cube2spherical(0, 0, block_index, deg=False)
+            panel_center = np.hstack(
+                (
+                    np.sin(panel_theta) * np.cos(panel_phi),
+                    np.sin(panel_theta) * np.sin(panel_phi),
+                    np.cos(panel_theta),
+                )
+            ).reshape((-1, 1))
+            source_mask = np.sum(panel_center * position, axis=0) > 0
+            source_xi, source_eta, _ = basis.geo2cube(phi, 90 - theta, block=block_index)
+            target_mask = block == block_index
+            interpolated_panel[target_mask] = griddata(
+                np.column_stack((source_xi[source_mask], source_eta[source_mask])),
+                values_on_panel[source_mask],
+                np.column_stack((xi[target_mask], eta[target_mask])),
+                **kwargs,
+            )
+
+        _, theta_out, _ = basis.cube2spherical(xi, eta, block, deg=True)
+        spherical_to_geographic = basis.get_Q(90 - theta_out, r=1, inverse=False)
+        panel_to_spherical = basis.get_Ps(xi, eta, r=1, block=block, inverse=True)
+        panel_to_geographic = np.einsum(
+            "nij,njk->nik", spherical_to_geographic, panel_to_spherical
+        )
+        interpolated = np.einsum("nij,nj...->ni...", panel_to_geographic, interpolated_panel)
+        return tuple(
+            interpolated[:, component].reshape(target_shape + value_shape)
+            for component in range(3)
+        )
+
+    def interpolate_scalar(self, scalar, theta, phi, theta_target, phi_target, **kwargs):
+        """Interpolate scalar values through CS panels."""
+        basis = self.basis
+        theta_target, phi_target = np.broadcast_arrays(theta_target, phi_target)
+        target_shape = theta_target.shape
+        xi, eta, block = basis.geo2cube(phi_target, 90 - theta_target)
+        xi, eta, block = xi.reshape(-1), eta.reshape(-1), block.reshape(-1)
+
+        theta, phi = np.broadcast_arrays(theta, phi)
+        source_shape = theta.shape
+        theta, phi = theta.reshape(-1), phi.reshape(-1)
+
+        scalar = np.asarray(scalar)
+        if scalar.shape[: len(source_shape)] == source_shape:
+            value_shape = scalar.shape[len(source_shape) :]
+            scalar_values = scalar.reshape((theta.size,) + value_shape)
+        else:
+            scalar_values, theta_broadcast, phi_broadcast = np.broadcast_arrays(
+                scalar, theta.reshape(source_shape), phi.reshape(source_shape)
+            )
+            value_shape = ()
+            scalar_values = scalar_values.reshape(-1)
+            theta = theta_broadcast.reshape(-1)
+            phi = phi_broadcast.reshape(-1)
+
+        th, ph = np.deg2rad(theta), np.deg2rad(phi)
+        position = np.vstack((np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th)))
+        interpolated = np.empty((block.size,) + value_shape, dtype=np.float64)
+
+        for block_index in range(6):
+            _, panel_theta, panel_phi = basis.cube2spherical(0, 0, block_index, deg=False)
+            panel_center = np.hstack(
+                (
+                    np.sin(panel_theta) * np.cos(panel_phi),
+                    np.sin(panel_theta) * np.sin(panel_phi),
+                    np.cos(panel_theta),
+                )
+            ).reshape((-1, 1))
+            source_mask = np.sum(panel_center * position, axis=0) > 0
+            source_xi, source_eta, _ = basis.geo2cube(phi, 90 - theta, block=block_index)
+            target_mask = block == block_index
+            interpolated[target_mask] = griddata(
+                np.column_stack((source_xi[source_mask], source_eta[source_mask])),
+                scalar_values[source_mask],
+                np.column_stack((xi[target_mask], eta[target_mask])),
+                **kwargs,
+            )
+
+        return interpolated.reshape(target_shape + value_shape)
 
 
 __all__ = ["CSGridGeometry", "CSGridRemapper"]

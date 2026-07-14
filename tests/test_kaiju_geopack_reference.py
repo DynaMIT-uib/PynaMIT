@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pynamit.simulation.kaiju_dipole import kaiju_geopack_sm
+from pynamit.geomagnetism.kaiju_geopack import kaiju_geopack_sm
 
 
 KAIJU_REPO = Path(os.environ.get("KAIJU_REPO", "~/Repos/kaiju")).expanduser()

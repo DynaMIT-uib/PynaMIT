@@ -6,7 +6,25 @@ import numpy as np
 from scipy.special import binom
 from scipy.sparse import coo_matrix
 
-from pynamit.sphere.cubed_sphere import arrayutils, diffutils
+
+def _first_derivative_weights(sample_offsets, step_size):
+    """Return finite-difference weights at zero for sample offsets."""
+    sample_offsets = np.asarray(sample_offsets, dtype=float).reshape(-1)
+    powers = np.arange(sample_offsets.size).reshape(-1, 1)
+    taylor_system = sample_offsets.reshape(1, -1) ** powers
+    derivative = np.zeros(sample_offsets.size)
+    derivative[1] = 1.0
+    return np.linalg.solve(taylor_system, derivative) / float(step_size)
+
+
+def _shift_rows_into_bounds(values, lower, upper):
+    """Shift each row intact until it lies within inclusive bounds."""
+    values = np.asarray(values)
+    row_min = values.min(axis=1, keepdims=True)
+    row_max = values.max(axis=1, keepdims=True)
+    if np.any(row_max - row_min > upper - lower):
+        raise ValueError("Row range is too large for the requested bounds.")
+    return values - np.minimum(row_min, lower) + lower - np.maximum(row_max, upper) + upper
 
 
 class CSFiniteDifferences:
@@ -40,7 +58,7 @@ class CSFiniteDifferences:
 
         stencil_points = np.hstack((np.r_[-Ns:0], np.r_[1 : Ns + 1]))
         stencil_count = len(stencil_points)
-        stencil_weight = diffutils.stencil(stencil_points, order=1, h=h)
+        stencil_weight = _first_derivative_weights(stencil_points, h)
 
         i_diff = np.hstack([i + point for point in stencil_points])
         j_diff = np.hstack([j + point for point in stencil_points])
@@ -119,11 +137,11 @@ class CSFiniteDifferences:
         i_floats = new_i[i_is_float].reshape((-1, 1))
 
         interpolation_points = np.arange(Ni).reshape((1, -1))
-        j_interpolation_points = arrayutils.constrain_values(
-            interpolation_points + np.int64(np.ceil(j_floats)) - Ni // 2, 0, N - 1, axis=1
+        j_interpolation_points = _shift_rows_into_bounds(
+            interpolation_points + np.int64(np.ceil(j_floats)) - Ni // 2, 0, N - 1
         )
-        i_interpolation_points = arrayutils.constrain_values(
-            interpolation_points + np.int64(np.ceil(i_floats)) - Ni // 2, 0, N - 1, axis=1
+        i_interpolation_points = _shift_rows_into_bounds(
+            interpolation_points + np.int64(np.ceil(i_floats)) - Ni // 2, 0, N - 1
         )
 
         j_distances = j_floats - j_interpolation_points

@@ -3,17 +3,8 @@
 import numpy as np
 
 from pynamit.simulation.config import setting_value
-from pynamit.simulation.magnetic_boundary import JS_operator_bundle
-from pynamit.sphere import Grid, SHBasis, SolidHarmonics, SphericalTransform
-from pynamit.visualization.artifacts import load_dataset_artifact
-
-
-def load_settings_and_basis(settings_path):
-    """Load run settings and construct the associated SH basis."""
-    settings = load_dataset_artifact(settings_path)
-    nmax = int(setting_value(settings, "Nmax"))
-    mmax = int(setting_value(settings, "Mmax"))
-    return settings, SHBasis(nmax, mmax)
+from pynamit.simulation.electrodynamics import magnetic_boundary
+from pynamit.sphere import Grid, SolidHarmonics, SphericalTransform
 
 
 def build_plot_grid(nlat=60, nlon=100, lat_range=(-89.9, 89.9), lon_range=(-180.0, 180.0)):
@@ -43,7 +34,7 @@ def transform_for_source(source, transform):
     )
 
 
-def build_JS_operators(settings, sh_basis, transform, T_to_Ve=None):
+def build_JS_operators(settings, sh_basis, transform, pfac_coupling_matrix=None):
     """Build common coefficient-to-JS matrices.
 
     This is the low-level matrix bundle used by notebook and script
@@ -54,18 +45,28 @@ def build_JS_operators(settings, sh_basis, transform, T_to_Ve=None):
         rm = float(rm)
     else:
         rm = None
-    return JS_operator_bundle(
-        SolidHarmonics(sh_basis),
+    solid_harmonics = SolidHarmonics(sh_basis)
+    m_ind_to_JS = magnetic_boundary.m_ind_to_gridded_JS(
+        solid_harmonics,
         transform,
         radius=float(setting_value(settings, "RI")),
         boundary_radius=rm,
-        boundary_shielding=bool(setting_value(settings, "RM_shielding", False)),
-        T_to_Ve=T_to_Ve,
+        boundary_shielding=bool(setting_value(settings, "magnetic_boundary_shielding", False)),
     )
-__all__ = [
-    "build_evaluator",
-    "build_plot_grid",
-    "build_JS_operators",
-    "load_settings_and_basis",
-    "transform_for_source",
-]
+    m_imp_to_JS = magnetic_boundary.m_imp_to_gridded_JS(
+        solid_harmonics, transform, pfac_coupling_matrix=pfac_coupling_matrix
+    )
+    Br_to_JS = (
+        None
+        if rm is None
+        else magnetic_boundary.Br_to_gridded_JS(
+            solid_harmonics,
+            transform,
+            radius=float(setting_value(settings, "RI")),
+            boundary_radius=rm,
+        )
+    )
+    return {"m_ind_to_JS": m_ind_to_JS, "m_imp_to_JS": m_imp_to_JS, "Br_to_JS": Br_to_JS}
+
+
+__all__ = ["build_evaluator", "build_plot_grid", "build_JS_operators", "transform_for_source"]

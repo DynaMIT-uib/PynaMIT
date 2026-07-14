@@ -10,10 +10,19 @@ vector fields on cubed sphere blocks
 import matplotlib.pyplot as plt
 import numpy as np
 from pynamit.sphere.cubed_sphere import cs_basis
-from pynamit.sphere.cubed_sphere.testutils import Geocentric_to_PlateCarree_vector_components
 import cartopy.crs as ccrs
 
 p = cs_basis.CSBasis()
+
+
+def geocentric_to_plate_carree_vector_components(east, north, latitude):
+    """Adjust geocentric components for a Plate Carree test plot."""
+    magnitude = np.sqrt(east**2 + north**2)
+    east_pc = east / np.cos(np.deg2rad(latitude))
+    magnitude_pc = np.sqrt(east_pc**2 + north**2)
+    east_pc = east_pc * magnitude / magnitude_pc
+    north_pc = north * magnitude / magnitude_pc
+    return east_pc, north_pc
 
 
 def test_projection():
@@ -147,7 +156,7 @@ def test_projection():
         assert np.all(np.isclose(Ar, 0))
         # norms = np.sqrt(Aeast**2 + Anorth**2)
 
-        Ae_pc, An_pc = Geocentric_to_PlateCarree_vector_components(
+        Ae_pc, An_pc = geocentric_to_plate_carree_vector_components(
             Aeast.reshape(-1), Anorth.reshape(-1), lat
         )
         axg1.quiver(lon, lat, Ae_pc, An_pc, transform=ccrs.PlateCarree(), color=C)
@@ -157,7 +166,7 @@ def test_projection():
         Aeast, Anorth, Ar = np.einsum("nij, nj -> ni", Ps_normalized, Aetas).T
         assert np.all(np.isclose(Ar, 0))
 
-        Ae_pc, An_pc = Geocentric_to_PlateCarree_vector_components(
+        Ae_pc, An_pc = geocentric_to_plate_carree_vector_components(
             Aeast.reshape(-1), Anorth.reshape(-1), lat
         )
         axg3.quiver(lon % 360, lat, Ae_pc, An_pc, transform=ccrs.PlateCarree(), color=C)

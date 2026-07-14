@@ -2,6 +2,7 @@
 
 import numpy as np
 import pytest
+from scipy.sparse.linalg import lsmr as scipy_lsmr
 
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver
@@ -306,6 +307,78 @@ def test_jax_lsmr_solves_underdetermined_block_rhs():
         set_backend(previous_backend)
 
     assert "jax" in type(solution).__module__
+    np.testing.assert_allclose(solution, expected, rtol=1e-10, atol=1e-10)
+
+
+@pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
+@pytest.mark.parametrize("complex_system", [False, True])
+def test_jax_lsmr_recurrence_matches_scipy(complex_system):
+    """Internal LSMR matches SciPy for damping and an initial guess."""
+    import jax.numpy as jnp
+
+    from pynamit.math.jax_lsmr import lsmr as jax_lsmr
+
+    rng = np.random.default_rng(2841)
+    matrix = rng.normal(size=(8, 5))
+    rhs = rng.normal(size=8)
+    initial_guess = rng.normal(size=5)
+    if complex_system:
+        matrix = matrix + 1j * rng.normal(size=matrix.shape)
+        rhs = rhs + 1j * rng.normal(size=rhs.shape)
+        initial_guess = initial_guess + 1j * rng.normal(size=initial_guess.shape)
+
+    options = {
+        "damp": 0.25,
+        "atol": 1e-12,
+        "btol": 1e-12,
+        "conlim": 1e10,
+        "maxiter": 100,
+        "x0": initial_guess,
+    }
+    expected = scipy_lsmr(matrix, rhs, **options)
+    actual = jax_lsmr(as_linear_map(jnp.asarray(matrix)), jnp.asarray(rhs), **options)
+
+    assert actual[1:3] == expected[1:3]
+    np.testing.assert_allclose(actual[0], expected[0], rtol=1e-11, atol=1e-12)
+    np.testing.assert_allclose(actual[3:], expected[3:], rtol=1e-11, atol=1e-12)
+
+
+@pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
+def test_jax_lsmr_zero_rhs_discards_non_solution_initial_guess():
+    """A zero RHS rejects an initial guess that is not a solution."""
+    import jax.numpy as jnp
+
+    from pynamit.math.jax_lsmr import lsmr as jax_lsmr
+
+    matrix = np.array([[2.0, -1.0], [1.0, 3.0], [0.5, 2.0]])
+    rhs = np.zeros(3)
+    initial_guess = np.array([1.0, -2.0])
+
+    expected = scipy_lsmr(matrix, rhs, x0=initial_guess)
+    actual = jax_lsmr(as_linear_map(jnp.asarray(matrix)), jnp.asarray(rhs), x0=initial_guess)
+
+    assert actual[1:3] == expected[1:3]
+    np.testing.assert_allclose(actual[0], expected[0])
+
+
+@pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
+def test_jax_lsmr_uses_complex_operator_dtype():
+    """A complex operator promotes real right-hand sides correctly."""
+    import jax.numpy as jnp
+
+    from pynamit.math.jax_lsmr import lsmr as jax_lsmr
+
+    rng = np.random.default_rng(91)
+    matrix = rng.normal(size=(8, 4)) + 1j * rng.normal(size=(8, 4))
+    rhs = rng.normal(size=8)
+
+    solution, stop_code, *_ = jax_lsmr(
+        as_linear_map(jnp.asarray(matrix)), jnp.asarray(rhs), atol=1e-12, btol=1e-12, maxiter=100
+    )
+
+    assert stop_code in {1, 2}
+    assert np.issubdtype(solution.dtype, np.complexfloating)
+    expected = np.linalg.lstsq(matrix, rhs, rcond=None)[0]
     np.testing.assert_allclose(solution, expected, rtol=1e-10, atol=1e-10)
 
 

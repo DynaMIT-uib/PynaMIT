@@ -1,5 +1,6 @@
 """Tests for the MAGE forcing preparation helpers."""
 
+import datetime as dt
 from pathlib import Path
 
 import numpy as np
@@ -17,12 +18,13 @@ from scripts.simulation.mage_prepare_forcing import (
     DEFAULT_GAMERA_DIR,
     DEFAULT_OUTPUT_NAME,
     integrate_tiegcm_step,
-    wrap_longitude_180_value,
 )
-from pynamit.simulation.mage_workflow import (
+from pynamit.simulation.workflows.mage import (
     boundary_radius_from_h5,
+    centered_dipole_alignment_attrs,
     dipole_B0_from_h5,
     file_fingerprint,
+    gamera_internal_dipole_axes,
     gamera_internal_dipole_details,
     h5_time_vector_seconds,
     load_weighted_winds,
@@ -48,6 +50,25 @@ class _FakeH5(dict):
     def __init__(self, *args, attrs=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.attrs = dict(attrs or {})
+
+
+def test_gamera_signed_dipole_axes_follow_magnetic_poles():
+    """GAMERA moment sign determines magnetic north and south."""
+    earth_like = gamera_internal_dipole_axes(-30_000.0)
+    reversed_field = gamera_internal_dipole_axes(30_000.0)
+
+    np.testing.assert_array_equal(earth_like["moment_axis"], [0.0, 0.0, -1.0])
+    np.testing.assert_array_equal(earth_like["north_axis"], [0.0, 0.0, 1.0])
+    np.testing.assert_array_equal(reversed_field["north_axis"], [0.0, 0.0, -1.0])
+
+
+def test_centered_dipole_alignment_uses_gamera_axis_convention():
+    """Prepared alignment metadata carries the signed GAMERA axes."""
+    attrs = centered_dipole_alignment_attrs(dt.datetime(2020, 1, 1), -30_000.0)
+
+    assert attrs["gamera_coordinate_system"] == "SM"
+    np.testing.assert_array_equal(attrs["gamera_internal_dipole_moment_axis"], [0.0, 0.0, -1.0])
+    np.testing.assert_array_equal(attrs["gamera_internal_magnetic_north_axis"], [0.0, 0.0, 1.0])
 
 
 def _two_layer_tiegcm_dataset():
@@ -103,7 +124,7 @@ def test_projected_input_default_matches_run_input_directory():
 
 def test_mage_projection_uses_kaiju_dipole_by_default():
     """MAGE projection should use the Kaiju/Geopack SM dipole."""
-    assert MAGE_PROJECT_SETTINGS.mainfield_kind == "kaiju_dipole"
+    assert MAGE_PROJECT_SETTINGS.main_field_kind == "kaiju_dipole"
 
 
 def test_mage_projection_replaces_stale_pynamit_input_artifacts(tmp_path):
@@ -281,20 +302,3 @@ def test_integrate_tiegcm_step_zero_conductance_returns_zero_weighted_winds():
 
     for key in ("SP", "SH", "We", "Wn", "WeH", "WnH"):
         np.testing.assert_allclose(integrated[key], 0.0)
-
-
-def test_wrap_longitude_180_value_accepts_arrays():
-    """REMIX longitude grids should wrap elementwise."""
-    values = np.array([[0.0, 180.0, 181.0], [-181.0, 540.0, -540.0]])
-
-    wrapped = wrap_longitude_180_value(values)
-
-    np.testing.assert_allclose(wrapped, np.array([[0.0, -180.0, -179.0], [179.0, -180.0, -180.0]]))
-
-
-def test_wrap_longitude_180_value_preserves_scalar_return_type():
-    """Scalar callers still get a Python float."""
-    wrapped = wrap_longitude_180_value(181.0)
-
-    assert isinstance(wrapped, float)
-    assert wrapped == -179.0

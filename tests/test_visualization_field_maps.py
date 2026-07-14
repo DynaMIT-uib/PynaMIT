@@ -6,13 +6,11 @@ import scipy.sparse
 from pynamit.visualization.field_maps import (
     evaluate_conductance_coefficients,
     evaluate_conductance_values,
-    evaluate_electric_field_coefficients,
-    evaluate_joule_from_coefficients,
-    evaluate_joule_from_fields,
     evaluate_JS_from_maps,
     evaluate_tangential_coefficients,
     evaluate_wind_coefficients,
 )
+from pynamit.visualization.state_fields import evaluate_JS_coefficients
 
 
 class ScalingTransform:
@@ -25,14 +23,6 @@ class ScalingTransform:
     def synthesize_helmholtz(self, coeffs):
         """Return deterministic tangential grid values."""
         return np.asarray(coeffs) + np.array([[1.0, 2.0], [3.0, 4.0]])
-
-
-class IdentityHelmholtzTransform:
-    """Transform stub preserving Helmholtz coefficient values."""
-
-    def synthesize_helmholtz(self, coeffs):
-        """Return coefficients as grid values."""
-        return np.asarray(coeffs)
 
 
 def test_conductance_values_include_resistance_and_conductance():
@@ -77,56 +67,6 @@ def test_tangential_and_wind_coefficients_share_component_convention():
     )
 
 
-def test_saved_e_coefficients_are_radius_scaled_to_volt_potentials():
-    """Saved E coefficients scale to volt potentials."""
-    radius = 6.5
-    saved_phi = np.array([1.0, -2.0])
-    saved_w = np.array([3.0, 4.0])
-
-    electric_field = evaluate_electric_field_coefficients(
-        IdentityHelmholtzTransform(), radius * saved_phi, radius * saved_w, radius
-    )
-
-    np.testing.assert_allclose(electric_field, np.stack([saved_phi, saved_w]))
-
-
-def test_joule_field_map_uses_JS_dot_electric_field():
-    """Joule evaluation handles direct fields and coefficient maps."""
-    JS = np.array([[1.0, 2.0], [3.0, 4.0]])
-    electric_field = np.array([[5.0, 6.0], [7.0, 8.0]])
-
-    np.testing.assert_allclose(
-        evaluate_joule_from_fields(JS, electric_field), np.array([26.0, 44.0])
-    )
-
-    expected_current = evaluate_JS_from_maps(
-        m_imp=np.array([1.0, 2.0]),
-        m_ind=np.array([3.0, 4.0]),
-        m_imp_to_JS=np.eye(4, 2),
-        m_ind_to_JS=2.0 * np.eye(4, 2),
-    )
-    joule, field, current = evaluate_joule_from_coefficients(
-        ScalingTransform(),
-        m_imp=np.array([1.0, 2.0]),
-        m_ind=np.array([3.0, 4.0]),
-        Phi=np.array([1.0, 1.0]),
-        W=np.array([2.0, 2.0]),
-        radius=2.0,
-        m_imp_to_JS=np.eye(4, 2),
-        m_ind_to_JS=2.0 * np.eye(4, 2),
-    )
-
-    np.testing.assert_allclose(
-        field,
-        evaluate_electric_field_coefficients(
-            ScalingTransform(), np.array([1.0, 1.0]), np.array([2.0, 2.0]), 2.0
-        ),
-    )
-    np.testing.assert_allclose(expected_current, np.array([[7.0, 10.0], [0.0, 0.0]]))
-    np.testing.assert_allclose(current, expected_current)
-    np.testing.assert_allclose(joule, current[0] * field[0] + current[1] * field[1])
-
-
 def test_JS_map_accepts_sparse_operators():
     """Visualization field maps use the shared LinearMap adapter."""
     current = evaluate_JS_from_maps(
@@ -137,3 +77,53 @@ def test_JS_map_accepts_sparse_operators():
     )
 
     np.testing.assert_allclose(current, np.array([[7.0, 10.0], [0.0, 0.0]]))
+
+
+def test_JS_map_includes_optional_boundary_field():
+    """Boundary Br contributes through the same current-map adapter."""
+    current = evaluate_JS_from_maps(
+        m_imp=np.array([1.0, 2.0]),
+        m_ind=np.array([3.0, 4.0]),
+        m_imp_to_JS=np.eye(4, 2),
+        m_ind_to_JS=2.0 * np.eye(4, 2),
+        Br=np.array([5.0, 6.0]),
+        Br_to_JS=3.0 * np.eye(4, 2),
+    )
+
+    np.testing.assert_allclose(current, np.array([[22.0, 28.0], [0.0, 0.0]]))
+
+
+def test_live_JS_evaluation_includes_boundary_field():
+    """Live state-field evaluation uses every physical JS source."""
+
+    class CompatibleBasis:
+        def coefficients_are_compatible_with(self, other):
+            return other is self
+
+    class Transform:
+        source = CompatibleBasis()
+
+    class SimulationGeometry:
+        horizontal_basis = Transform.source
+
+        @staticmethod
+        def m_imp_to_gridded_JS(transform):
+            return np.eye(4, 2)
+
+        @staticmethod
+        def m_ind_to_gridded_JS(transform):
+            return 2.0 * np.eye(4, 2)
+
+        @staticmethod
+        def Br_to_gridded_JS(transform):
+            return 3.0 * np.eye(4, 2)
+
+    current = evaluate_JS_coefficients(
+        SimulationGeometry(),
+        np.array([1.0, 2.0]),
+        np.array([3.0, 4.0]),
+        Transform(),
+        Br=np.array([5.0, 6.0]),
+    )
+
+    np.testing.assert_allclose(current, np.array([[22.0, 28.0], [0.0, 0.0]]))

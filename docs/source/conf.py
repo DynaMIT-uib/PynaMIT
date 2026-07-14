@@ -24,10 +24,20 @@ templates_path = ["_templates"]
 exclude_patterns = []
 
 nitpicky = True
+nitpick_ignore = [
+    ("py:class", "ElectrodynamicResponse"),
+    ("py:class", "RunData"),
+    ("py:class", "SimulationGeometry"),
+    ("py:class", "ndarray"),
+    ("py:class", "optional"),
+    ("py:class", "pynamit.math.least_squares_problem.LeastSquaresProblem"),
+    ("py:class", "pynamit.sphere.core.SphericalRepresentation"),
+    ("py:class", "pynamit.sphere.core.SurfaceOperators"),
+    ("py:class", "xarray.core.dataset.Dataset"),
+]
 
 # Set options for HTML output.
 html_theme = "sphinx_rtd_theme"
-html_static_path = ["_static"]
 
 # Set options for autodoc.
 # https://www.sphinx-doc.org/en/master/usage/extensions/autodoc.html
@@ -44,6 +54,8 @@ autodoc_default_options = {
 # https://www.sphinx-doc.org/en/master/usage/extensions/napoleon.html
 
 napoleon_google_docstring = False
+napoleon_use_param = False
+napoleon_use_rtype = False
 
 # Set otions for myst_parser.
 # https://myst-parser.readthedocs.io/en/latest/index.html

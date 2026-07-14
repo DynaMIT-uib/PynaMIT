@@ -5,12 +5,13 @@ import pytest
 
 import pynamit
 from pynamit.math import JAX_AVAILABLE, set_backend, to_numpy, use_jax
-from pynamit.primitives.basis_evaluator import BasisEvaluator
-from pynamit.primitives.field_coefficients import FieldCoefficients
+from pynamit.sphere import BasisEvaluator
+from pynamit.fields import FieldCoefficients
 from pynamit.sphere.spherical_transform import SphericalTransform
-from pynamit.primitives.field_space import FieldSpace
-from pynamit.primitives.timeseries import Timeseries
+from pynamit.fields import FieldSpace
+from pynamit.storage.field_time_series import TIME_TOLERANCE_SECONDS, FieldTimeSeries
 from pynamit.sphere import CSBasis, Grid, SHBasis
+from pynamit.sphere.cubed_sphere.cs_grid import CSGridRemapper
 
 
 def _regular_grid():
@@ -68,6 +69,22 @@ def test_spherical_transform_caches_direct_input_transforms_by_grid():
     assert tuple(transform._input_transforms.values())[0] is first_cached[0]
 
 
+def test_weighted_projection_cache_distinguishes_grid_measures():
+    """Different grid measures use different analyses."""
+    basis = SHBasis(3, 2, mean_free=True)
+    target = _regular_grid()
+    first = Grid(lat=target.lat, lon=target.lon, area_weights=np.ones(target.size))
+    second = Grid(lat=target.lat, lon=target.lon, area_weights=np.linspace(1.0, 2.0, target.size))
+    transform = SphericalTransform(basis, target, area_weighted=True)
+    values = np.zeros(target.size)
+
+    assert first.same_as(second)
+    transform.project_scalar(values, input_grid=first, projection_basis=basis)
+    transform.project_scalar(values, input_grid=second, projection_basis=basis)
+
+    assert len(transform._input_transforms) == 2
+
+
 def test_basis_evaluator_is_spherical_transform_alias():
     """Historical BasisEvaluator name aliases SphericalTransform."""
     basis = SHBasis(3, 2, mean_free=True)
@@ -75,6 +92,7 @@ def test_basis_evaluator_is_spherical_transform_alias():
     evaluator = BasisEvaluator(basis, grid)
 
     assert BasisEvaluator is SphericalTransform
+    assert pynamit.BasisEvaluator is SphericalTransform
     assert pynamit.SphericalTransform is SphericalTransform
 
     coeffs = np.zeros(basis.index_length)
@@ -225,7 +243,7 @@ def test_native_cs_transform_synthesizes_from_sparse_operator_paths(monkeypatch)
 
 def test_spherical_transform_reuses_scalar_grid_remap(monkeypatch):
     """Scalar projection reuses a cached CS remap operator."""
-    CSBasis._shared_remap_matrix_cache.clear()
+    CSGridRemapper._shared_remap_matrix_cache.clear()
     basis = SHBasis(3, 2, mean_free=True)
     grid_remap_basis = CSBasis(8)
     source_basis = CSBasis(10)
@@ -238,7 +256,7 @@ def test_spherical_transform_reuses_scalar_grid_remap(monkeypatch):
     values = np.vstack([np.sin(np.deg2rad(input_grid.theta)), np.cos(np.deg2rad(input_grid.phi))])
     transform = SphericalTransform(basis, target_grid, grid_remap_basis=grid_remap_basis)
     calls = 0
-    original = grid_remap_basis._build_scalar_grid_remap_matrix
+    original = grid_remap_basis._grid_remapper.build_scalar_grid_remap_matrix
 
     def counted_build_scalar_grid_remap_matrix(*args, **kwargs):
         nonlocal calls
@@ -246,7 +264,9 @@ def test_spherical_transform_reuses_scalar_grid_remap(monkeypatch):
         return original(*args, **kwargs)
 
     monkeypatch.setattr(
-        grid_remap_basis, "_build_scalar_grid_remap_matrix", counted_build_scalar_grid_remap_matrix
+        grid_remap_basis._grid_remapper,
+        "build_scalar_grid_remap_matrix",
+        counted_build_scalar_grid_remap_matrix,
     )
 
     def fail_interpolate_scalar(*args, **kwargs):
@@ -308,7 +328,7 @@ def test_spherical_transform_requires_grid_remap_operator():
 
 def test_spherical_transform_reuses_helmholtz_grid_remap(monkeypatch):
     """Helmholtz projection reuses a cached CS remap operator."""
-    CSBasis._shared_remap_matrix_cache.clear()
+    CSGridRemapper._shared_remap_matrix_cache.clear()
     basis = SHBasis(3, 2, mean_free=True)
     grid_remap_basis = CSBasis(8)
     source_basis = CSBasis(10)
@@ -327,7 +347,7 @@ def test_spherical_transform_reuses_helmholtz_grid_remap(monkeypatch):
     values = np.stack([theta_values, phi_values], axis=1)
     transform = SphericalTransform(basis, target_grid, grid_remap_basis=grid_remap_basis)
     calls = 0
-    original = grid_remap_basis._build_tangential_grid_remap_matrix
+    original = grid_remap_basis._grid_remapper.build_tangential_grid_remap_matrix
 
     def counted_build_tangential_grid_remap_matrix(*args, **kwargs):
         nonlocal calls
@@ -335,8 +355,8 @@ def test_spherical_transform_reuses_helmholtz_grid_remap(monkeypatch):
         return original(*args, **kwargs)
 
     monkeypatch.setattr(
-        grid_remap_basis,
-        "_build_tangential_grid_remap_matrix",
+        grid_remap_basis._grid_remapper,
+        "build_tangential_grid_remap_matrix",
         counted_build_tangential_grid_remap_matrix,
     )
 
@@ -406,7 +426,7 @@ def test_cs_tangential_remap_operator_matches_interpolation():
 
 def test_cs_tangential_remap_matrix_cache_is_shared(monkeypatch):
     """Equivalent CS remaps share sparse matrix construction."""
-    CSBasis._shared_remap_matrix_cache.clear()
+    CSGridRemapper._shared_remap_matrix_cache.clear()
     source_basis = CSBasis(8)
     target_basis = CSBasis(6)
     equivalent_target_basis = CSBasis(6)
@@ -421,7 +441,9 @@ def test_cs_tangential_remap_matrix_cache_is_shared(monkeypatch):
     def fail_build(*args, **kwargs):
         raise AssertionError("equivalent remap matrix should come from shared cache")
 
-    monkeypatch.setattr(equivalent_target_basis, "_build_tangential_grid_remap_matrix", fail_build)
+    monkeypatch.setattr(
+        equivalent_target_basis._grid_remapper, "build_tangential_grid_remap_matrix", fail_build
+    )
 
     second_operator = equivalent_target_basis.tangential_grid_remap_operator(
         source_grid, target_grid
@@ -622,7 +644,7 @@ def test_timeseries_exposes_field_space_and_projects_mean_free_cs_coefficients()
     """Time-series storage honors FieldSpace metadata."""
     basis = CSBasis(4)
     field_space = FieldSpace(basis, field_type="scalar", mean_free=True)
-    timeseries = Timeseries({"state": field_space}, {"state": ("m_ind",)})
+    timeseries = FieldTimeSeries({"state": field_space}, {"state": ("m_ind",)})
     values = np.linspace(0.0, 1.0, basis.index_length) + 2.0
 
     timeseries.add_entry("state", {"m_ind": values}, time=0.0)
@@ -633,11 +655,108 @@ def test_timeseries_exposes_field_space_and_projects_mean_free_cs_coefficients()
     np.testing.assert_allclose(basis.scalar_mean(stored), 0.0, atol=1e-12)
 
 
+def test_timeseries_replaces_near_equal_floating_time():
+    """Replace checkpoints using the declared time tolerance."""
+    basis = SHBasis(2, 1)
+    field_space = FieldSpace.from_representation(basis)
+    timeseries = FieldTimeSeries({"state": field_space}, {"state": ("m_ind",)})
+    first = np.zeros(field_space.coefficient_shape)
+    replacement = np.ones(field_space.coefficient_shape)
+
+    timeseries.add_entry("state", {"m_ind": first}, time=1.0)
+    timeseries.add_entry("state", {"m_ind": replacement}, time=1.0 + 0.5e-6)
+
+    assert timeseries.datasets["state"].sizes["time"] == 1
+    np.testing.assert_allclose(timeseries.get_entry("state", 1.0)["m_ind"], replacement)
+
+
+@pytest.mark.parametrize("time", [np.nan, np.inf, [0.0], True])
+def test_timeseries_rejects_invalid_entry_time(time):
+    """Stored simulation times must be finite numeric scalars."""
+    basis = SHBasis(2, 1)
+    field_space = FieldSpace.from_representation(basis)
+    timeseries = FieldTimeSeries({"state": field_space}, {"state": ("m_ind",)})
+
+    with pytest.raises(ValueError, match="time value"):
+        timeseries.add_entry(
+            "state", {"m_ind": np.zeros(field_space.coefficient_shape)}, time=time
+        )
+
+
+def test_timeseries_does_not_interpolate_across_tolerant_time_match():
+    """A near checkpoint match selects that checkpoint exactly."""
+    basis = SHBasis(2, 1)
+    field_space = FieldSpace.from_representation(basis)
+    timeseries = FieldTimeSeries({"state": field_space}, {"state": ("m_ind",)})
+    first = np.full(field_space.coefficient_shape, 10.0)
+    second = np.full(field_space.coefficient_shape, 20.0)
+    timeseries.add_entry("state", {"m_ind": first}, time=1.0)
+    timeseries.add_entry("state", {"m_ind": second}, time=2.0)
+
+    selected = timeseries.get_entry(
+        "state", 1.0 - 0.5 * TIME_TOLERANCE_SECONDS, interpolation=True
+    )
+
+    np.testing.assert_array_equal(selected["m_ind"], first)
+
+
+def test_timeseries_rejects_loaded_coefficient_index_mismatch():
+    """Restart artifacts preserve coefficient identity and length."""
+    basis = SHBasis(2, 1)
+    field_space = FieldSpace.from_representation(basis)
+    source = FieldTimeSeries({"state": field_space}, {"state": ("m_ind",)})
+    source.add_entry("state", {"m_ind": np.zeros(field_space.coefficient_shape)}, time=0.0)
+    persisted = source.datasets["state"].reset_index("i")
+    first_index_name = field_space.index_names[0]
+    persisted = persisted.assign_coords(
+        {first_index_name: ("i", persisted[first_index_name].values[::-1])}
+    )
+
+    class _LoadedDataset:
+        @staticmethod
+        def get_dataset_storage_kind(_key):
+            return "netcdf"
+
+        @staticmethod
+        def load_dataset(_key):
+            return persisted
+
+    restored = FieldTimeSeries({"state": field_space}, {"state": ("m_ind",)})
+    with pytest.raises(ValueError, match="coefficient index"):
+        restored.load("state", _LoadedDataset())
+
+
+def test_timeseries_restores_coefficient_multiindex_in_memory():
+    """Loaded series recover their in-memory coefficient index."""
+    basis = SHBasis(2, 1)
+    field_space = FieldSpace.from_representation(basis)
+    source = FieldTimeSeries({"state": field_space}, {"state": ("m_ind",)})
+    source.add_entry("state", {"m_ind": np.zeros(field_space.coefficient_shape)}, time=0.0)
+    persisted = source.datasets["state"].reset_index("i")
+
+    class _LoadedDataset:
+        @staticmethod
+        def get_dataset_storage_kind(_key):
+            return "netcdf"
+
+        @staticmethod
+        def load_dataset(_key):
+            return persisted
+
+    restored = FieldTimeSeries({"state": field_space}, {"state": ("m_ind",)})
+    restored.load("state", _LoadedDataset())
+
+    dataset = restored.datasets["state"]
+    assert "i" in dataset.indexes
+    assert tuple(dataset.indexes["i"].names) == tuple(field_space.index_names)
+    assert dataset.reset_index("i").equals(persisted)
+
+
 def test_timeseries_change_tracking_is_group_scoped():
     """Groups with the same variable names do not share change state."""
     basis = CSBasis(4)
     field_space = FieldSpace(basis, field_type="scalar")
-    timeseries = Timeseries(
+    timeseries = FieldTimeSeries(
         {"first": field_space, "second": field_space}, {"first": ("value",), "second": ("value",)}
     )
     values = np.zeros(basis.index_length)
@@ -656,7 +775,7 @@ def test_timeseries_requires_field_space_and_name_only_variables():
     field_space = FieldSpace(basis, field_type="scalar")
 
     with pytest.raises(TypeError, match="field types belong in FieldSpace"):
-        Timeseries({"state": field_space}, {"state": {"m_ind": "scalar"}})
+        FieldTimeSeries({"state": field_space}, {"state": {"m_ind": "scalar"}})
 
     with pytest.raises(ValueError, match="same keys"):
-        Timeseries({"state": field_space}, {"other": ("m_ind",)})
+        FieldTimeSeries({"state": field_space}, {"other": ("m_ind",)})

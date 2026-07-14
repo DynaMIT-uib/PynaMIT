@@ -88,6 +88,39 @@ def test_solid_harmonics_are_separate_from_surface_bases():
         SolidHarmonics(cs_basis)
 
 
+def test_public_basis_constructors_reject_invalid_resolution():
+    """Basis primitives enforce their own representation invariants."""
+    with pytest.raises(ValueError, match="positive"):
+        CSBasis(0)
+    with pytest.raises(ValueError, match="between zero and Nmax"):
+        SHBasis(2, 3)
+    with pytest.raises(TypeError, match="Nmax must be an integer"):
+        SHBasis(2.5, 2)
+
+
+def test_basis_metadata_arrays_are_immutable_values():
+    """Basis cache identity cannot drift through array mutation."""
+    sh_basis = SHBasis(3, 2)
+    cs_basis = CSBasis(4)
+
+    assert sh_basis.index_names == ("n", "m")
+    assert cs_basis.index_names == ("theta", "phi")
+
+    for values in (
+        sh_basis.n,
+        sh_basis.m,
+        sh_basis.schmidt_factors,
+        sh_basis.cnm.n,
+        sh_basis.snm.m,
+        cs_basis.arr_theta,
+        cs_basis.arr_phi,
+        cs_basis.unit_area,
+        cs_basis.g,
+    ):
+        with pytest.raises(ValueError, match="read-only"):
+            values.flat[0] = 0
+
+
 def test_grid_hash_matches_equivalent_coordinates():
     """Grid equality uses robust coordinate hashes."""
     lat = np.array([60.0, 61.0, 62.0])
@@ -102,6 +135,27 @@ def test_grid_hash_matches_equivalent_coordinates():
     assert first.coefficients_are_compatible_with(second)
     assert not first.same_as(different)
     assert not first.coefficients_are_compatible_with(different)
+
+
+def test_grid_owns_immutable_unambiguous_coordinates():
+    """Grid identity cannot diverge from mutable caller coordinates."""
+    lat = np.array([60.0, 61.0])
+    grid = Grid(lat=lat, lon=[10.0, 11.0])
+    lat[0] = 0.0
+
+    np.testing.assert_allclose(grid.lat, [60.0, 61.0])
+    with pytest.raises(ValueError, match="read-only"):
+        grid.lat[0] = 0.0
+    with pytest.raises(ValueError, match="exactly one"):
+        Grid(lat=[60.0], theta=[30.0], lon=[0.0])
+    with pytest.raises(ValueError, match="between -90 and 90"):
+        Grid(lat=[91.0], lon=[0.0])
+
+
+def test_grid_rejects_invalid_area_weights():
+    """Area weights must define a finite non-negative measure."""
+    with pytest.raises(ValueError, match="non-negative"):
+        Grid(lat=[60.0], lon=[0.0], area_weights=[-1.0])
 
 
 def test_csbasis_native_grid_comparison_uses_grid_hash(monkeypatch):
@@ -722,7 +776,7 @@ def test_shbasis_mean_free_option_matches_nmin_one_space():
     mean_free = SHBasis(3, 2, mean_free=True)
     full = SHBasis(3, 2, mean_free=False)
     cached_mean_free = full.with_mean_free(True)
-    extended = mean_free.get_extended_basis()
+    non_mean_free = mean_free.with_mean_free(False)
 
     assert isinstance(cached_mean_free, BasisView)
     assert isinstance(cached_mean_free, SurfaceOperators)
@@ -732,11 +786,11 @@ def test_shbasis_mean_free_option_matches_nmin_one_space():
     assert mean_free.Nmin == nmin_one.Nmin == 1
     assert mean_free.index_length == nmin_one.index_length
     assert cached_mean_free.scalar_fields_are_mean_free_by_construction()
-    assert cached_mean_free.get_extended_basis() is full
+    assert cached_mean_free.with_mean_free(False) is full
     assert full.with_mean_free(True) is cached_mean_free
-    assert not extended.scalar_fields_are_mean_free_by_construction()
-    assert extended.Nmin == 0
-    assert extended.index_length > mean_free.index_length
+    assert not non_mean_free.scalar_fields_are_mean_free_by_construction()
+    assert non_mean_free.Nmin == 0
+    assert non_mean_free.index_length > mean_free.index_length
 
 
 def test_shbasis_mean_free_view_slices_parent_operators():

@@ -23,18 +23,18 @@ from pathlib import Path
 
 import pynamit
 
-from pynamit.primitives.io import IO
+from pynamit.storage import ArtifactStore
 from pynamit.simulation.config import SimulationConfig
-from pynamit.simulation.mage_workflow import (
+from pynamit.simulation.workflows.mage import (
     DEFAULT_MMAX,
     DEFAULT_NCS,
     DEFAULT_NMAX,
     projection_directory_for_resolution,
     result_directory_for_resolution,
 )
-from pynamit.simulation.prepared_inputs import (
+from pynamit.simulation.workflows.prepared_inputs import (
     RUN_MANIFEST_FILENAME,
-    load_prepared_inputs_into_dynamics,
+    load_prepared_inputs_into_simulation,
 )
 
 
@@ -52,7 +52,7 @@ class MageForcingSettings:
     ncs: int = DEFAULT_NCS
     input_directory: Path | None = None
     run_directory: Path | None = None
-    RM_shielding: bool = False
+    magnetic_boundary_shielding: bool = False
     dt: float = 10.0
     final_time: float = 3600.0
     sampling_step_interval: int = 1
@@ -80,11 +80,13 @@ def main(settings: MageForcingSettings = SETTINGS) -> None:
             "Run scripts/simulation/mage_project_inputs.py first."
         )
 
-    input_directory = Path(IO.discover_run_directory(input_directory))
-    input_io = IO(input_directory, preferred_dataset_storage=settings.artifact_storage)
-    input_settings = input_io.load_dataset("settings")
-    if input_settings is None:
-        raise FileNotFoundError(f"No PynaMIT settings artifact found in {input_directory}.")
+    input_directory = Path(
+        ArtifactStore.require_artifact_directory(input_directory, ("settings",))
+    )
+    input_store = ArtifactStore(
+        input_directory, preferred_dataset_storage=settings.artifact_storage
+    )
+    input_settings = input_store.load_dataset("settings")
 
     mage_metadata_path = input_directory / "mage_input_metadata.json"
     mage_metadata = {}
@@ -94,11 +96,11 @@ def main(settings: MageForcingSettings = SETTINGS) -> None:
     config_kwargs = SimulationConfig.from_settings(input_settings).to_kwargs()
     config_kwargs.update(
         {
-            "RM_shielding": settings.RM_shielding,
-            "ignore_PFAC": False,
-            "connect_hemispheres": True,
-            "latitude_boundary": LATITUDE_BOUNDARY,
-            "ih_constraint_scaling": 1e-5,
+            "magnetic_boundary_shielding": settings.magnetic_boundary_shielding,
+            "enable_pfac_coupling": True,
+            "enable_interhemispheric_coupling": True,
+            "interhemispheric_coupling_latitude": LATITUDE_BOUNDARY,
+            "interhemispheric_electric_field_weight": 1e-5,
             "save_steady_states": settings.save_steady_states,
             "integrator": settings.integrator,
         }
@@ -117,16 +119,16 @@ def main(settings: MageForcingSettings = SETTINGS) -> None:
         print(f"Event time: {mage_metadata.get('event_time', config_kwargs['t0'])}", flush=True)
         print(
             "Projected main field: "
-            f"{mage_metadata.get('mainfield_kind', config_kwargs['mainfield_kind'])}",
+            f"{mage_metadata.get('main_field_kind', config_kwargs['main_field_kind'])}",
             flush=True,
         )
         print(f"Projected RM: {mage_metadata.get('RM_m', config_kwargs['RM'])} m", flush=True)
-    print(f"Run main field: {config_kwargs['mainfield_kind']}", flush=True)
+    print(f"Run main field: {config_kwargs['main_field_kind']}", flush=True)
     if config_kwargs["RM"] is None:
         print("Run RM: None", flush=True)
     else:
         print(f"Run RM: {config_kwargs['RM']:.6g} m", flush=True)
-    print(f"Induced RM shielding: {settings.RM_shielding}", flush=True)
+    print(f"Magnetic-boundary shielding: {settings.magnetic_boundary_shielding}", flush=True)
     print("Wind forcing: projected direct E_source", flush=True)
     print(f"Integrator: {settings.integrator}", flush=True)
     if settings.integrator == "exponential":
@@ -137,32 +139,28 @@ def main(settings: MageForcingSettings = SETTINGS) -> None:
         )
     print(f"Steady-state initialization: {settings.steady_state_initialization}", flush=True)
 
-    dynamics = pynamit.Dynamics(
+    simulation = pynamit.Simulation(
         run_directory=run_directory, artifact_storage=settings.artifact_storage, **config_kwargs
     )
-    state_size = int(dynamics.state.basis.index_length)
+    state_size = int(simulation.geometry.horizontal_basis.index_length)
     dense_matrix_mib = state_size * state_size * 8.0 / 1024.0**2
     print(
         f"Induction coefficient count: {state_size}; one dense float64 operator "
         f"is ~{dense_matrix_mib:.1f} MiB before solver/expm workspace.",
         flush=True,
     )
-    print("Loading projected input datasets into dynamics.", flush=True)
-    loaded_inputs = load_prepared_inputs_into_dynamics(
-        dynamics, input_directory, artifact_storage=settings.artifact_storage
+    print("Loading projected input datasets into simulation.", flush=True)
+    loaded_inputs = load_prepared_inputs_into_simulation(
+        simulation, input_directory, artifact_storage=settings.artifact_storage
     )
     print(f"Loaded projected inputs: {', '.join(loaded_inputs)}", flush=True)
-    for key in loaded_inputs:
-        dataset = input_io.load_dataset(key)
-        if dataset is not None:
-            dynamics.io.save_dataset(dataset, key)
 
     run_manifest = {
         "kind": "mage_pynamit_run",
         "version": 1,
         "input_directory": str(input_directory),
         "loaded_inputs": loaded_inputs,
-        "RM_shielding": settings.RM_shielding,
+        "magnetic_boundary_shielding": settings.magnetic_boundary_shielding,
         "time_evolution": {
             "final_time": settings.final_time,
             "dt": settings.dt,
@@ -173,8 +171,8 @@ def main(settings: MageForcingSettings = SETTINGS) -> None:
             "run_steady_state": settings.save_steady_states,
         },
     }
-    Path(dynamics.run_directory).mkdir(parents=True, exist_ok=True)
-    (Path(dynamics.run_directory) / RUN_MANIFEST_FILENAME).write_text(
+    Path(simulation.run_data.run_directory).mkdir(parents=True, exist_ok=True)
+    (Path(simulation.run_data.run_directory) / RUN_MANIFEST_FILENAME).write_text(
         json.dumps(run_manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
 
@@ -185,7 +183,7 @@ def main(settings: MageForcingSettings = SETTINGS) -> None:
         f"save every {settings.saving_sample_interval} sample(s)",
         flush=True,
     )
-    dynamics.evolve_to_time(
+    simulation.evolve_to_time(
         settings.final_time,
         dt=settings.dt,
         sampling_step_interval=settings.sampling_step_interval,

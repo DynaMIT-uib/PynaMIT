@@ -25,18 +25,22 @@ def get_ticks_from_levels(plot_kwargs):
     return None
 
 
-def format_contour_interval(interval):
+def format_contour_interval(interval, units=None):
     """Format a contour interval for a compact label."""
     try:
         interval = float(interval)
     except (TypeError, ValueError):
-        return str(interval)
+        text = str(interval)
+        return f"{text} {units}" if units else text
     if not np.isfinite(interval):
-        return str(interval)
+        text = str(interval)
+        return f"{text} {units}" if units else text
     abs_interval = abs(interval)
     if 1e-2 <= abs_interval < 1e4:
-        return f"{interval:g}"
-    return f"{interval:.2e}"
+        text = f"{interval:g}"
+    else:
+        text = f"{interval:.2e}"
+    return f"{text} {units}" if units else text
 
 
 def draw_line_contour_legend(ax, overlay_keys, kwargs_source, title="Line contours"):
@@ -75,7 +79,8 @@ def contour_kwargs_for_display(plot_kwargs):
     }
 
 
-def _finite_concatenated_values(data_arrays):
+def finite_values(data_arrays):
+    """Return finite flattened values from one or more arrays."""
     flattened = []
     for values in data_arrays:
         array = np.asarray(values)
@@ -85,6 +90,63 @@ def _finite_concatenated_values(data_arrays):
         return np.array([])
     values = np.concatenate(flattened)
     return values[np.isfinite(values)]
+
+
+def _color_scale_values(data_arrays, *, strictly_positive, scale_type, minimum_positive, label):
+    """Return finite values eligible for percentile color limits."""
+    finite = finite_values(data_arrays)
+    if finite.size == 0:
+        raise ValueError(f"No finite data available for '{label}' color scale.")
+    if not strictly_positive:
+        return finite
+    if np.any(finite < -1e-9):
+        raise ValueError(
+            f"Data for '{label}' is marked strictly positive but contains negative values."
+        )
+
+    values = finite[finite >= 0.0]
+    if scale_type == "log":
+        values = values[values > float(minimum_positive)]
+        if values.size == 0:
+            raise ValueError(f"No data above {minimum_positive:g} for '{label}' log color scale.")
+    if values.size == 0:
+        raise ValueError(f"No valid data available for '{label}' color scale.")
+    return values
+
+
+def _percentile_color_limits(
+    values, *, strictly_positive, vmin_percentile, vmax_percentile, scale_type
+):
+    """Return raw lower and upper percentile color limits."""
+    if strictly_positive:
+        vmin = float(np.percentile(values, vmin_percentile))
+        vmax = float(np.percentile(values, vmax_percentile))
+        return (0.0 if scale_type == "linear" else vmin), vmax
+    abs_max = float(np.percentile(np.abs(values), vmax_percentile))
+    return -abs_max, abs_max
+
+
+def _color_normalization(vmin, vmax, *, strictly_positive, scale_type, minimum_positive):
+    """Return nondegenerate limits and normalization."""
+    if scale_type == "log":
+        if not vmax > vmin:
+            center = max(float(vmax), float(minimum_positive) * 10.0)
+            vmin = max(center / np.sqrt(10.0), float(minimum_positive))
+            vmax = center * np.sqrt(10.0)
+        return vmin, vmax, mcolors.LogNorm(vmin=vmin, vmax=vmax, clip=True)
+
+    if abs(vmax - vmin) < 1e-12:
+        epsilon = abs(vmax) * 0.05 if abs(vmax) > 1e-9 else 0.05
+        if vmin == vmax == 0.0:
+            vmax = epsilon
+            if not strictly_positive:
+                vmin = -epsilon
+        else:
+            vmin -= epsilon
+            vmax += epsilon
+        if strictly_positive and vmin < 0.0:
+            vmin = 0.0
+    return vmin, vmax, mcolors.Normalize(vmin=vmin, vmax=vmax, clip=True)
 
 
 def build_percentile_color_scale(
@@ -110,56 +172,27 @@ def build_percentile_color_scale(
     if scale_type == "log" and not strictly_positive:
         raise ValueError("Log color scales require strictly_positive=True.")
 
-    finite_values = _finite_concatenated_values(data_arrays)
-    if finite_values.size == 0:
-        raise ValueError(f"No finite data available for '{label}' color scale.")
-
-    if strictly_positive:
-        if np.any(finite_values < -1e-9):
-            raise ValueError(
-                f"Data for '{label}' is marked strictly positive but contains negative values."
-            )
-        percentile_values = finite_values[finite_values >= 0.0]
-        if scale_type == "log":
-            percentile_values = percentile_values[percentile_values > float(minimum_positive)]
-            if percentile_values.size == 0:
-                raise ValueError(
-                    f"No data above {minimum_positive:g} for '{label}' log color scale."
-                )
-    else:
-        percentile_values = finite_values
-
-    if percentile_values.size == 0:
-        raise ValueError(f"No valid data available for '{label}' color scale.")
-
-    if strictly_positive:
-        vmin = float(np.percentile(percentile_values, vmin_percentile))
-        vmax = float(np.percentile(percentile_values, vmax_percentile))
-        if scale_type == "linear":
-            vmin = 0.0
-    else:
-        abs_max = float(np.percentile(np.abs(percentile_values), vmax_percentile))
-        vmin, vmax = -abs_max, abs_max
-
-    if scale_type == "log":
-        if not vmax > vmin:
-            center = max(float(vmax), float(minimum_positive) * 10.0)
-            vmin = max(center / np.sqrt(10.0), float(minimum_positive))
-            vmax = center * np.sqrt(10.0)
-        norm = mcolors.LogNorm(vmin=vmin, vmax=vmax, clip=True)
-    else:
-        if abs(vmax - vmin) < 1e-12:
-            epsilon = abs(vmax) * 0.05 if abs(vmax) > 1e-9 else 0.05
-            if vmin == vmax == 0.0:
-                vmax = epsilon
-                if not strictly_positive:
-                    vmin = -epsilon
-            else:
-                vmin -= epsilon
-                vmax += epsilon
-            if strictly_positive and vmin < 0.0:
-                vmin = 0.0
-        norm = mcolors.Normalize(vmin=vmin, vmax=vmax, clip=True)
+    percentile_values = _color_scale_values(
+        data_arrays,
+        strictly_positive=strictly_positive,
+        scale_type=scale_type,
+        minimum_positive=minimum_positive,
+        label=label,
+    )
+    vmin, vmax = _percentile_color_limits(
+        percentile_values,
+        strictly_positive=strictly_positive,
+        vmin_percentile=vmin_percentile,
+        vmax_percentile=vmax_percentile,
+        scale_type=scale_type,
+    )
+    vmin, vmax, norm = _color_normalization(
+        vmin,
+        vmax,
+        strictly_positive=strictly_positive,
+        scale_type=scale_type,
+        minimum_positive=minimum_positive,
+    )
 
     return {
         "vmin": vmin,
@@ -169,6 +202,29 @@ def build_percentile_color_scale(
         "scale_type": scale_type,
         "strictly_positive": bool(strictly_positive),
     }
+
+
+def percentile_contour_levels(
+    data_arrays, fallback_levels, *, percentile=99.8, strictly_positive=False
+):
+    """Build contour levels from a robust data percentile."""
+    finite = finite_values(data_arrays)
+    if finite.size == 0:
+        return fallback_levels
+    n_levels = max(len(fallback_levels), 3)
+    percentile = float(np.clip(percentile, 0.0, 100.0))
+    if strictly_positive:
+        finite = finite[finite >= 0.0]
+        if finite.size == 0:
+            return fallback_levels
+        vmax = float(np.percentile(finite, percentile))
+        if not np.isfinite(vmax) or vmax <= 0.0:
+            return fallback_levels
+        return np.linspace(0.0, vmax, n_levels)
+    vmax = float(np.percentile(np.abs(finite), percentile))
+    if not np.isfinite(vmax) or vmax <= 0.0:
+        return fallback_levels
+    return np.linspace(-vmax, vmax, n_levels)
 
 
 def set_contour_edges_to_face(contour):
@@ -194,14 +250,6 @@ def stabilize_polarplot(pax):
     except Exception:
         pass
     return pax
-
-
-def remove_artists(artist_list):
-    """Remove artists in-place and empty the list."""
-    for artist in artist_list:
-        if artist:
-            artist.remove()
-    artist_list.clear()
 
 
 @contextmanager
@@ -345,7 +393,6 @@ __all__ = [
     "contour_kwargs_for_display",
     "format_contour_interval",
     "get_ticks_from_levels",
-    "remove_artists",
     "set_contour_edges_to_face",
     "stabilize_polarplot",
     "style_global_axis",

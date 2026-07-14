@@ -7,86 +7,80 @@ from typing import Any
 
 import numpy as np
 
-from pynamit.simulation.schema import INPUT_FIELD_TYPES, INPUT_VARIABLES
+from pynamit.geomagnetism import MagneticFieldEvaluation
+from pynamit.simulation.electrodynamics import ionospheric_closure
+from pynamit.simulation.schema import INPUT_VARIABLES
 from pynamit.sphere import Grid
+from pynamit.sphere.spherical_transform import SphericalTransform
 
-WIND_SOURCE_GROUP = "wind_source"
+_WIND_FORCING_GROUP = "wind_forcing"
 
 
 @dataclass(frozen=True)
-class InputSpec:
+class _InputSpec:
     """Declarative metadata for one simulation input stream."""
 
-    key: str
     variables: tuple[str, ...]
-    field_type: str
     exclusive_group: str | None = None
     reject_least_squares_for_cs_projection: bool = False
 
-    @property
-    def is_tangential(self) -> bool:
-        """Return True for tangential inputs."""
-        return self.field_type == "tangential"
+
+_INPUT_SPECS = {
+    key: _InputSpec(
+        variables=tuple(variables),
+        exclusive_group=_WIND_FORCING_GROUP if key in {"u", "Q_eff"} else None,
+        reject_least_squares_for_cs_projection=(key == "resistance"),
+    )
+    for key, variables in INPUT_VARIABLES.items()
+}
 
 
-def build_input_specs() -> dict[str, InputSpec]:
-    """Return the canonical input-stream specifications."""
-    specs = {}
-    for key, variables in INPUT_VARIABLES.items():
-        specs[key] = InputSpec(
-            key=key,
-            variables=tuple(variables),
-            field_type=INPUT_FIELD_TYPES[key],
-            exclusive_group=(WIND_SOURCE_GROUP if key in {"u", "Q_eff", "E_source"} else None),
-            reject_least_squares_for_cs_projection=(key == "conductance"),
+class InputPipeline:
+    """Validate, project, and store simulation inputs."""
+
+    def __init__(self, simulation: Any):
+        self.simulation = simulation
+        self._transforms_by_representation = {}
+        self.projection_transforms = {}
+
+    def projection_transform_for(self, key: str) -> SphericalTransform:
+        """Return the shared projection transform for one input."""
+        self._spec(key)
+        if key not in self.projection_transforms:
+            representation = self.simulation.run_data.schema.input_field_spaces[key].representation
+            cache_key = getattr(
+                representation,
+                "signature",
+                getattr(representation, "coefficient_space_signature", id(representation)),
+            )
+            if cache_key not in self._transforms_by_representation:
+                self._transforms_by_representation[cache_key] = SphericalTransform(
+                    representation,
+                    self.simulation.geometry.model_grid,
+                    grid_remap_basis=self.simulation.run_data.schema.cs_basis,
+                    area_weighted=self.simulation.config.area_weighted_least_squares,
+                )
+            self.projection_transforms[key] = self._transforms_by_representation[cache_key]
+        return self.projection_transforms[key]
+
+    def radial_current_from_FAC(self, FAC, *, lat=None, lon=None, theta=None, phi=None):
+        """Convert field-aligned current samples to radial current."""
+        input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
+        field = MagneticFieldEvaluation(
+            self.simulation.geometry.main_field, input_grid, self.simulation.config.RI
         )
-    return specs
+        return FAC * field.unit_br
 
-
-INPUT_SPECS = build_input_specs()
-
-
-class InputProjector:
-    """Project and store gridded or coefficient simulation inputs."""
-
-    def __init__(self, owner: Any, specs: dict[str, InputSpec] | None = None):
-        self.owner = owner
-        self.specs = INPUT_SPECS if specs is None else dict(specs)
-
-    def spec(self, key: str) -> InputSpec:
+    @staticmethod
+    def _spec(key: str) -> _InputSpec:
         """Return the specification for one input key."""
         try:
-            return self.specs[key]
+            return _INPUT_SPECS[key]
         except KeyError as exc:
             raise KeyError(f"Unknown simulation input {key!r}.") from exc
 
-    @property
-    def input_timeseries(self):
-        """Return the owner's current input time series."""
-        return self.owner.input_timeseries
-
-    @property
-    def input_transforms(self):
-        """Return the owner's input transform map."""
-        return self.owner.input_transforms
-
-    @property
-    def input_field_spaces(self):
-        """Return the owner's input field-space map."""
-        return self.owner.input_field_spaces
-
-    @property
-    def input_projection_bases(self):
-        """Return the owner's input projection-basis map."""
-        return self.owner.input_projection_bases
-
-    def require_sample_values(self, label: str, **values) -> None:
-        """Require all named sample values."""
-        if any(value is None for value in values.values()):
-            names = ", ".join(values)
-            raise TypeError(f"{label} samples require {names}.")
-
-    def require_complete_values(self, label: str, **values) -> None:
+    @staticmethod
+    def require_complete_values(label: str, **values) -> None:
         """Require either all named values or none of them."""
         supplied = [name for name, value in values.items() if value is not None]
         if len(supplied) == len(values):
@@ -97,7 +91,8 @@ class InputProjector:
         names = ", ".join(values)
         raise TypeError(f"{label} require {names}.")
 
-    def require_no_sample_values(self, label: str, **values) -> None:
+    @staticmethod
+    def require_no_sample_values(label: str, **values) -> None:
         """Reject sample values when coefficient values are supplied."""
         supplied = [name for name, value in values.items() if value is not None]
         if supplied:
@@ -105,16 +100,9 @@ class InputProjector:
                 f"{label} cannot be combined with sample values: {', '.join(supplied)}."
             )
 
+    @staticmethod
     def validate_only_coefficients(
-        self,
-        label: str,
-        *,
-        lat=None,
-        lon=None,
-        theta=None,
-        phi=None,
-        sqrt_weights=None,
-        reg_lambda=None,
+        label: str, *, lat=None, lon=None, theta=None, phi=None, sqrt_weights=None, reg_lambda=None
     ) -> None:
         """Reject projection controls on direct coefficient inputs."""
         supplied = [
@@ -137,25 +125,27 @@ class InputProjector:
 
     def require_no_exclusive_conflict(self, key: str) -> None:
         """Reject mutually exclusive input streams."""
-        spec = self.spec(key)
+        spec = self._spec(key)
         if spec.exclusive_group is None:
             return
         group_keys = {
-            item.key
-            for item in self.specs.values()
-            if item.exclusive_group == spec.exclusive_group and item.key != key
+            other_key
+            for other_key, item in _INPUT_SPECS.items()
+            if item.exclusive_group == spec.exclusive_group and other_key != key
         }
         present = [
-            other for other in sorted(group_keys) if other in self.input_timeseries.datasets
+            other
+            for other in sorted(group_keys)
+            if other in self.simulation.run_data.input_series.datasets
         ]
         if present:
             raise ValueError(
-                "Neutral wind input 'u', effective-current input 'Q_eff', and "
-                "direct electric-field input 'E_source' are mutually exclusive; "
-                "use only one wind forcing representation."
+                "Neutral wind input 'u' and effective-current input 'Q_eff' are "
+                "mutually exclusive; use only one wind-forcing representation."
             )
 
-    def tangential_input_data(self, key: str, theta_component, phi_component) -> dict[str, Any]:
+    @staticmethod
+    def tangential_input_data(key: str, theta_component, phi_component) -> dict[str, Any]:
         """Return tangential input data with time before component."""
         data = {key: np.array([np.atleast_2d(theta_component), np.atleast_2d(phi_component)])}
         data[key] = np.moveaxis(data[key], [0, 1], [1, 0])
@@ -179,9 +169,9 @@ class InputProjector:
         pinv_rtol=1e-15,
     ) -> None:
         """Validate, project, and store one scalar input stream."""
-        spec = self.spec(key)
-        self._validate_variables(spec, samples, "samples")
-        self._validate_variables(spec, coefficients, "coefficients")
+        spec = self._spec(key)
+        self._validate_variables(key, spec, samples, "samples")
+        self._validate_variables(key, spec, coefficients, "coefficients")
 
         if any(value is not None for value in coefficients.values()):
             self.validate_only_coefficients(
@@ -292,16 +282,70 @@ class InputProjector:
         input_data = self.tangential_input_data(key, theta_component, phi_component)
         input_time = self.adapt_input_time(time, input_data)
         input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
-        coeff_rows = self.input_transforms[key].project_helmholtz(
+        coeff_rows = self.projection_transform_for(key).project_helmholtz(
             input_data[key],
             input_grid=input_grid,
-            projection_basis=self.input_projection_bases[key],
+            projection_basis=self.simulation.run_data.schema.input_projection_bases[key],
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
         )
         self._validate_projected_time_rows(key, key, coeff_rows, input_time)
         return input_time, coeff_rows
+
+    def evaluate_Q_eff_from_neutral_wind(self, input_time, wind_coeff_rows):
+        """Evaluate wind-equivalent Q_eff samples on the model grid."""
+        response = self.simulation.response
+        grid = self.simulation.geometry.model_grid
+        wind_representation = self.simulation.run_data.schema.input_field_spaces[
+            "u"
+        ].representation
+        wind_synthesis = wind_representation.get_helmholtz_synthesis_operator(grid)
+        Q_eff_values = []
+        for time_value, wind_coeffs in zip(input_time, wind_coeff_rows):
+            response.activate_inputs_at_time(self.simulation.run_data.input_series, time_value)
+            wind_on_grid = np.asarray(wind_synthesis.matvec(wind_coeffs)).reshape((2, grid.size))
+            Q_eff_values.append(
+                ionospheric_closure.Q_eff_on_grid_from_wind(
+                    wind_on_grid,
+                    self.simulation.geometry.wind_motional_E_tensor,
+                    response.resistance_tensor_on_grid,
+                )
+            )
+
+        values = np.asarray(Q_eff_values)
+        return values[:, 0, :], values[:, 1, :], grid.lat, grid.lon
+
+    def fit_Q_eff_from_neutral_wind(
+        self, input_time, wind_coeff_rows, *, reg_lambda=None, pinv_rtol=1e-15
+    ):
+        """Fit stored Q_eff coefficients to wind-driven E."""
+        response = self.simulation.response
+        q_field_space = self.simulation.run_data.schema.input_field_spaces["Q_eff"]
+        q_synthesis = q_field_space.representation.get_helmholtz_synthesis_operator(
+            self.simulation.geometry.model_grid
+        )
+        q_coeff_rows = []
+        cached_resistance_tensor = None
+        Q_eff_to_E = None
+        for time_value, wind_coeffs in zip(input_time, wind_coeff_rows):
+            response.activate_inputs_at_time(self.simulation.run_data.input_series, time_value)
+            E_wind_coeffs = response.u_coeffs_to_E_coeffs.matvec(wind_coeffs)
+            resistance_tensor = response.resistance_tensor_on_grid
+            if resistance_tensor is not cached_resistance_tensor:
+                cached_resistance_tensor = resistance_tensor
+                Q_eff_to_E = ionospheric_closure.tangential_current_to_E_coeffs_operator(
+                    self.simulation.geometry.helmholtz_analysis_matrix,
+                    resistance_tensor,
+                    q_synthesis,
+                )
+            q_coeffs = ionospheric_closure.solve_Q_eff_coefficients(
+                Q_eff_to_E, E_wind_coeffs, reg_lambda=reg_lambda, pinv_rtol=pinv_rtol
+            )
+            q_coeff_rows.append(
+                q_field_space.validate_coefficients(q_coeffs, name="Q_eff coefficients")
+            )
+        return np.asarray(q_coeff_rows)
 
     def project_and_add_input(
         self,
@@ -320,8 +364,8 @@ class InputProjector:
         """Project gridded input data and store coefficient entries."""
         input_time = self.adapt_input_time(time, input_data)
         input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
-        transform = self.input_transforms[key]
-        field_space = self.input_field_spaces[key]
+        transform = self.projection_transform_for(key)
+        field_space = self.simulation.run_data.schema.input_field_spaces[key]
         if field_space.field_type == "scalar" and len(input_data) > 1:
             projected_data = self.project_scalar_input_variables(
                 key,
@@ -344,7 +388,7 @@ class InputProjector:
                 projected_values = project(
                     values,
                     input_grid=input_grid,
-                    projection_basis=self.input_projection_bases[key],
+                    projection_basis=self.simulation.run_data.schema.input_projection_bases[key],
                     sqrt_weights=sqrt_weights,
                     reg_lambda=reg_lambda,
                     pinv_rtol=pinv_rtol,
@@ -353,7 +397,7 @@ class InputProjector:
                 projected_data[var] = projected_values
 
         self.add_projected_rows(key, projected_data, input_time)
-        self.owner.data.save_input_dataset(key)
+        self.simulation.run_data.save_input_dataset(key)
 
     def project_scalar_input_variables(
         self,
@@ -367,7 +411,7 @@ class InputProjector:
         pinv_rtol=1e-15,
     ) -> dict[str, Any]:
         """Project scalar input variables in one batched transform."""
-        transform = self.input_transforms[key]
+        transform = self.projection_transform_for(key)
         normalized = {
             var: transform.normalize_scalar_value_batch(values, input_grid)
             for var, values in input_data.items()
@@ -380,7 +424,7 @@ class InputProjector:
         projected = transform.project_scalar(
             combined,
             input_grid=input_grid,
-            projection_basis=self.input_projection_bases[key],
+            projection_basis=self.simulation.run_data.schema.input_projection_bases[key],
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
@@ -393,7 +437,7 @@ class InputProjector:
     def add_projected_rows(self, key: str, projected_data: dict[str, Any], input_time) -> None:
         """Store projected coefficient rows."""
         for time_index in range(input_time.size):
-            self.input_timeseries.add_entry(
+            self.simulation.run_data.input_series.add_entry(
                 key,
                 {var: projected_data[var][time_index] for var in projected_data},
                 input_time[time_index],
@@ -404,7 +448,7 @@ class InputProjector:
         input_time = self.adapt_input_time(time, input_data)
         self.validate_input_time_rows(key, input_time, input_data)
         self.add_projected_rows(key, input_data, input_time)
-        self.owner.data.save_input_dataset(key)
+        self.simulation.run_data.save_input_dataset(key)
 
     def adapt_input_time(self, time, data: dict[str, Any]):
         """Return time values compatible with input data rows."""
@@ -413,10 +457,11 @@ class InputProjector:
                 raise ValueError(
                     "Time must be specified if the input data is given for multiple time values."
                 )
-            return np.atleast_1d(self.owner.current_time)
+            return np.atleast_1d(self.simulation.current_time)
         return np.atleast_1d(time)
 
-    def validate_input_time_rows(self, key: str, input_time, input_data: dict[str, Any]) -> None:
+    @staticmethod
+    def validate_input_time_rows(key: str, input_time, input_data: dict[str, Any]) -> None:
         """Require input rows to match times."""
         row_counts = {var: int(np.asarray(values).shape[0]) for var, values in input_data.items()}
         if not row_counts:
@@ -433,19 +478,20 @@ class InputProjector:
                 f"{row_count} time rows ({details})."
             )
 
+    @staticmethod
     def _validate_variables(
-        self, spec: InputSpec, values: dict[str, Any], value_kind: str
+        key: str, spec: _InputSpec, values: dict[str, Any], value_kind: str
     ) -> None:
         """Require input dictionaries to match their declared spec."""
         expected = set(spec.variables)
         actual = set(values)
         if actual != expected:
             raise ValueError(
-                f"{spec.key} {value_kind} must use variables {sorted(expected)}, "
-                f"got {sorted(actual)}."
+                f"{key} {value_kind} must use variables {sorted(expected)}, got {sorted(actual)}."
             )
 
-    def _validate_projected_time_rows(self, key: str, var: str, values, input_time) -> None:
+    @staticmethod
+    def _validate_projected_time_rows(key: str, var: str, values, input_time) -> None:
         """Require projected data rows to match supplied input times."""
         if values.shape[0] != input_time.size:
             raise ValueError(
@@ -455,8 +501,8 @@ class InputProjector:
 
     def _validate_projection_controls(self, key: str, *, sqrt_weights, reg_lambda) -> None:
         """Reject controls unsupported by CS storage."""
-        spec = self.spec(key)
-        projection_basis = getattr(self.owner.config, f"{key}_projection_basis", None)
+        spec = self._spec(key)
+        projection_basis = getattr(self.simulation.config, f"{key}_projection_basis", None)
         if (
             spec.reject_least_squares_for_cs_projection
             and projection_basis == "CS"
@@ -467,4 +513,4 @@ class InputProjector:
             )
 
 
-__all__ = ["INPUT_SPECS", "InputProjector", "InputSpec", "build_input_specs"]
+__all__ = ["InputPipeline"]

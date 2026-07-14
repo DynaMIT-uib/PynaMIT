@@ -311,6 +311,144 @@ def reference_aligned_curve_centers(
     return curve_lon, curve_lat
 
 
+def _validated_curve_map_inputs(site_lon, site_lat, normalized_time, layers):
+    """Return normalized sites, times, and validated layer arrays."""
+    lon_sites = np.asarray(site_lon, dtype=float).reshape(-1)
+    lat_sites = np.asarray(site_lat, dtype=float).reshape(-1)
+    time_values = np.asarray(normalized_time, dtype=float).reshape(-1)
+    if lon_sites.size != lat_sites.size:
+        raise ValueError("site_lon and site_lat must have the same length.")
+    if time_values.size == 0:
+        raise ValueError("normalized_time must not be empty.")
+
+    layer_values = []
+    expected_shape = (lon_sites.size, time_values.size)
+    for layer in layers:
+        values = np.asarray(layer["values"], dtype=float)
+        if values.shape != expected_shape:
+            raise ValueError(f"Layer values must have shape {expected_shape}, got {values.shape}.")
+        layer_values.append(values)
+    return lon_sites, lat_sites, time_values, layer_values
+
+
+def _curve_map_value_scale(layer_values, requested_scale):
+    """Return a finite positive scale for all curve layers."""
+    if requested_scale is not None:
+        return max(float(requested_scale), np.finfo(float).tiny)
+    finite_chunks = [values[np.isfinite(values)] for values in layer_values]
+    finite_chunks = [values for values in finite_chunks if values.size]
+    if not finite_chunks:
+        return 1.0
+    scale = float(np.nanmax(np.abs(np.concatenate(finite_chunks))))
+    return scale if np.isfinite(scale) and scale > 0.0 else 1.0
+
+
+def _curve_map_site_scale(site_curve_scale, n_sites):
+    """Return one finite positive vertical scale per site."""
+    if site_curve_scale is None:
+        return np.ones(n_sites, dtype=float)
+    scales = np.asarray(site_curve_scale, dtype=float).reshape(-1)
+    if scales.size != n_sites:
+        raise ValueError("site_curve_scale must match the number of sites.")
+    return np.where(np.isfinite(scales) & (scales > 0.0), scales, 1.0)
+
+
+def _curve_map_centers(values, site_values, *, name):
+    """Return validated curve-center coordinates for one axis."""
+    if values is None:
+        return site_values
+    centers = np.asarray(values, dtype=float).reshape(-1)
+    if centers.size != site_values.size:
+        raise ValueError(f"{name} must match the number of sites.")
+    return centers
+
+
+def _curve_layer_style(layer, default_linewidth):
+    """Return normalized Matplotlib line style for one curve layer."""
+    return {
+        "color": layer.get("color", "black"),
+        "linewidth": layer.get("linewidth", default_linewidth),
+        "linestyle": layer.get("linestyle", "-"),
+        "alpha": layer.get("alpha", 1.0),
+        "marker": layer.get("marker", None),
+        "markersize": layer.get("markersize", 2.0),
+        "markeredgewidth": layer.get("markeredgewidth", 1.0),
+    }
+
+
+def _draw_curve_reference_lines(
+    ax,
+    reference_line,
+    layers,
+    time_values,
+    curve_lon_sites,
+    curve_lat_sites,
+    site_scale,
+    site_group_zorders,
+    *,
+    curve_width_deg,
+    curve_height_deg,
+    value_scale,
+    central_longitude,
+    reference_zoffset,
+    default_color,
+    default_linewidth,
+    default_linestyle,
+):
+    """Draw the reference-time marker at every valid curve site."""
+    if reference_line is None:
+        return [], None
+    reference_position = float(reference_line.get("position", np.nan))
+    if not np.isfinite(reference_position):
+        return [], None
+
+    style = {
+        "color": reference_line.get("color", default_color),
+        "linewidth": reference_line.get("linewidth", default_linewidth),
+        "linestyle": reference_line.get("linestyle", default_linestyle),
+        "alpha": reference_line.get("alpha", 0.95),
+    }
+    center_values = _reference_center_values(
+        reference_line, layers, curve_lon_sites.size, time_values.size
+    )
+    if center_values is None:
+        return [], None
+    value_span = float(reference_line.get("value_span", np.nan))
+    if not np.isfinite(value_span) or value_span <= 0.0:
+        value_span = 2.0 * value_scale
+    longitude_offset = float(curve_width_deg) * (reference_position - 0.5)
+    half_latitude_span = 0.5 * float(curve_height_deg) * (value_span / value_scale)
+
+    artists = []
+    for site_index in range(curve_lon_sites.size):
+        center_value = interpolate_curve_value_at_normalized_position(
+            time_values, center_values[site_index], reference_position
+        )
+        if not np.isfinite(center_value):
+            continue
+        center_latitude = curve_lat_sites[site_index] + float(curve_height_deg) * site_scale[
+            site_index
+        ] * (center_value / value_scale)
+        local_lon = np.full(2, curve_lon_sites[site_index] + longitude_offset, dtype=float)
+        local_lat = np.array(
+            [center_latitude - half_latitude_span, center_latitude + half_latitude_span]
+        )
+        zorder = site_group_zorders[site_index] + float(reference_zoffset)
+        for lon_segment, lat_segment in split_wrapped_curve(
+            local_lon, local_lat, central_longitude=central_longitude
+        ):
+            artists.extend(
+                ax.plot(
+                    lon_segment, lat_segment, transform=ccrs.PlateCarree(), zorder=zorder, **style
+                )
+            )
+
+    if not artists:
+        return artists, None
+    legend_handle = Line2D([0], [0], **style, label=reference_line.get("label", "Reference time"))
+    return artists, legend_handle
+
+
 def draw_timeseries_curve_map(
     ax,
     site_lon,
@@ -344,93 +482,24 @@ def draw_timeseries_curve_map(
     ``values`` with shape ``(n_sites, n_times)``. Styling keys match
     common Matplotlib line keywords.
     """
-    lon_sites = np.asarray(site_lon, dtype=float).reshape(-1)
-    lat_sites = np.asarray(site_lat, dtype=float).reshape(-1)
-    time_arr = np.asarray(normalized_time, dtype=float).reshape(-1)
-    if lon_sites.size != lat_sites.size:
-        raise ValueError("site_lon and site_lat must have the same length.")
-    if time_arr.size == 0:
-        raise ValueError("normalized_time must not be empty.")
-
-    all_values = []
-    for layer in layers:
-        values = np.asarray(layer["values"], dtype=float)
-        if values.shape != (lon_sites.size, time_arr.size):
-            raise ValueError(
-                "Layer values must have shape "
-                f"({lon_sites.size}, {time_arr.size}), got {values.shape}."
-            )
-        all_values.append(values.reshape(-1))
-
-    if value_scale is None:
-        finite_chunks = [
-            vals[np.isfinite(vals)] for vals in all_values if np.any(np.isfinite(vals))
-        ]
-        finite_values = (
-            np.concatenate(finite_chunks) if finite_chunks else np.array([], dtype=float)
-        )
-        if finite_values.size == 0:
-            scale = 1.0
-        else:
-            scale = float(np.nanmax(np.abs(finite_values)))
-            if not np.isfinite(scale) or scale <= 0.0:
-                scale = 1.0
-    else:
-        scale = max(float(value_scale), np.finfo(float).tiny)
-
-    if site_curve_scale is None:
-        site_scale = np.ones(lon_sites.size, dtype=float)
-    else:
-        site_scale = np.asarray(site_curve_scale, dtype=float).reshape(-1)
-        if site_scale.size != lon_sites.size:
-            raise ValueError("site_curve_scale must match the number of sites.")
-        site_scale = np.where(np.isfinite(site_scale) & (site_scale > 0.0), site_scale, 1.0)
-    if curve_center_lon is None:
-        curve_lon_sites = lon_sites
-    else:
-        curve_lon_sites = np.asarray(curve_center_lon, dtype=float).reshape(-1)
-        if curve_lon_sites.size != lon_sites.size:
-            raise ValueError("curve_center_lon must match the number of sites.")
-    if curve_center_lat is None:
-        curve_lat_sites = lat_sites
-    else:
-        curve_lat_sites = np.asarray(curve_center_lat, dtype=float).reshape(-1)
-        if curve_lat_sites.size != lat_sites.size:
-            raise ValueError("curve_center_lat must match the number of sites.")
+    lon_sites, lat_sites, time_arr, layer_values = _validated_curve_map_inputs(
+        site_lon, site_lat, normalized_time, layers
+    )
+    scale = _curve_map_value_scale(layer_values, value_scale)
+    site_scale = _curve_map_site_scale(site_curve_scale, lon_sites.size)
+    curve_lon_sites = _curve_map_centers(curve_center_lon, lon_sites, name="curve_center_lon")
+    curve_lat_sites = _curve_map_centers(curve_center_lat, lat_sites, name="curve_center_lat")
 
     curve_x = float(curve_width_deg) * (time_arr - 0.5)
     site_group_zorders = curve_site_group_zorders(lon_sites, central_longitude=central_longitude)
     artists = []
     legend_handles = []
 
-    for layer in layers:
-        style = {
-            "color": layer.get("color", "black"),
-            "linewidth": layer.get("linewidth", default_linewidth),
-            "linestyle": layer.get("linestyle", "-"),
-            "alpha": layer.get("alpha", 1.0),
-            "marker": layer.get("marker", None),
-            "markersize": layer.get("markersize", 2.0),
-            "markeredgewidth": layer.get("markeredgewidth", 1.0),
-            "zorder": layer.get("zorder", 3),
-        }
-        values = np.asarray(layer["values"], dtype=float)
+    for layer, values in zip(layers, layer_values):
+        style = _curve_layer_style(layer, default_linewidth)
         layer_zoffset = curve_layer_zoffset(layer)
         if add_legend:
-            legend_handles.append(
-                Line2D(
-                    [0],
-                    [0],
-                    color=style["color"],
-                    linewidth=style["linewidth"],
-                    linestyle=style["linestyle"],
-                    alpha=style["alpha"],
-                    marker=style["marker"],
-                    markersize=style["markersize"],
-                    markeredgewidth=style["markeredgewidth"],
-                    label=layer.get("label", ""),
-                )
-            )
+            legend_handles.append(Line2D([0], [0], **style, label=layer.get("label", "")))
 
         for site_index in range(lon_sites.size):
             local_lon = curve_lon_sites[site_index] + curve_x
@@ -445,85 +514,32 @@ def draw_timeseries_curve_map(
                         lon_segment,
                         lat_segment,
                         transform=ccrs.PlateCarree(),
-                        color=style["color"],
-                        linewidth=style["linewidth"],
-                        linestyle=style["linestyle"],
-                        alpha=style["alpha"],
-                        marker=style["marker"],
-                        markersize=style["markersize"],
-                        markeredgewidth=style["markeredgewidth"],
                         zorder=site_group_zorders[site_index] + layer_zoffset,
+                        **style,
                     )
                 )
 
-    reference_drawn = False
-    if reference_line is not None:
-        reference_position = float(reference_line.get("position", np.nan))
-        if np.isfinite(reference_position):
-            reference_style = {
-                "color": reference_line.get("color", reference_color),
-                "linewidth": reference_line.get("linewidth", reference_linewidth),
-                "linestyle": reference_line.get("linestyle", reference_linestyle),
-                "alpha": reference_line.get("alpha", 0.95),
-                "zorder": reference_line.get("zorder", 1.5),
-            }
-            local_x_offset = float(curve_width_deg) * (reference_position - 0.5)
-            reference_center_values = _reference_center_values(
-                reference_line, layers, lon_sites.size, time_arr.size
-            )
-            reference_value_span = float(reference_line.get("value_span", np.nan))
-            if not np.isfinite(reference_value_span) or reference_value_span <= 0.0:
-                reference_value_span = 2.0 * scale
-            for site_index in range(lon_sites.size):
-                if reference_center_values is None:
-                    continue
-                center_value = interpolate_curve_value_at_normalized_position(
-                    time_arr, reference_center_values[site_index], reference_position
-                )
-                if not np.isfinite(center_value):
-                    continue
-                center_lat = curve_lat_sites[site_index] + float(curve_height_deg) * site_scale[
-                    site_index
-                ] * (center_value / scale)
-                half_reference_lat_span = (
-                    0.5 * float(curve_height_deg) * (reference_value_span / scale)
-                )
-                local_lon = np.array(
-                    [curve_lon_sites[site_index] + local_x_offset] * 2, dtype=float
-                )
-                local_lat = np.array(
-                    [center_lat - half_reference_lat_span, center_lat + half_reference_lat_span],
-                    dtype=float,
-                )
-                reference_zorder = site_group_zorders[site_index] + float(reference_zoffset)
-                for lon_segment, lat_segment in split_wrapped_curve(
-                    local_lon, local_lat, central_longitude=central_longitude
-                ):
-                    artists.extend(
-                        ax.plot(
-                            lon_segment,
-                            lat_segment,
-                            transform=ccrs.PlateCarree(),
-                            color=reference_style["color"],
-                            linewidth=reference_style["linewidth"],
-                            linestyle=reference_style["linestyle"],
-                            alpha=reference_style["alpha"],
-                            zorder=reference_zorder,
-                        )
-                    )
-                    reference_drawn = True
-            if add_legend and reference_drawn:
-                legend_handles.append(
-                    Line2D(
-                        [0],
-                        [0],
-                        color=reference_style["color"],
-                        linewidth=reference_style["linewidth"],
-                        linestyle=reference_style["linestyle"],
-                        alpha=reference_style["alpha"],
-                        label=reference_line.get("label", "Reference time"),
-                    )
-                )
+    reference_artists, reference_legend_handle = _draw_curve_reference_lines(
+        ax,
+        reference_line,
+        layers,
+        time_arr,
+        curve_lon_sites,
+        curve_lat_sites,
+        site_scale,
+        site_group_zorders,
+        curve_width_deg=curve_width_deg,
+        curve_height_deg=curve_height_deg,
+        value_scale=scale,
+        central_longitude=central_longitude,
+        reference_zoffset=reference_zoffset,
+        default_color=reference_color,
+        default_linewidth=reference_linewidth,
+        default_linestyle=reference_linestyle,
+    )
+    artists.extend(reference_artists)
+    if add_legend and reference_legend_handle is not None:
+        legend_handles.append(reference_legend_handle)
 
     anchor_scatter = None
     if show_anchor_points:

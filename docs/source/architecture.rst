@@ -10,31 +10,90 @@ physics-specific transformations in focused modules.
 High-level flow
 ---------------
 
-``Dynamics`` remains the public orchestration object.  It normalizes user
+``Simulation`` remains the public orchestration object.  It normalizes user
 configuration with ``SimulationConfig``, builds a ``SimulationSchema``,
-creates persistence through ``SimulationData``, initializes ``State``, and
-keeps the user-facing simulation methods in one place.
+creates persistence through ``RunData``, constructs sibling
+``SimulationGeometry`` and ``ElectrodynamicResponse`` collaborators, and keeps the user-facing
+simulation methods in one place.
 
 The main setup path is:
 
-1. ``SimulationConfig`` normalizes constructor settings, defaults, backend
-   options, basis choices, and persisted xarray attributes.
+1. ``SimulationConfig`` normalizes constructor settings, defaults, numerical
+   policies, basis choices, physical domains, time values, and persisted
+   xarray attributes.
 2. ``build_simulation_schema`` creates the spherical-harmonic, solid-harmonic,
    and cubed-sphere basis objects, then declares the input and output
    ``FieldSpace`` metadata used by storage and transforms.
-3. ``Dynamics`` builds reusable input transforms from those field spaces and
-   attaches an ``InputProjector`` for all input validation, projection, and
-   coefficient storage.
-4. ``Dynamics`` attaches an ``EvolutionRunner`` for restart handling, sample
+3. ``Simulation`` attaches an ``InputPipeline``, which lazily builds reusable
+   input transforms on the geometry's canonical model grid and owns all input
+   validation, projection, and coefficient storage.
+4. ``Simulation`` attaches a ``SimulationRunner`` for restart handling, sample
    scheduling, progress reporting, and output save decisions.
-5. ``State`` owns the mutable numerical state and cached, run-specific
-   operator compositions.
-6. ``SimulationData`` owns persisted settings, input time series, and output
+5. ``SimulationGeometry`` is constructed once as the numerical spatial context.
+   ``ElectrodynamicResponse`` receives it and owns the instantaneous forcing
+   coefficients, constraint solve, and closure-dependent operator caches.
+6. ``RunData`` owns persisted settings, input time series, and output
    time series.
+
+These ownership paths are also the inspection API. Persisted objects are
+reached through ``simulation.run_data`` (for example
+``simulation.run_data.output_series`` and ``simulation.run_data.schema``), while the
+horizontal basis, solid harmonics, and background field are reached through
+``simulation.geometry``. ``Simulation`` does not copy those references onto
+parallel top-level attributes. This keeps its initialization small and makes
+the owner of each object unambiguous.
 
 Keep this layering intact: configuration should not perform numerical work,
 schema should not read run data, input projection should not evolve the model,
 and visualization should not mutate simulation state.
+
+Package map and dependency direction
+------------------------------------
+
+The top-level packages separate reusable scientific and infrastructural
+concepts from the PynaMIT simulation model::
+
+    pynamit/
+      fields.py              coefficient-space metadata and owned values
+      coordinates.py         generic longitude and local-time conversions
+      math/                  backend-neutral operators and solvers
+      sphere/                spherical bases, grids, and transforms
+      geomagnetism/          background fields and magnetic coordinates
+      storage/               named artifacts and coefficient time series
+      simulation/            the coupled PynaMIT model
+      visualization/         read-only run views and rendering
+
+The simulation package is grouped by runtime role::
+
+    simulation/
+      api.py                 public simulation facade
+      response.py            active inputs, response solves, and operator caches
+      geometry.py            run-specific spatial and magnetic mappings
+      runner.py              execution, sampling, and persistence decisions
+      inputs.py              input validation, projection, and storage
+      config.py/schema.py    normalized configuration and field spaces
+      run_data.py            persisted-run context
+      electrodynamics/       magnetic boundary, closure, and induction equations
+      workflows/             end-to-end preparation and run orchestration
+
+Dependencies should point inward from workflows and facades toward focused
+implementation modules.  In particular:
+
+* ``workflows`` may construct and operate ``Simulation``;
+* ``Simulation`` may coordinate projection, response, evolution, and persistence;
+* ``ElectrodynamicResponse`` and ``SimulationGeometry`` may compose ``electrodynamics`` functions; and
+* ``electrodynamics`` must remain free of imports from simulation
+  orchestration and persistence modules.
+
+The reusable packages must not import the simulation layer. In particular,
+``geomagnetism`` owns ``MainField``, magnetic-coordinate conversion, and
+``MagneticFieldEvaluation`` without knowing about ``SimulationConfig``;
+``geometry.build_main_field`` is the small adapter from run configuration to
+that reusable API. ``storage`` knows how to persist named datasets and field
+series but does not know the simulation artifact vocabulary.
+
+This direction keeps the equation modules reusable without introducing
+stateful physics-manager objects.
 
 Configuration and schema
 ------------------------
@@ -42,108 +101,332 @@ Configuration and schema
 ``pynamit.simulation.config`` is the canonical home for settings and default
 normalization.  New simulation settings should be added to
 ``SimulationConfig`` first, then serialized through ``to_attrs``/
-``to_dataset``.  Avoid adding loose settings directly to ``Dynamics`` once a
+``to_dataset``.  Avoid adding loose settings directly to ``Simulation`` once a
 setting needs persistence or restart compatibility.
+
+Configuration also owns physical-domain invariants. The FAC integration grid
+is immutable run configuration and, when omitted, is derived from that run's
+``RI`` and optional ``RM``. Basis resolutions, radial boundaries, main-field
+parameters, boolean choices, solver names, and integrators are validated
+before schema or geometry construction so invalid runs cannot partially
+initialize. Restart comparison is performed between normalized configurations,
+allowing old artifacts to inherit newly introduced defaults without allowing
+an actual setting mismatch.
+
+Once normalized, one immutable ``SimulationConfig`` instance is shared by
+``Simulation``, ``RunData``, and ``ElectrodynamicResponse``. Schema and persistence
+builders do not accept parallel setting overrides; callers that need to adapt
+legacy settings do so through ``SimulationConfig.from_settings`` before
+crossing those boundaries. Runtime policy is read from that shared config
+rather than copied into mutable state attributes.
 
 ``pynamit.simulation.schema`` is the canonical home for basis and field-space
 selection.  New persisted input or output streams should be declared through
 the schema tables and built into ``FieldSpace`` objects there.  This keeps
 storage names, field types, mean-free choices, and projection bases visible in
-one place.
+one place. A built ``SimulationSchema`` owns immutable mapping copies so
+storage metadata cannot drift after the corresponding time series exist.
+
+Numerical operators and value identity
+----------------------------------------
+
+``LinearMap`` is the common operator abstraction for dense, sparse,
+matrix-free, and structured-einsum calculations. Least-squares problems and
+physical compositions should retain ``LinearMap`` objects until an explicit
+matrix is genuinely required. The tensor helper module contains only
+contractions and pseudoinverses that still operate on multidimensional arrays;
+do not add parallel wrappers for operations already expressed by
+``LinearMap``.
+
+``Grid`` is an immutable coordinate value. Its coordinate signature defines
+grid-value compatibility and remapping identity. Its separate analysis
+signature also includes optional area weights: equal coordinates can share
+synthesis matrices while requiring different weighted least-squares analyses.
+Transform caches must choose deliberately between those two identities.
+Mean-freedom is owned by coefficient spaces, not by geometry.  The schema's
+``sh_basis`` retains the mean/monopole term for quantities such as resistance,
+while ``mean_free_sh_basis`` is used for gauge potentials.  Each stored
+representation supplies its own synthesis operator on the model grid, so
+``SimulationGeometry`` does not carry a parallel full-scalar transform.
+
+``FieldCoefficients`` is likewise an owned value. NumPy inputs are copied and
+made read-only, and NumPy-to-JAX construction first breaks any shared host
+buffer. This is required for correctness, not merely style: ``ElectrodynamicResponse`` caches
+operators derived from coefficient values, so mutation behind the container
+would make those caches scientifically stale.
+
+Basis and grid metadata follow the same rule. Coefficient-index names are
+tuples, and coefficient indices, CS coordinates, metric tensors, and cell
+areas are owned read-only arrays. A basis cache key and its persisted
+coefficient identity therefore cannot diverge through mutation by a caller.
 
 Spatial bases
 -------------
 
 Spherical harmonics and cubed-sphere support have different implementation
 needs, but they should present the same public basis contract wherever
-possible.  ``CSBasis`` is the public cubed-sphere basis facade.  Its
-implementation is split into:
+possible. ``CSBasis`` is the public cubed-sphere basis facade. Its private
+implementation collaborators are split into:
 
 * ``CSCoordinateSystem`` for panel and coordinate transforms.
 * ``CSGridGeometry`` and ``CSGridRemapper`` for grid shape, indexing, and
-  remapping.
+  remapping, including scattered scalar and vector interpolation.
 * ``CSFiniteDifferences`` for derivative stencils and sparse operators.
 * ``CSVectorTransforms`` for vector-basis conversions.
 
 Prefer adding focused CS behavior to one of these collaborators instead of
-growing ``CSBasis`` again.  Keep the ``CS`` abbreviation in class names.
+growing ``CSBasis`` again. The familiar coordinate and interpolation methods
+remain on ``CSBasis`` as its public facade, while their implementations belong
+to those collaborators. Keep the ``CS`` abbreviation in class names.
+
+``sphere`` is a warranted standalone package because its bases, grids,
+analysis/synthesis transforms, and solid-harmonic continuation form a coherent
+numerical domain that can be used without a PynaMIT run.
+
+``geomagnetism`` is the corresponding standalone physical domain. ``MainField``
+owns background-field models, field-line and conjugate mapping, magnetic
+coordinates, and apex basis vectors. ``MagneticFieldEvaluation`` binds one
+main field to one spherical grid and radius, caching field components and local
+maps used by ``SimulationGeometry``. Full field components use ``Br``, ``Btheta``, and
+``Bphi``; normalized components are explicitly named ``unit_br``,
+``unit_btheta``, and ``unit_bphi`` so a case-only spelling difference cannot
+change the physics.
+
+Do not promote every focused module to a package. A standalone package is
+warranted when the concept has a reusable public vocabulary and a dependency
+boundary of its own. The PynaMIT boundary, ionospheric closure, and induction
+equations are mutually coupled parts of one simulation model, so they remain
+together under ``simulation.electrodynamics``.
 
 Input preparation and projection
 --------------------------------
 
-Input projection is intentionally separated from ``Dynamics`` in
-``pynamit.simulation.inputs``.  ``InputSpec`` declares the variables, field
-type, mutual-exclusion group, and projection-control restrictions for each
-input stream.  ``InputProjector`` owns:
+Input projection is intentionally separated from ``Simulation`` in
+``pynamit.simulation.inputs``.  Its private specification table declares the
+variables, mutual-exclusion group, and projection-control restrictions for
+each input stream. Every persisted input also has an explicit projection-basis
+setting in ``SimulationConfig``. ``Q_eff`` defaults to the ``u`` route because
+it is an alternative representation of the same wind forcing; the independent
+``E_source`` route defaults to the horizontal model basis. Field type remains
+canonical in the schema's ``FieldSpace``. ``InputPipeline`` owns:
 
 * sample-vs-coefficient validation;
 * gridded scalar and tangential projection;
 * coefficient row and time-row validation;
 * storage of projected input rows; and
-* mutual exclusivity between ``u``, ``Q_eff``, and ``E_source``.
+* mutual exclusivity between the alternative wind representations ``u``
+  and ``Q_eff``;
+* additive composition of independent ``E_source`` forcing; and
+* time-series coordination when deriving ``Q_eff`` from neutral wind.
 
 Public setters such as ``set_jr``, ``set_resistance``, ``set_neutral_wind``,
 ``set_Q_eff``, and ``set_E_source`` should remain thin API methods.  When a
-new input stream is added, prefer extending the schema and ``InputSpec`` table
-over hand-writing a new projection path inside ``Dynamics``.
+new input stream is added, prefer extending the schema and the private input
+specification table over hand-writing a new projection path inside ``Simulation``.
 
 Prepared external inputs
 ------------------------
 
-``pynamit.simulation.prepared_inputs`` and ``pynamit.simulation.mage_workflow``
-contain reusable, script-independent helpers for MAGE/GAMERA forcing.  Scripts
-under ``scripts/simulation`` should be workflow entry points: they may parse
-paths and settings, but they should delegate coordinate conversion, metadata
-validation, cadence summaries, source-current construction, and projection
-directory naming to package modules.
+``pynamit.simulation.workflows.standard``, ``prepared_inputs``, and ``mage``
+contain reusable, script-independent orchestration for standard runs, prepared
+forcing, and MAGE/GAMERA inputs.  Scripts under ``scripts/simulation`` should
+be workflow entry points: they may parse paths and settings, but they should
+delegate coordinate conversion, metadata validation, cadence summaries,
+source-current construction, and projection-directory naming to package
+modules.
+
+The reusable MAGE workflow also owns signed GAMERA dipole-axis semantics and
+the model-alignment metadata written into prepared forcing. The preparation
+script owns optional Kaiju, NetCDF, and HDF5 access plus the stepwise ETL loop.
 
 This boundary matters because prepared-input logic is both user-facing and
 testable.  If a script needs behavior that should remain correct over time,
 move it into the package and test the behavior there.
 
+A consuming run owns its selected inputs. The workflow removes stale,
+unselected input artifacts, opens only the selected prepared streams, copies
+those datasets into the run directory, and reloads them through the run's own
+``ArtifactStore`` object. Lazy Zarr
+arrays therefore do not leave a live run dependent on the preparation
+directory. PFAC integration samples are re-derived from the consuming run's
+radial domain unless that run supplies them explicitly; they are not part of
+the prepared coefficient contract.
+
+Prepared-input coordinates name physical positions, not just array axes.
+Geographic wind positions and tangent-vector components are rotated into the
+configured model coordinates before projection. Native Hardy/AMPS scalar
+models are instead queried in their event-epoch centered-dipole coordinates;
+their values are then attached to the corresponding positions on the model
+grid. This two-sided conversion is necessary when the run uses IGRF/GEO, SM,
+or a centered dipole with another epoch. The forcing event time is persisted
+as ``t0``; ``main_field_epoch`` remains an independent choice for the
+background-field coefficients.
+
+The versioned prepared-input manifest has one canonical ``input_contract``.
+Coefficient-space settings, geometry requirements, and the dataset list live
+only inside that contract; top-level provenance and notes do not mirror contract
+fields. Consumers validate the manifest version and contract before loading any
+forcing into a run.
+
 Electrodynamic physics
 ----------------------
 
-The physics modules follow the direction of the model equations instead of
-mirroring the names of state variables:
+The ``electrodynamics`` modules follow the direction of the model equations
+instead of mirroring the names of state variables:
 
-* ``magnetic_boundary`` maps magnetic boundary potentials and prescribed
-  boundary ``Br`` to the derived horizontal sheet current ``JS``.  Solid
-  harmonics own generic radial continuation; this module owns the particular
-  potential jump, shielding, and boundary-current relations used by PynaMIT.
-* ``ionospheric_closure`` applies the height-integrated Ohm-law closure.  It
-  converts Hall/Pedersen conductance to the stored resistance variables and
-  maps neutral motion or sheet current through the magnetic geometry and
-  resistance tensor to ``E``.
-* ``induction`` owns Faraday evolution of ``m_ind``, including Euler,
-  exponential, and SciPy integration and the corresponding steady state.
+* ``electrodynamics.magnetic_boundary`` maps magnetic boundary potentials and
+  prescribed boundary ``Br`` to the derived horizontal sheet current ``JS``.
+  Solid harmonics own generic radial continuation; this module owns the
+  particular potential jump, shielding, and boundary-current relations used
+  by PynaMIT.
+* ``electrodynamics.ionospheric_closure`` applies the height-integrated
+  Ohm-law closure.  It converts Hall/Pedersen conductance to the stored
+  resistance variables and maps neutral motion or sheet current through the
+  magnetic geometry and resistance tensor to ``E``. It owns both the direct
+  grid law ``E = R JS - u x B`` and the coefficient-operator compositions
+  used by ``ElectrodynamicResponse``. It also owns the Pedersen/Hall geometry tensors and
+  collisional Joule-heating kernel. Joule heating is the Pedersen dissipation
+  ``etaP * J.T @ P @ J``; ``J dot E`` is electromagnetic work and is not
+  generally the same quantity when neutral motion contributes to the closure.
+  Its functions remain numerical kernels; iteration over input times and
+  coefficient storage belong to ``InputPipeline``.
+* ``electrodynamics.induction`` owns Faraday evolution of ``m_ind``, including
+  Euler, exponential, and SciPy integration and the corresponding steady
+  state.
 
-``Geometry`` supplies run-specific grids, magnetic-field factors, transforms,
+``SimulationGeometry`` supplies run-specific grids, magnetic-field factors, transforms,
 radial field-line mapping, and interhemispheric constraint geometry to these
-equations.  ``State`` owns mutable input coefficients and caches the composed
-operators whose values depend on the current conductance.  ``StateOperators``
-exposes named compositions of those maps for inspection and solver use.  This
-keeps equation implementations out of the orchestration objects without
-introducing stateful physics collaborators.
+equations. It is a numerical object: persisted xarray values are unwrapped at
+construction, and ``RunData`` alone wraps a numerical PFAC matrix for
+storage. ``ElectrodynamicResponse`` receives that geometry, owns the inputs active at
+one simulation time, solves the imposed-potential constraint, and caches the
+composed operators whose values depend on the current resistance distribution.
+It also exposes named operator and matrix compositions for inspection. Keeping
+those compositions with their caches avoids split ownership between an
+operator facade and the response object whose private state they mutate.
 
-State and evolution
--------------------
+The combined field that drives the imposed-potential response is named
+``driving_E``. It can contain wind, ``Q_eff``, ``E_source``, boundary ``Br``,
+or an ``m_ind`` response. The name therefore describes its role without
+suggesting that it contains only the direct electric-field input or encoding
+the absence of ``m_imp``. The imposed potential then completes the response
+required by the radial-current and optional interhemispheric constraints.
 
-``Dynamics`` exposes ``evolve_to_time`` as the stable public API, but delegates
-the run loop to ``EvolutionRunner``.  ``EvolutionRunner`` owns restart
+Expensive optional geometry follows use rather than construction. The PFAC
+coupling matrix is reused when persisted, but a new one is not built merely to
+construct ``Simulation`` or project inputs. It is constructed and saved when a
+steady-state or evolution path first requests model output. When PFAC coupling
+is disabled (or the main field is radial), the optional contribution is
+represented by absence rather than by constructing and multiplying a dense
+zero matrix.
+
+The persisted input artifact is named ``resistance`` because its canonical
+variables are the Pedersen and Hall resistance coefficients ``etaP`` and
+``etaH``. ``set_conductance`` remains the physical convenience API: it accepts
+``sigmaP`` and ``sigmaH`` in siemens, performs the pointwise tensor inversion,
+and then projects the resulting resistance. ``set_resistance`` accepts the
+canonical stored variables directly. Visualization converts resistance back
+to conductance when a figure actually displays conductance.
+
+The shared surface convention is
+``F = -grad(phi) + rhat x grad(psi)``. Stored ``Phi`` and ``W`` are the
+curl-free and divergence-free electric-potential coefficients normalized by
+``RI``; they therefore have units of V/m, while visualization multiplies them
+by ``RI`` to display volts. Stored ``m_ind`` and ``m_imp`` follow the normalized
+magnetic-potential convention documented with ``SolidHarmonics``. With these
+definitions, ``m_imp_to_jr = RI / mu0 * surface_laplacian``,
+``m_ind_to_Br = -RI**2 * surface_laplacian``, and
+``d(m_ind)/dt = W / RI`` use one sign and radius convention across the code.
+
+``SimulationGeometry`` names describe the physical map rather than the symbols
+used in one derivation. In particular, ``pedersen_geometry_tensor``,
+``hall_geometry_tensor``, and ``wind_motional_E_tensor`` are pointwise maps,
+while ``faraday_rate_scale`` converts the divergence-free electric potential
+to the magnetic-potential rate. ``pfac_coupling_matrix`` denotes the specific
+PFAC toroidal-to-poloidal coupling from the model equations; its persisted
+artifact remains ``PFAC_matrix``.
+
+The interhemispheric names distinguish a physical region from a boundary
+condition. ``interhemispheric_coupling_latitude`` bounds the low-latitude
+region where conjugate points are compared; it is not another magnetic
+boundary. ``radial_current_constraint_operator`` is the assembled map used by
+the imposed-potential solve: it is the local radial-to-apex map outside that
+region and the local-minus-conjugate map inside it.
+``interhemispheric_electric_field_weight`` is specifically the relative
+least-squares weight of the conjugate electric-field residual. Conjugate grids,
+transforms, and masks are absent when this coupling is disabled or cannot
+apply to the radial-field model.
+
+Response and evolution
+----------------------
+
+``Simulation`` exposes ``evolve_to_time`` as the stable public API, but delegates
+execution to ``SimulationRunner``. ``SimulationRunner`` owns restart
 short-circuiting, sample scheduling, progress reporting, and output save
-decisions.  The runner may decide when to update state or save outputs, but
-time-stepping equations belong in ``induction``, run-specific operator caches
-belong in ``State``, and artifact details belong in ``SimulationData``.
+decisions, including assembly of complete output snapshots and the one-shot
+``impose_steady_state`` implementation behind the public facade. The requested
+target time is always an exact final sample and checkpoint, including when it
+is not an integer multiple of the nominal time step. Sampling and saving
+intervals are validated as positive integers, and a later active checkpoint
+cannot be used to fabricate a missing earlier output. The runner also reuses
+exponential propagators while the closure operator and step duration remain
+unchanged. The runner may decide when to update active inputs or save outputs, but
+time-stepping equations belong in
+``electrodynamics.induction``, closure-dependent operator caches belong in
+``ElectrodynamicResponse``, and artifact details belong in ``RunData``.
+
+Imposing a steady state always updates the in-memory ``state`` stream; its
+``save`` option controls only whether that live checkpoint is persisted.
+Imposition before a later active checkpoint is rejected because retaining both
+would create two trajectory branches in one linear time-series artifact.
+
+``ElectrodynamicResponse`` is intentionally not called ``State``. It stores the active
+input coefficients and the algebraic response implied by the current
+resistance, but it does not own a unique evolving ``m_ind``. One run can carry
+both inductive and steady-state ``m_ind`` branches for the same active inputs.
+``SimulationRunner`` owns those branch lifetimes and passes their coefficient
+vectors into response methods. The persisted artifact name ``state`` continues
+to identify the inductive output stream, not an in-memory object hierarchy.
 
 Persistence
 -----------
 
-``SimulationData`` and the time-series primitives are the persistence boundary.
+``RunData``, ``ArtifactStore``, and ``FieldTimeSeries`` form the
+persistence boundary.
 Numerical modules should pass normalized coefficient rows and times to the
 time-series APIs instead of writing xarray artifacts directly.  This makes
 restart behavior, netCDF/zarr differences, and schema compatibility easier to
-maintain.
+maintain. Time values are finite scalar coordinates. Near-equal floating
+checkpoint labels replace one another with the declared absolute tolerance so
+roundoff cannot create duplicate logical times.
+
+Coefficient time series have two intentional representations. In memory, the
+``i`` dimension carries the schema's coefficient ``MultiIndex``. On disk, that
+index is reset to explicit coordinate columns so NetCDF and Zarr persist the
+same portable structure. Loading validates those columns and reconstructs the
+in-memory index before exposing the series.
+
+The time tolerance is a time-coordinate policy measured in seconds. It is
+shared with evolution checkpoint decisions but is distinct from the relative
+tolerance used to decide whether coefficient values changed.
+
+An ``ArtifactStore`` instance is bound to one resolved artifact directory and one preferred
+storage policy. Create another instance for another run instead of retargeting
+an existing handle. Time-series storage owns artifact append/rewrite decisions;
+projection policy and spatial weights do not belong in persisted coefficient
+containers.
+
+One logical artifact has one physical storage representation. A successful
+format change removes the alternate NetCDF/Zarr path, and ambiguous legacy
+duplicates fail loudly instead of silently preferring stale data. Complete
+NetCDF and Zarr rewrites use unique sibling temporary paths before replacement;
+incremental Zarr appends remain the time-series layer's explicit fast path.
+
+The simulation schema owns the complete vocabulary of run artifact names.
+``ArtifactStore`` remains generic: directory validation requires an explicit collection
+of artifact names, and the persistence primitive contains no knowledge of
+settings, PFAC, or field-stream identities. Artifact names are single
+path-safe components.
 
 When adding persisted data, decide first whether it is configuration, input,
 output, or derived visualization metadata.  Configuration belongs in
@@ -159,10 +442,47 @@ serializable, reusable, and testable outside the GUI.  Keep option validation
 close to the spec, rendering close to figure builders, and widget binding close
 to panel-specific modules.
 
+Saved-run loading has one persistence path. ``SavedRunView`` uses the same
+``ArtifactStore`` abstraction as simulation persistence and constructs the canonical
+configuration, schema, main field, and optional geometry. The plotting-grid
+``SavedCoefficientFieldView`` builds on that loaded context rather than
+reimplementing artifact discovery. Figure renderers directly retain their
+serializable specification and cached coefficient-field view, then own only
+their respective figure families.
+
+The saved-view cache has one versioned slot per resolved run and plotting
+resolution. Artifact changes replace the previous heavyweight view in that
+slot, preventing live simulations from accumulating obsolete transform and
+geometry objects. Its fingerprint descends into directory-backed artifacts so
+an incremental Zarr chunk append invalidates the view even when the store's
+top-level directory timestamp does not change.
+
+Specialized saved views should retain canonical context, not reconstruct or
+re-own it. ``SavedRunView`` is the sole owner of the run directory, artifacts,
+configuration, schema, main field, and optional geometry.
+``SavedCoefficientFieldView`` owns only plotting grids, evaluators, and derived
+field caches. SimulationGeometry and dense sheet-current maps are built only when an
+output-field calculation needs them, and the sheet-current maps are
+specifically deferred until Joule heating is requested. Input-driver and
+ordinary scalar-field figures do not pay that cost merely because output
+artifacts also exist. Renderers consume the shared objects instead of
+rebuilding main fields, schemas, and transforms from raw settings. A
+steady-state artifact is valid output even when no inductive ``state`` artifact
+is present; only difference plots require both.
+
+``PynamEye`` and ``visualization.results`` are legacy frontends retained for
+existing scripts. New saved-run behavior should enter through ``SavedRunView``
+or ``SavedCoefficientFieldView`` and the figure-spec renderer path, not create a
+third loading or rendering stack.
+
 Avoid adding simulation-specific calculations directly to GUI callbacks.  If a
 plot needs computed fields, expose them through saved-run, run-field, or
 figure-builder helpers so command-line scripts, notebooks, tests, and the GUI
-all use the same path.
+all use the same path. Derived physical quantities should call the equation
+kernels that define them. In particular, both saved-run frontends use the
+closure's total-sheet-current Joule-heating definition, including prescribed
+magnetic-boundary current, rather than reconstructing a second approximation
+inside visualization.
 
 Extension rules
 ---------------
@@ -172,13 +492,14 @@ Use these rules when extending the codebase:
 * Add settings to ``SimulationConfig`` before threading ad hoc constructor
   values through the system.
 * Add persisted streams to ``simulation.schema`` before adding storage code.
-* Add input projection behavior to ``InputProjector`` and ``InputSpec`` before
-  adding logic to ``Dynamics`` setters.
-* Put reusable boundary-current equations in ``magnetic_boundary``,
-  constitutive ``JS``/wind-to-``E`` equations in ``ionospheric_closure``, and
-  magnetic time-stepping equations in ``induction``.
-* Add run-loop behavior to ``EvolutionRunner`` before expanding
-  ``Dynamics.evolve_to_time``.
+* Add input projection behavior to ``InputPipeline`` and its specification
+  table before adding logic to ``Simulation`` setters.
+* Put reusable boundary-current equations in
+  ``electrodynamics.magnetic_boundary``, constitutive ``JS``/wind-to-``E``
+  equations in ``electrodynamics.ionospheric_closure``, and magnetic
+  time-stepping equations in ``electrodynamics.induction``.
+* Add execution behavior to ``SimulationRunner`` before expanding
+  ``Simulation.evolve_to_time``.
 * Add cubed-sphere internals to the focused CS collaborator that owns the
   concept.
 * Move reusable script logic into package modules before testing it.

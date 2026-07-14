@@ -35,7 +35,12 @@ import h5py
 import numpy as np
 from scipy.interpolate import griddata
 
-from pynamit.simulation.mainfield import Mainfield, decimal_year
+from pynamit.coordinates import wrap_longitude_180
+from pynamit.geomagnetism import MainField, decimal_year
+from pynamit.simulation.workflows.mage import (
+    centered_dipole_alignment_attrs,
+    gamera_internal_dipole_axes,
+)
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -65,69 +70,6 @@ class MagePrepareSettings:
 
 
 SETTINGS = MagePrepareSettings()
-
-
-def wrap_longitude_180_value(value: float | np.ndarray) -> float | np.ndarray:
-    """Wrap longitude to [-180, 180) degrees."""
-    wrapped = (np.asarray(value, dtype=float) + 180.0) % 360.0 - 180.0
-    if wrapped.ndim == 0:
-        return float(wrapped)
-    return wrapped
-
-
-def axis_lat_lon(axis: np.ndarray) -> np.ndarray:
-    """Return latitude/longitude of a Cartesian axis."""
-    axis = np.asarray(axis, dtype=float)
-    norm = float(np.linalg.norm(axis))
-    if norm == 0.0:
-        raise ValueError("axis must be non-zero.")
-    unit = axis / norm
-    lat = float(np.degrees(np.arcsin(np.clip(unit[2], -1.0, 1.0))))
-    if np.isclose(abs(unit[2]), 1.0):
-        lon = 0.0
-    else:
-        lon = wrap_longitude_180_value(float(np.degrees(np.arctan2(unit[1], unit[0]))))
-    return np.array([lat, lon])
-
-
-def gamera_internal_dipole_axes(mag_m0_nT: float | None) -> dict[str, np.ndarray]:
-    """Return GAMERA internal dipole moment and magnetic-north axes.
-
-    GAMERA's ``MagM0`` is a signed dipole moment along the simulation
-    Z axis. For the Earth-like negative value in this run, the moment
-    vector is -Z and the magnetic-north axis is +Z.
-    """
-    sign = -1.0
-    if mag_m0_nT is not None and np.isfinite(mag_m0_nT) and mag_m0_nT != 0.0:
-        sign = float(np.sign(mag_m0_nT))
-    moment_axis = np.array([0.0, 0.0, sign])
-    north_axis = -moment_axis
-    moment_axis[np.isclose(moment_axis, 0.0)] = 0.0
-    north_axis[np.isclose(north_axis, 0.0)] = 0.0
-    return {"moment_axis": moment_axis, "north_axis": north_axis, "south_axis": -north_axis}
-
-
-def centered_dipole_alignment_attrs(
-    event_time: dt.datetime, mag_m0_nT: float | None
-) -> dict[str, Any]:
-    """Return run-alignment metadata for the centered dipole."""
-    mainfield = Mainfield(kind="kaiju_dipole", epoch=decimal_year(event_time))
-    alignment = mainfield.alignment_metadata(event_time)
-    internal = gamera_internal_dipole_axes(mag_m0_nT)
-    return {
-        "gamera_coordinate_system": "SM",
-        "gamera_internal_dipole_axis": internal["north_axis"],
-        "gamera_internal_magnetic_north_axis": internal["north_axis"],
-        "gamera_internal_magnetic_south_axis": internal["south_axis"],
-        "gamera_internal_dipole_moment_axis": internal["moment_axis"],
-        "gamera_internal_north_pole_lat_lon": axis_lat_lon(internal["north_axis"]),
-        "gamera_internal_south_pole_lat_lon": axis_lat_lon(internal["south_axis"]),
-        "remix_local_noon_longitude_deg": 0.0,
-        "pynamit_run_coordinate_system": "SM",
-        "dipole_noon_mlon_deg_at_start": 0.0,
-        "dipole_mag_noon_mlon_deg_at_start": alignment["dipole_mag_noon_mlon_deg"],
-        **alignment,
-    }
 
 
 def resolve_tiegcm_path(gamera_dir: Path, explicit_path: str | Path | None) -> Path:
@@ -341,7 +283,7 @@ def merge_south_with_north(south: np.ndarray, north: np.ndarray) -> np.ndarray:
 def remix_hemisphere_fields(
     ion: Any,
     hemisphere: str,
-    coordinate_field: Mainfield,
+    coordinate_field: MainField,
     mlat: np.ndarray,
     sm_lon: np.ndarray,
     tiegcm_lon: np.ndarray,
@@ -406,11 +348,11 @@ def remix_fields_for_step(
             "where kaipy and its dependencies are installed."
         ) from exc
 
-    coordinate_field = Mainfield(kind="kaiju_dipole", epoch=decimal_year(event_time))
+    coordinate_field = MainField(kind="kaiju_dipole", epoch=decimal_year(event_time))
     ion = remix.remix(str(remix_file), step)
     _, _, theta, phi = ion.cartesianCellCenters()
     mlat = 90.0 - theta / np.pi * 180.0
-    sm_lon = wrap_longitude_180_value(phi / np.pi * 180.0)
+    sm_lon = wrap_longitude_180(phi / np.pi * 180.0)
 
     north = remix_hemisphere_fields(
         ion, "NORTH", coordinate_field, mlat, sm_lon, tiegcm_lon, tiegcm_lat, event_time

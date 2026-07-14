@@ -6,9 +6,12 @@ import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
 import numpy as np
 
-from pynamit.visualization.field_comparison_figures import figure_time_string
-from pynamit.visualization.figure_context import SavedRunFigureContext
-from pynamit.visualization.figure_styles import INPUT_SUMMARY_KWARGS, percentile_contour_levels
+from pynamit.visualization.figure_context import (
+    as_figure_spec,
+    figure_time_string,
+    get_saved_field_view,
+)
+from pynamit.visualization.figure_styles import INPUT_SUMMARY_KWARGS
 from pynamit.visualization.hemisphere import (
     hemisphere_masks_for_latitude,
     make_hemisphere_polarplot,
@@ -16,6 +19,7 @@ from pynamit.visualization.hemisphere import (
 from pynamit.visualization.plot_helpers import (
     add_panel_label,
     contour_kwargs_for_display,
+    percentile_contour_levels,
     set_contour_edges_to_face,
     style_global_input_axis,
 )
@@ -25,14 +29,13 @@ class InputDriverRenderer:
     """Render projected input drivers on the saved-run grid."""
 
     def __init__(self, spec, view=None):
-        self.context = SavedRunFigureContext.from_spec(spec, view=view)
-        self.spec = self.context.spec
-        self.view = self.context.view
+        self.spec = as_figure_spec(spec)
+        self.view = get_saved_field_view(self.spec) if view is None else view
 
     def render(self):
         """Render projected input drivers."""
-        fields = self.view.input_grid_fields(self.context.time_index)
-        timestamp = self.context.timestamp
+        fields = self.view.input_grid_fields(self.spec.time_index)
+        timestamp = self.view.timestamp_at_index(self.spec.time_index)
         input_kwargs = self._plot_kwargs(fields)
 
         fig = plt.figure(figsize=(14, 7.875))
@@ -354,9 +357,4 @@ class InputDriverRenderer:
             conductance_axis.axis("off")
 
 
-def render_input_summary_figure(spec, view=None):
-    """Render projected input drivers."""
-    return InputDriverRenderer(spec, view=view).render()
-
-
-__all__ = ["InputDriverRenderer", "render_input_summary_figure"]
+__all__ = ["InputDriverRenderer"]

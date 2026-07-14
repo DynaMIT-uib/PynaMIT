@@ -435,7 +435,12 @@ class SphericalTransform:
         pinv_rtol,
     ):
         """Project one scalar or Helmholtz field batch."""
-        value_batch = self._normalize_value_batch(values, input_grid, helmholtz=helmholtz)
+        normalize_values = (
+            self.normalize_helmholtz_value_batch
+            if helmholtz
+            else self.normalize_scalar_value_batch
+        )
+        value_batch = normalize_values(values, input_grid)
         direct_projection = self._basis_can_project_directly(projection_basis)
         analyze = "analyze_helmholtz" if helmholtz else "analyze_scalar"
 
@@ -532,31 +537,27 @@ class SphericalTransform:
 
     def normalize_scalar_value_batch(self, values, input_grid):
         """Return scalar values with canonical time-first layout."""
-        return self._normalize_value_batch(values, input_grid, helmholtz=False)
-
-    def normalize_helmholtz_value_batch(self, values, input_grid):
-        """Return tangential values with canonical time-first layout."""
-        return self._normalize_value_batch(values, input_grid, helmholtz=True)
-
-    def _normalize_value_batch(self, values, input_grid, *, helmholtz):
-        """Return values with canonical time-first layout."""
         n_points = int(input_grid.size)
         array = np.asarray(values)
 
-        if not helmholtz:
-            if array.ndim == 1:
-                if array.size != n_points:
-                    raise ValueError(f"Scalar field has {array.size} points, expected {n_points}.")
-                return array.reshape(1, n_points)
-            if array.ndim == 2:
-                if array.shape[-1] == n_points:
-                    return array
-                if array.shape[0] == n_points:
-                    return array.T
-            raise ValueError(
-                "Scalar projection expects shape (N,), (T, N), or (N, T); "
-                f"got {array.shape} for grid size {n_points}."
-            )
+        if array.ndim == 1:
+            if array.size != n_points:
+                raise ValueError(f"Scalar field has {array.size} points, expected {n_points}.")
+            return array.reshape(1, n_points)
+        if array.ndim == 2:
+            if array.shape[-1] == n_points:
+                return array
+            if array.shape[0] == n_points:
+                return array.T
+        raise ValueError(
+            "Scalar projection expects shape (N,), (T, N), or (N, T); "
+            f"got {array.shape} for grid size {n_points}."
+        )
+
+    def normalize_helmholtz_value_batch(self, values, input_grid):
+        """Return tangential values with canonical time-first layout."""
+        n_points = int(input_grid.size)
+        array = np.asarray(values)
 
         if array.ndim == 2:
             if array.shape == (2, n_points):
@@ -609,7 +610,7 @@ class SphericalTransform:
 
         cache_key = (
             _representation_signature(projection_basis),
-            input_grid.signature,
+            input_grid.analysis_signature if self.area_weighted else input_grid.signature,
             reg_lambda,
             pinv_rtol,
             self.area_weighted,

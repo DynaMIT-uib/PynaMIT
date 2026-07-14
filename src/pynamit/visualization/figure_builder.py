@@ -7,45 +7,25 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-from pynamit.visualization.field_comparison_figures import (
-    FieldComparisonRenderer,
-    render_field_comparison_figure,
-)
-from pynamit.visualization.figure_context import (
-    as_figure_spec,
-    clear_saved_field_view_cache,
-    get_saved_field_view,
-)
+from pynamit.visualization.field_comparison_figures import FieldComparisonRenderer
+from pynamit.visualization.figure_context import as_figure_spec, get_saved_field_view
 from pynamit.visualization.figure_specs import PynamitFigureSpec
-from pynamit.visualization.figure_styles import (
-    FIELD_DIFF_KWARGS,
-    FIELD_PLOT_KWARGS,
-    INPUT_SUMMARY_KWARGS,
-    map_line_keys,
-)
-from pynamit.visualization.ground_figures import (
-    GroundFigureRenderer,
-    render_ground_curve_map_figure,
-    render_ground_timeseries_figure,
-)
-from pynamit.visualization.input_driver_figures import (
-    InputDriverRenderer,
-    render_input_summary_figure,
-)
+from pynamit.visualization.ground_figures import GroundFigureRenderer
+from pynamit.visualization.input_driver_figures import InputDriverRenderer
 
 
 def render_pynamit_figure(spec, view=None):
     """Render a Matplotlib figure from a serializable figure spec."""
     spec = as_figure_spec(spec)
     if spec.plot_type in {"global", "hemispheres"}:
-        return render_field_comparison_figure(spec, view=view)
+        return FieldComparisonRenderer(spec, view=view).render()
     if spec.plot_type == "input_summary":
-        return render_input_summary_figure(spec, view=view)
+        return InputDriverRenderer(spec, view=view).render()
     if spec.plot_type == "ground_curve_map":
-        return render_ground_curve_map_figure(spec, view=view)
+        return GroundFigureRenderer(spec, view=view).render_curve_map()
     if spec.plot_type == "ground_timeseries":
-        return render_ground_timeseries_figure(spec, view=view)
-    raise NotImplementedError(f"{spec.plot_type!r} is not implemented in the Panel renderer.")
+        return GroundFigureRenderer(spec, view=view).render_timeseries()
+    raise NotImplementedError(f"{spec.plot_type!r} is not implemented by the figure renderer.")
 
 
 def save_pynamit_movie(spec, output_path, *, fps=None, dpi=None):
@@ -100,20 +80,4 @@ def save_pynamit_movie(spec, output_path, *, fps=None, dpi=None):
     return output_path
 
 
-__all__ = [
-    "FIELD_DIFF_KWARGS",
-    "FIELD_PLOT_KWARGS",
-    "INPUT_SUMMARY_KWARGS",
-    "FieldComparisonRenderer",
-    "GroundFigureRenderer",
-    "InputDriverRenderer",
-    "clear_saved_field_view_cache",
-    "get_saved_field_view",
-    "map_line_keys",
-    "render_field_comparison_figure",
-    "render_ground_curve_map_figure",
-    "render_ground_timeseries_figure",
-    "render_input_summary_figure",
-    "render_pynamit_figure",
-    "save_pynamit_movie",
-]
+__all__ = ["render_pynamit_figure", "save_pynamit_movie"]

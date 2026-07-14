@@ -1,7 +1,5 @@
 """Shared style tables and small helpers for PynaMIT figures."""
 
-from __future__ import annotations
-
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -24,10 +22,10 @@ FIELD_PLOT_KWARGS = {
         "units": "A/m$^2$",
     },
     "joule": {
-        "cmap": plt.cm.bwr,
-        "levels": np.linspace(-8.5, 8.5, 18) * 1e-3,
+        "cmap": plt.cm.inferno,
+        "levels": np.linspace(0.0, 8.5, 18) * 1e-3,
         "extend": "max",
-        "symbol": "Joule heat",
+        "symbol": "Joule heating",
         "units": "W/m$^2$",
     },
     "Jeq": {
@@ -63,8 +61,9 @@ FIELD_DIFF_KWARGS = {
     },
     "joule": {
         **FIELD_PLOT_KWARGS["joule"],
-        "levels": FIELD_PLOT_KWARGS["joule"]["levels"] * 0.5,
-        "symbol": "$\\Delta$ Joule heat",
+        "cmap": plt.cm.bwr,
+        "levels": np.linspace(-4.25, 4.25, 18) * 1e-3,
+        "symbol": "$\\Delta$ Joule heating",
         "extend": "both",
     },
     "Jeq": {
@@ -130,52 +129,4 @@ def map_line_keys(value):
     return [value]
 
 
-def finite_values(data_arrays):
-    """Return finite flattened values from one or more arrays."""
-    chunks = []
-    for values in data_arrays:
-        array = np.asarray(values, dtype=float).reshape(-1)
-        finite = array[np.isfinite(array)]
-        if finite.size:
-            chunks.append(finite)
-    return np.concatenate(chunks) if chunks else np.array([], dtype=float)
-
-
-def percentile_contour_levels(
-    data_arrays, fallback_levels, *, percentile=99.8, strictly_positive=False
-):
-    """Build contour levels from robust percentiles."""
-    finite = finite_values(data_arrays)
-    if finite.size == 0:
-        return fallback_levels
-    n_levels = max(len(fallback_levels), 3)
-    percentile = float(np.clip(percentile, 0.0, 100.0))
-    if strictly_positive:
-        finite = finite[finite >= 0.0]
-        if finite.size == 0:
-            return fallback_levels
-        vmax = float(np.percentile(finite, percentile))
-        if not np.isfinite(vmax) or vmax <= 0.0:
-            return fallback_levels
-        return np.linspace(0.0, vmax, n_levels)
-    vmax = float(np.percentile(np.abs(finite), percentile))
-    if not np.isfinite(vmax) or vmax <= 0.0:
-        return fallback_levels
-    return np.linspace(-vmax, vmax, n_levels)
-
-
-def format_contour_interval(value, units):
-    """Return a compact contour interval label."""
-    text = f"{float(value):.3g}"
-    return f"{text} {units}" if units else text
-
-
-__all__ = [
-    "FIELD_DIFF_KWARGS",
-    "FIELD_PLOT_KWARGS",
-    "INPUT_SUMMARY_KWARGS",
-    "finite_values",
-    "format_contour_interval",
-    "map_line_keys",
-    "percentile_contour_levels",
-]
+__all__ = ["FIELD_DIFF_KWARGS", "FIELD_PLOT_KWARGS", "INPUT_SUMMARY_KWARGS", "map_line_keys"]

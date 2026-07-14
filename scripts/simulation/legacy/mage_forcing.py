@@ -15,7 +15,7 @@ from pynamit.visualization.results import plot_global_polar_map
 
 RE = 6381e3
 RI = 6.5e6
-latitude_boundary = 35
+interhemispheric_coupling_latitude = 35
 latitude_step = 0.5
 
 PLOT_BR = False
@@ -36,26 +36,26 @@ date = datetime.datetime(2013, 3, 17, 10)
 d = dipole.Dipole(date.year)
 
 # Set up simulation object.
-dynamics = pynamit.Dynamics(
+simulation = pynamit.Simulation(
     run_directory=run_directory,
     Nmax=Nmax,
     Mmax=Mmax,
     Ncs=Ncs,
     RI=RI,
     RM=1.5 * RI,
-    mainfield_kind="dipole",
-    FAC_integration_steps=rk,
-    ignore_PFAC=True,
-    connect_hemispheres=False,
-    latitude_boundary=latitude_boundary,
-    ih_constraint_scaling=1e-5,
+    main_field_kind="dipole",
+    fac_integration_radii=rk,
+    enable_pfac_coupling=False,
+    enable_interhemispheric_coupling=False,
+    interhemispheric_coupling_latitude=interhemispheric_coupling_latitude,
+    interhemispheric_electric_field_weight=1e-5,
     t0=str(date),
     integrator="exponential",
 )
 state_field_space = pynamit.FieldSpace.from_representation(
-    dynamics.state.basis, field_type="scalar"
+    simulation.geometry.horizontal_basis, field_type="scalar"
 )
-conductance_field_space = dynamics.input_field_spaces["conductance"]
+conductance_field_space = simulation.run_data.schema.input_field_spaces["resistance"]
 
 mage_dir = "./mage_data/"
 mage_tag = "msphere"
@@ -158,10 +158,10 @@ for step in range(0, nstep):
     #        title="Br at 1.0 RI",
     #    )
 
-    dynamics.set_Br(
-        dynamics.state.geometry.spherical_transform.synthesize_scalar(Br_field),
-        theta=dynamics.state.geometry.grid.theta,
-        phi=dynamics.state.geometry.grid.phi,
+    simulation.set_Br(
+        simulation.geometry.horizontal_transform.synthesize_scalar(Br_field),
+        theta=simulation.geometry.model_grid.theta,
+        phi=simulation.geometry.model_grid.phi,
         time=dt * step,
     )
 
@@ -193,12 +193,12 @@ for step in range(0, nstep):
         full_phi_centered = np.concatenate((north_phi_centered, south_phi_centered))
 
         # Zero pad by adding latitude_step degrees to theta, starting
-        # from 90 - latitude_boundary + latitude_step until 90 degree
+        # from 90 - interhemispheric_coupling_latitude + latitude_step until 90 degree
         # theta is reached. Each latitude is repeated the same number of
         # times as the number of longitude points.
         theta_padding = np.tile(
             np.arange(
-                90 - latitude_boundary + latitude_step, 90 + latitude_step, latitude_step
+                90 - interhemispheric_coupling_latitude + latitude_step, 90 + latitude_step, latitude_step
             ).reshape((-1, 1)),
             (1, north_theta.shape[1]),
         )
@@ -298,9 +298,9 @@ for step in range(0, nstep):
     grid = pynamit.Grid(
         theta=full_theta_padded_centered.flatten(), phi=full_phi_padded_centered.flatten()
     )
-    b_evaluator = pynamit.FieldEvaluator(dynamics.mainfield, grid, RI)
-    jr_input = full_current_padded.flatten() * b_evaluator.br
-    dynamics.set_jr(
+    field_evaluation = pynamit.MagneticFieldEvaluation(simulation.geometry.main_field, grid, RI)
+    jr_input = full_current_padded.flatten() * field_evaluation.unit_br
+    simulation.set_jr(
         jr_input,
         theta=full_theta_padded_centered.flatten(),
         phi=full_phi_padded_centered.flatten(),
@@ -309,7 +309,7 @@ for step in range(0, nstep):
         reg_lambda=JR_LAMBDA,
     )
 
-    dynamics.set_conductance(
+    simulation.set_conductance(
         full_conductance_hall.flatten(),
         full_conductance_pedersen.flatten(),
         theta=full_theta_centered.flatten(),
@@ -319,14 +319,16 @@ for step in range(0, nstep):
         reg_lambda=CONDUCTANCE_LAMBDA,
     )
 
-    dynamics.set_input_state_variables()
+    simulation.set_input_state_variables()
 
     if PLOT_JR:
         plot_global_polar_map(
             plt_lon,
             plt_lat,
-            pynamit.SphericalTransform(dynamics.state.jr.representation, plt_grid)
-            .synthesize_scalar(dynamics.state.jr)
+            pynamit.SphericalTransform(
+                simulation.response.jr.field_space.representation, plt_grid
+            )
+            .synthesize_scalar(simulation.response.jr)
             .reshape(plt_lon.shape),
             cmap=plt.cm.bwr,
             extend="both",
@@ -337,7 +339,7 @@ for step in range(0, nstep):
         plot_global_polar_map(
             plt_lon,
             plt_lat,
-            conductance_plt_evaluator.synthesize_scalar(dynamics.state.etaP).reshape(
+            conductance_plt_evaluator.synthesize_scalar(simulation.response.etaP).reshape(
                 plt_lon.shape
             ),
             cmap=plt.cm.viridis,
@@ -348,7 +350,7 @@ for step in range(0, nstep):
         plot_global_polar_map(
             plt_lon,
             plt_lat,
-            conductance_plt_evaluator.synthesize_scalar(dynamics.state.etaH).reshape(
+            conductance_plt_evaluator.synthesize_scalar(simulation.response.etaH).reshape(
                 plt_lon.shape
             ),
             cmap=plt.cm.viridis,
@@ -483,11 +485,12 @@ for step in range(0, nstep):
         lat, lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)
         lat, lon = np.meshgrid(lat, lon)
         plt_grid = pynamit.Grid(lat=lat, lon=lon)
-        plt_evaluator = pynamit.SphericalTransform(dynamics.state.jr.representation, plt_grid)
-        b_evaluator = pynamit.FieldEvaluator(dynamics.mainfield, plt_grid, RI)
+        plt_evaluator = pynamit.SphericalTransform(
+            simulation.response.jr.field_space.representation, plt_grid
+        )
 
-        dynamics.set_state_variables("jr")
-        jr_interpolated = plt_evaluator.synthesize_scalar(dynamics.state.jr)
+        simulation.set_state_variables("jr")
+        jr_interpolated = plt_evaluator.synthesize_scalar(simulation.response.jr)
 
         # jr interpolated:
         contours_interpolated = {}
@@ -509,7 +512,7 @@ for step in range(0, nstep):
 
         plt.show()
 
-dynamics.impose_steady_state()
+simulation.impose_steady_state()
 
 final_time = 3600  # seconds
-dynamics.evolve_to_time(final_time, dt=dt, sampling_step_interval=1, saving_sample_interval=1)
+simulation.evolve_to_time(final_time, dt=dt, sampling_step_interval=1, saving_sample_interval=1)

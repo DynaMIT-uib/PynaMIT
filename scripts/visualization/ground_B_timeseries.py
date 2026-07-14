@@ -5,7 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pynamit
 from pynamit.math.constants import RE
-from pynamit.primitives.io import IO
+from pynamit.storage import ArtifactStore
 import dipole
 import datetime
 import apexpy
@@ -16,7 +16,7 @@ DATA_DIRECTORY = Path("../simulation/oscillations")
 
 def _load_period_dataset(period, name):
     run_directory = DATA_DIRECTORY / f"{period:02d}s"
-    dataset = IO(run_directory).load_dataset(name)
+    dataset = ArtifactStore(run_directory).load_dataset(name)
     if dataset is None:
         raise FileNotFoundError(f"No {name!r} artifact found in run directory {run_directory}.")
     return dataset

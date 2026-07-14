@@ -1,41 +1,35 @@
 """Regularization test module."""
 
-import os
-import tempfile
 import pytest
 
-from pynamit.default_run import run_pynamit
+from pynamit.simulation.workflows.standard import run_pynamit
 import numpy as np
 
 
 def test_regularization():
     """Test simulation with regularization."""
     # Arrange.
-    expected_coeff_norm = 1.3111421667172157e-08
-    expected_coeff_max = 1.7160298767949959e-09
-    expected_coeff_min = -4.857200379874152e-09
+    # HWM winds are rotated from geographic into dipole coordinates.
+    expected_coeff_norm = 1.2960635862604889e-08
+    expected_coeff_max = 3.370053993359145e-09
+    expected_coeff_min = -5.213238261015422e-09
     expected_n_coeffs = 228
 
-    temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
-    if not os.path.exists(temp_dir):
-        os.mkdir(temp_dir)
-
     # Act.
-    dynamics = run_pynamit(
+    simulation = run_pynamit(
         final_time=0.1,
         dt=1e-2,
         Nmax=10,
         Mmax=8,
         Ncs=18,
-        mainfield_kind="dipole",
-        fig_directory=temp_dir,
-        ignore_PFAC=False,
-        connect_hemispheres=True,
-        latitude_boundary=50,
+        main_field_kind="dipole",
+        enable_pfac_coupling=True,
+        enable_interhemispheric_coupling=True,
+        interhemispheric_coupling_latitude=50,
         use_wind=True,
         steady_state_initialization=True,
         jr_projection_basis="SH",
-        conductance_projection_basis="SH",
+        resistance_projection_basis="SH",
         u_projection_basis="SH",
         jr_lambda=1e-3,
         conductance_lambda=1e-3,
@@ -45,8 +39,8 @@ def test_regularization():
     # Assert.
     coeff_array = np.hstack(
         (
-            dynamics.output_timeseries.datasets["state"]["SH_m_ind"].values[-1],
-            dynamics.output_timeseries.datasets["state"]["SH_m_imp"].values[-1],
+            simulation.run_data.output_series.datasets["state"]["SH_m_ind"].values[-1],
+            simulation.run_data.output_series.datasets["state"]["SH_m_imp"].values[-1],
         )
     )
 

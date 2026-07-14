@@ -23,9 +23,9 @@ import numpy as np
 import pynamit
 
 from pynamit.coordinates import wrap_longitude_180
-from pynamit.primitives.field_evaluator import FieldEvaluator
-from pynamit.simulation.mainfield import Mainfield, decimal_year
-from pynamit.simulation.mage_workflow import (
+from pynamit.geomagnetism import MagneticFieldEvaluation
+from pynamit.geomagnetism import MainField, decimal_year
+from pynamit.simulation.workflows.mage import (
     DEFAULT_MMAX,
     DEFAULT_NCS,
     DEFAULT_NMAX,
@@ -43,7 +43,7 @@ from pynamit.simulation.mage_workflow import (
     summarize_input_cadence,
     tangential_sqrt_weights,
 )
-from pynamit.simulation.prepared_inputs import (
+from pynamit.simulation.workflows.prepared_inputs import (
     clear_prepared_input_package,
     write_input_manifest,
 )
@@ -91,7 +91,7 @@ class MageInputProjectionSettings:
 
     forcing_h5: Path | None = None
     input_directory: Path | None = None
-    mainfield_kind: str = "kaiju_dipole"
+    main_field_kind: str = "kaiju_dipole"
     dipole_B0: float | None = None
     fac_convention: str = "upward"
     RM: float | None = None
@@ -128,13 +128,13 @@ def resolve_existing_path(
 
 
 def projected_resistance_values(
-    dynamics: pynamit.Dynamics, grid: pynamit.Grid, time: float
+    simulation: pynamit.Simulation, grid: pynamit.Grid, time: float
 ) -> tuple[np.ndarray, np.ndarray]:
     """Evaluate projected sheet resistance coefficients on ``grid``."""
-    conductance_entry = dynamics.input_timeseries.get_entry("conductance", time)
+    conductance_entry = simulation.run_data.input_series.get_entry("resistance", time)
     if conductance_entry is None:
         raise RuntimeError("Conductance must be set before computing direct wind E_source.")
-    field_space = dynamics.input_field_spaces["conductance"]
+    field_space = simulation.run_data.schema.input_field_spaces["resistance"]
     evaluator = field_space.representation.get_scalar_evaluation_operator(grid)
     return (
         np.asarray(evaluator.matvec(conductance_entry["etaP"])).reshape(-1),
@@ -186,9 +186,9 @@ def _clear_existing_input_package(directory: Path, artifact_storage: str) -> Non
 
 def project_mage_inputs(settings: MageInputProjectionSettings = SETTINGS) -> Path:
     """Project configured MAGE inputs into a PynaMIT input package."""
-    if settings.mainfield_kind not in CENTERED_DIPOLE_MODELS:
+    if settings.main_field_kind not in CENTERED_DIPOLE_MODELS:
         raise ValueError(
-            f"Unsupported mainfield_kind {settings.mainfield_kind!r}; "
+            f"Unsupported main_field_kind {settings.main_field_kind!r}; "
             f"expected one of {CENTERED_DIPOLE_MODELS}."
         )
     if settings.fac_convention not in ("upward", "field_aligned"):
@@ -219,14 +219,14 @@ def project_mage_inputs(settings: MageInputProjectionSettings = SETTINGS) -> Pat
         dipole_epoch = decimal_year(event_time)
         RM = boundary_radius_from_h5(file, settings.RM)
         dipole_B0 = dipole_B0_from_h5(file, settings.dipole_B0)
-        mainfield = Mainfield(kind=settings.mainfield_kind, epoch=dipole_epoch, B0=dipole_B0)
+        main_field = MainField(kind=settings.main_field_kind, epoch=dipole_epoch, B0=dipole_B0)
         gamera_dipole = gamera_internal_dipole_details(file)
-        alignment = mainfield.alignment_metadata(event_time)
+        alignment = main_field.alignment_metadata(event_time)
         rk = dipole_radial_sampling(RI, RM, n_steps=40)
 
         ionosphere_lat_geo = np.asarray(file["glat"][:], dtype=float)
         ionosphere_lon_geo = wrap_longitude_180(file["glon"][:])
-        ionosphere_lat, ionosphere_lon = mainfield.geo_to_model_coordinates(
+        ionosphere_lat, ionosphere_lon = main_field.geo_to_model_coordinates(
             ionosphere_lat_geo, ionosphere_lon_geo, event_time=coordinate_time
         )
         ionosphere_grid = pynamit.Grid(lat=ionosphere_lat, lon=ionosphere_lon)
@@ -244,7 +244,7 @@ def project_mage_inputs(settings: MageInputProjectionSettings = SETTINGS) -> Pat
             f"({len(forcing_times)} step(s))",
             flush=True,
         )
-        print(f"Main field used for projection: {settings.mainfield_kind}", flush=True)
+        print(f"Main field used for projection: {settings.main_field_kind}", flush=True)
         print(f"Dipole alignment model: {alignment['dipole_alignment_model']}", flush=True)
         print(f"Dipole epoch: {dipole_epoch:.9f}", flush=True)
         print(f"Dipole B0: {dipole_B0:.6g} T ({dipole_B0 * 1e9:.6g} nT)", flush=True)
@@ -254,30 +254,34 @@ def project_mage_inputs(settings: MageInputProjectionSettings = SETTINGS) -> Pat
         print("Wind forcing: direct E_source from Pedersen/Hall weighted winds", flush=True)
         print(f"FAC convention: {settings.fac_convention}", flush=True)
 
-        dynamics = pynamit.Dynamics(
+        simulation = pynamit.Simulation(
             run_directory=input_directory,
             Nmax=settings.nmax,
             Mmax=settings.mmax,
             Ncs=settings.ncs,
             RI=RI,
             RM=RM,
-            RM_shielding=False,
-            mainfield_kind=settings.mainfield_kind,
-            mainfield_epoch=dipole_epoch,
-            mainfield_B0=dipole_B0,
-            FAC_integration_steps=rk,
-            ignore_PFAC=True,
-            connect_hemispheres=False,
-            latitude_boundary=LATITUDE_BOUNDARY,
-            ih_constraint_scaling=1e-5,
+            magnetic_boundary_shielding=False,
+            main_field_kind=settings.main_field_kind,
+            main_field_epoch=dipole_epoch,
+            main_field_B0=dipole_B0,
+            fac_integration_radii=rk,
+            enable_pfac_coupling=False,
+            enable_interhemispheric_coupling=False,
+            interhemispheric_coupling_latitude=LATITUDE_BOUNDARY,
+            interhemispheric_electric_field_weight=1e-5,
             t0=str(event_time),
             save_steady_states=False,
             integrator="exponential",
             artifact_storage=settings.artifact_storage,
         )
 
-        FAC_b_evaluator = FieldEvaluator(dynamics.mainfield, ionosphere_grid, RI)
-        wind_b_evaluator = FieldEvaluator(dynamics.mainfield, ionosphere_grid, RI)
+        fac_field_evaluation = MagneticFieldEvaluation(
+            simulation.geometry.main_field, ionosphere_grid, RI
+        )
+        wind_field_evaluation = MagneticFieldEvaluation(
+            simulation.geometry.main_field, ionosphere_grid, RI
+        )
 
         if settings.max_steps is not None:
             input_times = input_times[: int(settings.max_steps)]
@@ -298,13 +302,13 @@ def project_mage_inputs(settings: MageInputProjectionSettings = SETTINGS) -> Pat
             if np.any(~np.isfinite(delta_Br)):
                 raise ValueError("Br input contains non-finite values.")
             print_field_stats("  Delta Br [T]", delta_Br)
-            magnetosphere_lon = mainfield.local_time_longitude_to_model_longitude(
+            magnetosphere_lon = main_field.local_time_longitude_to_model_longitude(
                 magnetosphere_lon_raw,
                 coordinate_time,
                 local_noon_longitude=MAGE_BR_LOCAL_NOON_LONGITUDE,
             )
             magnetosphere_grid = pynamit.Grid(lat=magnetosphere_lat_raw, lon=magnetosphere_lon)
-            dynamics.set_Br(
+            simulation.set_Br(
                 delta_Br,
                 lat=magnetosphere_grid.lat,
                 lon=magnetosphere_grid.lon,
@@ -318,11 +322,11 @@ def project_mage_inputs(settings: MageInputProjectionSettings = SETTINGS) -> Pat
                 print("  FAC contains non-finite values; setting them to 0.", flush=True)
                 FAC[~np.isfinite(FAC)] = 0.0
             if settings.fac_convention == "field_aligned":
-                jr = FAC.reshape(-1) * FAC_b_evaluator.br
+                jr = FAC.reshape(-1) * fac_field_evaluation.unit_br
             else:
                 jr = FAC.reshape(-1)
             print_field_stats("  jr [A/m^2]", jr)
-            dynamics.set_jr(
+            simulation.set_jr(
                 jr,
                 lat=ionosphere_grid.lat,
                 lon=ionosphere_grid.lon,
@@ -341,7 +345,7 @@ def project_mage_inputs(settings: MageInputProjectionSettings = SETTINGS) -> Pat
                 )
             print_field_stats("  Hall conductance [S]", sigma_h)
             print_field_stats("  Pedersen conductance [S]", sigma_p)
-            dynamics.set_conductance(
+            simulation.set_conductance(
                 sigma_h,
                 sigma_p,
                 lat=ionosphere_grid.lat,
@@ -352,7 +356,7 @@ def project_mage_inputs(settings: MageInputProjectionSettings = SETTINGS) -> Pat
             )
 
             u_p_east, u_p_north, u_h_east, u_h_north = load_weighted_winds(file, step)
-            _, _, u_p_east, u_p_north = mainfield.geo_to_model_coordinates(
+            _, _, u_p_east, u_p_north = main_field.geo_to_model_coordinates(
                 ionosphere_lat_geo,
                 ionosphere_lon_geo,
                 u_p_east,
@@ -363,7 +367,7 @@ def project_mage_inputs(settings: MageInputProjectionSettings = SETTINGS) -> Pat
             u_p_phi = np.asarray(u_p_east, dtype=float).reshape(-1)
             print_field_stats("  Pedersen-weighted wind speed [m/s]", np.hypot(u_p_theta, u_p_phi))
 
-            _, _, u_h_east, u_h_north = mainfield.geo_to_model_coordinates(
+            _, _, u_h_east, u_h_north = main_field.geo_to_model_coordinates(
                 ionosphere_lat_geo,
                 ionosphere_lon_geo,
                 u_h_east,
@@ -374,7 +378,7 @@ def project_mage_inputs(settings: MageInputProjectionSettings = SETTINGS) -> Pat
             u_h_phi = np.asarray(u_h_east, dtype=float).reshape(-1)
             print_field_stats("  Hall-weighted wind speed [m/s]", np.hypot(u_h_theta, u_h_phi))
 
-            eta_p, eta_h = projected_resistance_values(dynamics, ionosphere_grid, input_time)
+            eta_p, eta_h = projected_resistance_values(simulation, ionosphere_grid, input_time)
             e_source_theta, e_source_phi = direct_E_source_for_pynamit(
                 sigma_p=sigma_p,
                 sigma_h=sigma_h,
@@ -382,14 +386,14 @@ def project_mage_inputs(settings: MageInputProjectionSettings = SETTINGS) -> Pat
                 u_p_phi=u_p_phi,
                 u_h_theta=u_h_theta,
                 u_h_phi=u_h_phi,
-                field=wind_b_evaluator,
+                field=wind_field_evaluation,
                 eta_p=eta_p,
                 eta_h=eta_h,
             )
             print_field_stats(
                 "  Direct wind E_source [V/m]", np.hypot(e_source_theta, e_source_phi)
             )
-            dynamics.set_E_source(
+            simulation.set_E_source(
                 E_source_theta=e_source_theta,
                 E_source_phi=e_source_phi,
                 lat=ionosphere_grid.lat,
@@ -400,7 +404,9 @@ def project_mage_inputs(settings: MageInputProjectionSettings = SETTINGS) -> Pat
             )
 
         projected_datasets = [
-            key for key in dynamics.schema.input_vars if key in dynamics.input_timeseries.datasets
+            key
+            for key in simulation.run_data.schema.input_variables
+            if key in simulation.run_data.input_series.datasets
         ]
         source_tiegcm = file.attrs.get("tiegcm_nc", None)
         if isinstance(source_tiegcm, bytes):
@@ -418,7 +424,7 @@ def project_mage_inputs(settings: MageInputProjectionSettings = SETTINGS) -> Pat
         }
         write_input_manifest(
             input_directory,
-            dynamics.settings,
+            simulation.run_data.config,
             input_datasets=projected_datasets,
             source="mage_project_inputs.py",
             notes=(
@@ -443,8 +449,8 @@ def project_mage_inputs(settings: MageInputProjectionSettings = SETTINGS) -> Pat
                 "tiegcm_nc": None if source_tiegcm is None else str(source_tiegcm),
                 "event_time": event_time.isoformat(),
                 "coordinate_time": coordinate_time.isoformat(),
-                "mainfield_kind": settings.mainfield_kind,
-                "mainfield_epoch": dipole_epoch,
+                "main_field_kind": settings.main_field_kind,
+                "main_field_epoch": dipole_epoch,
                 "dipole_B0_T": dipole_B0,
                 "RM_m": RM,
                 "fac_convention": settings.fac_convention,

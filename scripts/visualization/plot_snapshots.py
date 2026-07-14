@@ -252,7 +252,7 @@ if EQUATORIAL_EFIELD:
 
         phi = evaluate_Phi_coefficients(a.geometry, a.Phi_coeffs, evaluator)
 
-        Br, Btheta, Bphi = a.mainfield.get_B(a.RI, grid.theta, grid.lon)
+        Br, Btheta, Bphi = a.main_field.field_components(a.RI, grid.theta, grid.lon)
         Bh = np.sqrt(Btheta**2 + Bphi**2).flatten()
 
         vr = (-np.diff(phi) / dl) / Bh[:-1]

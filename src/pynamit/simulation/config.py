@@ -3,25 +3,111 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, fields
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import xarray as xr
 
 from pynamit.math.constants import RE
-from pynamit.math.least_squares_solver import get_default_least_squares_solver
+from pynamit.math.least_squares_solver import LeastSquaresSolver, get_default_least_squares_solver
+from pynamit.geomagnetism.main_field import normalize_main_field_kind
 
-INDEPENDENT_PROJECTION_BASIS_KEYS = ("jr", "Br", "conductance", "u")
+INDEPENDENT_PROJECTION_BASIS_KEYS = ("jr", "Br", "resistance", "u", "E_source")
 PROJECTION_BASIS_KEYS = INDEPENDENT_PROJECTION_BASIS_KEYS + ("Q_eff",)
 PROJECTION_BASIS_SETTING_NAMES = tuple(f"{key}_projection_basis" for key in PROJECTION_BASIS_KEYS)
+INTEGRATORS = {
+    "euler": "euler",
+    "exponential": "exponential",
+    "rk23": "RK23",
+    "rk45": "RK45",
+    "dop853": "DOP853",
+    "radau": "Radau",
+    "bdf": "BDF",
+    "lsoda": "LSODA",
+}
+_DERIVED_SETTING_NAMES = frozenset((*PROJECTION_BASIS_SETTING_NAMES, "fac_integration_radii"))
 
 _MISSING = object()
 
 
-def default_fac_integration_steps():
+def _integer_setting(value: Any, *, name: str, minimum: int) -> int:
+    """Return an integer setting without silently truncating it."""
+    if isinstance(value, (bool, np.bool_)):
+        raise ValueError(f"{name} must be an integer >= {minimum}.")
+    integer = int(value)
+    if integer != value or integer < minimum:
+        raise ValueError(f"{name} must be an integer >= {minimum}.")
+    return integer
+
+
+def _boolean_setting(value: Any, *, name: str) -> bool:
+    """Return a boolean without accepting arbitrary truthy values."""
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    if isinstance(value, (int, np.integer)) and value in {0, 1}:
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "yes", "1"}:
+            return True
+        if normalized in {"false", "no", "0"}:
+            return False
+    raise ValueError(f"{name} must be a boolean value.")
+
+
+def _normalize_integrator(value: Any) -> str:
+    """Return a canonical built-in or SciPy integration method."""
+    key = str(value).strip().lower()
+    try:
+        return INTEGRATORS[key]
+    except KeyError as exc:
+        raise ValueError(f"integrator must be one of {list(INTEGRATORS.values())}.") from exc
+
+
+def _normalize_least_squares_solver(value: Any) -> str:
+    """Return a supported least-squares solver name."""
+    normalized = str(value).strip().lower()
+    if normalized not in LeastSquaresSolver.VALID_SOLVERS:
+        raise ValueError(
+            f"least_squares_solver must be one of {list(LeastSquaresSolver.VALID_SOLVERS)}."
+        )
+    return normalized
+
+
+def _normalize_least_squares_preconditioner(value: Any) -> str | None:
+    """Return a supported preconditioner or ``None``."""
+    if value is None:
+        return None
+    normalized = str(value).strip().lower()
+    if normalized in {"", "none"}:
+        return None
+    if normalized not in LeastSquaresSolver.VALID_PRECONDITIONERS:
+        raise ValueError(
+            "least_squares_preconditioner must be one of "
+            f"{list(LeastSquaresSolver.VALID_PRECONDITIONERS)} or None."
+        )
+    return normalized
+
+
+def _normalize_start_time(value: Any) -> str:
+    """Return a canonical timezone-naive UTC start time."""
+    try:
+        timestamp = pd.Timestamp(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("t0 must be a valid datetime-like value.") from exc
+    if pd.isna(timestamp):
+        raise ValueError("t0 must be a valid datetime-like value.")
+    if timestamp.tz is not None:
+        timestamp = timestamp.tz_convert("UTC").tz_localize(None)
+    return timestamp.isoformat(sep=" ")
+
+
+def default_fac_integration_radii(RI=RE + 110.0e3, RM=None):
     """Return the default radial samples used for FAC integration."""
-    return np.logspace(np.log10(RE + 110.0e3), np.log10(4 * RE), 11)
+    outer_radius = 4 * RE if RM is None else RM
+    return np.logspace(np.log10(RI), np.log10(outer_radius), 11)
 
 
 def _plain_setting_value(value: Any) -> Any:
@@ -128,20 +214,21 @@ class SimulationConfig:
     Ncs: int = 30
     RI: float = RE + 110.0e3
     RM: float | None = None
-    RM_shielding: bool = False
-    latitude_boundary: float = 50
-    ignore_PFAC: bool = False
-    connect_hemispheres: bool = False
-    FAC_integration_steps: Any = field(default_factory=default_fac_integration_steps)
-    ih_constraint_scaling: float = 1e-5
-    mainfield_kind: str = "dipole"
-    mainfield_epoch: float = 2020.0
-    mainfield_B0: float | None = None
+    magnetic_boundary_shielding: bool = False
+    interhemispheric_coupling_latitude: float = 50
+    enable_pfac_coupling: bool = True
+    enable_interhemispheric_coupling: bool = False
+    fac_integration_radii: Any = None
+    interhemispheric_electric_field_weight: float = 1e-5
+    main_field_kind: str = "dipole"
+    main_field_epoch: float = 2020.0
+    main_field_B0: float | None = None
     jr_projection_basis: str | None = None
     Br_projection_basis: str | None = None
-    conductance_projection_basis: str | None = None
+    resistance_projection_basis: str | None = None
     u_projection_basis: str | None = None
     Q_eff_projection_basis: str | None = None
+    E_source_projection_basis: str | None = None
     horizontal_basis_kind: str = "SH"
     area_weighted_least_squares: bool = False
     t0: str = "2020-01-01 00:00:00"
@@ -149,27 +236,120 @@ class SimulationConfig:
     integrator: str = "euler"
     least_squares_solver: str | None = None
     least_squares_preconditioner: str | None = "pinv"
-    static_preconditioner: bool = False
+    reuse_preconditioner: bool = False
     m_imp_regularization_lambda: float = 0.0
 
     def __post_init__(self):
         """Normalize settings after dataclass initialization."""
-        object.__setattr__(self, "Nmax", int(self.Nmax))
-        object.__setattr__(self, "Mmax", int(self.Mmax))
-        object.__setattr__(self, "Ncs", int(self.Ncs))
-        object.__setattr__(self, "RI", float(self.RI))
-        object.__setattr__(self, "RM", _zero_to_none(self.RM))
-        object.__setattr__(self, "RM_shielding", bool(self.RM_shielding))
-        object.__setattr__(self, "latitude_boundary", float(self.latitude_boundary))
-        object.__setattr__(self, "ignore_PFAC", bool(self.ignore_PFAC))
-        object.__setattr__(self, "connect_hemispheres", bool(self.connect_hemispheres))
-        if self.FAC_integration_steps is None:
-            object.__setattr__(self, "FAC_integration_steps", default_fac_integration_steps())
-        object.__setattr__(self, "ih_constraint_scaling", float(self.ih_constraint_scaling))
-        object.__setattr__(self, "mainfield_kind", str(self.mainfield_kind))
-        object.__setattr__(self, "mainfield_epoch", float(self.mainfield_epoch))
-        object.__setattr__(self, "mainfield_B0", _zero_to_none(self.mainfield_B0))
+        self._normalize_resolution()
+        self._normalize_radial_domain()
+        self._normalize_coupling()
+        self._normalize_main_field()
+        self._normalize_bases()
+        self._normalize_numerical_policy()
 
+    def _normalize_resolution(self):
+        """Normalize angular and cubed-sphere resolution."""
+        object.__setattr__(self, "Nmax", _integer_setting(self.Nmax, name="Nmax", minimum=1))
+        object.__setattr__(self, "Mmax", _integer_setting(self.Mmax, name="Mmax", minimum=0))
+        object.__setattr__(self, "Ncs", _integer_setting(self.Ncs, name="Ncs", minimum=2))
+        if self.Mmax > self.Nmax:
+            raise ValueError("Mmax must be less than or equal to Nmax.")
+        if self.Ncs % 2:
+            raise ValueError("Ncs must be even for the cubed-sphere grid.")
+
+    def _normalize_radial_domain(self):
+        """Normalize radial bounds and FAC quadrature."""
+        object.__setattr__(self, "RI", float(self.RI))
+        object.__setattr__(
+            self,
+            "magnetic_boundary_shielding",
+            _boolean_setting(self.magnetic_boundary_shielding, name="magnetic_boundary_shielding"),
+        )
+        if not np.isfinite(self.RI) or self.RI <= RE:
+            raise ValueError("RI must be finite and greater than Earth's reference radius RE.")
+        if self.RM is not None:
+            object.__setattr__(self, "RM", float(self.RM))
+            if not np.isfinite(self.RM) or self.RM <= self.RI:
+                raise ValueError("RM must be finite and greater than RI.")
+        if self.magnetic_boundary_shielding and self.RM is None:
+            raise ValueError(
+                "magnetic_boundary_shielding requires a finite magnetospheric radius RM."
+            )
+        integration_radii = (
+            default_fac_integration_radii(self.RI, self.RM)
+            if self.fac_integration_radii is None
+            else np.asarray(self.fac_integration_radii, dtype=float)
+        )
+        integration_radii = np.array(integration_radii, dtype=float, copy=True)
+        if integration_radii.ndim != 1 or integration_radii.size < 2:
+            raise ValueError("fac_integration_radii must be a one-dimensional radial grid.")
+        if not np.all(np.isfinite(integration_radii)) or np.any(np.diff(integration_radii) <= 0.0):
+            raise ValueError("fac_integration_radii must be finite and strictly increasing.")
+        radius_tolerance = 1e-12 * self.RI
+        if integration_radii[0] < self.RI - radius_tolerance:
+            raise ValueError("fac_integration_radii must start at or outside RI.")
+        if self.RM is not None and integration_radii[-1] > self.RM + 1e-12 * self.RM:
+            raise ValueError("fac_integration_radii must end at or inside RM.")
+        integration_radii.setflags(write=False)
+        object.__setattr__(self, "fac_integration_radii", integration_radii)
+
+    def _normalize_coupling(self):
+        """Normalize magnetic coupling policy."""
+        object.__setattr__(
+            self,
+            "interhemispheric_coupling_latitude",
+            float(self.interhemispheric_coupling_latitude),
+        )
+        if (
+            not np.isfinite(self.interhemispheric_coupling_latitude)
+            or not 0.0 <= self.interhemispheric_coupling_latitude <= 90.0
+        ):
+            raise ValueError(
+                "interhemispheric_coupling_latitude must be finite and between 0 and 90 degrees."
+            )
+        object.__setattr__(
+            self,
+            "enable_pfac_coupling",
+            _boolean_setting(self.enable_pfac_coupling, name="enable_pfac_coupling"),
+        )
+        object.__setattr__(
+            self,
+            "enable_interhemispheric_coupling",
+            _boolean_setting(
+                self.enable_interhemispheric_coupling, name="enable_interhemispheric_coupling"
+            ),
+        )
+        object.__setattr__(
+            self,
+            "interhemispheric_electric_field_weight",
+            float(self.interhemispheric_electric_field_weight),
+        )
+        if (
+            not np.isfinite(self.interhemispheric_electric_field_weight)
+            or self.interhemispheric_electric_field_weight < 0.0
+        ):
+            raise ValueError(
+                "interhemispheric_electric_field_weight must be finite and non-negative."
+            )
+
+    def _normalize_main_field(self):
+        """Normalize the background magnetic-field specification."""
+        object.__setattr__(
+            self, "main_field_kind", normalize_main_field_kind(self.main_field_kind)
+        )
+        object.__setattr__(self, "main_field_epoch", float(self.main_field_epoch))
+        if not np.isfinite(self.main_field_epoch):
+            raise ValueError("main_field_epoch must be finite.")
+        if self.main_field_B0 is not None:
+            object.__setattr__(self, "main_field_B0", float(self.main_field_B0))
+            if not np.isfinite(self.main_field_B0) or self.main_field_B0 <= 0.0:
+                raise ValueError("main_field_B0 must be finite and greater than zero.")
+            if self.main_field_kind == "igrf":
+                raise ValueError("main_field_B0 is not supported for the IGRF main-field model.")
+
+    def _normalize_bases(self):
+        """Normalize simulation and input-projection basis choices."""
         horizontal_basis_kind = normalize_horizontal_basis_kind(self.horizontal_basis_kind)
         projection_input = {
             name: getattr(self, name)
@@ -183,18 +363,45 @@ class SimulationConfig:
         for name, value in projection_settings.items():
             object.__setattr__(self, name, value)
 
+    def _normalize_numerical_policy(self):
+        """Normalize time integration and least-squares policy."""
         object.__setattr__(
-            self, "area_weighted_least_squares", bool(self.area_weighted_least_squares)
+            self,
+            "area_weighted_least_squares",
+            _boolean_setting(self.area_weighted_least_squares, name="area_weighted_least_squares"),
         )
-        object.__setattr__(self, "t0", str(self.t0))
-        object.__setattr__(self, "save_steady_states", bool(self.save_steady_states))
-        object.__setattr__(self, "integrator", str(self.integrator))
+        object.__setattr__(self, "t0", _normalize_start_time(self.t0))
+        object.__setattr__(
+            self,
+            "save_steady_states",
+            _boolean_setting(self.save_steady_states, name="save_steady_states"),
+        )
+        object.__setattr__(self, "integrator", _normalize_integrator(self.integrator))
         if self.least_squares_solver is None:
             object.__setattr__(self, "least_squares_solver", get_default_least_squares_solver())
-        object.__setattr__(self, "static_preconditioner", bool(self.static_preconditioner))
+        object.__setattr__(
+            self,
+            "least_squares_solver",
+            _normalize_least_squares_solver(self.least_squares_solver),
+        )
+        object.__setattr__(
+            self,
+            "least_squares_preconditioner",
+            _normalize_least_squares_preconditioner(self.least_squares_preconditioner),
+        )
+        object.__setattr__(
+            self,
+            "reuse_preconditioner",
+            _boolean_setting(self.reuse_preconditioner, name="reuse_preconditioner"),
+        )
         object.__setattr__(
             self, "m_imp_regularization_lambda", float(self.m_imp_regularization_lambda)
         )
+        if (
+            not np.isfinite(self.m_imp_regularization_lambda)
+            or self.m_imp_regularization_lambda < 0.0
+        ):
+            raise ValueError("m_imp_regularization_lambda must be finite and non-negative.")
 
     @property
     def stored_RM(self):
@@ -202,9 +409,18 @@ class SimulationConfig:
         return 0 if self.RM is None else self.RM
 
     @property
-    def stored_mainfield_B0(self):
+    def stored_main_field_B0(self):
         """Return the persisted main-field-strength setting."""
-        return 0 if self.mainfield_B0 is None else self.mainfield_B0
+        return 0 if self.main_field_B0 is None else self.main_field_B0
+
+    @property
+    def stored_least_squares_preconditioner(self):
+        """Return the storage-safe preconditioner setting."""
+        return (
+            "none"
+            if self.least_squares_preconditioner is None
+            else self.least_squares_preconditioner
+        )
 
     def to_attrs(self) -> dict[str, Any]:
         """Return canonical xarray attributes for persisted settings."""
@@ -214,28 +430,29 @@ class SimulationConfig:
             "Ncs": self.Ncs,
             "RI": self.RI,
             "RM": self.stored_RM,
-            "RM_shielding": int(self.RM_shielding),
-            "latitude_boundary": self.latitude_boundary,
-            "ignore_PFAC": int(self.ignore_PFAC),
-            "connect_hemispheres": int(self.connect_hemispheres),
-            "FAC_integration_steps": self.FAC_integration_steps,
-            "ih_constraint_scaling": self.ih_constraint_scaling,
-            "mainfield_kind": self.mainfield_kind,
-            "mainfield_epoch": self.mainfield_epoch,
-            "mainfield_B0": self.stored_mainfield_B0,
+            "magnetic_boundary_shielding": int(self.magnetic_boundary_shielding),
+            "interhemispheric_coupling_latitude": self.interhemispheric_coupling_latitude,
+            "enable_pfac_coupling": int(self.enable_pfac_coupling),
+            "enable_interhemispheric_coupling": int(self.enable_interhemispheric_coupling),
+            "fac_integration_radii": self.fac_integration_radii,
+            "interhemispheric_electric_field_weight": self.interhemispheric_electric_field_weight,
+            "main_field_kind": self.main_field_kind,
+            "main_field_epoch": self.main_field_epoch,
+            "main_field_B0": self.stored_main_field_B0,
             "jr_projection_basis": self.jr_projection_basis,
             "Br_projection_basis": self.Br_projection_basis,
-            "conductance_projection_basis": self.conductance_projection_basis,
+            "resistance_projection_basis": self.resistance_projection_basis,
             "u_projection_basis": self.u_projection_basis,
             "Q_eff_projection_basis": self.Q_eff_projection_basis,
+            "E_source_projection_basis": self.E_source_projection_basis,
             "horizontal_basis_kind": self.horizontal_basis_kind,
             "area_weighted_least_squares": int(self.area_weighted_least_squares),
             "t0": self.t0,
             "save_steady_states": int(self.save_steady_states),
             "integrator": self.integrator,
             "least_squares_solver": self.least_squares_solver,
-            "least_squares_preconditioner": self.least_squares_preconditioner,
-            "static_preconditioner": int(self.static_preconditioner),
+            "least_squares_preconditioner": self.stored_least_squares_preconditioner,
+            "reuse_preconditioner": int(self.reuse_preconditioner),
             "m_imp_regularization_lambda": self.m_imp_regularization_lambda,
         }
 
@@ -252,13 +469,12 @@ class SimulationConfig:
     @classmethod
     def from_settings(cls, settings: Any, **overrides) -> "SimulationConfig":
         """Build a normalized config from settings and overrides."""
-        defaults = cls()
         kwargs = {}
         for config_field in fields(cls):
             name = config_field.name
-            default = None if name in PROJECTION_BASIS_SETTING_NAMES else getattr(defaults, name)
+            default = None if name in _DERIVED_SETTING_NAMES else config_field.default
             value = setting_value(settings, name, default)
-            if name in {"RM", "mainfield_B0"}:
+            if name in {"RM", "main_field_B0"}:
                 value = _zero_to_none(value)
             kwargs[name] = value
 

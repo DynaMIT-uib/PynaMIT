@@ -6,9 +6,7 @@ basis.
 
 from collections import OrderedDict
 import numpy as np
-import os
 import scipy.sparse as sp
-from scipy.interpolate import griddata
 
 from pynamit.math import as_linear_map, identity_linear_map
 from pynamit.math.backend import get_array_module, to_numpy, use_jax
@@ -17,9 +15,6 @@ from pynamit.sphere.cubed_sphere.cs_coordinates import CSCoordinateSystem
 from pynamit.sphere.cubed_sphere.cs_differencing import CSFiniteDifferences
 from pynamit.sphere.cubed_sphere.cs_grid import CSGridGeometry, CSGridRemapper
 from pynamit.sphere.cubed_sphere.cs_vectors import CSVectorTransforms
-
-d2r = np.pi / 180
-datapath = os.path.dirname(os.path.abspath(__file__)) + "/data/"
 
 
 class CSBasis(SurfaceOperators):
@@ -66,26 +61,27 @@ class CSBasis(SurfaceOperators):
     Notes
     -----
     The cubed sphere grid is organized into six faces as shown below,
-    which defines the block structure of the grid:
+    which defines the block structure of the grid::
 
-          _______
-          |     |
-          |  V  |
-    ______|_____|____________
-    |     |     |     |     |
-    | IV  |  I  | II  | III |
-    |_____|_____|_____|_____|
-          |     |
-          | VI  |
-          |_____|
+              _______
+              |     |
+              |  V  |
+        ______|_____|____________
+        |     |     |     |     |
+        | IV  |  I  | II  | III |
+        |_____|_____|_____|_____|
+              |     |
+              | VI  |
+              |_____|
 
     Block indices:
-      - 0 = I   : Equator
-      - 1 = II  : Equator
-      - 2 = III : Equator
-      - 3 = IV  : Equator
-      - 4 = V   : North Pole
-      - 5 = VI  : South Pole
+
+    - 0 = I: Equator
+    - 1 = II: Equator
+    - 2 = III: Equator
+    - 3 = IV: Equator
+    - 4 = V: North Pole
+    - 5 = VI: South Pole
 
     References
     ----------
@@ -96,8 +92,6 @@ class CSBasis(SurfaceOperators):
         DOI: 10.1093/gji/ggx125
     """
 
-    _shared_remap_matrix_cache = CSGridRemapper._shared_remap_matrix_cache
-    _shared_remap_matrix_cache_size = CSGridRemapper._shared_remap_matrix_cache_size
     _surface_cache_size = 16
 
     def __init__(self, N=None):
@@ -134,8 +128,10 @@ class CSBasis(SurfaceOperators):
         self._surface_operator_cache = OrderedDict()
 
         if N is not None:
-            if not isinstance(N, (int, np.integer)):
+            if isinstance(N, bool) or not isinstance(N, (int, np.integer)):
                 raise TypeError("N must be an integer")
+            if N <= 0:
+                raise ValueError("Cubed sphere grid dimension must be positive")
             if N % 2 != 0:
                 raise ValueError("Cubed sphere grid dimension must be even")
 
@@ -150,9 +146,9 @@ class CSBasis(SurfaceOperators):
             self.sqrt_detg = self.grid_geometry.sqrt_detg
             self.unit_area = self.grid_geometry.unit_area
 
-            self.index_names = ["theta", "phi"]
+            self.index_names = ("theta", "phi")
             self.index_length = self.grid_geometry.index_length
-            self.index_arrays = [self.arr_theta, self.arr_phi]
+            self.index_arrays = (self.arr_theta, self.arr_phi)
 
             self.validate_metadata()
 
@@ -168,7 +164,7 @@ class CSBasis(SurfaceOperators):
 
     @index_names.setter
     def index_names(self, value):
-        self._index_names = value
+        self._index_names = tuple(value)
 
     @property
     def index_length(self):
@@ -278,15 +274,6 @@ class CSBasis(SurfaceOperators):
 
         return self._cached_surface_operator("scalar_evaluation", grid, build, derivative)
 
-    @staticmethod
-    def _spherical_triangle_area(a, b, c):
-        """Return oriented unit-sphere triangle area magnitude."""
-        return CSGridGeometry.spherical_triangle_area(a, b, c)
-
-    def _cell_areas(self, N):
-        """Return exact spherical quadrilateral areas for all cells."""
-        return CSGridGeometry._cell_areas(self, N)
-
     @property
     def scalar_mean_weights(self):
         """Return area-normalized weights for scalar surface means."""
@@ -340,53 +327,6 @@ class CSBasis(SurfaceOperators):
 
         grid_hash = Grid.coordinate_hash(to_numpy(grid.theta), to_numpy(grid.phi))
         return grid_hash == self.native_grid.hash
-
-    @staticmethod
-    def _grid_theta_phi(grid):
-        """Return flattened theta/phi coordinates."""
-        return CSGridRemapper.grid_theta_phi(grid)
-
-    @staticmethod
-    def _grid_signature(grid):
-        """Return a cache key for a grid."""
-        return CSGridRemapper.grid_signature(grid)
-
-    @classmethod
-    def _cached_remap_matrix(cls, key, build):
-        """Return a bounded shared remap matrix cache entry."""
-        cache = cls._shared_remap_matrix_cache
-        if key in cache:
-            cache.move_to_end(key)
-            return cache[key]
-
-        matrix = build()
-        cache[key] = matrix
-        if len(cache) > cls._shared_remap_matrix_cache_size:
-            cache.popitem(last=False)
-        return matrix
-
-    def _remap_matrix_key(self, kind, source_grid, target_grid):
-        """Return a shared remap-matrix cache key."""
-        return self._grid_remapper.remap_matrix_key(kind, source_grid, target_grid)
-
-    @staticmethod
-    def _linear_interpolation_weights(source_points, target_points):
-        """Return Delaunay vertices and barycentric weights."""
-        return CSGridRemapper.linear_interpolation_weights(source_points, target_points)
-
-    def _block_interpolation_weights(self, theta, phi, theta_target, phi_target):
-        """Return per-block interpolation weights."""
-        return self._grid_remapper.block_interpolation_weights(
-            theta, phi, theta_target, phi_target
-        )
-
-    def _build_scalar_grid_remap_matrix(self, source_grid, target_grid):
-        """Build a sparse scalar grid remap."""
-        return self._grid_remapper.build_scalar_grid_remap_matrix(source_grid, target_grid)
-
-    def _build_tangential_grid_remap_matrix(self, source_grid, target_grid):
-        """Build a sparse tangential grid remap."""
-        return self._grid_remapper.build_tangential_grid_remap_matrix(source_grid, target_grid)
 
     def scalar_grid_remap_operator(self, source_grid, target_grid):
         """Return a cached scalar grid-remap operator."""
@@ -1013,10 +953,10 @@ class CSBasis(SurfaceOperators):
         Raises
         ------
         ValueError
-            If `coordinate` is not 'xi', 'eta', or 'both'.
-            If `Ns` is less than `order.
+            If ``coordinate`` is not ``'xi'``, ``'eta'``, or ``'both'``.
+            If ``Ns`` is less than ``order``.
         NotImplementedError
-            If `order` is not 1.
+            If ``order`` is not 1.
         """
         return self._finite_differences.difference_matrix(
             N, coordinate=coordinate, Ns=Ns, Ni=Ni, order=order
@@ -1138,13 +1078,6 @@ class CSBasis(SurfaceOperators):
         """
         return CSCoordinateSystem.geo_to_cube(lon, lat, block=block)
 
-    def get_projected_coastlines(self, resolution="50m"):
-        """Generate coastlines in projected coordinates."""
-        coastlines = np.load(datapath + "coastlines_" + resolution + ".npz")
-        for key in coastlines:
-            lat, lon = coastlines[key]
-            yield self.geo2cube(lon, lat)
-
     def interpolate_vector_components(
         self, u_east, u_north, u_r, theta, phi, theta_target, phi_target, **kwargs
     ):
@@ -1183,83 +1116,9 @@ class CSBasis(SurfaceOperators):
         interpolated_vector : array
             3 x N vector of interpolated components (east, north, up).
         """
-        theta_target, phi_target = np.broadcast_arrays(theta_target, phi_target)
-        target_shape = theta_target.shape
-        xi, eta, block = self.geo2cube(phi_target, 90 - theta_target)
-        # xi, eta, block = np.broadcast_arrays(xi, eta, block)
-        xi, eta, block = xi.reshape(-1), eta.reshape(-1), block.reshape(-1)
-
-        theta, phi = np.broadcast_arrays(theta, phi)
-        source_shape = theta.shape
-        theta, phi = theta.reshape(-1), phi.reshape(-1)
-
-        u_east = np.asarray(u_east)
-        u_north = np.asarray(u_north)
-        u_r = np.asarray(u_r)
-        if u_east.shape[: len(source_shape)] == source_shape:
-            value_shape = u_east.shape[len(source_shape) :]
-            u_east_values = u_east.reshape((theta.size,) + value_shape)
-            u_north_values = u_north.reshape((theta.size,) + value_shape)
-            u_r_values = u_r.reshape((theta.size,) + value_shape)
-        else:
-            u_east_values, u_north_values, u_r_values, theta_b, phi_b = np.broadcast_arrays(
-                u_east, u_north, u_r, theta.reshape(source_shape), phi.reshape(source_shape)
-            )
-            value_shape = ()
-            u_east_values = u_east_values.reshape(-1)
-            u_north_values = u_north_values.reshape(-1)
-            u_r_values = u_r_values.reshape(-1)
-            theta = theta_b.reshape(-1)
-            phi = phi_b.reshape(-1)
-
-        # Define vectors that point to all the original points.
-        th, ph = np.deg2rad(theta), np.deg2rad(phi)
-        r = np.vstack((np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th)))
-
-        # Convert vector components to cubed sphere coordinates.
-        u_xi, u_eta, u_block = self.geo2cube(phi, 90 - theta)
-        Ps = self.get_Ps(u_xi, u_eta, r=1, block=u_block)
-        Q = self.get_Q(90 - theta, r=1, inverse=True)
-        Ps_normalized = np.einsum("nij, njk -> nik", Ps, Q)
-        u_vec_sph = np.stack([u_east_values, u_north_values, u_r_values], axis=1)
-        u_vec = np.einsum("nij,nj...->ni...", Ps_normalized, u_vec_sph)
-
-        interpolated_u = np.empty((block.size, 3) + value_shape, dtype=np.float64)
-
-        # Loop over blocks and interpolate on each block.
-        for i in range(6):
-            # Express vector components with respect to block i.
-            Qij = self.get_Qij(u_xi, u_eta, u_block, i)
-            u_vec_i = np.einsum("nij,nj...->ni...", Qij, u_vec)
-
-            # Filter points whose position vectors have component
-            # anti-parallel to center of the block.
-            _, th, ph = self.cube2spherical(0, 0, i, deg=False)
-            r0 = np.hstack((np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th))).reshape(
-                (-1, 1)
-            )
-            mask = np.sum(r0 * r, axis=0) > 0
-
-            xi_, eta_, _ = self.geo2cube(phi, 90 - theta, block=i)
-
-            interpolated_u[block == i] = griddata(
-                np.vstack((xi_[mask], eta_[mask])).T,
-                u_vec_i[mask],
-                np.vstack((xi[block == i], eta[block == i])).T,
-                **kwargs,
-            )
-
-        # Convert back to spherical.
-        _, theta_out, _ = self.cube2spherical(xi, eta, block, deg=True)
-        Q = self.get_Q(90 - theta_out, r=1, inverse=False)
-        Ps_inv = self.get_Ps(xi, eta, r=1, block=block, inverse=True)
-        Ps_normalized_inv = np.einsum("nij, njk -> nik", Q, Ps_inv)
-        interpolated = np.einsum("nij,nj...->ni...", Ps_normalized_inv, interpolated_u)
-        u_east_int = interpolated[:, 0].reshape(target_shape + value_shape)
-        u_north_int = interpolated[:, 1].reshape(target_shape + value_shape)
-        u_r_int = interpolated[:, 2].reshape(target_shape + value_shape)
-
-        return u_east_int, u_north_int, u_r_int
+        return self._grid_remapper.interpolate_vector_components(
+            u_east, u_north, u_r, theta, phi, theta_target, phi_target, **kwargs
+        )
 
     def interpolate_scalar(self, scalar, theta, phi, theta_target, phi_target, **kwargs):
         """Interpolate scalar values.
@@ -1293,52 +1152,6 @@ class CSBasis(SurfaceOperators):
         interpolated_scalar : array
             Array of interpolated components (east, north, up).
         """
-        theta_target, phi_target = np.broadcast_arrays(theta_target, phi_target)
-        target_shape = theta_target.shape
-        xi, eta, block = self.geo2cube(phi_target, 90 - theta_target)
-        # xi, eta, block = np.broadcast_arrays(xi, eta, block)
-        xi, eta, block = xi.reshape(-1), eta.reshape(-1), block.reshape(-1)
-
-        theta, phi = np.broadcast_arrays(theta, phi)
-        source_shape = theta.shape
-        theta, phi = theta.reshape(-1), phi.reshape(-1)
-
-        scalar = np.asarray(scalar)
-        if scalar.shape[: len(source_shape)] == source_shape:
-            value_shape = scalar.shape[len(source_shape) :]
-            scalar_values = scalar.reshape((theta.size,) + value_shape)
-        else:
-            scalar_values, theta_broadcast, phi_broadcast = np.broadcast_arrays(
-                scalar, theta.reshape(source_shape), phi.reshape(source_shape)
-            )
-            value_shape = ()
-            scalar_values = scalar_values.reshape(-1)
-            theta = theta_broadcast.reshape(-1)
-            phi = phi_broadcast.reshape(-1)
-
-        # Define vectors that point to all the original points.
-        th, ph = np.deg2rad(theta), np.deg2rad(phi)
-        r = np.vstack((np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th)))
-
-        interpolated_scalar = np.empty((block.size,) + value_shape, dtype=np.float64)
-
-        # Loop over blocks and interpolate on each block.
-        for i in range(6):
-            # Filter points whose position vectors have component
-            # anti-parallel to center of the block.
-            _, th, ph = self.cube2spherical(0, 0, i, deg=False)
-            r0 = np.hstack((np.sin(th) * np.cos(ph), np.sin(th) * np.sin(ph), np.cos(th))).reshape(
-                (-1, 1)
-            )
-            mask = np.sum(r0 * r, axis=0) > 0
-
-            xi_, eta_, _ = self.geo2cube(phi, 90 - theta, block=i)
-
-            interpolated_scalar[block == i] = griddata(
-                np.vstack((xi_[mask], eta_[mask])).T,
-                scalar_values[mask],
-                np.vstack((xi[block == i], eta[block == i])).T,
-                **kwargs,
-            )
-
-        return interpolated_scalar.reshape(target_shape + value_shape)
+        return self._grid_remapper.interpolate_scalar(
+            scalar, theta, phi, theta_target, phi_target, **kwargs
+        )

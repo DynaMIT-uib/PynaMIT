@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from pynamit.sphere.cubed_sphere import arrayutils
+from pynamit.sphere.cubed_sphere.arrayutils import invert_3x3_matrices
 
 
 class CSCoordinateSystem:
@@ -46,7 +46,7 @@ class CSCoordinateSystem:
         g[:, 2, 1] = 0
         g[:, 2, 2] = 1
 
-        return g if covariant else arrayutils.invert_3D_matrices(g)
+        return g if covariant else invert_3x3_matrices(g)
 
     @classmethod
     def cube_to_cartesian(cls, xi, eta, r=1, block=0):

@@ -9,6 +9,13 @@ from pynamit.math import LinearMap, as_linear_map
 from pynamit.math.backend import get_array_module
 
 
+def _owned_readonly_array(values, *, dtype=None):
+    """Return an owned immutable NumPy metadata array."""
+    array = np.array(values, dtype=dtype, copy=True)
+    array.setflags(write=False)
+    return array
+
+
 def _backend_array(value, *hints):
     """Return ``value`` on the backend implied by ``hints``."""
     xp = get_array_module(*hints, value)
@@ -362,18 +369,18 @@ class BasisView(SurfaceOperators):
 
         parent_basis.validate_metadata()
         self.parent_basis = parent_basis
-        self._parent_coefficient_indices = self._normalize_coefficient_indices(
-            parent_basis, coefficient_indices
+        self._parent_coefficient_indices = _owned_readonly_array(
+            self._normalize_coefficient_indices(parent_basis, coefficient_indices), dtype=int
         )
         self._view_name = str(view_name)
         self._coefficient_space_signature = coefficient_space_signature
         self._related_basis_cache = {}
 
         self.kind = parent_basis.kind
-        self.index_names = list(parent_basis.index_names)
+        self.index_names = tuple(parent_basis.index_names)
         self.index_length = int(self._parent_coefficient_indices.size)
-        self.index_arrays = self._slice_index_arrays(
-            parent_basis, self._parent_coefficient_indices
+        self.index_arrays = tuple(
+            self._slice_index_arrays(parent_basis, self._parent_coefficient_indices)
         )
         for name, values in zip(self.index_names, self.index_arrays):
             if isinstance(name, str) and name.isidentifier() and not hasattr(self, name):
@@ -420,9 +427,13 @@ class BasisView(SurfaceOperators):
         for values in parent_basis.index_arrays:
             array = np.asarray(values)
             if array.shape == (parent_basis.index_length,):
-                arrays.append(array[coefficient_indices])
+                arrays.append(_owned_readonly_array(array[coefficient_indices]))
             elif array.size == parent_basis.index_length:
-                arrays.append(array.reshape(parent_basis.index_length)[coefficient_indices])
+                arrays.append(
+                    _owned_readonly_array(
+                        array.reshape(parent_basis.index_length)[coefficient_indices]
+                    )
+                )
             else:
                 raise ValueError(
                     "BasisView can only slice index_arrays with one value per coefficient."
@@ -477,7 +488,7 @@ class BasisView(SurfaceOperators):
 
     @index_names.setter
     def index_names(self, value):
-        self._index_names = value
+        self._index_names = tuple(value)
 
     @property
     def index_length(self):
@@ -557,12 +568,6 @@ class BasisView(SurfaceOperators):
         """Return scalar index arrays for the requested scalar space."""
         basis = self.with_mean_free(self.mean_free if mean_free is None else bool(mean_free))
         return basis.n, basis.m
-
-    def get_extended_basis(self):
-        """Return the parent basis extended to the full scalar space."""
-        if hasattr(self.parent_basis, "get_extended_basis"):
-            return self.parent_basis.get_extended_basis()
-        return self.parent_basis
 
     def with_mean_free(self, mean_free):
         """Return a compatible mean-free/full basis when available."""

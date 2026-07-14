@@ -2,17 +2,28 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import datetime as dt
 from pathlib import Path
+import stat
 
-from pynamit.primitives.io import RUN_ARTIFACTS
+from pynamit.storage import ArtifactStore
+from pynamit.simulation.schema import RUN_ARTIFACT_NAMES
 from pynamit.visualization.figure_specs import PynamitFigureSpec
-from pynamit.visualization.artifacts import artifact_path, resolve_xarray_artifact_path
 from pynamit.visualization.run_fields import SavedCoefficientFieldView
 
 
-_CACHE_ARTIFACTS = tuple(sorted(RUN_ARTIFACTS))
-_VIEW_CACHE: dict[tuple[str, int, int, tuple], SavedCoefficientFieldView] = {}
+_CACHE_ARTIFACTS = tuple(sorted(RUN_ARTIFACT_NAMES))
+_VIEW_CACHE: dict[tuple[str, int, int], tuple[tuple, SavedCoefficientFieldView]] = {}
+
+
+def figure_time_string(timestamp):
+    """Return a compact title-friendly timestamp label."""
+    try:
+        return timestamp.strftime("%Y-%m-%d %H:%M:%S")
+    except AttributeError:
+        if isinstance(timestamp, (int, float)):
+            return str(dt.timedelta(seconds=float(timestamp)))
+        return str(timestamp)
 
 
 def as_figure_spec(spec):
@@ -27,58 +38,58 @@ def clear_saved_field_view_cache():
     _VIEW_CACHE.clear()
 
 
+def _path_fingerprint(path):
+    """Return a change fingerprint for one file or directory tree."""
+    try:
+        path_stat = path.stat()
+    except OSError:
+        return None
+    if not path.is_dir():
+        return ("file", path_stat.st_mtime_ns, path_stat.st_size)
+
+    latest_mtime = path_stat.st_mtime_ns
+    entry_count = 0
+    total_file_size = 0
+    for child in path.rglob("*"):
+        try:
+            child_stat = child.stat()
+        except OSError:
+            continue
+        entry_count += 1
+        latest_mtime = max(latest_mtime, child_stat.st_mtime_ns)
+        if stat.S_ISREG(child_stat.st_mode):
+            total_file_size += child_stat.st_size
+    return ("tree", latest_mtime, entry_count, total_file_size)
+
+
 def _artifact_fingerprint(run_directory):
     run_dir = Path(run_directory).expanduser()
+    artifacts = ArtifactStore(run_dir)
     fingerprint = []
     for name in _CACHE_ARTIFACTS:
-        path = Path(resolve_xarray_artifact_path(artifact_path(run_dir, name)))
-        if path.exists():
-            try:
-                mtime = path.stat().st_mtime_ns
-            except OSError:
-                mtime = None
-            fingerprint.append((name, str(path), mtime))
+        path = artifacts.existing_artifact_path(name)
+        if path is not None:
+            fingerprint.append((name, str(path), _path_fingerprint(path)))
     return tuple(fingerprint)
 
 
 def get_saved_field_view(spec):
     """Return a cached coefficient-field view for a figure spec."""
     spec = as_figure_spec(spec)
-    key = (str(spec.run_directory), 60, 100, _artifact_fingerprint(spec.run_directory))
-    view = _VIEW_CACHE.get(key)
-    if view is None:
-        view = SavedCoefficientFieldView.from_directory(spec.run_directory)
-        _VIEW_CACHE[key] = view
+    run_directory = str(Path(spec.run_directory).expanduser().resolve())
+    key = (run_directory, 60, 100)
+    fingerprint = _artifact_fingerprint(run_directory)
+    cached = _VIEW_CACHE.get(key)
+    if cached is not None and cached[0] == fingerprint:
+        return cached[1]
+    view = SavedCoefficientFieldView.from_directory(run_directory)
+    _VIEW_CACHE[key] = (fingerprint, view)
     return view
 
 
-@dataclass(frozen=True)
-class SavedRunFigureContext:
-    """Figure spec plus the saved-run field view it renders."""
-
-    spec: PynamitFigureSpec
-    view: SavedCoefficientFieldView
-
-    @classmethod
-    def from_spec(cls, spec, view=None):
-        """Build a context from a spec and optional preloaded view."""
-        spec = as_figure_spec(spec)
-        return cls(spec=spec, view=get_saved_field_view(spec) if view is None else view)
-
-    @property
-    def time_index(self):
-        """Clamped selected time index."""
-        return int(max(0, min(int(self.spec.time_index), self.view.n_time - 1)))
-
-    @property
-    def timestamp(self):
-        """Selected timestamp."""
-        return self.view.timestamp_at_index(self.time_index)
-
-
 __all__ = [
-    "SavedRunFigureContext",
     "as_figure_spec",
     "clear_saved_field_view_cache",
+    "figure_time_string",
     "get_saved_field_view",
 ]

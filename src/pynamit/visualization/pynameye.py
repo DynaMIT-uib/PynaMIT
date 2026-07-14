@@ -13,16 +13,22 @@ from dipole import Dipole
 from polplot import Polarplot
 import datetime
 from pynamit.sphere import Grid
-from pynamit.primitives.field_coefficients import FieldCoefficients
-from pynamit.primitives.field_space import FieldSpace
+from pynamit.fields import FieldCoefficients
+from pynamit.fields import FieldSpace
 from pynamit.sphere import CSBasis
 from pynamit.sphere.spherical_transform import SphericalTransform
 from pynamit.simulation.config import setting_value
-from pynamit.primitives.field_evaluator import FieldEvaluator
+from pynamit.simulation.electrodynamics.ionospheric_closure import (
+    electric_field_on_grid,
+    joule_heating_from_current,
+    pedersen_geometry_tensor,
+    resistance_tensor_on_grid,
+)
+from pynamit.geomagnetism import MagneticFieldEvaluation
 from pynamit.math.constants import RE
 from pynamit.visualization.field_maps import (
     evaluate_conductance_coefficients,
-    evaluate_joule_from_coefficients,
+    evaluate_JS_from_maps,
     evaluate_wind_coefficients,
 )
 from pynamit.visualization.grid_evaluation import transform_for_source
@@ -48,15 +54,15 @@ class PynamEye:
     ----------
     datasets : dict
         Dictionary holding simulation datasets loaded from file(s).
-    mainfield : Mainfield
-        An instance of the Mainfield class representing the magnetic
+    main_field : MainField
+        An instance of the MainField class representing the magnetic
         field model in use.
     global_grid : Grid
         Global grid used for evaluations.
     transforms : dict
         Spherical transforms for different regions.
-    conductance_transforms : dict
-        Spherical transforms for conductance across regions.
+    resistance_transforms : dict
+        Spherical transforms for stored resistance across regions.
     ...additional attributes as needed...
     """
 
@@ -84,26 +90,30 @@ class PynamEye:
         steady_state : bool, optional
             Whether to use steady state data.
         """
-        optional_datasets = ["u", "Q_eff", "E_source"]
+        optional_datasets = ["Br", "u", "Q_eff", "E_source"]
         if steady_state:
             optional_datasets.append("steady_state")
         self.run_view = SavedRunView.from_directory(
             run_directory,
-            required_datasets=("conductance", "state"),
+            required_datasets=("resistance", "state"),
             optional_datasets=optional_datasets,
-            require_pfac_matrix=True,
             build_geometry=True,
         )
         if steady_state and "steady_state" not in self.run_view.datasets:
             print(f"Could not find steady_state dataset at {run_directory!r}.")
         self.datasets = self.run_view.datasets
-        self.T_to_Ve = self.run_view.pfac_matrix.values
+        self.pfac_coupling_matrix = (
+            None
+            if self.run_view.geometry.main_field.kind == "radial"
+            or not self.run_view.config.enable_pfac_coupling
+            else self.run_view.geometry.pfac_coupling_matrix
+        )
 
         self.mlatlim = mlatlim
-        self.settings = self.run_view.settings
+        self.settings = self.run_view.datasets["settings"]
         self.config = self.run_view.config
         self.RI = float(self.config.RI)
-        self.mainfield = self.run_view.mainfield
+        self.main_field = self.run_view.main_field
 
         # Set up cubed sphere grid for vector plotting.
         self.vector_cs_basis = CSBasis(NCS_plot)
@@ -117,20 +127,20 @@ class PynamEye:
         self.global_vector_grid = Grid(theta=arr_theta, lon=arr_phi)
 
         # Define t0 and set up the configured dipole object.
-        self.t0 = datetime.datetime.strptime(self.config.t0, "%Y-%m-%d %H:%M:%S")
-        self.mainfield_epoch = float(self._config_value("mainfield_epoch", self.t0.year))
-        self.dp = Dipole(self.mainfield_epoch)
+        self.t0 = datetime.datetime.fromisoformat(self.config.t0)
+        self.main_field_epoch = float(self._config_value("main_field_epoch", self.t0.year))
+        self.dp = Dipole(self.main_field_epoch)
 
         self.schema = self.run_view.schema
         self.cs_basis = self.schema.cs_basis
         self.sh_basis = self.schema.sh_basis
-        self.sh_basis_mean_free = self.schema.sh_basis_mean_free
+        self.mean_free_sh_basis = self.schema.mean_free_sh_basis
         self.basis = self.schema.horizontal_basis
         self.solid_harmonics = self.schema.solid_harmonics
         self.input_field_spaces = self.schema.input_field_spaces
         self.output_field_spaces = self.schema.output_field_spaces
 
-        self.conductance_field_space = self.input_field_spaces["conductance"]
+        self.resistance_field_space = self.input_field_spaces["resistance"]
         self.scalar_field_space = self.output_field_spaces["state"]
         self.tangential_field_space = FieldSpace.from_representation(
             self.basis, field_type="tangential", mean_free=self.scalar_field_space.mean_free
@@ -139,7 +149,7 @@ class PynamEye:
 
         # Set up global grid and spherical transforms.
         self.transforms = {}
-        self.conductance_transforms = {}
+        self.resistance_transforms = {}
         self.solid_harmonic_transforms = {}
         lat, lon = np.linspace(-89.9, 89.9, Nlat), np.linspace(-180, 180, Nlon)
         self.lat, self.lon = np.meshgrid(lat, lon)
@@ -151,9 +161,9 @@ class PynamEye:
         self.mlat, self.mlon = np.meshgrid(
             np.linspace(mlatlim, 89.9, Nlat // 2), np.linspace(-180, 180, Nlon)
         )
-        if self.config.mainfield_kind.lower() == "igrf":
+        if self.config.main_field_kind.lower() == "igrf":
             # Define a grid, then mask depending on mlatmin.
-            self.apx = apexpy.Apex(self.mainfield_epoch, refh=(self.RI - RE) * 1e-3)
+            self.apx = apexpy.Apex(self.main_field_epoch, refh=(self.RI - RE) * 1e-3)
             self.lat_n, self.lon_n, _ = self.apx.apex2geo(
                 self.mlat, self.mlon, (self.RI - RE) * 1e-3
             )
@@ -169,25 +179,18 @@ class PynamEye:
             self.polar_grid = Grid(lat=self.mlat, lon=self.mlon)
             self._add_transforms("north", self.polar_grid)
             self.transforms["south"] = self.transforms["north"]
-            self.conductance_transforms["south"] = self.conductance_transforms["north"]
+            self.resistance_transforms["south"] = self.resistance_transforms["north"]
             self.solid_harmonic_transforms["south"] = self.solid_harmonic_transforms["north"]
 
         self._e_from_b_cache_ready = False
+        self._pedersen_geometry_cache = {}
 
         # Keep operator handles for electromagnetic quantities.
         self.m_ind_to_Br_operator = self.geometry.m_ind_to_Br_operator
         self.m_imp_to_jr_operator = self.geometry.m_imp_to_jr_operator
         self.W_to_dBr_dt = 1 / self.RI
         # Cache maps needed by Joule heating and E-from-B derivation.
-        self.m_ind_to_gridded_JS_maps = {}
-        self.m_imp_to_gridded_JS_maps = {}
-        for region in ["global", "north", "south"]:
-            self.m_ind_to_gridded_JS_maps[region] = self.geometry.m_ind_to_gridded_JS(
-                self.transforms[region], solid_transform=self.solid_harmonic_transforms[region]
-            )
-            self.m_imp_to_gridded_JS_maps[region] = self.geometry.m_imp_to_gridded_JS(
-                self.transforms[region], solid_transform=self.solid_harmonic_transforms[region]
-            )
+        self.sheet_current_maps = {}
 
         self._define_defaults()
         self.set_time(t, steady_state=steady_state)
@@ -195,17 +198,30 @@ class PynamEye:
     def _add_transforms(self, region, grid):
         """Add region transforms."""
         self.transforms[region] = SphericalTransform(self.basis, grid)
-        self.conductance_transforms[region] = SphericalTransform(
-            self.conductance_field_space.representation, grid
+        self.resistance_transforms[region] = SphericalTransform(
+            self.resistance_field_space.representation, grid
         )
-        self.solid_harmonic_transforms[region] = self.geometry.solid_transform_for(
+        self.solid_harmonic_transforms[region] = self.geometry.solid_harmonic_transform_for(
             self.transforms[region]
         )
 
-    @property
-    def conductance_basis(self):
-        """Return the conductance coefficient representation."""
-        return self.conductance_field_space.representation
+    def _sheet_current_maps_for(self, region):
+        """Return lazy sheet-current maps for one region."""
+        if region not in self.sheet_current_maps:
+            transform = self.transforms[region]
+            solid_transform = self.solid_harmonic_transforms[region]
+            self.sheet_current_maps[region] = {
+                "m_ind_to_JS": self.geometry.m_ind_to_gridded_JS(
+                    transform, solid_transform=solid_transform
+                ),
+                "m_imp_to_JS": self.geometry.m_imp_to_gridded_JS(
+                    transform, solid_transform=solid_transform
+                ),
+                "Br_to_JS": self.geometry.Br_to_gridded_JS(
+                    transform, solid_transform=solid_transform
+                ),
+            }
+        return self.sheet_current_maps[region]
 
     @staticmethod
     def _data_var_name(field_space, var):
@@ -232,67 +248,53 @@ class PynamEye:
         if self.m_u is None:
             raise RuntimeError("No saved 'u' dataset is available for E derivation.")
         if not self._e_from_b_cache_ready:
-            # Reproduce numerical grid used in the simulation.
-            state_cs_basis = self.schema.cs_basis
-            self.state_grid = Grid(theta=state_cs_basis.arr_theta, phi=state_cs_basis.arr_phi)
-
-            self._add_transforms("num", self.state_grid)
-
-            # Evaluate electric field on that grid.
-            self.b_evaluator = FieldEvaluator(self.mainfield, self.state_grid, self.RI)
-            self.bP_00 = self.b_evaluator.bphi**2 + self.b_evaluator.br**2
-            self.bP_01 = -self.b_evaluator.btheta * self.b_evaluator.bphi
-            self.bP_10 = -self.b_evaluator.btheta * self.b_evaluator.bphi
-            self.bP_11 = self.b_evaluator.btheta**2 + self.b_evaluator.br**2
-
-            self.bH_01 = self.b_evaluator.br
-            self.bH_10 = -self.b_evaluator.br
-
-            self.m_ind_to_gridded_JS_maps["num"] = self.geometry.m_ind_to_gridded_JS(
-                self.transforms["num"], solid_transform=self.solid_harmonic_transforms["num"]
+            # Reuse the exact numerical geometry from the saved run.
+            self.state_grid = self.geometry.model_grid
+            self.transforms["num"] = self.geometry.horizontal_transform
+            self.resistance_transforms["num"] = SphericalTransform(
+                self.resistance_field_space.representation, self.state_grid
             )
-            self.m_imp_to_gridded_JS_maps["num"] = self.geometry.m_imp_to_gridded_JS(
-                self.transforms["num"], solid_transform=self.solid_harmonic_transforms["num"]
-            )
+            self.solid_harmonic_transforms["num"] = self.geometry.solid_harmonic_transform
+            self._num_pedersen_geometry = self.geometry.pedersen_geometry_tensor
+            self._num_hall_geometry = self.geometry.hall_geometry_tensor
+            self._num_wind_to_E = self.geometry.wind_motional_E_tensor
 
             self._e_from_b_cache_ready = True
 
         # Calculate electric field values on state_grid.
-        Js_ind, Je_ind = np.split(
-            self.m_ind_to_gridded_JS_maps["num"].matvec(self.m_ind).reshape(2, -1), 2, axis=0
+        current_maps = self._sheet_current_maps_for("num")
+        JS = evaluate_JS_from_maps(
+            self.m_imp,
+            self.m_ind,
+            m_imp_to_JS=current_maps["m_imp_to_JS"],
+            m_ind_to_JS=current_maps["m_ind_to_JS"],
+            Br=self.m_Br,
+            Br_to_JS=current_maps["Br_to_JS"],
         )
-        Js_imp, Je_imp = np.split(
-            self.m_imp_to_gridded_JS_maps["num"].matvec(self.m_imp).reshape(2, -1), 2, axis=0
-        )
-        Js_ind, Je_ind = Js_ind[0], Je_ind[0]
-        Js_imp, Je_imp = Js_imp[0], Je_imp[0]
 
-        Jth, Jph = Js_ind + Js_imp, Je_ind + Je_imp
-
-        conductance = evaluate_conductance_coefficients(
-            self.conductance_transforms["num"], self.m_etaP, self.m_etaH
+        closure_values = evaluate_conductance_coefficients(
+            self.resistance_transforms["num"], self.m_etaP, self.m_etaH
         )
-        etaP_on_grid = conductance["etaP"]
-        etaH_on_grid = conductance["etaH"]
-
-        Eth = etaP_on_grid * (self.bP_00 * Jth + self.bP_01 * Jph) + etaH_on_grid * (
-            self.bH_01 * Jph
-        )
-        Eph = etaP_on_grid * (self.bP_10 * Jth + self.bP_11 * Jph) + etaH_on_grid * (
-            self.bH_10 * Jth
-        )
+        etaP_on_grid = closure_values["etaP"]
+        etaH_on_grid = closure_values["etaH"]
 
         self.u_coeffs = self.u.array
-        wind_transform = transform_for_source(self.u.representation, self.transforms["num"])
+        wind_transform = transform_for_source(
+            self.u.field_space.representation, self.transforms["num"]
+        )
         wind = evaluate_wind_coefficients(wind_transform, self.u)
         self.u_theta_on_grid = wind["u_theta"]
         self.u_phi_on_grid = wind["u_phi"]
 
-        uxB_theta = self.u_phi_on_grid * self.b_evaluator.Br
-        uxB_phi = -self.u_theta_on_grid * self.b_evaluator.Br
-
-        Eth -= uxB_theta
-        Eph -= uxB_phi
+        resistance = resistance_tensor_on_grid(
+            etaP_on_grid, etaH_on_grid, self._num_pedersen_geometry, self._num_hall_geometry
+        )
+        Eth, Eph = electric_field_on_grid(
+            JS,
+            resistance,
+            wind=np.array([self.u_theta_on_grid, self.u_phi_on_grid]),
+            wind_to_E=self._num_wind_to_E,
+        )
 
         E_coeffs = self.transforms["num"].analyze_helmholtz(np.array([Eth, Eph]))
         self.Phi_coeffs = self.basis.get_helmholtz_curl_free_potential_operator().matvec(E_coeffs)
@@ -311,9 +313,9 @@ class PynamEye:
             "extend": "max",
         }
         self.joule_defaults = {
-            "cmap": plt.cm.bwr,
-            "levels": np.linspace(-10, 10, 22) * 1e-3,
-            "extend": "both",
+            "cmap": plt.cm.inferno,
+            "levels": np.linspace(0, 10, 21) * 1e-3,
+            "extend": "max",
         }
         self.Br_defaults = {
             "cmap": plt.cm.bwr,
@@ -359,7 +361,7 @@ class PynamEye:
         self.t = t
         self.time = self.t0 + datetime.timedelta(seconds=t)
 
-        for key in ["state", "steady_state", "u", "Q_eff", "E_source", "conductance"]:
+        for key in ["state", "steady_state", "Br", "u", "Q_eff", "E_source", "resistance"]:
             self._ensure_dataset_covers_time(key)
 
         if steady_state and "steady_state" in self.datasets:
@@ -377,11 +379,17 @@ class PynamEye:
         self.m_Phi = self.Phi_coeffs * self.RI
 
         self.m_etaP = self._select_values(
-            self.datasets["conductance"], self.input_field_spaces["conductance"], "etaP"
+            self.datasets["resistance"], self.input_field_spaces["resistance"], "etaP"
         )
         self.m_etaH = self._select_values(
-            self.datasets["conductance"], self.input_field_spaces["conductance"], "etaH"
+            self.datasets["resistance"], self.input_field_spaces["resistance"], "etaH"
         )
+        if "Br" in self.datasets:
+            self.m_Br = self._select_values(
+                self.datasets["Br"], self.input_field_spaces["Br"], "Br"
+            )
+        else:
+            self.m_Br = None
         if "u" in self.datasets:
             self.u = FieldCoefficients(
                 self.input_field_spaces["u"],
@@ -402,7 +410,7 @@ class PynamEye:
 
     def get_magnetic_coordinate_context(self):
         """Return the magnetic local-time context."""
-        if str(self._config_value("mainfield_kind", "dipole")).lower() == "kaiju_dipole":
+        if str(self._config_value("main_field_kind", "dipole")).lower() == "kaiju_dipole":
             return MapCoordinateContext.from_noon_longitude(
                 0.0,
                 longitude_kind="magnetic",
@@ -421,7 +429,7 @@ class PynamEye:
 
     def get_global_coordinate_context(self):
         """Return the coordinate context for global map plots."""
-        if str(self._config_value("mainfield_kind", "dipole")).lower() == "igrf":
+        if str(self._config_value("main_field_kind", "dipole")).lower() == "igrf":
             return MapCoordinateContext.magnetic(self.time, self.dp, apex=self.apx)
         return self.get_magnetic_coordinate_context()
 
@@ -462,11 +470,17 @@ class PynamEye:
         )
 
         ll = np.linspace(-180, 180, 200)
-        dip_lat = 90 - self.mainfield.dip_equator(ll)
+        dip_lat = 90 - self.main_field.magnetic_colatitude_at_longitude(ll)
 
-        latitude_boundary = self._config_value("latitude_boundary", 50)
-        lbn = 90 - self.mainfield.dip_equator(ll, theta=90 - latitude_boundary)
-        lbs = 90 - self.mainfield.dip_equator(ll, theta=90 + latitude_boundary)
+        interhemispheric_coupling_latitude = self._config_value(
+            "interhemispheric_coupling_latitude", 50
+        )
+        lbn = 90 - self.main_field.magnetic_colatitude_at_longitude(
+            ll, magnetic_colatitude=90 - interhemispheric_coupling_latitude
+        )
+        lbs = 90 - self.main_field.magnetic_colatitude_at_longitude(
+            ll, magnetic_colatitude=90 + interhemispheric_coupling_latitude
+        )
 
         ax.plot(
             ll, dip_lat, color="blue", linestyle="--", linewidth=1, transform=ccrs.PlateCarree()
@@ -576,18 +590,29 @@ class PynamEye:
         """
         self._fill_plot_defaults(kwargs, self.joule_defaults)
 
-        Q, E, JS = evaluate_joule_from_coefficients(
-            self.transforms[region],
+        current_maps = self._sheet_current_maps_for(region)
+        JS = evaluate_JS_from_maps(
             self.m_imp,
             self.m_ind,
-            self.m_Phi,
-            self.m_W,
-            self.RI,
-            m_imp_to_JS=self.m_imp_to_gridded_JS_maps[region],
-            m_ind_to_JS=self.m_ind_to_gridded_JS_maps[region],
+            m_imp_to_JS=current_maps["m_imp_to_JS"],
+            m_ind_to_JS=current_maps["m_ind_to_JS"],
+            Br=self.m_Br,
+            Br_to_JS=current_maps["Br_to_JS"],
+        )
+        closure_values = evaluate_conductance_coefficients(
+            self.resistance_transforms[region], self.m_etaP, self.m_etaH
+        )
+        if region not in self._pedersen_geometry_cache:
+            field = MagneticFieldEvaluation(
+                self.main_field, self.transforms[region].target, self.RI
+            )
+            self._pedersen_geometry_cache[region] = pedersen_geometry_tensor(
+                field.unit_btheta, field.unit_bphi, field.unit_br
+            )
+        Q = joule_heating_from_current(
+            JS, closure_values["etaP"], self._pedersen_geometry_cache[region]
         )
         self._Q = Q
-        self._E = E
         self._JS = JS
 
         # Plot.
@@ -610,7 +635,7 @@ class PynamEye:
         self._fill_plot_defaults(kwargs, self.conductance_defaults)
 
         conductance = evaluate_conductance_coefficients(
-            self.conductance_transforms[region], self.m_etaP, self.m_etaH
+            self.resistance_transforms[region], self.m_etaP, self.m_etaH
         )
 
         if hp == "h":
@@ -639,7 +664,7 @@ class PynamEye:
         if self.m_u is None:
             raise RuntimeError("No saved 'u' dataset is available for wind plotting.")
         wind_transform = transform_for_source(
-            self.u.representation, self.transforms["global_vector"]
+            self.u.field_space.representation, self.transforms["global_vector"]
         )
         wind = evaluate_wind_coefficients(wind_transform, self.u, include_magnitude=False)
 

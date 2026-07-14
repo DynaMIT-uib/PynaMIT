@@ -64,8 +64,8 @@ src = src.replace(
     1,
 )
 src = src.replace(
-    "    dynamics.evolve_to_time(next_time)",
-    '    dynamics.evolve_to_time(next_time)\n'
+    "    simulation.evolve_to_time(next_time)",
+    '    simulation.evolve_to_time(next_time)\n'
     '    print(f"PYNAMIT_STEP_SECONDS={time.perf_counter()-__bench_step_t0:.6f}", flush=True)',
     1,
 )

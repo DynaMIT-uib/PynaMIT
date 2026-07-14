@@ -1,6 +1,6 @@
 """Inspect projected simulation inputs on plotting grids."""
 
-from pynamit.primitives.field_coefficients import FieldCoefficients
+from pynamit.fields import FieldCoefficients
 from pynamit.sphere.spherical_transform import SphericalTransform
 from pynamit.visualization.field_maps import (
     evaluate_conductance_values,
@@ -9,15 +9,16 @@ from pynamit.visualization.field_maps import (
 from pynamit.visualization.grid_evaluation import transform_for_source
 
 
-def _input_timeseries(source):
-    """Return input timeseries from a source object."""
-    return getattr(source, "input_timeseries", source)
+def _input_series(source):
+    """Return input series from a source object."""
+    run_data = getattr(source, "run_data", None)
+    return getattr(run_data, "input_series", source)
 
 
 def _default_grid(source):
-    """Return the state/model grid for a Dynamics-like object."""
+    """Return the state/model grid for a Simulation-like object."""
     try:
-        return source.state.geometry.grid
+        return source.geometry.model_grid
     except AttributeError:
         return None
 
@@ -38,16 +39,16 @@ def evaluate_projected_input(
 
     Parameters
     ----------
-    source : Dynamics or Timeseries
+    source : Simulation or FieldTimeSeries
         Object containing projected input coefficient time series.
     key : str
-        Input key, for example ``"jr"``, ``"Br"``, ``"conductance"``,
+        Input key, for example ``"jr"``, ``"Br"``, ``"resistance"``,
         ``"u"``, ``"Q_eff"``, or ``"E_source"``.
     time : float
         Time value to select from the input time series.
     grid : Grid, optional
         Target grid. Required unless ``transform`` is supplied or
-        ``source`` is a ``Dynamics`` with a state geometry grid.
+        ``source`` is a ``Simulation`` with a model geometry grid.
     transform : SphericalTransform, optional
         Explicit transform to use for evaluation.
     interpolation : bool, optional
@@ -61,12 +62,12 @@ def evaluate_projected_input(
     dict
         Evaluated input values keyed by variable/component name.
     """
-    timeseries = _input_timeseries(source)
-    entry = timeseries.get_entry(key, time, interpolation=interpolation)
+    series = _input_series(source)
+    entry = series.get_entry(key, time, interpolation=interpolation)
     if entry is None:
         raise ValueError(f"No {key!r} input is available at t={float(time):.3f}.")
 
-    field_space = timeseries.get_field_space(key)
+    field_space = series.get_field_space(key)
     target_grid = _default_grid(source) if grid is None else grid
     evaluator = _make_transform(field_space, target_grid, transform)
 
@@ -87,7 +88,7 @@ def evaluate_projected_input(
         field = FieldCoefficients(field_space, coeffs=coeffs)
         values[var] = evaluator.synthesize_scalar(field)
 
-    if include_derived and key == "conductance" and {"etaP", "etaH"} <= set(values):
+    if include_derived and key == "resistance" and {"etaP", "etaH"} <= set(values):
         values.update(evaluate_conductance_values(values["etaP"], values["etaH"]))
 
     return values

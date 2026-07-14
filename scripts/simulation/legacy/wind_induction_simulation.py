@@ -11,7 +11,7 @@ import datetime
 
 run_directory = "data/brn_wind"
 Nmax, Mmax, Ncs = 80, 80, 90
-latitude_boundary = 45
+interhemispheric_coupling_latitude = 45
 RE = 6371.2e3
 RI = RE + 110e3
 rk = RI / np.cos(np.deg2rad(np.r_[0:70:1])) ** 2
@@ -23,38 +23,38 @@ noon_longitude = d.mlt2mlon(12, date)  # Noon longitude
 noon_mlon = d.mlt2mlon(12, date)  # Noon longitude
 
 # Set up simulation object.
-dynamics = pynamit.Dynamics(
+simulation = pynamit.Simulation(
     run_directory=run_directory,
     Nmax=Nmax,
     Mmax=Mmax,
     Ncs=Ncs,
     RI=RI,
-    mainfield_kind="igrf",
-    FAC_integration_steps=rk,
-    ignore_PFAC=False,
-    connect_hemispheres=True,
-    latitude_boundary=latitude_boundary,
-    ih_constraint_scaling=1e-5,
+    main_field_kind="igrf",
+    fac_integration_radii=rk,
+    enable_pfac_coupling=True,
+    enable_interhemispheric_coupling=True,
+    interhemispheric_coupling_latitude=interhemispheric_coupling_latitude,
+    interhemispheric_electric_field_weight=1e-5,
     t0=str(date),
 )
 
-print(datetime.datetime.now(), "made dynamics object")
+print(datetime.datetime.now(), "made simulation object")
 
 # Get and set conductance input.
-conductance_lat = dynamics.state.geometry.grid.lat
-conductance_lon = dynamics.state.geometry.grid.lon
+conductance_lat = simulation.geometry.model_grid.lat
+conductance_lon = simulation.geometry.model_grid.lon
 hall, pedersen = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, date, starlight=1, dipole=False
 )
-dynamics.set_conductance(
+simulation.set_conductance(
     hall, pedersen, lat=conductance_lat, lon=conductance_lon, reg_lambda=0.0001
 )
 
 print(datetime.datetime.now(), "setting jr")
 # Set zero jr input.
-jr_lat = dynamics.state.geometry.grid.lat
-jr_lon = dynamics.state.geometry.grid.lon
-dynamics.set_jr(np.zeros_like(jr_lat), lat=jr_lat, lon=jr_lon)
+jr_lat = simulation.geometry.model_grid.lat
+jr_lon = simulation.geometry.model_grid.lon
+simulation.set_jr(np.zeros_like(jr_lat), lat=jr_lat, lon=jr_lon)
 
 print(datetime.datetime.now(), "setting wind")
 # Get and set wind input.
@@ -74,7 +74,7 @@ hwm14Obj = pyhwm2014.HWM142D(
 u_theta, u_phi = (-hwm14Obj.Vwind.flatten(), hwm14Obj.Uwind.flatten())
 u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing="ij")
 
-dynamics.set_neutral_wind(
+simulation.set_neutral_wind(
     u_theta=u_theta,
     u_phi=u_phi,
     lat=u_lat,
@@ -83,11 +83,11 @@ dynamics.set_neutral_wind(
 )
 
 print(datetime.datetime.now(), "calculating steady state")
-dynamics.evolve_to_time(0)
-# dynamics.state.steady_state_m_ind()
-# dynamics.state.set_coeffs(m_ind = mv)
+simulation.evolve_to_time(0)
+# simulation.response.steady_state_m_ind()
+# simulation.response.set_coeffs(m_ind = mv)
 print(datetime.datetime.now(), "simulating")
-dynamics.evolve_to_time(421)  # Save dynamics object with new m_ind
+simulation.evolve_to_time(421)  # Save simulation object with new m_ind
 
 
 # a.make_multipanel_output_figure()
@@ -95,5 +95,5 @@ dynamics.evolve_to_time(421)  # Save dynamics object with new m_ind
 
 # fig, ax = plt.subplots()
 # ax.plot(mv)
-# ax.plot(dynamics.output_timeseries['state'].SH_m_ind.values[-1, :])
+# ax.plot(simulation.run_data.output_series['state'].SH_m_ind.values[-1, :])
 # plt.show()

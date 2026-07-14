@@ -1,49 +1,44 @@
 """Steady state initialization test module."""
 
-import os
-import tempfile
 import pytest
 
-from pynamit.default_run import run_pynamit
+from pynamit.simulation.api import Simulation
+from pynamit.simulation.workflows.standard import run_pynamit
 import numpy as np
 
 
 def test_steady_state_init():
     """Test simulation with steady state initialization."""
     # Arrange.
-    expected_coeff_norm = 1.3120048541771941e-08
-    expected_coeff_max = 1.7170964863338117e-09
-    expected_coeff_min = -4.858577603591746e-09
+    # HWM winds are rotated from geographic into dipole coordinates.
+    expected_coeff_norm = 1.2967819752378423e-08
+    expected_coeff_max = 3.3676216912049642e-09
+    expected_coeff_min = -5.214459389211052e-09
     expected_n_coeffs = 228
 
-    temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
-    if not os.path.exists(temp_dir):
-        os.mkdir(temp_dir)
-
     # Act.
-    dynamics = run_pynamit(
+    simulation = run_pynamit(
         final_time=0.1,
         dt=1e-2,
         Nmax=10,
         Mmax=8,
         Ncs=18,
-        mainfield_kind="dipole",
-        fig_directory=temp_dir,
-        ignore_PFAC=False,
-        connect_hemispheres=True,
-        latitude_boundary=50,
+        main_field_kind="dipole",
+        enable_pfac_coupling=True,
+        enable_interhemispheric_coupling=True,
+        interhemispheric_coupling_latitude=50,
         use_wind=True,
         steady_state_initialization=True,
         jr_projection_basis="SH",
-        conductance_projection_basis="SH",
+        resistance_projection_basis="SH",
         u_projection_basis="SH",
     )
 
     # Assert.
     coeff_array = np.hstack(
         (
-            dynamics.output_timeseries.datasets["state"]["SH_m_ind"].values[-1],
-            dynamics.output_timeseries.datasets["state"]["SH_m_imp"].values[-1],
+            simulation.run_data.output_series.datasets["state"]["SH_m_ind"].values[-1],
+            simulation.run_data.output_series.datasets["state"]["SH_m_imp"].values[-1],
         )
     )
 
@@ -68,31 +63,74 @@ def test_impose_steady_state_at_current_time(tmp_path, monkeypatch):
     """Imposed steady state should overwrite the live state."""
     monkeypatch.chdir(tmp_path)
 
-    dynamics = run_pynamit(
+    simulation = run_pynamit(
         final_time=0.0,
         dt=1e-2,
         Nmax=4,
         Mmax=3,
         Ncs=8,
-        mainfield_kind="dipole",
-        fig_directory=str(tmp_path),
-        ignore_PFAC=False,
-        connect_hemispheres=True,
-        latitude_boundary=50,
+        main_field_kind="dipole",
+        enable_pfac_coupling=True,
+        enable_interhemispheric_coupling=True,
+        interhemispheric_coupling_latitude=50,
         use_wind=True,
         steady_state_initialization=False,
         jr_projection_basis="SH",
-        conductance_projection_basis="SH",
+        resistance_projection_basis="SH",
         u_projection_basis="SH",
     )
 
-    steady_state_m_ind = dynamics.impose_steady_state(quiet=True)
+    steady_state_m_ind = simulation.impose_steady_state(quiet=True)
 
-    state_entry = dynamics.output_timeseries.get_entry("state", dynamics.current_time)
-    steady_entry = dynamics.output_timeseries.get_entry("steady_state", dynamics.current_time)
+    state_entry = simulation.run_data.output_series.get_entry("state", simulation.current_time)
+    steady_entry = simulation.run_data.output_series.get_entry(
+        "steady_state", simulation.current_time
+    )
 
     np.testing.assert_allclose(np.asarray(state_entry["m_ind"]), np.asarray(steady_state_m_ind))
     np.testing.assert_allclose(np.asarray(steady_entry["m_ind"]), np.asarray(steady_state_m_ind))
+
+
+def test_impose_steady_state_updates_memory_without_persisting(tmp_path):
+    """The save option controls disk persistence, not live state."""
+    simulation = run_pynamit(
+        final_time=0.0,
+        Nmax=2,
+        Mmax=1,
+        Ncs=8,
+        enable_pfac_coupling=False,
+        steady_state_initialization=False,
+        run_directory=tmp_path / "run",
+        artifact_storage="netcdf",
+    )
+    simulation.run_data.artifact_store.remove_artifact("state")
+    simulation.run_data.artifact_store.remove_artifact("steady_state")
+    simulation.run_data.output_series.datasets.clear()
+
+    steady_state_m_ind = simulation.impose_steady_state(time=0.0, save=False, quiet=True)
+
+    state_entry = simulation.run_data.output_series.get_entry("state", 0.0)
+    np.testing.assert_allclose(state_entry["m_ind"], steady_state_m_ind)
+    assert simulation.run_data.artifact_store.get_dataset_storage_kind("state") is None
+    assert simulation.run_data.artifact_store.get_dataset_storage_kind("steady_state") is None
+
+
+def test_impose_steady_state_rejects_an_earlier_trajectory_time(tmp_path):
+    """Imposition cannot leave later checkpoints on another branch."""
+    simulation = run_pynamit(
+        final_time=0.1,
+        dt=0.1,
+        Nmax=2,
+        Mmax=1,
+        Ncs=8,
+        enable_pfac_coupling=False,
+        saving_sample_interval=1,
+        run_directory=tmp_path / "run",
+        artifact_storage="netcdf",
+    )
+
+    with pytest.raises(ValueError, match="before the active checkpoint"):
+        simulation.impose_steady_state(time=0.0, quiet=True)
 
 
 def test_impose_steady_state_matches_steady_state_initialization(tmp_path, monkeypatch):
@@ -103,33 +141,31 @@ def test_impose_steady_state_matches_steady_state_initialization(tmp_path, monke
         Nmax=4,
         Mmax=3,
         Ncs=8,
-        mainfield_kind="dipole",
-        ignore_PFAC=False,
-        connect_hemispheres=True,
-        latitude_boundary=50,
+        main_field_kind="dipole",
+        enable_pfac_coupling=True,
+        enable_interhemispheric_coupling=True,
+        interhemispheric_coupling_latitude=50,
         use_wind=True,
         jr_projection_basis="SH",
-        conductance_projection_basis="SH",
+        resistance_projection_basis="SH",
         u_projection_basis="SH",
     )
 
     init_dir = tmp_path / "initialized"
     init_dir.mkdir()
     monkeypatch.chdir(init_dir)
-    initialized = run_pynamit(
-        **common_kwargs, fig_directory=str(init_dir), steady_state_initialization=True
-    )
+    initialized = run_pynamit(**common_kwargs, steady_state_initialization=True)
 
     imposed_dir = tmp_path / "imposed"
     imposed_dir.mkdir()
     monkeypatch.chdir(imposed_dir)
-    imposed = run_pynamit(
-        **common_kwargs, fig_directory=str(imposed_dir), steady_state_initialization=False
-    )
+    imposed = run_pynamit(**common_kwargs, steady_state_initialization=False)
     imposed.impose_steady_state(quiet=True)
 
-    initialized_entry = initialized.output_timeseries.get_entry("state", initialized.current_time)
-    imposed_entry = imposed.output_timeseries.get_entry("state", imposed.current_time)
+    initialized_entry = initialized.run_data.output_series.get_entry(
+        "state", initialized.current_time
+    )
+    imposed_entry = imposed.run_data.output_series.get_entry("state", imposed.current_time)
 
     for key in ("m_ind", "m_imp", "Phi", "W"):
         np.testing.assert_allclose(
@@ -139,15 +175,15 @@ def test_impose_steady_state_matches_steady_state_initialization(tmp_path, monke
 
 def test_evolve_to_time_can_run_steady_state_without_inductive_state(tmp_path):
     """Steady-state output can run without inductive evolution."""
-    dynamics = run_pynamit(
+    simulation = run_pynamit(
         final_time=0.1,
         dt=0.05,
-        plotsteps=1,
+        saving_sample_interval=1,
         Nmax=4,
         Mmax=3,
         Ncs=8,
-        mainfield_kind="dipole",
-        ignore_PFAC=True,
+        main_field_kind="dipole",
+        enable_pfac_coupling=False,
         use_wind=False,
         steady_state_initialization=False,
         run_inductive=False,
@@ -156,26 +192,31 @@ def test_evolve_to_time_can_run_steady_state_without_inductive_state(tmp_path):
         artifact_storage="netcdf",
     )
 
-    assert "state" not in dynamics.output_timeseries.datasets
-    assert "steady_state" in dynamics.output_timeseries.datasets
+    assert "state" not in simulation.run_data.output_series.datasets
+    assert "steady_state" in simulation.run_data.output_series.datasets
     np.testing.assert_allclose(
-        dynamics.output_timeseries.datasets["steady_state"].time.values, [0.0, 0.05, 0.1]
+        simulation.run_data.output_series.datasets["steady_state"].time.values, [0.0, 0.05, 0.1]
     )
     assert not (tmp_path / "steady-only" / "state.ncdf").exists()
     assert (tmp_path / "steady-only" / "steady_state.ncdf").is_file()
 
+    reloaded = Simulation.from_directory(
+        tmp_path / "steady-only", artifact_storage="netcdf", backend="numpy"
+    )
+    assert reloaded.current_time == pytest.approx(0.1)
+
 
 def test_evolve_to_time_can_run_inductive_state_without_steady_state(tmp_path):
     """Inductive output can run without steady-state output."""
-    dynamics = run_pynamit(
+    simulation = run_pynamit(
         final_time=0.1,
         dt=0.05,
-        plotsteps=1,
+        saving_sample_interval=1,
         Nmax=4,
         Mmax=3,
         Ncs=8,
-        mainfield_kind="dipole",
-        ignore_PFAC=True,
+        main_field_kind="dipole",
+        enable_pfac_coupling=False,
         use_wind=False,
         steady_state_initialization=False,
         run_inductive=True,
@@ -184,10 +225,10 @@ def test_evolve_to_time_can_run_inductive_state_without_steady_state(tmp_path):
         artifact_storage="netcdf",
     )
 
-    assert "state" in dynamics.output_timeseries.datasets
-    assert "steady_state" not in dynamics.output_timeseries.datasets
+    assert "state" in simulation.run_data.output_series.datasets
+    assert "steady_state" not in simulation.run_data.output_series.datasets
     np.testing.assert_allclose(
-        dynamics.output_timeseries.datasets["state"].time.values, [0.0, 0.05, 0.1]
+        simulation.run_data.output_series.datasets["state"].time.values, [0.0, 0.05, 0.1]
     )
     assert (tmp_path / "inductive-only" / "state.ncdf").is_file()
     assert not (tmp_path / "inductive-only" / "steady_state.ncdf").exists()
@@ -198,12 +239,12 @@ def test_evolve_to_time_split_modes_match_combined_numerically(tmp_path, rel_tol
     common_kwargs = dict(
         final_time=0.1,
         dt=0.05,
-        plotsteps=1,
+        saving_sample_interval=1,
         Nmax=4,
         Mmax=3,
         Ncs=8,
-        mainfield_kind="dipole",
-        ignore_PFAC=True,
+        main_field_kind="dipole",
+        enable_pfac_coupling=False,
         use_wind=False,
         steady_state_initialization=False,
         multi_data=True,
@@ -229,10 +270,10 @@ def test_evolve_to_time_split_modes_match_combined_numerically(tmp_path, rel_tol
         run_directory=str(tmp_path / "steady"),
     )
 
-    state_combined = combined.output_timeseries.datasets["state"]
-    state_inductive = inductive.output_timeseries.datasets["state"]
-    steady_combined = combined.output_timeseries.datasets["steady_state"]
-    steady_split = steady.output_timeseries.datasets["steady_state"]
+    state_combined = combined.run_data.output_series.datasets["state"]
+    state_inductive = inductive.run_data.output_series.datasets["state"]
+    steady_combined = combined.run_data.output_series.datasets["steady_state"]
+    steady_split = steady.run_data.output_series.datasets["steady_state"]
 
     np.testing.assert_allclose(state_inductive.time.values, state_combined.time.values)
     np.testing.assert_allclose(steady_split.time.values, steady_combined.time.values)

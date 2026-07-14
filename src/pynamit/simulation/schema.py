@@ -1,26 +1,25 @@
 """Simulation storage schema construction.
 
 This module centralizes the basis and ``FieldSpace`` choices used by
-``Dynamics`` for persisted input and output time series.
+``Simulation`` for persisted input and output time series.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any
 
-from pynamit.primitives.field_space import FieldSpace
-from pynamit.simulation.config import (
-    PROJECTION_BASIS_KEYS,
-    normalize_horizontal_basis_kind,
-    resolve_projection_basis_settings,
-    setting_value,
-)
+from pynamit.fields import FieldSpace
+from pynamit.simulation.config import PROJECTION_BASIS_KEYS, SimulationConfig
 from pynamit.sphere import CSBasis, SHBasis, SolidHarmonics
 
 
 INPUT_VARIABLES = {
     "jr": ("jr",),
     "Br": ("Br",),
-    "conductance": ("etaP", "etaH"),
+    # The artifact key names the physical input category; its canonical
+    # stored variables are the two resistance-tensor coefficients.
+    "resistance": ("etaP", "etaH"),
     "u": ("u",),
     "Q_eff": ("Q_eff",),
     "E_source": ("E_source",),
@@ -29,7 +28,7 @@ INPUT_VARIABLES = {
 INPUT_FIELD_TYPES = {
     "jr": "scalar",
     "Br": "scalar",
-    "conductance": "scalar",
+    "resistance": "scalar",
     "u": "tangential",
     "Q_eff": "tangential",
     "E_source": "tangential",
@@ -42,8 +41,21 @@ OUTPUT_VARIABLES = {
 
 OUTPUT_FIELD_TYPES = {"state": "scalar", "steady_state": "scalar"}
 
+INPUT_DATASET_KEYS = tuple(INPUT_VARIABLES)
+OUTPUT_DATASET_KEYS = tuple(OUTPUT_VARIABLES)
+RUN_ARTIFACT_NAMES = frozenset(
+    {"settings", "PFAC_matrix", *INPUT_DATASET_KEYS, *OUTPUT_DATASET_KEYS}
+)
 
-__all__ = ["SimulationSchema", "build_simulation_schema", "field_spaces_from_bases"]
+
+__all__ = [
+    "INPUT_DATASET_KEYS",
+    "OUTPUT_DATASET_KEYS",
+    "RUN_ARTIFACT_NAMES",
+    "SimulationSchema",
+    "build_simulation_schema",
+    "field_spaces_from_bases",
+]
 
 
 @dataclass(frozen=True)
@@ -56,19 +68,25 @@ class SimulationSchema:
 
     cs_basis: Any
     sh_basis: Any
-    sh_basis_mean_free: Any
+    mean_free_sh_basis: Any
     horizontal_basis: Any
     solid_harmonics: SolidHarmonics
-    input_vars: dict[str, tuple[str, ...]]
-    output_vars: dict[str, tuple[str, ...]]
-    input_field_spaces: dict[str, FieldSpace]
-    output_field_spaces: dict[str, FieldSpace]
-    input_projection_bases: dict[str, Any]
+    input_variables: Mapping[str, tuple[str, ...]]
+    output_variables: Mapping[str, tuple[str, ...]]
+    input_field_spaces: Mapping[str, FieldSpace]
+    output_field_spaces: Mapping[str, FieldSpace]
+    input_projection_bases: Mapping[str, Any]
 
-
-def _copy_variable_schema(schema: dict[str, tuple[str, ...]]) -> dict[str, tuple[str, ...]]:
-    """Return a shallow copy of variable-name schema tuples."""
-    return {key: tuple(variables) for key, variables in schema.items()}
+    def __post_init__(self):
+        """Own immutable copies of the canonical schema mappings."""
+        for name in (
+            "input_variables",
+            "output_variables",
+            "input_field_spaces",
+            "output_field_spaces",
+            "input_projection_bases",
+        ):
+            object.__setattr__(self, name, MappingProxyType(dict(getattr(self, name))))
 
 
 def field_spaces_from_bases(
@@ -94,37 +112,28 @@ def field_spaces_from_bases(
     return field_spaces
 
 
-def build_simulation_schema(
-    settings: Any, horizontal_basis_kind: str | None = None
-) -> SimulationSchema:
-    """Build the basis and storage schema for one ``Dynamics``."""
-    if horizontal_basis_kind is None:
-        horizontal_basis_kind = setting_value(settings, "horizontal_basis_kind", "SH")
-    horizontal_basis_kind = normalize_horizontal_basis_kind(horizontal_basis_kind)
+def build_simulation_schema(config: SimulationConfig) -> SimulationSchema:
+    """Build the basis and storage schema for one ``Simulation``."""
+    if not isinstance(config, SimulationConfig):
+        raise TypeError("build_simulation_schema requires a SimulationConfig.")
+    horizontal_basis_kind = config.horizontal_basis_kind
 
-    sh_basis = SHBasis(
-        setting_value(settings, "Nmax"), setting_value(settings, "Mmax"), mean_free=False
-    )
-    sh_basis_mean_free = sh_basis.with_mean_free(True)
-    cs_basis = CSBasis(setting_value(settings, "Ncs"))
-    horizontal_basis = cs_basis if horizontal_basis_kind == "CS" else sh_basis_mean_free
-    solid_harmonics = SolidHarmonics(sh_basis_mean_free)
+    sh_basis = SHBasis(config.Nmax, config.Mmax, mean_free=False)
+    mean_free_sh_basis = sh_basis.with_mean_free(True)
+    cs_basis = CSBasis(config.Ncs)
+    horizontal_basis = cs_basis if horizontal_basis_kind == "CS" else mean_free_sh_basis
+    solid_harmonics = SolidHarmonics(mean_free_sh_basis)
 
-    input_vars = _copy_variable_schema(INPUT_VARIABLES)
-    output_vars = _copy_variable_schema(OUTPUT_VARIABLES)
-
-    projection_settings = resolve_projection_basis_settings(settings, horizontal_basis_kind)
     projection_basis_kinds = {
-        key: projection_settings[f"{key}_projection_basis"] for key in PROJECTION_BASIS_KEYS
+        key: getattr(config, f"{key}_projection_basis") for key in PROJECTION_BASIS_KEYS
     }
-    projection_basis_kinds["E_source"] = projection_basis_kinds["u"]
-    conductance_projection_basis = projection_basis_kinds["conductance"]
+    resistance_projection_basis = projection_basis_kinds["resistance"]
 
     if horizontal_basis_kind == "CS":
         input_bases = {
             "jr": cs_basis,
             "Br": cs_basis,
-            "conductance": cs_basis,
+            "resistance": cs_basis,
             "u": cs_basis,
             "Q_eff": cs_basis,
             "E_source": cs_basis,
@@ -132,27 +141,27 @@ def build_simulation_schema(
         input_mean_free = {
             "jr": True,
             "Br": True,
-            "conductance": False,
+            "resistance": False,
             "u": True,
             "Q_eff": True,
             "E_source": True,
         }
         input_projection_bases = dict(input_bases)
     else:
-        projection_bases = {"SH": sh_basis_mean_free, "CS": cs_basis}
+        projection_bases = {"SH": mean_free_sh_basis, "CS": cs_basis}
         input_bases = {
-            "jr": sh_basis_mean_free,
-            "Br": sh_basis_mean_free,
-            "conductance": (sh_basis if conductance_projection_basis == "SH" else cs_basis),
-            "u": sh_basis_mean_free,
-            "Q_eff": sh_basis_mean_free,
-            "E_source": sh_basis_mean_free,
+            "jr": mean_free_sh_basis,
+            "Br": mean_free_sh_basis,
+            "resistance": (sh_basis if resistance_projection_basis == "SH" else cs_basis),
+            "u": mean_free_sh_basis,
+            "Q_eff": mean_free_sh_basis,
+            "E_source": mean_free_sh_basis,
         }
         input_mean_free = None
         input_projection_bases = {
             "jr": projection_bases[projection_basis_kinds["jr"]],
             "Br": projection_bases[projection_basis_kinds["Br"]],
-            "conductance": (sh_basis if conductance_projection_basis == "SH" else cs_basis),
+            "resistance": (sh_basis if resistance_projection_basis == "SH" else cs_basis),
             "u": projection_bases[projection_basis_kinds["u"]],
             "Q_eff": projection_bases[projection_basis_kinds["Q_eff"]],
             "E_source": projection_bases[projection_basis_kinds["E_source"]],
@@ -170,11 +179,11 @@ def build_simulation_schema(
     return SimulationSchema(
         cs_basis=cs_basis,
         sh_basis=sh_basis,
-        sh_basis_mean_free=sh_basis_mean_free,
+        mean_free_sh_basis=mean_free_sh_basis,
         horizontal_basis=horizontal_basis,
         solid_harmonics=solid_harmonics,
-        input_vars=input_vars,
-        output_vars=output_vars,
+        input_variables=INPUT_VARIABLES,
+        output_variables=OUTPUT_VARIABLES,
         input_field_spaces=input_field_spaces,
         output_field_spaces=output_field_spaces,
         input_projection_bases=input_projection_bases,

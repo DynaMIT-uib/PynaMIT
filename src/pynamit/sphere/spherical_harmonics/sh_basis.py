@@ -9,7 +9,7 @@ import scipy
 
 from pynamit.math import as_linear_map
 from pynamit.math.backend import get_array_module, to_numpy, use_jax
-from pynamit.sphere.core import BasisView, SurfaceOperators
+from pynamit.sphere.core import BasisView, SurfaceOperators, _owned_readonly_array
 from pynamit.sphere.spherical_harmonics.helpers import (
     SHIndices,
     schmidt_quasi_normalization_factors,
@@ -46,21 +46,48 @@ def _double_factorial(n):
     return result
 
 
+def _normalized_degree_limits(Nmax, Mmax):
+    """Return validated maximum spherical-harmonic degree and order."""
+    if isinstance(Nmax, bool) or not isinstance(Nmax, (int, np.integer)):
+        raise TypeError("Nmax must be an integer.")
+    if isinstance(Mmax, bool) or not isinstance(Mmax, (int, np.integer)):
+        raise TypeError("Mmax must be an integer.")
+    Nmax, Mmax = int(Nmax), int(Mmax)
+    if Nmax < 0:
+        raise ValueError("Nmax must be non-negative.")
+    if Mmax < 0 or Mmax > Nmax:
+        raise ValueError("Mmax must be between zero and Nmax.")
+    return Nmax, Mmax
+
+
+def _minimum_scalar_degree(Nmin, mean_free):
+    """Resolve the minimum scalar degree from gauge-space options."""
+    if mean_free is None:
+        return 1 if Nmin is None else int(Nmin)
+    effective_nmin = 1 if bool(mean_free) else 0
+    if Nmin is not None and int(Nmin) != effective_nmin:
+        raise ValueError(
+            "SHBasis received inconsistent scalar-space options: "
+            f"Nmin={Nmin} and mean_free={mean_free}."
+        )
+    return effective_nmin
+
+
 class SHBasis(SurfaceOperators):
-    """
-    Class for representing spherical harmonic bases.
+    """Class for representing spherical harmonic bases.
 
     Uses the Langel (1987) geomagnetism convention.
 
     This class provides two fully compatible backends for Legendre
     polynomial generation:
-    - 'internal':
+
+    - ``'internal'``:
         A fast, self-contained recurrence relation for both P and dP/dθ.
-    - 'scipy':
+    - ``'scipy'``:
         Uses the trusted scipy library, with a precise analytical
         scaling factor applied to ensure identical output to the
-        'internal' backend. It automatically selects the best available
-        scipy function.
+        ``'internal'`` backend. It automatically selects the best
+        available scipy function.
     """
 
     _grid_cache_size = 8
@@ -89,47 +116,16 @@ class SHBasis(SurfaceOperators):
             Backend for Legendre function calculation. Can be 'internal'
             (default) or 'scipy'. Both produce identical results.
         """
+        Nmax, Mmax = _normalized_degree_limits(Nmax, Mmax)
         if backend not in ["internal", "scipy"]:
             raise ValueError(f"Backend '{backend}' not recognized. Use 'internal' or 'scipy'.")
-
-        if mean_free is None:
-            effective_nmin = 1 if Nmin is None else int(Nmin)
-        else:
-            effective_nmin = 1 if bool(mean_free) else 0
-            if Nmin is not None and int(Nmin) != effective_nmin:
-                raise ValueError(
-                    "SHBasis received inconsistent scalar-space options: "
-                    f"Nmin={Nmin} and mean_free={mean_free}."
-                )
-
+        effective_nmin = _minimum_scalar_degree(Nmin, mean_free)
         self.Nmax, self.Mmax, self.Nmin, self.backend = Nmax, Mmax, effective_nmin, backend
         self.mean_free = self.Nmin >= 1
         self._related_basis_cache = {}
         self._grid_cache = OrderedDict()
-        all_indices = SHIndices(Nmax, Mmax)
-        self.index_pairs = list(all_indices.index_pairs)
-
-        self.cnm = SHIndices(Nmax, Mmax)
-        self.cnm.index_pairs = tuple([p for p in self.index_pairs if p[0] >= self.Nmin])
-        self.cnm.make_arrays()
-        self.snm = SHIndices(Nmax, Mmax)
-        self.snm.index_pairs = tuple(
-            [p for p in self.index_pairs if p[0] >= self.Nmin and p[1] >= 1]
-        )
-        self.snm.make_arrays()
-
-        self.cnm_filter = [(pair in self.cnm.index_pairs) for pair in self.index_pairs]
-        self.snm_filter = [(pair in self.snm.index_pairs) for pair in self.index_pairs]
-
-        self.n = np.hstack((self.cnm.n.reshape(-1), self.snm.n.reshape(-1)))
-        self.m = np.hstack((self.cnm.m.reshape(-1), self.snm.m.reshape(-1)))
-
-        self.is_normalized = quasi_normalized
-        if self.is_normalized:
-            s_matrix = schmidt_quasi_normalization_factors(Nmax, Mmax)
-            self.schmidt_factors = np.array([s_matrix[n, m] for n, m in self.index_pairs])
-        else:
-            self.schmidt_factors = np.ones(len(self.index_pairs))
+        self._init_coefficient_indices()
+        self._init_normalization(quasi_normalized)
 
         # Use the flag set during the conditional import.
         self._use_modern_scipy = _USE_MODERN_SCIPY
@@ -146,10 +142,51 @@ class SHBasis(SurfaceOperators):
                 )
 
         self.kind = "SH"
-        self.index_names = ["n", "m"]
+        self.index_names = ("n", "m")
         self.index_length = len(self.cnm.index_pairs) + len(self.snm.index_pairs)
-        self.index_arrays = [self.n, self.m]
+        self.index_arrays = (self.n, self.m)
         self.validate_metadata()
+
+    def _init_coefficient_indices(self):
+        """Build cosine/sine coefficient indices and filters."""
+        all_indices = SHIndices(self.Nmax, self.Mmax)
+        self.index_pairs = tuple(all_indices.index_pairs)
+
+        self.cnm = SHIndices(self.Nmax, self.Mmax)
+        self.cnm.index_pairs = tuple(pair for pair in self.index_pairs if pair[0] >= self.Nmin)
+        self.cnm.make_arrays()
+        self.snm = SHIndices(self.Nmax, self.Mmax)
+        self.snm.index_pairs = tuple(
+            pair for pair in self.index_pairs if pair[0] >= self.Nmin and pair[1] >= 1
+        )
+        self.snm.make_arrays()
+
+        cnm_pairs = set(self.cnm.index_pairs)
+        snm_pairs = set(self.snm.index_pairs)
+        self.cnm_filter = _owned_readonly_array(
+            [pair in cnm_pairs for pair in self.index_pairs], dtype=bool
+        )
+        self.snm_filter = _owned_readonly_array(
+            [pair in snm_pairs for pair in self.index_pairs], dtype=bool
+        )
+
+        self.n = _owned_readonly_array(np.hstack((self.cnm.n.reshape(-1), self.snm.n.reshape(-1))))
+        self.m = _owned_readonly_array(np.hstack((self.cnm.m.reshape(-1), self.snm.m.reshape(-1))))
+        self.cnm.n = _owned_readonly_array(self.cnm.n)
+        self.cnm.m = _owned_readonly_array(self.cnm.m)
+        self.snm.n = _owned_readonly_array(self.snm.n)
+        self.snm.m = _owned_readonly_array(self.snm.m)
+
+    def _init_normalization(self, quasi_normalized):
+        """Build immutable coefficient normalization factors."""
+        self.is_normalized = quasi_normalized
+        if self.is_normalized:
+            s_matrix = schmidt_quasi_normalization_factors(self.Nmax, self.Mmax)
+            self.schmidt_factors = _owned_readonly_array(
+                [s_matrix[n, m] for n, m in self.index_pairs]
+            )
+        else:
+            self.schmidt_factors = _owned_readonly_array(np.ones(len(self.index_pairs)))
 
     @property
     def coefficient_space_signature(self):
@@ -172,7 +209,7 @@ class SHBasis(SurfaceOperators):
 
     @index_names.setter
     def index_names(self, value):
-        self._index_names = value
+        self._index_names = tuple(value)
 
     @property
     def index_length(self):
@@ -269,10 +306,6 @@ class SHBasis(SurfaceOperators):
     def scalar_index_arrays(self, mean_free=None):
         """Return ``(n, m)`` arrays for the requested scalar space."""
         return self.scalar_degrees(mean_free=mean_free), self.scalar_orders(mean_free=mean_free)
-
-    def get_extended_basis(self):
-        """Return a sibling basis that includes the monopole term."""
-        return self.with_mean_free(False)
 
     def with_mean_free(self, mean_free):
         """Return a cached SH scalar-space basis or view."""
@@ -481,22 +514,13 @@ class SHBasis(SurfaceOperators):
             ),
         )
 
-    def _evaluate_on_grid(self, grid, derivative=None, legendre_cache=None):
-        """Evaluate scalar basis or surface derivatives on ``grid``."""
-        xp = get_array_module(grid.phi, grid.theta)
-        phi = np.deg2rad(to_numpy(grid.phi))
-        theta = np.deg2rad(to_numpy(grid.theta))
-        cache = legendre_cache
+    def _normalized_legendre_values(self, theta, *, derivative_required, cache):
+        """Return normalized Legendre values and optional dP/dtheta."""
         cached_P = None if cache is None else cache.get("P_unnormalized")
         cached_dP = None if cache is None else cache.get("dP_unnormalized")
-        sin_theta_values = np.sin(theta)
-        needs_legendre_derivative = derivative == "theta" or (
-            derivative == "phi" and np.any(np.abs(sin_theta_values) <= 1e-12)
-        )
-
         if self.backend == "internal":
             P_unnormalized = cached_P if cached_P is not None else self.legendre(theta)
-            if needs_legendre_derivative:
+            if derivative_required:
                 dP_unnormalized = (
                     cached_dP
                     if cached_dP is not None
@@ -504,21 +528,58 @@ class SHBasis(SurfaceOperators):
                 )
             else:
                 dP_unnormalized = cached_dP
-        else:  # backend == 'scipy'
-            if cached_P is not None and (not needs_legendre_derivative or cached_dP is not None):
-                P_unnormalized, dP_unnormalized = cached_P, cached_dP
-            else:
-                P_unnormalized, dP_unnormalized = self._get_legendre_scipy(
-                    theta, compute_derivative=needs_legendre_derivative
-                )
+        elif cached_P is not None and (not derivative_required or cached_dP is not None):
+            P_unnormalized, dP_unnormalized = cached_P, cached_dP
+        else:
+            P_unnormalized, dP_unnormalized = self._get_legendre_scipy(
+                theta, compute_derivative=derivative_required
+            )
 
         if cache is not None:
             cache["P_unnormalized"] = P_unnormalized
             if dP_unnormalized is not None:
                 cache["dP_unnormalized"] = dP_unnormalized
-
         P = P_unnormalized * self.schmidt_factors
         dP = dP_unnormalized * self.schmidt_factors if dP_unnormalized is not None else None
+        return P, dP
+
+    def _phi_derivative_values(self, P, dP, phi, sin_theta_values):
+        """Evaluate azimuthal derivatives, including the poles."""
+        sin_theta = sin_theta_values.reshape(-1, 1)
+        phi_col = phi.reshape(-1, 1)
+        is_pole = np.abs(sin_theta) <= 1e-12
+        m_c, m_s = self.cnm.m, self.snm.m
+        num_Gc = -P[:, self.cnm_filter] * m_c * np.sin(m_c * phi_col)
+        Gc = np.divide(num_Gc, sin_theta, out=np.zeros_like(num_Gc), where=~is_pole)
+        num_Gs = P[:, self.snm_filter] * m_s * np.cos(m_s * phi_col)
+        Gs = np.divide(num_Gs, sin_theta, out=np.zeros_like(num_Gs), where=~is_pole)
+
+        pole_rows = np.flatnonzero(is_pole)
+        if pole_rows.size:
+            cnm_is_m1 = (self.cnm.m == 1).reshape(-1)
+            snm_is_m1 = (self.snm.m == 1).reshape(-1)
+            cnm_m1_cols = np.flatnonzero(cnm_is_m1)
+            snm_m1_cols = np.flatnonzero(snm_is_m1)
+            if cnm_m1_cols.size:
+                dP_pole = dP[pole_rows][:, self.cnm_filter][:, cnm_is_m1]
+                Gc[np.ix_(pole_rows, cnm_m1_cols)] = -dP_pole * np.sin(phi_col[pole_rows])
+            if snm_m1_cols.size:
+                dP_pole = dP[pole_rows][:, self.snm_filter][:, snm_is_m1]
+                Gs[np.ix_(pole_rows, snm_m1_cols)] = dP_pole * np.cos(phi_col[pole_rows])
+        return Gc, Gs
+
+    def _evaluate_on_grid(self, grid, derivative=None, legendre_cache=None):
+        """Evaluate scalar basis or surface derivatives on ``grid``."""
+        xp = get_array_module(grid.phi, grid.theta)
+        phi = np.deg2rad(to_numpy(grid.phi))
+        theta = np.deg2rad(to_numpy(grid.theta))
+        sin_theta_values = np.sin(theta)
+        needs_legendre_derivative = derivative == "theta" or (
+            derivative == "phi" and np.any(np.abs(sin_theta_values) <= 1e-12)
+        )
+        P, dP = self._normalized_legendre_values(
+            theta, derivative_required=needs_legendre_derivative, cache=legendre_cache
+        )
 
         if derivative is None:
             Gc = P[:, self.cnm_filter] * np.cos(phi.reshape((-1, 1)) * self.cnm.m)
@@ -527,25 +588,7 @@ class SHBasis(SurfaceOperators):
             Gc = dP[:, self.cnm_filter] * np.cos(phi.reshape((-1, 1)) * self.cnm.m)
             Gs = dP[:, self.snm_filter] * np.sin(phi.reshape((-1, 1)) * self.snm.m)
         elif derivative == "phi":
-            sin_theta = sin_theta_values.reshape(-1, 1)
-            phi_col = phi.reshape(-1, 1)
-            is_pole = np.abs(sin_theta) <= 1e-12
-            m_c, m_s = self.cnm.m, self.snm.m
-            num_Gc = -P[:, self.cnm_filter] * m_c * np.sin(m_c * phi_col)
-            Gc = np.divide(num_Gc, sin_theta, out=np.zeros_like(num_Gc), where=~is_pole)
-            num_Gs = P[:, self.snm_filter] * m_s * np.cos(m_s * phi_col)
-            Gs = np.divide(num_Gs, sin_theta, out=np.zeros_like(num_Gs), where=~is_pole)
-            idx_poles = np.where(is_pole.reshape(-1))[0]
-            if idx_poles.size:
-                cnm_is_m1 = (self.cnm.m == 1).reshape(-1)
-                snm_is_m1 = (self.snm.m == 1).reshape(-1)
-                cnm_m1_cols, snm_m1_cols = np.where(cnm_is_m1)[0], np.where(snm_is_m1)[0]
-                if cnm_m1_cols.size:
-                    dP_pole = dP[idx_poles][:, self.cnm_filter][:, cnm_is_m1]
-                    Gc[np.ix_(idx_poles, cnm_m1_cols)] = -dP_pole * np.sin(phi_col[idx_poles])
-                if snm_m1_cols.size:
-                    dP_pole = dP[idx_poles][:, self.snm_filter][:, snm_is_m1]
-                    Gs[np.ix_(idx_poles, snm_m1_cols)] = dP_pole * np.cos(phi_col[idx_poles])
+            Gc, Gs = self._phi_derivative_values(P, dP, phi, sin_theta_values)
         else:
             raise ValueError(f'Invalid derivative "{derivative}".')
 

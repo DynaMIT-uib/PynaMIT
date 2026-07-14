@@ -282,11 +282,7 @@ def _select_fallback_entry(
 
 
 def get_conductance_inputs(
-    date: Any,
-    lat: np.ndarray,
-    lon: np.ndarray,
-    time: Optional[np.ndarray],
-    reg_lambda: Optional[float] = None,
+    date: Any, lat: np.ndarray, lon: np.ndarray, time: Optional[np.ndarray]
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Return Hall and Pedersen conductance on grid."""
     source = get_input_source()
@@ -308,11 +304,7 @@ def get_conductance_inputs(
 
 
 def get_jr_inputs(
-    date: Any,
-    lat: np.ndarray,
-    lon: np.ndarray,
-    time: Optional[np.ndarray],
-    jr_lambda: Optional[float] = None,
+    date: Any, lat: np.ndarray, lon: np.ndarray, time: Optional[np.ndarray]
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Return upward current density on the requested grid."""
     source = get_input_source()

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, fields
 import json
+import math
 from pathlib import Path
 
 
@@ -19,7 +20,7 @@ MAP_LINE_OPTIONS = {
     "Phi": "Electric potential",
     "W": "E streamfunction",
     "Phi_W": "Phi + W",
-    "Jeq": "Equivalent current",
+    "Jeq": "Equivalent-current function",
 }
 
 PLOT_TYPE_OPTIONS = {
@@ -97,6 +98,7 @@ class PynamitFigureSpec:
     def __post_init__(self):
         """Normalize and validate renderer-facing options."""
         self.time_range = self._validate_time_range(self.time_range)
+        self._validate_integer("time_index", self.time_index, minimum=0)
         self._validate_choice("plot_type", self.plot_type, PLOT_TYPE_OPTIONS)
         self._validate_choice("fill", self.fill, MAP_FILL_OPTIONS)
         self._validate_choice("lines", self.lines, MAP_LINE_OPTIONS)
@@ -111,13 +113,16 @@ class PynamitFigureSpec:
         self._validate_ordered_range("geo_lat_min", "geo_lat_max", -90, 90)
         self._validate_range("local_time_min", self.local_time_min, 0, 24)
         self._validate_range("local_time_max", self.local_time_max, 0, 24)
-        self._validate_positive("dbdt_window_points", self.dbdt_window_points)
-        self._validate_positive("ground_model_lt_count", self.ground_model_lt_count)
-        self._validate_positive("ground_model_lat_count", self.ground_model_lat_count)
+        self._validate_integer("dbdt_window_points", self.dbdt_window_points, minimum=1)
+        self._validate_integer("ground_model_lt_count", self.ground_model_lt_count, minimum=1)
+        self._validate_integer("ground_model_lat_count", self.ground_model_lat_count, minimum=1)
+        self._validate_positive("low_latitude_scale", self.low_latitude_scale)
         self._validate_positive("curve_scale_value", self.curve_scale_value)
         self._validate_positive("curve_time_scale", self.curve_time_scale)
         self._validate_positive("movie_fps", self.movie_fps)
-        self._validate_positive("movie_dpi", self.movie_dpi)
+        self._validate_integer("movie_dpi", self.movie_dpi, minimum=1)
+        self._validate_finite("sim_time_offset_seconds", self.sim_time_offset_seconds)
+        self._validate_finite("data_time_offset_seconds", self.data_time_offset_seconds)
         self._validate_range("color_scale_percentile", self.color_scale_percentile, 0, 100)
 
     @staticmethod
@@ -130,7 +135,10 @@ class PynamitFigureSpec:
     def _validate_time_range(value):
         if len(value) != 2:
             raise ValueError("time_range must contain exactly two indices.")
-        start, end = (int(value[0]), int(value[1]))
+        start, end = value
+        PynamitFigureSpec._validate_integer("time_range start", start, minimum=0)
+        PynamitFigureSpec._validate_integer("time_range end", end, minimum=0)
+        start, end = int(start), int(end)
         if start < 0 or end < 0:
             raise ValueError("time_range indices must be non-negative.")
         if end < start:
@@ -140,7 +148,7 @@ class PynamitFigureSpec:
     @staticmethod
     def _validate_range(name, value, minimum, maximum):
         value = float(value)
-        if value < float(minimum) or value > float(maximum):
+        if not math.isfinite(value) or value < float(minimum) or value > float(maximum):
             raise ValueError(f"{name} must be between {minimum} and {maximum}; got {value!r}.")
 
     def _validate_ordered_range(self, minimum_name, maximum_name, minimum, maximum):
@@ -153,8 +161,20 @@ class PynamitFigureSpec:
 
     @staticmethod
     def _validate_positive(name, value):
-        if float(value) <= 0.0:
+        value = float(value)
+        if not math.isfinite(value) or value <= 0.0:
             raise ValueError(f"{name} must be positive; got {value!r}.")
+
+    @staticmethod
+    def _validate_integer(name, value, *, minimum):
+        integer = int(value)
+        if isinstance(value, bool) or integer != value or integer < minimum:
+            raise ValueError(f"{name} must be an integer >= {minimum}; got {value!r}.")
+
+    @staticmethod
+    def _validate_finite(name, value):
+        if not math.isfinite(float(value)):
+            raise ValueError(f"{name} must be finite; got {value!r}.")
 
     def to_dict(self):
         """Return a JSON-compatible dictionary."""

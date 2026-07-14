@@ -8,12 +8,12 @@ constraining array values within specified bounds.
 import numpy as np
 
 
-def get_3D_determinants(M):
-    """Calculate determinants of 3D matrices.
+def determinants_3x3(matrices):
+    """Calculate determinants of stacked 3-by-3 matrices.
 
     Parameters
     ----------
-    M : array
+    matrices : array
         Array with shape ``(N, 3, 3)``, corresponding to ``N`` 3D
         matrices.
 
@@ -28,27 +28,28 @@ def get_3D_determinants(M):
         If the input array is not 3D or if the last two axes are not
         3 x 3.
     """
-    if (M.shape[1:] != (3, 3)) | (M.ndim != 3):
+    matrices = np.asarray(matrices)
+    if matrices.ndim != 3 or matrices.shape[1:] != (3, 3):
         raise ValueError("Input array must have shape (N, 3, 3).")
 
     det = (
-        M[:, 0, 0] * M[:, 1, 1] * M[:, 2, 2]
-        - M[:, 0, 0] * M[:, 1, 2] * M[:, 2, 1]
-        - M[:, 0, 1] * M[:, 1, 0] * M[:, 2, 2]
-        + M[:, 0, 1] * M[:, 1, 2] * M[:, 2, 0]
-        + M[:, 0, 2] * M[:, 1, 0] * M[:, 2, 1]
-        - M[:, 0, 2] * M[:, 1, 1] * M[:, 2, 0]
+        matrices[:, 0, 0] * matrices[:, 1, 1] * matrices[:, 2, 2]
+        - matrices[:, 0, 0] * matrices[:, 1, 2] * matrices[:, 2, 1]
+        - matrices[:, 0, 1] * matrices[:, 1, 0] * matrices[:, 2, 2]
+        + matrices[:, 0, 1] * matrices[:, 1, 2] * matrices[:, 2, 0]
+        + matrices[:, 0, 2] * matrices[:, 1, 0] * matrices[:, 2, 1]
+        - matrices[:, 0, 2] * matrices[:, 1, 1] * matrices[:, 2, 0]
     )
 
     return det
 
 
-def invert_3D_matrices(M):
-    """Calculate inverse of 3D matrices.
+def invert_3x3_matrices(matrices):
+    """Calculate inverses of stacked 3-by-3 matrices.
 
     Parameters
     ----------
-    M : array
+    matrices : array
         Array with shape ``(N, 3, 3)``, corresponding to ``N`` 3D
         invertible matrices.
 
@@ -63,65 +64,43 @@ def invert_3D_matrices(M):
         If the input array is not 3D, if the last two axes are not
         3 x 3, or if any of the matrices are not invertible.
     """
-    if (M.shape[1:] != (3, 3)) | (M.ndim != 3):
+    matrices = np.asarray(matrices)
+    if matrices.ndim != 3 or matrices.shape[1:] != (3, 3):
         raise ValueError("Input array must have shape (N, 3, 3).")
-    det = get_3D_determinants(M)
+    det = determinants_3x3(matrices)
 
     if np.any(np.isclose(det, 0)):
         raise ValueError(
             f"The following matrices are not invertible: {np.where(np.isclose(det, 0))[0]}."
         )
 
-    Minv = np.empty(M.shape)
-    Minv[:, 0, 0] = M[:, 1, 1] * M[:, 2, 2] - M[:, 1, 2] * M[:, 2, 1]
-    Minv[:, 0, 1] = -M[:, 0, 1] * M[:, 2, 2] + M[:, 0, 2] * M[:, 2, 1]
-    Minv[:, 0, 2] = M[:, 0, 1] * M[:, 1, 2] - M[:, 0, 2] * M[:, 1, 1]
-    Minv[:, 1, 0] = -M[:, 1, 0] * M[:, 2, 2] + M[:, 1, 2] * M[:, 2, 0]
-    Minv[:, 1, 1] = M[:, 0, 0] * M[:, 2, 2] - M[:, 0, 2] * M[:, 2, 0]
-    Minv[:, 1, 2] = -M[:, 0, 0] * M[:, 1, 2] + M[:, 0, 2] * M[:, 1, 0]
-    Minv[:, 2, 0] = M[:, 1, 0] * M[:, 2, 1] - M[:, 1, 1] * M[:, 2, 0]
-    Minv[:, 2, 1] = -M[:, 0, 0] * M[:, 2, 1] + M[:, 0, 1] * M[:, 2, 0]
-    Minv[:, 2, 2] = M[:, 0, 0] * M[:, 1, 1] - M[:, 0, 1] * M[:, 1, 0]
+    inverses = np.empty(matrices.shape)
+    inverses[:, 0, 0] = (
+        matrices[:, 1, 1] * matrices[:, 2, 2] - matrices[:, 1, 2] * matrices[:, 2, 1]
+    )
+    inverses[:, 0, 1] = (
+        -matrices[:, 0, 1] * matrices[:, 2, 2] + matrices[:, 0, 2] * matrices[:, 2, 1]
+    )
+    inverses[:, 0, 2] = (
+        matrices[:, 0, 1] * matrices[:, 1, 2] - matrices[:, 0, 2] * matrices[:, 1, 1]
+    )
+    inverses[:, 1, 0] = (
+        -matrices[:, 1, 0] * matrices[:, 2, 2] + matrices[:, 1, 2] * matrices[:, 2, 0]
+    )
+    inverses[:, 1, 1] = (
+        matrices[:, 0, 0] * matrices[:, 2, 2] - matrices[:, 0, 2] * matrices[:, 2, 0]
+    )
+    inverses[:, 1, 2] = (
+        -matrices[:, 0, 0] * matrices[:, 1, 2] + matrices[:, 0, 2] * matrices[:, 1, 0]
+    )
+    inverses[:, 2, 0] = (
+        matrices[:, 1, 0] * matrices[:, 2, 1] - matrices[:, 1, 1] * matrices[:, 2, 0]
+    )
+    inverses[:, 2, 1] = (
+        -matrices[:, 0, 0] * matrices[:, 2, 1] + matrices[:, 0, 1] * matrices[:, 2, 0]
+    )
+    inverses[:, 2, 2] = (
+        matrices[:, 0, 0] * matrices[:, 1, 1] - matrices[:, 0, 1] * matrices[:, 1, 0]
+    )
 
-    return Minv / det.reshape((M.shape[0], 1, 1))
-
-
-def constrain_values(arr, vmin, vmax, axis):
-    """Constrain values of an array.
-
-    Constrains the values of `arr` to be between `vmin` and `vmax` by
-    adding a constant along a given axis.
-
-    Parameters
-    ----------
-    arr : array
-        Array to be clipped.
-    vmin : scalar
-        Minimum allowed value in result array `a_shifted`.
-    vmax : scalar
-        Maximum allowed value in result array `a_shifted`.
-    axis : integer
-        Axis along which to add a constant.
-
-    Returns
-    -------
-    a_shifted : array
-        ``a + constant``, where ``constant`` is chosen so that all
-        elements of `a_shifted` is ``>= vmin`` and ``<= vmax`` (if
-        possible).
-
-    Raises
-    ------
-    ValueError
-        If the range of `arr` is too large compared to `vmin` and
-        `vmax`.
-    """
-    amin = arr.min(axis=axis, keepdims=True)
-    amax = arr.max(axis=axis, keepdims=True)
-
-    if np.any(amax - amin > vmax - vmin):
-        raise ValueError("Range of array values is too large compared to vmin and vmax.")
-
-    a_shifted = arr - np.minimum(amin, vmin) + vmin - np.maximum(amax, vmax) + vmax
-
-    return a_shifted
+    return inverses / det.reshape((matrices.shape[0], 1, 1))

@@ -1,9 +1,6 @@
 """Dipole, PFAC and DOP853 test."""
 
-import os
-import tempfile
-
-from pynamit.default_run import run_pynamit
+from pynamit.simulation.workflows.standard import run_pynamit
 import numpy as np
 
 
@@ -15,20 +12,15 @@ def test_2d_dipole_pfac_dop853(pynamit_approx):
     expected_coeff_min = -5.063807785683825e-09
     expected_n_coeffs = 240
 
-    temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
-    if not os.path.exists(temp_dir):
-        os.mkdir(temp_dir)
-
     # Act.
-    dynamics = run_pynamit(
+    simulation = run_pynamit(
         final_time=0.1,
         dt=0.1,
         Nmax=10,
         Mmax=10,
         Ncs=20,
-        mainfield_kind="dipole",
-        fig_directory=temp_dir,
-        ignore_PFAC=False,
+        main_field_kind="dipole",
+        enable_pfac_coupling=True,
         integrator="DOP853",
         steady_state_initialization=False,
     )
@@ -36,8 +28,8 @@ def test_2d_dipole_pfac_dop853(pynamit_approx):
     # Assert.
     coeff_array = np.hstack(
         (
-            dynamics.output_timeseries.datasets["state"]["SH_m_ind"].values[-1],
-            dynamics.output_timeseries.datasets["state"]["SH_m_imp"].values[-1],
+            simulation.run_data.output_series.datasets["state"]["SH_m_ind"].values[-1],
+            simulation.run_data.output_series.datasets["state"]["SH_m_imp"].values[-1],
         )
     )
 

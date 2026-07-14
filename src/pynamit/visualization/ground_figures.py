@@ -11,15 +11,11 @@ import numpy as np
 import pandas as pd
 
 from pynamit.math.constants import RE
-from pynamit.simulation.config import SimulationConfig, setting_value
-from pynamit.simulation.mainfield import mainfield_from_config
-from pynamit.sphere import Grid, SolidHarmonics
-from pynamit.visualization.figure_context import SavedRunFigureContext
+from pynamit.coordinates import local_time_hours_to_longitude
+from pynamit.sphere import Grid
+from pynamit.visualization.figure_context import as_figure_spec, get_saved_field_view
 from pynamit.visualization.grid_evaluation import build_evaluator
-from pynamit.visualization.local_time import (
-    apply_local_time_grid_labels,
-    local_time_hours_to_longitude,
-)
+from pynamit.visualization.local_time import apply_local_time_grid_labels
 from pynamit.visualization.map_curves import (
     build_even_global_sites,
     curve_site_group_zorders,
@@ -55,9 +51,8 @@ class GroundFigureRenderer:
     """Render ground magnetic figures."""
 
     def __init__(self, spec, view=None):
-        self.context = SavedRunFigureContext.from_spec(spec, view=view)
-        self.spec = self.context.spec
-        self.view = self.context.view
+        self.spec = as_figure_spec(spec)
+        self.view = get_saved_field_view(self.spec) if view is None else view
         self._station_table_cache = None
         self._station_data_directory_cache = None
 
@@ -329,7 +324,7 @@ class GroundFigureRenderer:
 
         key = (
             id(self.view),
-            str(self.view.run_directory),
+            str(self.view.run_view.artifact_store.directory),
             tuple(np.round(lat_arr, 8).tolist()),
             tuple(np.round(lon_arr, 8).tolist()),
         )
@@ -337,14 +332,15 @@ class GroundFigureRenderer:
         if cached is not None:
             return cached
 
+        geometry = self.view.require_geometry()
         grid = Grid(lat=lat_arr, lon=lon_arr)
-        ri = float(setting_value(self.view.settings, "RI"))
-        if self.view.geometry is None:
-            solid_harmonics = SolidHarmonics(self.view.sh_basis)
-            horizontal_to_solid = None
-        else:
-            solid_harmonics = self.view.geometry.solid_harmonics
-            horizontal_to_solid = self.view.geometry.horizontal_to_solid_harmonic
+        ri = float(self.view.run_view.config.RI)
+        solid_harmonics = geometry.solid_harmonics
+        horizontal_to_solid = (
+            None
+            if geometry.horizontal_solid_projection_is_identity
+            else geometry.horizontal_to_solid_harmonic
+        )
         solid_basis = solid_harmonics.basis
         evaluator = build_evaluator(solid_basis, grid)
         ve_to_ground = solid_harmonics.regular_reference_shift(ri, RE)
@@ -355,7 +351,7 @@ class GroundFigureRenderer:
         m_ind = self.view.dataset_values("state", "m_ind").T
         if horizontal_to_solid is not None:
             m_ind = horizontal_to_solid.dot(m_ind)
-        steady_dataset = self.view.datasets.get("steady_state")
+        steady_dataset = self.view.run_view.datasets.get("steady_state")
         if steady_dataset is None:
             br_steady = None
             bh_steady = None
@@ -657,15 +653,15 @@ class GroundFigureRenderer:
         """Return magnetic latitude used for low-latitude selection."""
         lat_arr = np.asarray(lat, dtype=float)
         lon_arr = np.asarray(lon, dtype=float)
-        mainfield = self._mainfield_for_saved_run()
-        if mainfield.kind == "igrf":
-            height_km = (SimulationConfig.from_settings(self.view.settings).RI - RE) * 1e-3
-            mlat, _ = mainfield.apx.geo2apex(lat_arr, lon_arr, height_km)
+        main_field = self._main_field_for_saved_run()
+        if main_field.kind == "igrf":
+            height_km = (self.view.run_view.config.RI - RE) * 1e-3
+            mlat = main_field.magnetic_latitude(RE + height_km * 1e3, 90.0 - lat_arr, lon_arr)
             return np.asarray(mlat, dtype=float)
-        if mainfield.kind in {"dipole", "kaiju_dipole"}:
-            mlat, _ = mainfield.geo_to_model_coordinates(lat_arr, lon_arr, event_time=event_time)
+        if main_field.kind in {"dipole", "kaiju_dipole"}:
+            mlat, _ = main_field.geo_to_model_coordinates(lat_arr, lon_arr, event_time=event_time)
             return np.asarray(mlat, dtype=float)
-        raise ValueError(f"Unsupported mainfield kind for magnetic latitude: {mainfield.kind!r}")
+        raise ValueError(f"Unsupported main_field kind for magnetic latitude: {main_field.kind!r}")
 
     @staticmethod
     def ground_component_base(component):
@@ -922,12 +918,11 @@ class GroundFigureRenderer:
             )
         return handles
 
-    def _mainfield_for_saved_run(self):
-        config = SimulationConfig.from_settings(self.view.settings)
-        return mainfield_from_config(config)
+    def _main_field_for_saved_run(self):
+        return self.view.require_geometry().main_field
 
     def _draw_low_latitude_curves(self, axis, data_projection, central_longitude, reference_time):
-        mainfield = self._mainfield_for_saved_run()
+        main_field = self._main_field_for_saved_run()
         boundary = float(self.spec.min_abs_dip_latitude)
         dip_equator_style = {
             "color": "#0072B2",
@@ -950,7 +945,7 @@ class GroundFigureRenderer:
             for magnetic_latitude in (boundary, -boundary):
                 traces.append((magnetic_latitude, low_latitude_style))
         for magnetic_latitude, style in traces:
-            lon, lat = mainfield.magnetic_latitude_trace_to_geo(
+            lat, lon = main_field.magnetic_latitude_trace_to_geographic(
                 magnetic_latitude, event_time=reference_time
             )
             finite = np.isfinite(lon) & np.isfinite(lat)
@@ -1135,18 +1130,4 @@ class GroundFigureRenderer:
             )
 
 
-def render_ground_curve_map_figure(spec, view=None):
-    """Render a ground magnetic time-curve map."""
-    return GroundFigureRenderer(spec, view=view).render_curve_map()
-
-
-def render_ground_timeseries_figure(spec, view=None):
-    """Render selected-station ground magnetic time series."""
-    return GroundFigureRenderer(spec, view=view).render_timeseries()
-
-
-__all__ = [
-    "GroundFigureRenderer",
-    "render_ground_curve_map_figure",
-    "render_ground_timeseries_figure",
-]
+__all__ = ["GroundFigureRenderer"]

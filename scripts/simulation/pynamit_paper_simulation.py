@@ -26,12 +26,11 @@ import numpy as np
 
 import pynamit
 from pynamit.math.constants import RE
-from pynamit.primitives.io import IO
-from pynamit.simulation.mainfield import decimal_year
-from pynamit.simulation.prepared_inputs import (
-    INPUT_DATASET_KEYS,
+from pynamit.geomagnetism.main_field import decimal_year
+from pynamit.simulation.schema import INPUT_DATASET_KEYS
+from pynamit.simulation.workflows.prepared_inputs import (
     RUN_MANIFEST_FILENAME,
-    load_prepared_inputs_into_dynamics,
+    load_prepared_inputs_into_simulation,
     run_pynamit_from_inputs,
     write_input_manifest,
 )
@@ -53,7 +52,7 @@ class PaperSimulationSettings:
     mmax: int = 90
     ncs: int = 100
     simulation_time: float = 480.0
-    latitude_boundary: float = 45.0
+    interhemispheric_coupling_latitude: float = 45.0
     dt: float = 5e-4
     saving_sample_interval: int = 200
     conductance_lambda: float = 0.001
@@ -80,9 +79,9 @@ def _json_value(value: Any) -> Any:
     return value
 
 
-def _prepared_input_datasets(dynamics: pynamit.Dynamics) -> list[str]:
-    """Return projected input artifacts present in ``dynamics``."""
-    artifacts = dynamics.io.scan_run_artifacts()
+def _prepared_input_datasets(simulation: pynamit.Simulation) -> list[str]:
+    """Return projected input artifacts present in ``simulation``."""
+    artifacts = simulation.run_data.artifact_store.scan_artifacts(INPUT_DATASET_KEYS)
     return [key for key in INPUT_DATASET_KEYS if key in artifacts]
 
 
@@ -103,27 +102,27 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
     input_directory.mkdir(parents=True, exist_ok=True)
 
     print(f"Writing paper input package: {input_directory}", flush=True)
-    dynamics = pynamit.Dynamics(
+    simulation = pynamit.Simulation(
         run_directory=input_directory,
         Nmax=settings.nmax,
         Mmax=settings.mmax,
         Ncs=settings.ncs,
         RI=RI,
-        mainfield_kind="igrf",
-        mainfield_epoch=decimal_year(settings.date),
+        main_field_kind="igrf",
+        main_field_epoch=decimal_year(settings.date),
         artifact_storage=settings.artifact_storage,
-        ignore_PFAC=True,
-        connect_hemispheres=False,
-        latitude_boundary=settings.latitude_boundary,
+        enable_pfac_coupling=False,
+        enable_interhemispheric_coupling=False,
+        interhemispheric_coupling_latitude=settings.interhemispheric_coupling_latitude,
         t0=str(settings.date),
     )
 
-    conductance_lat = dynamics.state.geometry.grid.lat
-    conductance_lon = dynamics.state.geometry.grid.lon
+    conductance_lat = simulation.geometry.model_grid.lat
+    conductance_lon = simulation.geometry.model_grid.lon
     hall, pedersen = conductance.hardy_EUV(
         conductance_lon, conductance_lat, settings.kp, settings.date, starlight=1, dipole=False
     )
-    dynamics.set_conductance(
+    simulation.set_conductance(
         hall,
         pedersen,
         lat=conductance_lat,
@@ -131,8 +130,8 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
         reg_lambda=settings.conductance_lambda,
     )
 
-    jr_lat = dynamics.state.geometry.grid.lat
-    jr_lon = dynamics.state.geometry.grid.lon
+    jr_lat = simulation.geometry.model_grid.lat
+    jr_lon = simulation.geometry.model_grid.lon
     dipole_model = dipole.Dipole(settings.date.year)
     apex = apexpy.Apex(refh=(RI - RE) * 1e-3, date=settings.date.year)
     mlat, mlon = apex.geo2apex(jr_lat, jr_lon, (RI - RE) * 1e-3)
@@ -140,7 +139,7 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
     amps = pyamps.AMPS(400, 5, -5, dipole_model.tilt(settings.date), 100, minlat=50)
     jr = amps.get_upward_current(mlat=mlat, mlt=mlt) * 1e-6
     jr[np.abs(jr_lat) < 50] = 0.0
-    dynamics.set_jr(jr, lat=jr_lat, lon=jr_lon, reg_lambda=settings.jr_lambda)
+    simulation.set_jr(jr, lat=jr_lat, lon=jr_lon, reg_lambda=settings.jr_lambda)
 
     hwm14 = pyhwm2014.HWM142D(
         alt=110.0,
@@ -156,7 +155,7 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
     )
     u_theta, u_phi = (-hwm14.Vwind.flatten(), hwm14.Uwind.flatten())
     u_lat, u_lon = np.meshgrid(hwm14.glatbins, hwm14.glonbins, indexing="ij")
-    dynamics.set_neutral_wind(
+    simulation.set_neutral_wind(
         u_theta=u_theta,
         u_phi=u_phi,
         lat=u_lat,
@@ -167,8 +166,8 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
 
     write_input_manifest(
         input_directory,
-        dynamics.settings,
-        input_datasets=_prepared_input_datasets(dynamics),
+        simulation.run_data.config,
+        input_datasets=_prepared_input_datasets(simulation),
         source="scripts.simulation.pynamit_paper_simulation",
         notes=[
             "Paper-style inputs: Hardy EUV conductance, HWM14 wind, AMPS upward current.",
@@ -181,7 +180,7 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
         "date": settings.date,
         "kp": settings.kp,
         "simulation_time": settings.simulation_time,
-        "latitude_boundary": settings.latitude_boundary,
+        "interhemispheric_coupling_latitude": settings.interhemispheric_coupling_latitude,
     }
     (input_directory / "paper_input_metadata.json").write_text(
         json.dumps(metadata, indent=2, sort_keys=True, default=_json_value) + "\n",
@@ -190,26 +189,26 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
     return input_directory
 
 
-def run_paper_simulation(settings: PaperSimulationSettings = SETTINGS) -> pynamit.Dynamics:
+def run_paper_simulation(settings: PaperSimulationSettings = SETTINGS) -> pynamit.Simulation:
     """Run the paper-style simulation from projected inputs."""
     input_directory = Path(settings.input_directory).expanduser()
     run_directory = Path(settings.run_directory).expanduser()
     print(f"Using paper input package: {input_directory}", flush=True)
     print(f"Writing paper run: {run_directory}", flush=True)
 
-    dynamics = run_pynamit_from_inputs(
+    simulation = run_pynamit_from_inputs(
         input_directory,
         run_directory=run_directory,
-        enabled_inputs=("conductance", "u"),
+        enabled_inputs=("resistance", "u"),
         final_time=settings.simulation_time,
         dt=settings.dt,
-        plotsteps=settings.saving_sample_interval,
-        mainfield_kind="igrf",
-        FAC_integration_steps=_dipole_radial_sampling(settings),
-        ignore_PFAC=False,
-        connect_hemispheres=True,
-        latitude_boundary=settings.latitude_boundary,
-        ih_constraint_scaling=1e-5,
+        saving_sample_interval=settings.saving_sample_interval,
+        main_field_kind="igrf",
+        fac_integration_radii=_dipole_radial_sampling(settings),
+        enable_pfac_coupling=True,
+        enable_interhemispheric_coupling=True,
+        interhemispheric_coupling_latitude=settings.interhemispheric_coupling_latitude,
+        interhemispheric_electric_field_weight=1e-5,
         steady_state_initialization=False,
         run_inductive=True,
         run_steady_state=False,
@@ -217,23 +216,18 @@ def run_paper_simulation(settings: PaperSimulationSettings = SETTINGS) -> pynami
     )
 
     print("Imposing wind/conductance steady state before enabling jr", flush=True)
-    dynamics.impose_steady_state()
+    simulation.impose_steady_state()
 
-    input_io = IO(str(input_directory), preferred_dataset_storage=settings.artifact_storage)
-    loaded_inputs = load_prepared_inputs_into_dynamics(
-        dynamics,
+    loaded_inputs = load_prepared_inputs_into_simulation(
+        simulation,
         input_directory,
         artifact_storage=settings.artifact_storage,
-        enabled_inputs=("conductance", "u", "jr"),
+        enabled_inputs=("resistance", "u", "jr"),
     )
-    for key in loaded_inputs:
-        dataset = input_io.load_dataset(key)
-        if dataset is not None:
-            dynamics.io.save_dataset(dataset, key)
 
     final_time = 2.0 * float(settings.simulation_time)
     print(f"Continuing with jr enabled to t={final_time:g} s", flush=True)
-    dynamics.evolve_to_time(
+    simulation.evolve_to_time(
         final_time,
         dt=settings.dt,
         sampling_step_interval=1,
@@ -243,7 +237,7 @@ def run_paper_simulation(settings: PaperSimulationSettings = SETTINGS) -> pynami
         run_steady_state=False,
     )
 
-    manifest_path = Path(dynamics.run_directory) / RUN_MANIFEST_FILENAME
+    manifest_path = Path(simulation.run_data.run_directory) / RUN_MANIFEST_FILENAME
     manifest = (
         json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {}
     )
@@ -251,7 +245,7 @@ def run_paper_simulation(settings: PaperSimulationSettings = SETTINGS) -> pynami
         {
             "kind": "pynamit_paper_run",
             "paper_two_phase_run": {
-                "phase_1_inputs": ["conductance", "u"],
+                "phase_1_inputs": ["resistance", "u"],
                 "phase_1_final_time": settings.simulation_time,
                 "phase_2_inputs": loaded_inputs,
                 "phase_2_final_time": final_time,
@@ -263,7 +257,7 @@ def run_paper_simulation(settings: PaperSimulationSettings = SETTINGS) -> pynami
         json.dumps(manifest, indent=2, sort_keys=True, default=_json_value) + "\n",
         encoding="utf-8",
     )
-    return dynamics
+    return simulation
 
 
 def main() -> None:

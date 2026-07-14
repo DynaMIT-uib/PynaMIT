@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from pynamit.primitives.field_coefficients import FieldCoefficients
-from pynamit.primitives.field_space import FieldSpace
+from pynamit.fields import FieldCoefficients
+from pynamit.fields import FieldSpace
 from pynamit.sphere import CSBasis, Grid, SHBasis
 
 
@@ -17,8 +17,8 @@ def test_field_coefficients_applies_scalar_mean_free_projection():
     field = FieldCoefficients(field_space, coeffs)
 
     assert field.field_space is field_space
-    assert field.representation is basis
-    assert field.mean_free
+    assert field.field_space.representation is basis
+    assert field.field_space.mean_free
     np.testing.assert_allclose(basis.scalar_mean(field.array), 0.0, atol=1e-12)
     assert field.array.shape == coeffs.shape
     assert field.array.shape == (basis.index_length,)
@@ -38,7 +38,7 @@ def test_field_coefficients_preserves_tangential_shape():
 
     field = FieldCoefficients(field_space, coeffs)
 
-    assert field.field_type == "tangential"
+    assert field.field_space.field_type == "tangential"
     assert field.array.shape == (2, basis.index_length)
     np.testing.assert_allclose(field.to_vector(), field.array.reshape(-1))
     np.testing.assert_allclose(basis.scalar_mean(field.array), np.zeros(2), atol=1e-12)
@@ -52,10 +52,23 @@ def test_field_coefficients_canonicalizes_flat_tangential_coefficients():
 
     field = FieldCoefficients(field_space, coeffs)
 
-    assert field.coefficient_shape == (2, basis.index_length)
-    assert field.array.shape == field.coefficient_shape
+    assert field.field_space.coefficient_shape == (2, basis.index_length)
+    assert field.array.shape == field.field_space.coefficient_shape
     np.testing.assert_array_equal(field.array, coeffs.reshape(2, basis.index_length))
     np.testing.assert_array_equal(field.to_vector(), coeffs)
+
+
+def test_field_coefficients_owns_immutable_numpy_values():
+    """External mutation cannot invalidate cached operators."""
+    basis = SHBasis(3, 2)
+    field_space = FieldSpace(basis)
+    source = np.arange(basis.index_length, dtype=float)
+    field = FieldCoefficients(field_space, source)
+    source[:] = -1.0
+
+    np.testing.assert_array_equal(field.array, np.arange(basis.index_length, dtype=float))
+    with pytest.raises((TypeError, ValueError)):
+        field.array[0] = 10.0
 
 
 def test_field_coefficients_validates_coefficient_length():
@@ -73,6 +86,6 @@ def test_field_space_accepts_grid_representation():
     field_space = FieldSpace.from_representation(grid)
     field = FieldCoefficients(field_space, [1.0, 2.0])
 
-    assert field.representation is grid
+    assert field.field_space.representation is grid
     assert field_space.index_names == ("point",)
     assert field_space.index_length == grid.size

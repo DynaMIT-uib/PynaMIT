@@ -53,8 +53,9 @@ def test_panel_default_run_directory_finds_workflow_children(tmp_path, monkeypat
     assert _default_run_directory() == str(run_dir.relative_to(tmp_path))
 
 
-def test_panel_run_preserves_the_prepared_input_mainfield(tmp_path, monkeypatch):
+def test_panel_run_preserves_the_prepared_input_main_field(tmp_path, monkeypatch):
     """The Panel must preserve an input package's main field."""
+    from pynamit.simulation.config import INTEGRATORS
     from pynamit.visualization.panel_app import PynamitPanelApp
 
     captured = {}
@@ -65,7 +66,7 @@ def test_panel_run_preserves_the_prepared_input_mainfield(tmp_path, monkeypatch)
         return SimpleNamespace(run_directory=str(tmp_path / "run"))
 
     monkeypatch.setattr(
-        "pynamit.simulation.prepared_inputs.run_pynamit_from_inputs",
+        "pynamit.simulation.workflows.prepared_inputs.run_pynamit_from_inputs",
         fake_run_pynamit_from_inputs,
     )
     app = PynamitPanelApp(run_directory=tmp_path)
@@ -73,7 +74,9 @@ def test_panel_run_preserves_the_prepared_input_mainfield(tmp_path, monkeypatch)
     app.simulation_input_directory.value = str(tmp_path / "inputs")
     app.simulation_run_directory.value = str(tmp_path / "run")
 
+    assert list(app.sim_integrator.options) == list(INTEGRATORS.values())
+
     app._run_simulation()
 
     assert captured["args"] == (tmp_path / "inputs",)
-    assert "mainfield_kind" not in captured["kwargs"]
+    assert "main_field_kind" not in captured["kwargs"]

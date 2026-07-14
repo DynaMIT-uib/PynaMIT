@@ -100,13 +100,13 @@ def test_pynameye_uses_distinct_global_and_magnetic_contexts():
     eye.dp = FakeDipole()
     eye.apx = FakeApex()
 
-    eye.settings = SimpleNamespace(mainfield_kind="dipole")
+    eye.settings = SimpleNamespace(main_field_kind="dipole")
     magnetic_context = eye.get_magnetic_coordinate_context()
     global_context = eye.get_global_coordinate_context()
     assert magnetic_context.longitude_kind == "magnetic"
     assert global_context == magnetic_context
 
-    eye.settings = SimpleNamespace(mainfield_kind="igrf")
+    eye.settings = SimpleNamespace(main_field_kind="igrf")
     global_context = eye.get_global_coordinate_context()
     assert global_context.longitude_kind == "geographic"
     assert global_context.local_time_kind == "magnetic"
@@ -119,7 +119,7 @@ def test_pynameye_uses_sm_noon_for_kaiju_dipole_context():
     eye = object.__new__(PynamEye)
     eye.time = dt.datetime(2011, 10, 24, 18, 30)
     eye.dp = FakeDipole()
-    eye.settings = SimpleNamespace(mainfield_kind="kaiju_dipole")
+    eye.settings = SimpleNamespace(main_field_kind="kaiju_dipole")
 
     context = eye.get_magnetic_coordinate_context()
 

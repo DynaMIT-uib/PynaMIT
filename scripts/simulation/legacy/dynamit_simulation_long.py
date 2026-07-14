@@ -11,7 +11,7 @@ import apexpy
 
 RE = 6371.2e3
 RI = RE + 110e3
-latitude_boundary = 40
+interhemispheric_coupling_latitude = 40
 
 WIND_FACTOR = 1  # Scale wind by this factor
 FLOAT_ERROR_MARGIN = 1e-6
@@ -27,24 +27,24 @@ noon_longitude = d.mlt2mlon(12, date)  # Noon longitude
 noon_mlon = d.mlt2mlon(12, date)  # Noon longitude
 
 # Set up simulation object.
-dynamics = pynamit.Dynamics(
+simulation = pynamit.Simulation(
     run_directory=run_directory,
     Nmax=Nmax,
     Mmax=Mmax,
     Ncs=Ncs,
     RI=RI,
-    mainfield_kind="igrf",
-    FAC_integration_steps=rk,
-    ignore_PFAC=False,
-    connect_hemispheres=True,
-    latitude_boundary=latitude_boundary,
-    ih_constraint_scaling=1e-5,
+    main_field_kind="igrf",
+    fac_integration_radii=rk,
+    enable_pfac_coupling=True,
+    enable_interhemispheric_coupling=True,
+    interhemispheric_coupling_latitude=interhemispheric_coupling_latitude,
+    interhemispheric_electric_field_weight=1e-5,
     t0=str(date),
 )
 
 # Get and set jr input.
-jr_lat = dynamics.state.geometry.grid.lat
-jr_lon = dynamics.state.geometry.grid.lon
+jr_lat = simulation.geometry.model_grid.lat
+jr_lon = simulation.geometry.model_grid.lon
 apx = apexpy.Apex(refh=(RI - RE) * 1e-3, date=2020)
 mlat, mlon = apx.geo2apex(jr_lat, jr_lon, (RI - RE) * 1e-3)
 mlt = d.mlon2mlt(mlon, date)
@@ -52,7 +52,7 @@ _, noon_longitude, _ = apx.apex2geo(0, noon_mlon, (RI - RE) * 1e-3)  # Fix this
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50)
 jr = a.get_upward_current(mlat=mlat, mlt=mlt) * 1e-6
 jr[np.abs(jr_lat) < 50] = 0  # Filter low latitude jr
-dynamics.set_jr(jr, lat=jr_lat, lon=jr_lon)
+simulation.set_jr(jr, lat=jr_lat, lon=jr_lon)
 
 # Get and set wind input.
 hwm14Obj = pyhwm2014.HWM142D(
@@ -77,7 +77,7 @@ u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing="ij")
 #     np.load("utheta.npy"),
 # )
 # u_lat, u_lon = np.meshgrid(u_lat, u_lon, indexing="ij")
-dynamics.set_neutral_wind(
+simulation.set_neutral_wind(
     u_theta=u_theta,
     u_phi=u_phi,
     lat=u_lat,
@@ -86,13 +86,13 @@ dynamics.set_neutral_wind(
 )
 
 # Get and set conductance input.
-conductance_lat = dynamics.state.geometry.grid.lat
-conductance_lon = dynamics.state.geometry.grid.lon
+conductance_lat = simulation.geometry.model_grid.lat
+conductance_lon = simulation.geometry.model_grid.lon
 
 Kp = 5
 hall_aurora, pedersen_aurora = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, date, starlight=1, dipole=False
 )
-dynamics.set_conductance(hall_aurora, pedersen_aurora, lat=conductance_lat, lon=conductance_lon)
+simulation.set_conductance(hall_aurora, pedersen_aurora, lat=conductance_lat, lon=conductance_lon)
 
-dynamics.evolve_to_time(60 * 60)
+simulation.evolve_to_time(60 * 60)

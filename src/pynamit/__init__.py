@@ -1,38 +1,33 @@
 """Core public API for PynaMIT simulations."""
 
 from .sphere import (
+    BasisEvaluator,
     CSBasis,
     Grid,
     SHBasis,
     SolidHarmonics,
     SphericalTransform,
 )
-from .primitives.field_coefficients import FieldCoefficients
-from .primitives.field_evaluator import FieldEvaluator
-from .primitives.field_space import FieldSpace
-from .simulation.dynamics import Dynamics
-from .simulation.prepared_inputs import (
-    prepare_pynamit_inputs,
-    run_pynamit_from_inputs,
-)
-from .simulation.mainfield import Mainfield, mainfield_from_config
+from .fields import FieldCoefficients, FieldSpace
+from .geomagnetism import MagneticFieldEvaluation, MainField
+from .simulation.config import SimulationConfig
+from .simulation.api import Simulation
 from .math import set_backend, use_jax
 
 
 __all__ = [
+    "BasisEvaluator",
     "CSBasis",
-    "Dynamics",
     "FieldCoefficients",
-    "FieldEvaluator",
+    "MagneticFieldEvaluation",
     "FieldSpace",
     "Grid",
-    "Mainfield",
+    "MainField",
     "SHBasis",
+    "Simulation",
+    "SimulationConfig",
     "SolidHarmonics",
     "SphericalTransform",
-    "mainfield_from_config",
-    "prepare_pynamit_inputs",
-    "run_pynamit_from_inputs",
     "set_backend",
     "use_jax",
 ]

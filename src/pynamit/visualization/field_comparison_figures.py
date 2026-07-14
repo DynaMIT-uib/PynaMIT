@@ -2,87 +2,212 @@
 
 from __future__ import annotations
 
-import datetime as dt
-
 import cartopy.crs as ccrs
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
 
-from pynamit.visualization.figure_context import SavedRunFigureContext
-from pynamit.visualization.figure_styles import (
-    FIELD_DIFF_KWARGS,
-    FIELD_PLOT_KWARGS,
-    format_contour_interval,
-    map_line_keys,
-    percentile_contour_levels,
+from pynamit.visualization.figure_context import (
+    as_figure_spec,
+    figure_time_string,
+    get_saved_field_view,
 )
-from pynamit.visualization.hemisphere import make_hemisphere_polarplot
-from pynamit.visualization.map_panels import draw_field_comparison_artists
+from pynamit.visualization.figure_styles import FIELD_DIFF_KWARGS, FIELD_PLOT_KWARGS, map_line_keys
+from pynamit.visualization.hemisphere import (
+    hemisphere_masks_for_latitude,
+    make_hemisphere_polarplot,
+)
 from pynamit.visualization.plot_helpers import (
+    contour_kwargs_for_display,
     draw_line_contour_legend,
+    format_contour_interval,
     get_ticks_from_levels,
+    percentile_contour_levels,
+    set_contour_edges_to_face,
     style_global_comparison_axis,
 )
 
 
-def figure_time_string(timestamp):
-    """Return a compact title-friendly timestamp label."""
-    try:
-        return timestamp.strftime("%Y-%m-%d %H:%M:%S")
-    except AttributeError:
-        if isinstance(timestamp, (int, float)):
-            return str(dt.timedelta(seconds=float(timestamp)))
-        return str(timestamp)
+def _axes_from_group(group):
+    return group.get("axes", []) if isinstance(group, dict) else group
+
+
+def _hemisphere_from_group(group, index):
+    if isinstance(group, dict):
+        return group.get("hemisphere", "global")
+    return "north" if index == 0 else "south"
+
+
+def _is_polarplot_axis(axis):
+    return axis.__class__.__name__ == "Polarplot"
+
+
+def _polar_comparison_coordinates(lat, lon, current_time, dipole_obj, minimum_latitude):
+    """Return polar coordinates and hemisphere masks."""
+    if dipole_obj:
+        polar_lat, magnetic_lon = dipole_obj.geo2mag(lat, lon)
+        polar_time = dipole_obj.mlon2mlt(magnetic_lon, current_time)
+    else:
+        polar_lat = lat
+        polar_time = (lon + 180.0) % 360.0 / 15.0
+    north_mask, south_mask = hemisphere_masks_for_latitude(polar_lat, minimum_latitude)
+    return polar_lat, polar_time, north_mask, south_mask
+
+
+def _field_panel_spec(field_key, fields_dict, plot_kwargs, diff_kwargs, panel_keys):
+    """Return one field's styles and values by panel."""
+    styles, fields = {}, {}
+    if any(key in {"state", "diff"} for key in panel_keys):
+        styles["state"] = plot_kwargs[field_key]
+        fields["state"] = fields_dict[f"{field_key}_state"]
+    if any(key in {"steady", "diff"} for key in panel_keys):
+        styles["steady"] = plot_kwargs[field_key]
+        fields["steady"] = fields_dict[f"{field_key}_steady"]
+    if "diff" in panel_keys:
+        styles["diff"] = diff_kwargs[field_key]
+        fields["diff"] = fields["state"] - fields["steady"]
+    return styles, fields
+
+
+def _contour_plot_arguments(is_polar, mask, polar_lat, polar_time, lon, lat, field):
+    """Return plotting arguments for one contour."""
+    if is_polar:
+        return (polar_lat[mask], polar_time[mask], field[mask]), {}
+    return (lon, lat, field), {"transform": ccrs.PlateCarree()}
+
+
+def _draw_field_comparison_artists(
+    axes_groups,
+    filled_key,
+    overlay_keys,
+    fields_dict,
+    lat,
+    lon,
+    current_time,
+    *,
+    plot_kwargs,
+    diff_kwargs,
+    dipole_obj=None,
+    hemisphere_min_abs_latitude=50.0,
+    panel_keys=("state", "steady", "diff"),
+):
+    """Draw state, steady-state, and difference fields."""
+    new_artists, main_mappable, diff_mappable = [], None, None
+    filled_key = None if str(filled_key) == "none" else str(filled_key)
+    overlay_keys = list(overlay_keys)
+    panel_keys = list(panel_keys)
+    polar_x, polar_y, polar_north_mask, polar_south_mask = _polar_comparison_coordinates(
+        lat, lon, current_time, dipole_obj, hemisphere_min_abs_latitude
+    )
+
+    if filled_key is not None:
+        fill_kwargs, fill_fields = _field_panel_spec(
+            filled_key, fields_dict, plot_kwargs, diff_kwargs, panel_keys
+        )
+    else:
+        fill_kwargs, fill_fields = {}, {}
+
+    overlay_specs = [
+        _field_panel_spec(key, fields_dict, plot_kwargs, diff_kwargs, panel_keys)
+        for key in overlay_keys
+    ]
+
+    for group_index, group in enumerate(axes_groups):
+        axes = _axes_from_group(group)
+        hemisphere = _hemisphere_from_group(group, group_index)
+        is_polar = bool(axes) and _is_polarplot_axis(axes[0])
+        if hemisphere == "north":
+            mask = polar_north_mask
+        elif hemisphere == "south":
+            mask = polar_south_mask
+        else:
+            mask = None
+
+        for panel_index, axis in enumerate(axes):
+            panel_key = panel_keys[panel_index] if panel_index < len(panel_keys) else "empty"
+            if panel_key not in {"state", "steady", "diff"}:
+                continue
+
+            if filled_key is not None:
+                display_kwargs = contour_kwargs_for_display(fill_kwargs[panel_key])
+                plot_args, transform_args = _contour_plot_arguments(
+                    is_polar, mask, polar_x, polar_y, lon, lat, fill_fields[panel_key]
+                )
+                artist = axis.contourf(*plot_args, **transform_args, **display_kwargs)
+                set_contour_edges_to_face(artist)
+                new_artists.append(artist)
+                if panel_key in {"state", "steady"}:
+                    main_mappable = artist
+                if panel_key == "diff":
+                    diff_mappable = artist
+
+            for overlay_kwargs, overlay_fields in overlay_specs:
+                display_kwargs = contour_kwargs_for_display(overlay_kwargs[panel_key])
+                plot_args, transform_args = _contour_plot_arguments(
+                    is_polar, mask, polar_x, polar_y, lon, lat, overlay_fields[panel_key]
+                )
+                new_artists.append(axis.contour(*plot_args, **transform_args, **display_kwargs))
+
+    return new_artists, main_mappable, diff_mappable
 
 
 class FieldComparisonRenderer:
     """Render global or hemisphere comparisons from one saved run."""
 
     def __init__(self, spec, view=None):
-        self.context = SavedRunFigureContext.from_spec(spec, view=view)
-        self.spec = self.context.spec
-        self.view = self.context.view
+        self.spec = as_figure_spec(spec)
+        self.view = get_saved_field_view(self.spec) if view is None else view
 
     def render(self):
         """Render inductive/non-inductive map panels."""
-        if (self.spec.show_noninductive or self.spec.show_difference) and (
-            "steady_state" not in self.view.datasets
-        ):
+        has_state = "state" in self.view.run_view.datasets
+        has_steady = "steady_state" in self.view.run_view.datasets
+        if self.spec.show_inductive and not has_state:
             raise ValueError(
-                "This run has no steady_state output. Disable Non-inductive/Difference "
-                "plots, or rerun with save_steady_states=True."
+                "This run has no inductive state output. Disable Inductive plots, "
+                "or rerun with run_inductive=True."
             )
-        fields = self.view.state_comparison_grid_fields(self.context.time_index)
-        timestamp = self.context.timestamp
+        if self.spec.show_noninductive and not has_steady:
+            raise ValueError(
+                "This run has no steady_state output. Disable Non-inductive plots, "
+                "or rerun with run_steady_state=True."
+            )
+        if self.spec.show_difference and not (has_state and has_steady):
+            raise ValueError("Difference plots require both state and steady_state outputs.")
+        field_names = set(map_line_keys(self.spec.lines))
+        if self.spec.fill != "none":
+            field_names.add(self.spec.fill)
+        fields = self.view.state_comparison_grid_fields(
+            self.spec.time_index, field_names=field_names
+        )
+        timestamp = self.view.timestamp_at_index(self.spec.time_index)
         plot_kwargs = {key: dict(value) for key, value in FIELD_PLOT_KWARGS.items()}
         diff_kwargs = {key: dict(value) for key, value in FIELD_DIFF_KWARGS.items()}
         filled_key = None if str(self.spec.fill) == "none" else str(self.spec.fill)
         if filled_key is not None and self.spec.color_scale_mode == "percentile":
-            state_field = fields[f"{filled_key}_state"]
-            percentile_fields = [state_field]
-            if "steady_state" in self.view.datasets:
-                steady_field = fields[f"{filled_key}_steady"]
-                diff_field = state_field - steady_field
-                percentile_fields.append(steady_field)
-            else:
-                diff_field = state_field
+            percentile_fields = []
+            if self.spec.show_inductive:
+                percentile_fields.append(fields[f"{filled_key}_state"])
+            if self.spec.show_noninductive:
+                percentile_fields.append(fields[f"{filled_key}_steady"])
             plot_kwargs[filled_key]["levels"] = percentile_contour_levels(
                 percentile_fields,
                 FIELD_PLOT_KWARGS[filled_key]["levels"],
                 percentile=self.spec.color_scale_percentile,
                 strictly_positive=filled_key == "joule",
             )
-            diff_kwargs[filled_key]["levels"] = percentile_contour_levels(
-                [diff_field],
-                FIELD_DIFF_KWARGS[filled_key]["levels"],
-                percentile=self.spec.color_scale_percentile,
-                strictly_positive=False,
-            )
+            if self.spec.show_difference:
+                diff_field = fields[f"{filled_key}_state"] - fields[f"{filled_key}_steady"]
+                diff_kwargs[filled_key]["levels"] = percentile_contour_levels(
+                    [diff_field],
+                    FIELD_DIFF_KWARGS[filled_key]["levels"],
+                    percentile=self.spec.color_scale_percentile,
+                    strictly_positive=False,
+                )
 
         panel_specs = self._panel_specs()
         fig, axes_groups, colorbar_axes = self._create_axes(panel_specs)
-        _, main_mappable, diff_mappable = draw_field_comparison_artists(
+        _, main_mappable, diff_mappable = _draw_field_comparison_artists(
             axes_groups,
             self.spec.fill,
             map_line_keys(self.spec.lines),
@@ -262,9 +387,4 @@ class FieldComparisonRenderer:
         axis.set_title("Lines", fontsize=9, pad=6)
 
 
-def render_field_comparison_figure(spec, view=None):
-    """Render inductive/non-inductive map panels."""
-    return FieldComparisonRenderer(spec, view=view).render()
-
-
-__all__ = ["FieldComparisonRenderer", "figure_time_string", "render_field_comparison_figure"]
+__all__ = ["FieldComparisonRenderer"]

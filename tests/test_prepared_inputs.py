@@ -1,18 +1,22 @@
 """Tests for prepared input package helpers."""
 
-import importlib
-
+import numpy as np
 import pytest
 
-import pynamit
+from pynamit.math.constants import RE
+from pynamit.storage import ArtifactStore
 from pynamit.simulation.config import SimulationConfig
-from pynamit.simulation.prepared_inputs import (
+from pynamit.simulation.api import Simulation
+from pynamit.geomagnetism import MainField
+from pynamit.simulation.workflows import prepared_inputs as prepared_inputs_module
+from pynamit.simulation.workflows.prepared_inputs import (
     INPUT_MANIFEST_FILENAME,
     RUN_MANIFEST_FILENAME,
     clear_prepared_input_package,
     input_dataset_requirements,
     input_geometry_settings,
     input_projection_settings,
+    load_prepared_inputs_into_simulation,
     prepare_pynamit_inputs,
     prepared_input_contract,
     read_input_manifest,
@@ -23,12 +27,82 @@ from pynamit.simulation.prepared_inputs import (
 )
 
 
-def test_prepared_input_workflows_are_public():
-    """High-level prepared-input workflows are package exports."""
-    prepared_inputs = importlib.import_module("pynamit.simulation.prepared_inputs")
+def test_geographic_wind_is_rotated_into_model_coordinates():
+    """Prepared dipole winds use magnetic positions and components."""
+    main_field = MainField(kind="dipole", epoch=2020)
+    event_time = prepared_inputs_module._DEFAULT_INPUT_TIME
+    lat = np.array([20.0, 60.0])
+    lon = np.array([-30.0, 80.0])
+    u_theta = np.array([[10.0, 20.0], [30.0, 40.0]])
+    u_phi = np.array([[5.0, 6.0], [7.0, 8.0]])
 
-    assert pynamit.prepare_pynamit_inputs is prepared_inputs.prepare_pynamit_inputs
-    assert pynamit.run_pynamit_from_inputs is prepared_inputs.run_pynamit_from_inputs
+    theta_model, phi_model, model_lat, model_lon = (
+        prepared_inputs_module._wind_to_model_coordinates(
+            main_field, event_time, u_theta, u_phi, lat, lon
+        )
+    )
+    expected_lat, expected_lon = main_field.geo_to_model_coordinates(
+        lat, lon, event_time=event_time
+    )
+
+    assert theta_model.shape == u_theta.shape
+    assert phi_model.shape == u_phi.shape
+    np.testing.assert_allclose(model_lat, expected_lat)
+    np.testing.assert_allclose(model_lon, expected_lon)
+
+
+def test_empirical_scalar_inputs_use_event_dipole_coordinates():
+    """Native scalar models are queried at the same physical points."""
+    main_field = MainField(kind="dipole", epoch=2020)
+    event_time = prepared_inputs_module._DEFAULT_INPUT_TIME
+    model_lat = np.array([20.0, 60.0])
+    model_lon = np.array([-30.0, 80.0])
+
+    query_lat, query_lon = prepared_inputs_module._empirical_dipole_coordinates_for_model_grid(
+        main_field, event_time, model_lat, model_lon
+    )
+    geo_lat, geo_lon = main_field.model_to_geo_coordinates(model_lat, model_lon)
+    event_dipole = MainField(kind="dipole", epoch=prepared_inputs_module.decimal_year(event_time))
+    expected_lat, expected_lon = event_dipole.geo_to_model_coordinates(geo_lat, geo_lon)
+
+    np.testing.assert_allclose(query_lat, expected_lat)
+    np.testing.assert_allclose(query_lon, expected_lon)
+
+
+def test_native_scalar_inputs_are_stored_on_model_grid(tmp_path, monkeypatch):
+    """Keep native query coordinates out of stored coordinates."""
+    captured = {}
+    original_set_conductance = prepared_inputs_module.Simulation.set_conductance
+
+    def fake_conductance(_date, lat, lon, _time):
+        captured["query"] = (np.asarray(lat), np.asarray(lon))
+        values = np.ones(np.asarray(lat).shape)
+        return values, values, np.asarray(lat), np.asarray(lon)
+
+    def capture_set_conductance(self, *args, lat, lon, **kwargs):
+        captured["storage"] = (np.asarray(lat), np.asarray(lon))
+        return original_set_conductance(self, *args, lat=lat, lon=lon, **kwargs)
+
+    monkeypatch.setattr(prepared_inputs_module, "get_input_source", lambda: "native")
+    monkeypatch.setattr(prepared_inputs_module, "get_conductance_inputs", fake_conductance)
+    monkeypatch.setattr(
+        prepared_inputs_module.Simulation, "set_conductance", capture_set_conductance
+    )
+
+    prepared = prepare_pynamit_inputs(
+        tmp_path / "inputs",
+        final_time=0.0,
+        Nmax=2,
+        Mmax=1,
+        Ncs=8,
+        use_jr=False,
+        artifact_storage="netcdf",
+    )
+    model_grid = prepared.geometry.model_grid
+
+    np.testing.assert_allclose(captured["storage"][0], model_grid.lat)
+    np.testing.assert_allclose(captured["storage"][1], model_grid.lon)
+    assert not np.allclose(captured["query"][0], model_grid.lat)
 
 
 def test_prepared_input_compatibility_ignores_run_only_settings():
@@ -38,10 +112,11 @@ def test_prepared_input_compatibility_ignores_run_only_settings():
         Nmax=4,
         Mmax=3,
         Ncs=8,
-        ignore_PFAC=True,
-        connect_hemispheres=True,
-        latitude_boundary=60,
-        RM_shielding=True,
+        RM=8.0e6,
+        enable_pfac_coupling=False,
+        enable_interhemispheric_coupling=True,
+        interhemispheric_coupling_latitude=60,
+        magnetic_boundary_shielding=True,
         integrator="exponential",
     )
 
@@ -65,25 +140,24 @@ def test_input_manifest_records_projection_settings(tmp_path):
     config = SimulationConfig(Nmax=4, Mmax=3, Ncs=8, horizontal_basis_kind="CS")
 
     manifest = write_input_manifest(
-        tmp_path, config.to_dataset(), input_datasets=("conductance", "jr"), source="test"
+        tmp_path, config.to_dataset(), input_datasets=("resistance", "jr"), source="test"
     )
 
     loaded = read_input_manifest(tmp_path)
     assert loaded == manifest
     assert loaded["kind"] == "pynamit_prepared_inputs"
-    assert loaded["input_datasets"] == ["conductance", "jr"]
-    assert loaded["input_projection_settings"]["Nmax"] == 4
-    assert loaded["input_projection_settings"]["horizontal_basis_kind"] == "CS"
-    assert "mainfield_kind" not in loaded["input_projection_settings"]
+    assert loaded["version"] == 2
+    assert "input_datasets" not in loaded
+    assert "input_projection_settings" not in loaded
     assert "t0" not in loaded["input_contract"]["coefficient_space"]
     assert loaded["input_contract"]["coefficient_space"] == input_projection_settings(config)
     assert loaded["input_contract"]["geometry"] == input_geometry_settings(config)
-    assert loaded["input_contract"]["geometry"]["mainfield_coordinate_time"] == config.t0
-    assert loaded["input_contract"]["input_datasets"] == ["conductance", "jr"]
+    assert loaded["input_contract"]["geometry"]["main_field_coordinate_time"] == config.t0
+    assert loaded["input_contract"]["input_datasets"] == ["resistance", "jr"]
     assert loaded["input_contract"]["dataset_requirements"] == {}
     assert (
         validate_input_manifest(
-            tmp_path, config.to_dataset(), available_inputs=("conductance", "jr")
+            tmp_path, config.to_dataset(), available_inputs=("resistance", "jr")
         )
         == loaded
     )
@@ -91,7 +165,7 @@ def test_input_manifest_records_projection_settings(tmp_path):
 
 def test_input_manifest_records_geometry_bound_dataset_requirements(tmp_path):
     """Boundary Br declares the extra run geometry it requires."""
-    config = SimulationConfig(Nmax=4, Mmax=3, Ncs=8, RM=7.0e6, mainfield_kind="igrf")
+    config = SimulationConfig(Nmax=4, Mmax=3, Ncs=8, RM=7.0e6, main_field_kind="igrf")
 
     write_input_manifest(
         tmp_path, config.to_dataset(), input_datasets=("Br", "Q_eff", "E_source"), source="test"
@@ -100,9 +174,9 @@ def test_input_manifest_records_geometry_bound_dataset_requirements(tmp_path):
     loaded = read_input_manifest(tmp_path)
     assert loaded["input_contract"] == prepared_input_contract(config, ["Br", "Q_eff", "E_source"])
     assert loaded["input_contract"]["geometry"]["RM"] == 7.0e6
-    assert loaded["input_contract"]["geometry"]["mainfield_kind"] == "igrf"
+    assert loaded["input_contract"]["geometry"]["main_field_kind"] == "igrf"
     assert loaded["input_contract"]["dataset_requirements"] == {"Br": ["RM"]}
-    assert input_dataset_requirements(("conductance", "u")) == {}
+    assert input_dataset_requirements(("resistance", "u")) == {}
 
 
 def test_input_manifest_validation_catches_stale_dataset_lists(tmp_path):
@@ -115,10 +189,10 @@ def test_input_manifest_validation_catches_stale_dataset_lists(tmp_path):
 
     with pytest.raises(ValueError, match="stored but not listed"):
         validate_input_manifest(
-            tmp_path, config.to_dataset(), available_inputs=("jr", "conductance")
+            tmp_path, config.to_dataset(), available_inputs=("jr", "resistance")
         )
     validate_input_manifest(
-        tmp_path, config.to_dataset(), available_inputs=("jr", "conductance"), allow_unlisted=True
+        tmp_path, config.to_dataset(), available_inputs=("jr", "resistance"), allow_unlisted=True
     )
 
 
@@ -157,25 +231,25 @@ def test_input_manifest_validation_catches_contract_mismatch(tmp_path):
         validate_input_manifest(tmp_path, changed_config.to_dataset(), available_inputs=("jr",))
 
 
-def test_prepared_inputs_require_matching_mainfield():
+def test_prepared_inputs_require_matching_main_field():
     """Projected packages cannot be reused with another main field."""
-    input_config = SimulationConfig(Nmax=4, Mmax=3, Ncs=8, mainfield_kind="igrf")
-    run_config = SimulationConfig(Nmax=4, Mmax=3, Ncs=8, mainfield_kind="dipole")
+    input_config = SimulationConfig(Nmax=4, Mmax=3, Ncs=8, main_field_kind="igrf")
+    run_config = SimulationConfig(Nmax=4, Mmax=3, Ncs=8, main_field_kind="dipole")
 
-    with pytest.raises(ValueError, match="mainfield_kind"):
+    with pytest.raises(ValueError, match="main_field_kind"):
         validate_prepared_input_compatibility(input_config.to_dataset(), run_config.to_dataset())
 
 
-def test_prepared_inputs_require_matching_mainfield_coordinate_time():
+def test_prepared_inputs_require_matching_main_field_coordinate_time():
     """Kaiju/SM projected packages are tied to coordinate time."""
     input_config = SimulationConfig(
-        Nmax=4, Mmax=3, Ncs=8, mainfield_kind="kaiju_dipole", t0="2011-10-24 18:00:10"
+        Nmax=4, Mmax=3, Ncs=8, main_field_kind="kaiju_dipole", t0="2011-10-24 18:00:10"
     )
     run_config = SimulationConfig(
-        Nmax=4, Mmax=3, Ncs=8, mainfield_kind="kaiju_dipole", t0="2011-10-24 18:10:10"
+        Nmax=4, Mmax=3, Ncs=8, main_field_kind="kaiju_dipole", t0="2011-10-24 18:10:10"
     )
 
-    with pytest.raises(ValueError, match="mainfield_coordinate_time"):
+    with pytest.raises(ValueError, match="main_field_coordinate_time"):
         validate_prepared_input_compatibility(input_config.to_dataset(), run_config.to_dataset())
 
 
@@ -200,7 +274,9 @@ def test_prepare_and_run_from_inputs_smoke(tmp_path):
     prepared = prepare_pynamit_inputs(
         input_directory, final_time=0.0, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf"
     )
-    assert prepared.run_directory == str(input_directory.resolve())
+    assert prepared.run_data.run_directory == str(input_directory.resolve())
+    assert prepared.config.t0 == "2001-05-12 21:45:00"
+    assert prepared.config.main_field_epoch == pytest.approx(2020.0)
     assert (input_directory / INPUT_MANIFEST_FILENAME).exists()
     manifest = read_input_manifest(input_directory)
     assert manifest["input_contract"]["coefficient_space"]["Nmax"] == 2
@@ -211,15 +287,67 @@ def test_prepare_and_run_from_inputs_smoke(tmp_path):
         run_directory=run_directory,
         final_time=0.0,
         dt=0.01,
-        plotsteps=1,
+        RM=2 * RE,
+        saving_sample_interval=1,
         artifact_storage="netcdf",
     )
 
-    assert run.run_directory == str(run_directory.resolve())
-    assert "state" in run.output_timeseries.datasets
-    assert "conductance" in run.input_timeseries.datasets
-    assert (run_directory / "conductance.ncdf").exists()
+    assert run.run_data.run_directory == str(run_directory.resolve())
+    assert run.config.fac_integration_radii[-1] == pytest.approx(run.config.RM)
+    assert "state" in run.run_data.output_series.datasets
+    assert "resistance" in run.run_data.input_series.datasets
+    assert (run_directory / "resistance.ncdf").exists()
     assert (run_directory / RUN_MANIFEST_FILENAME).exists()
+
+    selected_run = run_pynamit_from_inputs(
+        input_directory,
+        run_directory=run_directory,
+        enabled_inputs=("resistance",),
+        final_time=0.0,
+        dt=0.01,
+        RM=2 * RE,
+        saving_sample_interval=1,
+        artifact_storage="netcdf",
+    )
+
+    assert set(selected_run.run_data.input_series.datasets) == {"resistance"}
+    assert not (run_directory / "jr.ncdf").exists()
+
+
+def test_loading_prepared_inputs_transfers_run_ownership(tmp_path):
+    """The consuming run owns copied inputs and removes stale data."""
+    input_directory = tmp_path / "inputs"
+    run_directory = tmp_path / "run"
+    prepared = prepare_pynamit_inputs(
+        input_directory,
+        final_time=0.0,
+        Nmax=2,
+        Mmax=1,
+        Ncs=8,
+        artifact_storage="netcdf",
+        use_wind=False,
+    )
+    simulation = Simulation(
+        run_directory=run_directory, artifact_storage="netcdf", **prepared.config.to_kwargs()
+    )
+    wind_length = simulation.run_data.schema.input_field_spaces["u"].index_length
+    simulation.set_u(u_cf=np.zeros(wind_length), u_df=np.zeros(wind_length), time=0.0)
+
+    loaded = load_prepared_inputs_into_simulation(
+        simulation, input_directory, artifact_storage="netcdf", enabled_inputs=("resistance",)
+    )
+
+    assert loaded == ["resistance"]
+    assert set(simulation.run_data.input_series.datasets) == {"resistance"}
+    assert (run_directory / "resistance.ncdf").exists()
+    assert not (run_directory / "u.ncdf").exists()
+    assert (
+        simulation.run_data.input_series.datasets["resistance"]
+        is not prepared.run_data.input_series.datasets["resistance"]
+    )
+
+    ArtifactStore(input_directory).remove_artifact("resistance")
+    assert simulation.run_data.input_series.get_entry("resistance", 0.0) is not None
 
 
 def test_run_from_inputs_errors_on_requested_missing_dataset(tmp_path):
@@ -244,6 +372,6 @@ def test_run_from_inputs_errors_on_requested_missing_dataset(tmp_path):
             enabled_inputs=("u",),
             final_time=0.0,
             dt=0.01,
-            plotsteps=1,
+            saving_sample_interval=1,
             artifact_storage="netcdf",
         )

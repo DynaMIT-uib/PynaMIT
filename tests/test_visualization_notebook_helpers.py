@@ -5,7 +5,8 @@ import datetime as dt
 import numpy as np
 
 from pynamit.math.constants import RE, mu0
-from pynamit.simulation.dynamics import Dynamics
+from pynamit.storage import ArtifactStore
+from pynamit.simulation.api import Simulation
 from pynamit.sphere import SHBasis
 from pynamit.sphere import SolidHarmonics
 from pynamit.coordinates import (
@@ -16,11 +17,6 @@ from pynamit.coordinates import (
     longitude_to_local_time_from_noon_longitude,
     longitude_to_local_time_hours,
     wrap_longitude_180,
-)
-from pynamit.visualization.artifacts import (
-    artifact_path,
-    resolve_xarray_artifact_path,
-    xarray_artifact_exists,
 )
 from pynamit.visualization.grid_evaluation import build_evaluator
 from pynamit.visualization.grid_evaluation import build_plot_grid
@@ -212,24 +208,17 @@ def test_geographic_local_time_window_helpers_are_parameterized():
     )
 
 
-def test_artifact_path_resolution_prefers_zarr_then_netcdf(tmp_path):
-    """Artifact resolver handles extension and base-path inputs."""
+def test_artifact_store_reports_existing_visualization_artifact_path(tmp_path):
+    """Visualization uses the canonical artifact store paths."""
     run_directory = tmp_path / "run"
     run_directory.mkdir()
     (run_directory / "state.zarr").mkdir()
     (run_directory / "settings.ncdf").write_bytes(b"")
 
-    assert artifact_path(run_directory, "state") == str(run_directory / "state")
-    assert resolve_xarray_artifact_path(run_directory / "state") == str(
-        run_directory / "state.zarr"
-    )
-    assert resolve_xarray_artifact_path(run_directory / "state.ncdf") == str(
-        run_directory / "state.zarr"
-    )
-    assert resolve_xarray_artifact_path(run_directory / "settings") == str(
-        run_directory / "settings.ncdf"
-    )
-    assert xarray_artifact_exists(run_directory / "settings")
+    store = ArtifactStore(run_directory)
+    assert store.existing_artifact_path("state") == run_directory / "state.zarr"
+    assert store.existing_artifact_path("settings") == run_directory / "settings.ncdf"
+    assert store.existing_artifact_path("jr") is None
 
 
 def test_plot_helper_functions_match_notebook_behaviour():
@@ -326,22 +315,23 @@ def test_grid_helpers_are_importable_from_visualization():
     assert grid.size == 12
 
 
-
-def test_JS_operator_bundle_matches_core_formulas():
+def test_build_JS_operators_matches_core_formulas():
     """Shared JS helper follows geometry formulas."""
 
     class Settings:
         RI = 1.0
         RM = 2.0
-        RM_shielding = True
+        magnetic_boundary_shielding = True
 
     sh_basis = SHBasis(3, 2, mean_free=True)
     solid_harmonics = SolidHarmonics(sh_basis)
     _, _, grid = build_plot_grid(nlat=4, nlon=5)
     transform = build_evaluator(sh_basis, grid)
-    t_to_ve = np.eye(sh_basis.index_length)
+    pfac_coupling_matrix = np.eye(sh_basis.index_length)
 
-    operators = build_JS_operators(Settings, sh_basis, transform, T_to_Ve=t_to_ve)
+    operators = build_JS_operators(
+        Settings, sh_basis, transform, pfac_coupling_matrix=pfac_coupling_matrix
+    )
 
     poloidal_to_JS = (
         -transform.scalar_coeffs_to_gridded_rhat_cross_gradient
@@ -355,19 +345,19 @@ def test_JS_operator_bundle_matches_core_formulas():
     m_ind_to_br = -(Settings.RI**2) * sh_basis.laplacian(Settings.RI)
 
     np.testing.assert_allclose(
-        operators["G_m_imp_to_JS"],
-        toroidal_to_JS + np.tensordot(poloidal_to_JS, t_to_ve, axes=([2], [0])),
+        operators["m_imp_to_JS"],
+        toroidal_to_JS + np.tensordot(poloidal_to_JS, pfac_coupling_matrix, axes=([2], [0])),
     )
     np.testing.assert_allclose(
-        operators["G_m_ind_to_JS"],
+        operators["m_ind_to_JS"],
         poloidal_to_JS * (1.0 + regular_shift * irregular_shift / denominator),
     )
     np.testing.assert_allclose(
-        operators["G_Br_to_JS"], poloidal_to_JS * (-regular_shift / (denominator * m_ind_to_br))
+        operators["Br_to_JS"], poloidal_to_JS * (-regular_shift / (denominator * m_ind_to_br))
     )
 
 
-def test_JS_operator_bundle_defaults_to_unshielded_rm():
+def test_build_JS_operators_defaults_to_unshielded_rm():
     """RM does not impose shielding unless requested."""
 
     class Settings:
@@ -386,27 +376,46 @@ def test_JS_operator_bundle_defaults_to_unshielded_rm():
         / mu0
     )
 
-    np.testing.assert_allclose(operators["G_m_ind_to_JS"], poloidal_to_JS)
+    np.testing.assert_allclose(operators["m_ind_to_JS"], poloidal_to_JS)
 
 
-def test_JS_operator_bundle_matches_geometry(tmp_path):
-    """Notebook helper matches Geometry JS conventions."""
-    dynamics = Dynamics(
+def test_build_JS_operators_omits_boundary_map_without_rm():
+    """A run without a magnetic boundary allocates no zero Br map."""
+
+    class Settings:
+        RI = 1.0
+        RM = None
+
+    sh_basis = SHBasis(3, 2, mean_free=True)
+    _, _, grid = build_plot_grid(nlat=4, nlon=5)
+    transform = build_evaluator(sh_basis, grid)
+
+    operators = build_JS_operators(Settings, sh_basis, transform)
+
+    assert operators["Br_to_JS"] is None
+
+
+def test_build_JS_operators_matches_geometry(tmp_path):
+    """Notebook helper matches SimulationGeometry JS conventions."""
+    simulation = Simulation(
         run_directory=str(tmp_path / "run"),
         Nmax=2,
         Mmax=1,
         Ncs=8,
         RM=4 * RE,
-        ignore_PFAC=True,
+        enable_pfac_coupling=False,
         artifact_storage="netcdf",
     )
-    geometry = dynamics.state.geometry
+    geometry = simulation.geometry
     _, _, grid = build_plot_grid(nlat=4, nlon=5)
-    transform = build_evaluator(dynamics.horizontal_basis, grid)
+    transform = build_evaluator(simulation.geometry.horizontal_basis, grid)
     operators = build_JS_operators(
-        dynamics.settings, dynamics.horizontal_basis, transform, T_to_Ve=geometry.T_to_Ve.values
+        simulation.run_data.config,
+        simulation.geometry.horizontal_basis,
+        transform,
+        pfac_coupling_matrix=geometry.pfac_coupling_matrix,
     )
 
-    np.testing.assert_allclose(operators["G_m_ind_to_JS"], geometry.m_ind_to_gridded_JS(transform))
-    np.testing.assert_allclose(operators["G_m_imp_to_JS"], geometry.m_imp_to_gridded_JS(transform))
-    np.testing.assert_allclose(operators["G_Br_to_JS"], geometry.Br_to_gridded_JS(transform))
+    np.testing.assert_allclose(operators["m_ind_to_JS"], geometry.m_ind_to_gridded_JS(transform))
+    np.testing.assert_allclose(operators["m_imp_to_JS"], geometry.m_imp_to_gridded_JS(transform))
+    np.testing.assert_allclose(operators["Br_to_JS"], geometry.Br_to_gridded_JS(transform))

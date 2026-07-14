@@ -5,10 +5,16 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pynamit"
 dynamic = ["version"]
+requires-python = ">=3.10"
 dependencies = [
+    "apexpy",
+    "dipole @ git+https://github.com/klaundal/dipole.git@main",
     "numpy>=2.0",
+    "packaging",
     "pandas",
+    "ppigrf",
     "scipy",
+    "xarray",
 ]
 
 [project.optional-dependencies]
@@ -22,8 +28,13 @@ gui = [
     "netCDF4",
     "panel",
     "pillow",
-    "xarray",
+    "polplot @ git+https://github.com/klaundal/polplot.git@main",
     "zarr",
+]
+inputs = [
+    "lompe @ git+https://github.com/klaundal/lompe.git@main",
+    "pyamps",
+    "pyhwm2014 @ git+https://github.com/rilma/pyHWM14.git@main",
 ]
 
 [project.scripts]

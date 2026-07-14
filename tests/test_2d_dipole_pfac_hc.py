@@ -1,10 +1,8 @@
 """Dipole, PFAC, and HC test."""
 
-import os
-import tempfile
 import pytest
 
-from pynamit.default_run import run_pynamit
+from pynamit.simulation.workflows.standard import run_pynamit
 import numpy as np
 
 
@@ -16,30 +14,25 @@ def test_2d_dipole_pfac_hc():
     expected_coeff_min = -3.944932881356283e-09
     expected_n_coeffs = 228
 
-    temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
-    if not os.path.exists(temp_dir):
-        os.mkdir(temp_dir)
-
     # Act.
-    dynamics = run_pynamit(
+    simulation = run_pynamit(
         final_time=0.1,
         dt=1e-2,
         Nmax=10,
         Mmax=8,
         Ncs=18,
-        mainfield_kind="dipole",
-        fig_directory=temp_dir,
-        ignore_PFAC=False,
-        connect_hemispheres=True,
-        latitude_boundary=50,
+        main_field_kind="dipole",
+        enable_pfac_coupling=True,
+        enable_interhemispheric_coupling=True,
+        interhemispheric_coupling_latitude=50,
         steady_state_initialization=False,
     )
 
     # Assert.
     coeff_array = np.hstack(
         (
-            dynamics.output_timeseries.datasets["state"]["SH_m_ind"].values[-1],
-            dynamics.output_timeseries.datasets["state"]["SH_m_imp"].values[-1],
+            simulation.run_data.output_series.datasets["state"]["SH_m_ind"].values[-1],
+            simulation.run_data.output_series.datasets["state"]["SH_m_imp"].values[-1],
         )
     )
 

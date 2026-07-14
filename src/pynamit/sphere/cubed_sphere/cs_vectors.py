@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from pynamit.sphere.cubed_sphere import arrayutils
+from pynamit.sphere.cubed_sphere.arrayutils import invert_3x3_matrices
 from pynamit.sphere.cubed_sphere.cs_coordinates import CSCoordinateSystem
 
 
@@ -87,7 +87,7 @@ class CSVectorTransforms:
         pc[mask, 2, 1] = np.tan(xi[mask]) / np.sqrt(delta[mask])
         pc[mask, 2, 2] = -1 / np.sqrt(delta[mask])
 
-        return arrayutils.invert_3D_matrices(pc) if inverse else pc
+        return invert_3x3_matrices(pc) if inverse else pc
 
     @staticmethod
     def ps(xi, eta, r=1, block=0, inverse=False):
@@ -178,7 +178,7 @@ class CSVectorTransforms:
         ps[mask, 2, 1] = 0
         ps[mask, 2, 2] = 1
 
-        return arrayutils.invert_3D_matrices(ps) if inverse else ps
+        return invert_3x3_matrices(ps) if inverse else ps
 
     @classmethod
     def q_between_blocks(cls, xi, eta, block_i, block_j):
@@ -206,7 +206,7 @@ class CSVectorTransforms:
         q[:, 1, 1] = r
         q[:, 2, 2] = 1
 
-        return arrayutils.invert_3D_matrices(q) if inverse else q
+        return invert_3x3_matrices(q) if inverse else q
 
 
 __all__ = ["CSVectorTransforms"]

@@ -205,6 +205,109 @@ def _estimate_peak_prominence_numpy(values, peak_idx):
     return prominence if np.isfinite(prominence) and prominence >= 0.0 else np.nan
 
 
+def _global_peak_candidate(abs_values, valid, target_index):
+    """Return the global finite maximum as a one-item candidate list."""
+    peak_idx = int(np.nanargmax(np.where(valid, abs_values, -np.inf)))
+    peak_value = float(abs_values[peak_idx])
+    return [
+        {
+            "index": peak_idx,
+            "abs_value": peak_value,
+            "prominence": peak_value,
+            "relative_value": 1.0,
+            "time": pd.Timestamp(target_index[peak_idx]),
+        }
+    ]
+
+
+def _finite_segment_peak_candidates(abs_values, min_prominence):
+    """Find peaks independently in each contiguous finite segment."""
+    candidate_indices = []
+    prominence_by_index = {}
+    finite_mask = np.isfinite(abs_values)
+    segment_start = 0
+    while segment_start < abs_values.size:
+        while segment_start < abs_values.size and not finite_mask[segment_start]:
+            segment_start += 1
+        if segment_start >= abs_values.size:
+            break
+        segment_end = segment_start + 1
+        while segment_end < abs_values.size and finite_mask[segment_end]:
+            segment_end += 1
+
+        segment_values = abs_values[segment_start:segment_end]
+        if segment_values.size == 1:
+            if segment_values[0] >= min_prominence:
+                candidate_indices.append(segment_start)
+                prominence_by_index[segment_start] = float(segment_values[0])
+            segment_start = segment_end
+            continue
+
+        edge_floor = min(0.0, float(np.nanmin(segment_values)))
+        padded_values = np.r_[edge_floor, segment_values, edge_floor]
+        if _find_peaks is None:
+            segment_peak_indices = _find_prominent_peaks_numpy(padded_values, min_prominence)
+            segment_peak_prominences = np.array(
+                [
+                    _estimate_peak_prominence_numpy(padded_values, peak_idx)
+                    for peak_idx in segment_peak_indices
+                ],
+                dtype=float,
+            )
+        else:
+            segment_peak_indices, peak_properties = _find_peaks(
+                padded_values, prominence=min_prominence
+            )
+            segment_peak_prominences = np.asarray(
+                peak_properties.get(
+                    "prominences", np.full(segment_peak_indices.shape, np.nan, dtype=float)
+                ),
+                dtype=float,
+            )
+        segment_peak_indices = segment_peak_indices - 1
+        valid_peak_mask = (segment_peak_indices >= 0) & (
+            segment_peak_indices < segment_values.size
+        )
+        original_peak_indices = (segment_start + segment_peak_indices[valid_peak_mask]).astype(int)
+        candidate_indices.extend(original_peak_indices.tolist())
+        for original_peak_idx, peak_prominence in zip(
+            original_peak_indices, segment_peak_prominences[valid_peak_mask]
+        ):
+            if not np.isfinite(peak_prominence):
+                peak_prominence = _estimate_peak_prominence_numpy(abs_values, original_peak_idx)
+            if not np.isfinite(peak_prominence):
+                peak_prominence = abs_values[original_peak_idx]
+            prominence_by_index[original_peak_idx] = max(
+                float(prominence_by_index.get(original_peak_idx, -np.inf)), float(peak_prominence)
+            )
+        segment_start = segment_end
+    return candidate_indices, prominence_by_index
+
+
+def _separated_peak_indices(
+    candidate_indices,
+    candidate_values,
+    candidate_prominences,
+    target_index,
+    min_separation_seconds,
+):
+    """Keep the strongest peak within each minimum time separation."""
+    candidate_times_ns = datetime_index_to_epoch_ns(target_index[candidate_indices]).astype(float)
+    min_separation_ns = max(0.0, float(min_separation_seconds)) * 1e9
+    order = np.lexsort((candidate_times_ns, -candidate_values, -candidate_prominences))
+    kept_indices = []
+    kept_times_ns = []
+    for order_idx in order:
+        peak_time_ns = candidate_times_ns[order_idx]
+        if any(
+            abs(peak_time_ns - kept_time_ns) <= min_separation_ns for kept_time_ns in kept_times_ns
+        ):
+            continue
+        kept_indices.append(candidate_indices[order_idx])
+        kept_times_ns.append(peak_time_ns)
+    return kept_indices
+
+
 def prominent_peak_candidates(
     values, time_index, min_separation_seconds=20.0, prominence_fraction=0.05
 ):
@@ -227,93 +330,14 @@ def prominent_peak_candidates(
     if not np.isfinite(global_peak):
         return []
     if global_peak <= np.finfo(float).tiny:
-        peak_idx = int(np.nanargmax(np.where(valid, abs_values, -np.inf)))
-        return [
-            {
-                "index": peak_idx,
-                "abs_value": float(abs_values[peak_idx]),
-                "prominence": float(abs_values[peak_idx]),
-                "relative_value": 1.0,
-                "time": pd.Timestamp(target_index[peak_idx]),
-            }
-        ]
+        return _global_peak_candidate(abs_values, valid, target_index)
 
     min_prominence = max(0.0, float(prominence_fraction)) * global_peak
-    candidate_indices = []
-    candidate_prominence_by_index = {}
-    finite_mask = np.isfinite(abs_values)
-    segment_start = 0
-    while segment_start < abs_values.size:
-        while segment_start < abs_values.size and not finite_mask[segment_start]:
-            segment_start += 1
-        if segment_start >= abs_values.size:
-            break
-        segment_end = segment_start + 1
-        while segment_end < abs_values.size and finite_mask[segment_end]:
-            segment_end += 1
-
-        segment_values = abs_values[segment_start:segment_end]
-        if segment_values.size == 1:
-            if segment_values[0] >= min_prominence:
-                candidate_indices.append(segment_start)
-                candidate_prominence_by_index[segment_start] = float(segment_values[0])
-        else:
-            edge_floor = min(0.0, float(np.nanmin(segment_values)))
-            padded_values = np.r_[edge_floor, segment_values, edge_floor]
-            if _find_peaks is None:
-                segment_peak_indices = _find_prominent_peaks_numpy(padded_values, min_prominence)
-                segment_peak_prominences = np.array(
-                    [
-                        _estimate_peak_prominence_numpy(padded_values, peak_idx)
-                        for peak_idx in segment_peak_indices
-                    ],
-                    dtype=float,
-                )
-            else:
-                segment_peak_indices, peak_properties = _find_peaks(
-                    padded_values, prominence=min_prominence
-                )
-                segment_peak_prominences = np.asarray(
-                    peak_properties.get(
-                        "prominences", np.full(segment_peak_indices.shape, np.nan, dtype=float)
-                    ),
-                    dtype=float,
-                )
-            segment_peak_indices = segment_peak_indices - 1
-            valid_peak_mask = (segment_peak_indices >= 0) & (
-                segment_peak_indices < segment_values.size
-            )
-            valid_segment_peaks = segment_peak_indices[valid_peak_mask]
-            valid_prominences = segment_peak_prominences[valid_peak_mask]
-            original_peak_indices = (segment_start + valid_segment_peaks).astype(int)
-            candidate_indices.extend(original_peak_indices.tolist())
-            for original_peak_idx, peak_prominence in zip(
-                original_peak_indices, valid_prominences
-            ):
-                if not np.isfinite(peak_prominence):
-                    peak_prominence = _estimate_peak_prominence_numpy(
-                        abs_values, original_peak_idx
-                    )
-                if not np.isfinite(peak_prominence):
-                    peak_prominence = abs_values[original_peak_idx]
-                existing_prominence = candidate_prominence_by_index.get(original_peak_idx, -np.inf)
-                candidate_prominence_by_index[original_peak_idx] = max(
-                    float(existing_prominence), float(peak_prominence)
-                )
-
-        segment_start = segment_end
-
+    candidate_indices, candidate_prominence_by_index = _finite_segment_peak_candidates(
+        abs_values, min_prominence
+    )
     if not candidate_indices:
-        peak_idx = int(np.nanargmax(np.where(valid, abs_values, -np.inf)))
-        return [
-            {
-                "index": peak_idx,
-                "abs_value": float(abs_values[peak_idx]),
-                "prominence": float(abs_values[peak_idx]),
-                "relative_value": 1.0,
-                "time": pd.Timestamp(target_index[peak_idx]),
-            }
-        ]
+        return _global_peak_candidate(abs_values, valid, target_index)
 
     candidate_indices = np.array(sorted(set(candidate_indices)), dtype=int)
     candidate_values = abs_values[candidate_indices]
@@ -329,32 +353,15 @@ def prominent_peak_candidates(
     candidate_prominences = np.where(
         np.isfinite(candidate_prominences), candidate_prominences, candidate_values
     )
-    candidate_times_ns = datetime_index_to_epoch_ns(target_index[candidate_indices]).astype(float)
-    min_separation_ns = max(0.0, float(min_separation_seconds)) * 1e9
-
-    order = np.lexsort((candidate_times_ns, -candidate_values, -candidate_prominences))
-    kept_indices = []
-    kept_times_ns = []
-    for order_idx in order:
-        peak_time_ns = candidate_times_ns[order_idx]
-        if any(
-            abs(peak_time_ns - kept_time_ns) <= min_separation_ns for kept_time_ns in kept_times_ns
-        ):
-            continue
-        kept_indices.append(candidate_indices[order_idx])
-        kept_times_ns.append(peak_time_ns)
-
+    kept_indices = _separated_peak_indices(
+        candidate_indices,
+        candidate_values,
+        candidate_prominences,
+        target_index,
+        min_separation_seconds,
+    )
     if not kept_indices:
-        peak_idx = int(np.nanargmax(np.where(valid, abs_values, -np.inf)))
-        return [
-            {
-                "index": peak_idx,
-                "abs_value": float(abs_values[peak_idx]),
-                "prominence": float(abs_values[peak_idx]),
-                "relative_value": 1.0,
-                "time": pd.Timestamp(target_index[peak_idx]),
-            }
-        ]
+        return _global_peak_candidate(abs_values, valid, target_index)
 
     return [
         {

@@ -16,7 +16,10 @@ from pynamit.sphere.spherical_harmonics.sh_basis import SHBasis
 from pynamit.sphere.spherical_harmonics.solid_harmonics import SolidHarmonics
 from pynamit.sphere.spherical_transform import SphericalTransform
 
+BasisEvaluator = SphericalTransform
+
 __all__ = [
+    "BasisEvaluator",
     "BasisView",
     "CSBasis",
     "Grid",

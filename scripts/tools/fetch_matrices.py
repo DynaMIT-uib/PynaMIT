@@ -1,9 +1,9 @@
 """Fetch dense model operator blocks used by the simulation.
 
-This script builds a minimal ``Dynamics`` object, sets one conductance
-snapshot, and extracts dense matrices through ``State`` accessors.  The
-accessors use the same operators and response matrices as the time
-integration path.
+This script builds a minimal ``Simulation`` object, sets one conductance
+snapshot, and extracts dense matrices through
+``ElectrodynamicResponse``. The accessors use the same operators and
+response matrices as the time-integration path.
 """
 
 from __future__ import annotations
@@ -16,54 +16,61 @@ import numpy as np
 from pynamit.external_inputs import get_conductance_inputs
 from pynamit.math.backend import block_until_ready, to_numpy
 from pynamit.math.constants import RE
-from pynamit.simulation.dynamics import Dynamics
+from pynamit.simulation.api import Simulation
 
 
-def build_dynamics(
+def build_simulation(
     *,
     nmax: int,
     mmax: int,
     ncs: int,
-    mainfield_kind: str,
+    main_field_kind: str,
     rm_re: float | None,
     horizontal_basis_kind: str,
-    ignore_pfac: bool,
-    connect_hemispheres: bool,
+    enable_pfac_coupling: bool,
+    enable_interhemispheric_coupling: bool,
     run_directory: str | None,
     artifact_storage: str,
     least_squares_solver: str,
-) -> Dynamics:
-    """Build a minimal ``Dynamics`` configured for matrix extraction."""
+) -> Simulation:
+    """Build a minimal simulation for matrix extraction."""
     RI = RE + 110.0e3
     RM = None if rm_re is None else float(rm_re) * RE
-    dynamics = Dynamics(
+    simulation = Simulation(
         run_directory=run_directory,
         Nmax=nmax,
         Mmax=mmax,
         Ncs=ncs,
         RI=RI,
         RM=RM,
-        mainfield_kind=mainfield_kind,
-        ignore_PFAC=ignore_pfac,
-        connect_hemispheres=connect_hemispheres,
+        main_field_kind=main_field_kind,
+        enable_pfac_coupling=enable_pfac_coupling,
+        enable_interhemispheric_coupling=enable_interhemispheric_coupling,
         least_squares_solver=least_squares_solver,
         horizontal_basis_kind=horizontal_basis_kind,
         artifact_storage=artifact_storage,
     )
 
-    grid = dynamics.state.geometry.grid
+    grid = simulation.geometry.model_grid
     date = datetime.datetime(2001, 5, 12, 21, 45)
     hall, pedersen, cond_lat, cond_lon = get_conductance_inputs(date, grid.lat, grid.lon, None)
-    dynamics.set_conductance(hall, pedersen, lat=cond_lat, lon=cond_lon)
-    dynamics.state.update(dynamics.input_timeseries, time=0.0, interpolation=False)
-    return dynamics
+    simulation.set_conductance(hall, pedersen, lat=cond_lat, lon=cond_lon)
+    simulation.response.activate_inputs_at_time(
+        simulation.run_data.input_series, time=0.0, interpolation=False
+    )
+    return simulation
 
 
 def fetch_model_dense_matrices(
-    dynamics: Dynamics, *, df_only: bool = False, include_Br: bool = True
+    simulation: Simulation, *, df_only: bool = False, include_Br: bool = True
 ) -> dict[str, np.ndarray]:
-    """Return dense matrices from the active simulation state."""
-    matrices = dynamics.state.operators.model_matrices(df_only=df_only, include_Br=include_Br)
+    """Return dense matrices from the active simulation response."""
+    response = simulation.response
+    matrices = (
+        response.E_df_matrices(include_Br=include_Br)
+        if df_only
+        else response.m_ind_rate_matrices(include_Br=include_Br)
+    )
     return {
         key: np.asarray(to_numpy(block_until_ready(matrix))) for key, matrix in matrices.items()
     }
@@ -71,14 +78,14 @@ def fetch_model_dense_matrices(
 
 def _print_summary(matrices: dict[str, np.ndarray]) -> None:
     order = (
-        "dt_m_ind_from_u",
-        "dt_m_ind_from_jr",
-        "dt_m_ind_from_Br",
-        "dt_m_ind_from_m_ind",
-        "edf_from_u",
-        "edf_from_jr",
-        "edf_from_Br",
-        "edf_from_m_ind",
+        "d_m_ind_dt_from_u",
+        "d_m_ind_dt_from_jr",
+        "d_m_ind_dt_from_Br",
+        "d_m_ind_dt_from_m_ind",
+        "E_df_from_u",
+        "E_df_from_jr",
+        "E_df_from_Br",
+        "E_df_from_m_ind",
     )
     for key in [key for key in order if key in matrices]:
         matrix = np.asarray(matrices[key])
@@ -98,7 +105,7 @@ def main() -> None:
     parser.add_argument("--mmax", type=int, default=12)
     parser.add_argument("--ncs", type=int, default=22)
     parser.add_argument(
-        "--mainfield-kind", type=str, default="dipole", choices=["dipole", "igrf", "radial"]
+        "--main_field-kind", type=str, default="dipole", choices=["dipole", "igrf", "radial"]
     )
     parser.add_argument(
         "--rm-over-re",
@@ -110,16 +117,18 @@ def main() -> None:
         "--horizontal-basis-kind", type=str, default="SH", choices=["SH", "CS", "sh", "cs"]
     )
     parser.add_argument(
-        "--ignore-pfac",
-        action="store_true",
+        "--disable-pfac-coupling",
+        action="store_false",
+        dest="enable_pfac_coupling",
+        default=True,
         help="Disable PFAC contribution when assembling the model operators.",
     )
     parser.add_argument(
-        "--no-connect-hemispheres",
+        "--disable-interhemispheric-coupling",
         action="store_false",
-        dest="connect_hemispheres",
+        dest="enable_interhemispheric_coupling",
         default=True,
-        help="Disable interhemispheric E-map feedback.",
+        help="Disable interhemispheric current and electric-field constraints.",
     )
     parser.add_argument(
         "--least-squares-solver",
@@ -132,7 +141,7 @@ def main() -> None:
         type=str,
         default="netcdf",
         choices=["auto", "netcdf", "zarr"],
-        help="Storage backend for the temporary Dynamics artifacts.",
+        help="Storage backend for the temporary Simulation artifacts.",
     )
     parser.add_argument(
         "--run-directory",
@@ -156,21 +165,21 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    dynamics = build_dynamics(
+    simulation = build_simulation(
         nmax=args.nmax,
         mmax=args.mmax,
         ncs=args.ncs,
-        mainfield_kind=args.mainfield_kind,
+        main_field_kind=args.main_field_kind,
         rm_re=args.rm_over_re,
         horizontal_basis_kind=args.horizontal_basis_kind,
-        ignore_pfac=bool(args.ignore_pfac),
-        connect_hemispheres=bool(args.connect_hemispheres),
+        enable_pfac_coupling=bool(args.enable_pfac_coupling),
+        enable_interhemispheric_coupling=bool(args.enable_interhemispheric_coupling),
         run_directory=args.run_directory,
         artifact_storage=args.artifact_storage,
         least_squares_solver=args.least_squares_solver,
     )
     matrices = fetch_model_dense_matrices(
-        dynamics, df_only=bool(args.df_only), include_Br=not bool(args.exclude_br)
+        simulation, df_only=bool(args.df_only), include_Br=not bool(args.exclude_br)
     )
     _print_summary(matrices)
 

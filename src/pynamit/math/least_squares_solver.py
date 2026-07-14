@@ -20,6 +20,7 @@ from .linear_map import LinearMap, as_linear_map, diagonal_linear_map
 
 ITERATION_SAFETY_FACTOR: Final = 10
 LEAST_SQUARES_SOLVER_ENV: Final = "PYNAMIT_LEAST_SQUARES_SOLVER"
+LSMR_SUCCESS_STOP_CODES: Final = frozenset({0, 1, 2})
 PreconditionerInput = Optional[Union[LinearOperator, LinearMap]]
 
 
@@ -71,17 +72,17 @@ class LeastSquaresSolver:
         self, problem: LeastSquaresProblem, preconditioner_type: Optional[str] = None
     ) -> Optional[LinearMap]:
         """Build preconditioner for the specified solver and problem."""
-        p_type = (
+        selected_type = (
             preconditioner_type if preconditioner_type is not None else self.preconditioner_type
         )
-        if p_type is None:
+        if selected_type is None:
             return None
-        if p_type not in self.VALID_PRECONDITIONERS:
+        if selected_type not in self.VALID_PRECONDITIONERS:
             raise ValueError(f"Preconditioner must be one of {self.VALID_PRECONDITIONERS}")
         if self.solver == "cgls":
-            return self._build_normal_eq_preconditioner(problem, p_type)
+            return self._build_normal_eq_preconditioner(problem, selected_type)
         if self.solver == "lsmr":
-            return self._build_lsmr_preconditioner(problem, p_type)
+            return self._build_lsmr_preconditioner(problem, selected_type)
         return None
 
     def build_response_solver(
@@ -157,27 +158,23 @@ class LeastSquaresSolver:
         problem: LeastSquaresProblem,
         rhs_block: np.ndarray,
         num_rhs: int,
-        M: Optional[LinearMap],
+        preconditioner: Optional[LinearMap],
         **kwargs,
     ) -> np.ndarray:
         xp = get_array_module(rhs_block)
         if xp is not np:
-            return self._solve_lsmr_jax(problem, rhs_block, num_rhs, M, **kwargs)
+            return self._solve_lsmr_jax(problem, rhs_block, num_rhs, preconditioner, **kwargs)
 
         system_map = problem.get_system_linear_map()
-        op_to_solve, sol_transform = self._preconditioned_system(system_map, M)
-        lsmr_kwargs = self._lsmr_kwargs(system_map, kwargs)
-        op = op_to_solve.as_linear_operator()
+        solve_map, recover_solution = self._preconditioned_system(system_map, preconditioner)
+        lsmr_options = self._lsmr_options(system_map, kwargs)
+        linear_operator = solve_map.as_linear_operator()
         rhs_np = to_numpy(rhs_block)
         columns = []
-        for col in range(num_rhs):
-            sol_y, istop, *_ = lsmr(op, rhs_np[:, col], **lsmr_kwargs)
-            if istop not in [0, 1, 2]:
-                warnings.warn(
-                    f"LSMR may not have converged for RHS column {col} (istop={istop}).",
-                    RuntimeWarning,
-                )
-            columns.append(sol_transform(sol_y))
+        for column in range(num_rhs):
+            solution_y, stop_code, *_ = lsmr(linear_operator, rhs_np[:, column], **lsmr_options)
+            self._warn_if_lsmr_not_converged(stop_code, column)
+            columns.append(recover_solution(solution_y))
         return np.column_stack(columns)
 
     def _solve_lsmr_jax(
@@ -185,7 +182,7 @@ class LeastSquaresSolver:
         problem: LeastSquaresProblem,
         rhs_block: Any,
         num_rhs: int,
-        M: Optional[LinearMap],
+        preconditioner: Optional[LinearMap],
         **kwargs,
     ) -> Any:
         """Solve rectangular least squares with internal JAX LSMR."""
@@ -193,46 +190,56 @@ class LeastSquaresSolver:
 
         xp = get_array_module(rhs_block)
         system_map = problem.get_system_linear_map()
-        op_to_solve, sol_transform = self._preconditioned_system(system_map, M)
-        lsmr_kwargs = self._lsmr_kwargs(system_map, kwargs)
+        solve_map, recover_solution = self._preconditioned_system(system_map, preconditioner)
+        lsmr_options = self._lsmr_options(system_map, kwargs)
         columns = []
-        for col in range(num_rhs):
-            sol_y, istop, *_ = jax_lsmr(op_to_solve, rhs_block[:, col], **lsmr_kwargs)
-            if istop not in [0, 1, 2]:
-                warnings.warn(
-                    f"LSMR may not have converged for RHS column {col} (istop={istop}).",
-                    RuntimeWarning,
-                )
-            columns.append(sol_transform(sol_y))
+        for column in range(num_rhs):
+            solution_y, stop_code, *_ = jax_lsmr(solve_map, rhs_block[:, column], **lsmr_options)
+            self._warn_if_lsmr_not_converged(stop_code, column)
+            columns.append(recover_solution(solution_y))
         return xp.stack(columns, axis=1)
 
     def _preconditioned_system(
-        self, system_map: LinearMap, M: Optional[LinearMap]
+        self, system_map: LinearMap, preconditioner: Optional[LinearMap]
     ) -> tuple[LinearMap, Callable[[Any], Any]]:
         """Return the solve operator and solution transform."""
-        if M is None:
+        if preconditioner is None:
             return system_map, lambda y_vec: y_vec
-        return system_map @ M, M.matvec
+        return system_map @ preconditioner, preconditioner.matvec
 
-    def _lsmr_kwargs(self, system_map: LinearMap, kwargs: dict[str, Any]) -> dict[str, Any]:
+    def _lsmr_options(self, system_map: LinearMap, options: dict[str, Any]) -> dict[str, Any]:
         """Return LSMR options with the default iteration cap."""
         m, n = system_map.shape
-        max_iter = kwargs.pop(
-            "maxiter", ITERATION_SAFETY_FACTOR * min(m, n) if m > 0 and n > 0 else n
+        default_max_iterations = ITERATION_SAFETY_FACTOR * min(m, n) if m > 0 and n > 0 else n
+        return {
+            "atol": self.tolerance,
+            "btol": self.tolerance,
+            "maxiter": default_max_iterations,
+            **options,
+        }
+
+    @staticmethod
+    def _warn_if_lsmr_not_converged(stop_code: int, column: int) -> None:
+        """Warn when LSMR stops before reaching a tolerance."""
+        if stop_code in LSMR_SUCCESS_STOP_CODES:
+            return
+        warnings.warn(
+            f"LSMR may not have converged for RHS column {column} (stop_code={stop_code}).",
+            RuntimeWarning,
+            stacklevel=3,
         )
-        return {"atol": self.tolerance, "btol": self.tolerance, "maxiter": max_iter, **kwargs}
 
     def _solve_cgls(
         self,
         problem: LeastSquaresProblem,
         rhs_block: np.ndarray,
         num_rhs: int,
-        M: Optional[LinearMap],
+        preconditioner: Optional[LinearMap],
         **kwargs,
     ) -> np.ndarray:
         xp = get_array_module(rhs_block)
         if xp is not np:
-            return self._solve_cgls_jax(problem, rhs_block, num_rhs, M, **kwargs)
+            return self._solve_cgls_jax(problem, rhs_block, num_rhs, preconditioner, **kwargs)
 
         system_map = problem.get_system_linear_map()
         normal_op = LinearOperator(
@@ -246,16 +253,17 @@ class LeastSquaresSolver:
         max_iter = kwargs.pop("maxiter", ITERATION_SAFETY_FACTOR * problem.solution_size)
         cg_kwargs = {
             "rtol": self.tolerance,
-            "M": M.as_linear_operator() if M is not None else None,
+            "M": preconditioner.as_linear_operator() if preconditioner is not None else None,
             "maxiter": max_iter,
             **kwargs,
         }
         columns = []
-        for col in range(num_rhs):
-            sol, exit_code = cg(normal_op, cg_rhs[:, col], **cg_kwargs)
+        for column in range(num_rhs):
+            sol, exit_code = cg(normal_op, cg_rhs[:, column], **cg_kwargs)
             if exit_code != 0:
                 warnings.warn(
-                    f"CGLS solver did not converge for RHS column {col} (exit_code={exit_code}).",
+                    f"CGLS solver did not converge for RHS column {column} "
+                    f"(exit_code={exit_code}).",
                     RuntimeWarning,
                 )
             columns.append(sol)
@@ -266,7 +274,7 @@ class LeastSquaresSolver:
         problem: LeastSquaresProblem,
         rhs_block: Any,
         num_rhs: int,
-        M: Optional[LinearMap],
+        preconditioner: Optional[LinearMap],
         **kwargs,
     ) -> Any:
         """Solve normal equations with JAX CG."""
@@ -282,10 +290,10 @@ class LeastSquaresSolver:
         def normal_matvec(x_vec):
             return system_map.rmatvec(system_map.matvec(x_vec))
 
-        preconditioner = None if M is None else M.matvec
+        apply_preconditioner = None if preconditioner is None else preconditioner.matvec
         columns = []
-        for col in range(num_rhs):
-            sol, _ = jax_cg(normal_matvec, cg_rhs[:, col], M=preconditioner, **cg_kwargs)
+        for column in range(num_rhs):
+            sol, _ = jax_cg(normal_matvec, cg_rhs[:, column], M=apply_preconditioner, **cg_kwargs)
             columns.append(sol)
         return get_array_module(rhs_block).stack(columns, axis=1)
 
@@ -297,27 +305,35 @@ class LeastSquaresSolver:
             return None
         if self.solver not in {"lsmr", "cgls"}:
             raise ValueError(f"Solver '{self.solver}' does not accept a preconditioner.")
-        M = as_linear_map(preconditioner)
+        preconditioner_map = as_linear_map(preconditioner)
         expected_shape = (problem.solution_size, problem.solution_size)
-        if M.shape != expected_shape:
-            raise ValueError(f"Preconditioner shape {M.shape} != expected {expected_shape}")
-        return M
+        if preconditioner_map.shape != expected_shape:
+            raise ValueError(
+                f"Preconditioner shape {preconditioner_map.shape} != expected {expected_shape}"
+            )
+        return preconditioner_map
 
     def _build_normal_eq_preconditioner(
-        self, problem: LeastSquaresProblem, p_type: str
+        self, problem: LeastSquaresProblem, preconditioner_type: str
     ) -> LinearMap:
-        if p_type == "jacobi":
+        if preconditioner_type == "jacobi":
             return self._build_jacobi_preconditioner(problem, square_root=False)
-        if p_type == "pinv":
+        if preconditioner_type == "pinv":
             return self._build_pinv_preconditioner(problem, squared=True)
-        raise NotImplementedError(f"Preconditioner '{p_type}' not implemented for CGLS solver.")
+        raise NotImplementedError(
+            f"Preconditioner '{preconditioner_type}' not implemented for CGLS solver."
+        )
 
-    def _build_lsmr_preconditioner(self, problem: LeastSquaresProblem, p_type: str) -> LinearMap:
-        if p_type == "jacobi":
+    def _build_lsmr_preconditioner(
+        self, problem: LeastSquaresProblem, preconditioner_type: str
+    ) -> LinearMap:
+        if preconditioner_type == "jacobi":
             return self._build_jacobi_preconditioner(problem, square_root=True)
-        if p_type == "pinv":
+        if preconditioner_type == "pinv":
             return self._build_pinv_preconditioner(problem, squared=False)
-        raise NotImplementedError(f"Preconditioner '{p_type}' not implemented for LSMR solver.")
+        raise NotImplementedError(
+            f"Preconditioner '{preconditioner_type}' not implemented for LSMR solver."
+        )
 
     def _build_jacobi_preconditioner(
         self, problem: LeastSquaresProblem, *, square_root: bool

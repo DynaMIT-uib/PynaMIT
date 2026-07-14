@@ -8,12 +8,9 @@ import traceback
 
 import matplotlib.pyplot as plt
 
-from pynamit.visualization.figure_builder import (
-    clear_saved_field_view_cache,
-    get_saved_field_view,
-    render_pynamit_figure,
-    save_pynamit_movie,
-)
+from pynamit.simulation.config import INTEGRATORS
+from pynamit.visualization.figure_builder import render_pynamit_figure, save_pynamit_movie
+from pynamit.visualization.figure_context import clear_saved_field_view_cache, get_saved_field_view
 from pynamit.visualization.figure_specs import (
     MAP_FILL_OPTIONS,
     MAP_LINE_OPTIONS,
@@ -125,21 +122,27 @@ class PynamitPanelApp:
             label="Final time", value=100.0, start=0.0, width=120
         )
         self.sim_dt = pn.widgets.FloatInput(label="dt", value=5e-4, start=1e-12, width=110)
-        self.sim_plotsteps = pn.widgets.IntInput(label="Save every", value=200, start=1, width=120)
+        self.sim_saving_sample_interval = pn.widgets.IntInput(
+            label="Samples per save", value=200, start=1, width=150
+        )
         self.sim_integrator = pn.widgets.Select(
-            label="Integrator", options=["euler", "exponential"], value="euler", width=140
+            label="Integrator", options=list(INTEGRATORS.values()), value="euler", width=140
         )
-        self.sim_ignore_pfac = pn.widgets.Checkbox(label="Ignore PFAC", value=True, width=120)
-        self.sim_connect_hemispheres = pn.widgets.Checkbox(
-            label="Connect hemispheres", value=False, width=170
+        self.sim_enable_pfac_coupling = pn.widgets.Checkbox(
+            label="PFAC coupling", value=False, width=130
         )
-        self.sim_rm_shielding = pn.widgets.Checkbox(label="RM shielding", value=False, width=130)
+        self.sim_enable_interhemispheric_coupling = pn.widgets.Checkbox(
+            label="Interhemispheric coupling", value=False, width=190
+        )
+        self.sim_magnetic_boundary_shielding = pn.widgets.Checkbox(
+            label="Boundary shielding", value=False, width=150
+        )
         self.sim_run_inductive = pn.widgets.Checkbox(label="Inductive", value=True, width=110)
         self.sim_run_steady = pn.widgets.Checkbox(label="Steady state", value=True, width=130)
-        self.sim_latitude_boundary = pn.widgets.FloatInput(
-            label="Lat boundary", value=50.0, width=120
+        self.sim_interhemispheric_coupling_latitude = pn.widgets.FloatInput(
+            label="Coupling latitude", value=50.0, width=140
         )
-        self.sim_use_conductance = pn.widgets.Checkbox(label="conductance", value=True, width=120)
+        self.sim_use_conductance = pn.widgets.Checkbox(label="Conductance", value=True, width=120)
         self.sim_use_jr = pn.widgets.Checkbox(label="jr", value=True, width=70)
         self.sim_use_br = pn.widgets.Checkbox(label="Br", value=True, width=70)
         self.sim_use_u = pn.widgets.Checkbox(label="u", value=True, width=70)
@@ -326,9 +329,7 @@ class PynamitPanelApp:
 
         self.redraw_button = pn.widgets.Button(label="Redraw", color="primary", width=95)
         self.save_button = pn.widgets.Button(label="Save figure", color="warning", width=120)
-        self.save_movie_button = pn.widgets.Button(
-            label="Save movie", color="warning", width=120
-        )
+        self.save_movie_button = pn.widgets.Button(label="Save movie", color="warning", width=120)
         self.output_filename = pn.widgets.TextInput(
             label="Output", value="pynamit_figure.png", width=260
         )
@@ -425,7 +426,7 @@ class PynamitPanelApp:
 
     def _simulation_input_widgets(self):
         return {
-            "conductance": self.sim_use_conductance,
+            "resistance": self.sim_use_conductance,
             "jr": self.sim_use_jr,
             "Br": self.sim_use_br,
             "u": self.sim_use_u,
@@ -434,11 +435,13 @@ class PynamitPanelApp:
         }
 
     def _available_simulation_inputs(self, input_directory):
-        from pynamit.primitives.io import IO
-        from pynamit.simulation.prepared_inputs import INPUT_DATASET_KEYS
+        from pynamit.storage import ArtifactStore
+        from pynamit.simulation.schema import INPUT_DATASET_KEYS
 
-        input_directory = IO.discover_run_directory(Path(input_directory).expanduser())
-        artifacts = IO(input_directory).scan_run_artifacts()
+        input_directory = ArtifactStore.require_artifact_directory(
+            Path(input_directory).expanduser(), ("settings",)
+        )
+        artifacts = ArtifactStore(input_directory).scan_artifacts(INPUT_DATASET_KEYS)
         return {key for key in INPUT_DATASET_KEYS if key in artifacts}
 
     def _sync_simulation_input_availability(self):
@@ -458,7 +461,7 @@ class PynamitPanelApp:
     def _selected_simulation_inputs(self):
         selected = []
         if self.sim_use_conductance.value:
-            selected.append("conductance")
+            selected.append("resistance")
         if self.sim_use_jr.value:
             selected.append("jr")
         if self.sim_use_br.value:
@@ -477,12 +480,12 @@ class PynamitPanelApp:
         self._busy = True
         self.prepare_button.loading = True
         try:
-            from pynamit.simulation.prepared_inputs import prepare_pynamit_inputs
+            from pynamit.simulation.workflows.prepared_inputs import prepare_pynamit_inputs
 
             if self.prepare_use_q_eff.value and not self.prepare_use_wind.value:
                 raise ValueError("Q_eff from u requires the wind input source.")
             input_directory = Path(self.prepared_input_directory.value).expanduser()
-            dynamics = prepare_pynamit_inputs(
+            simulation = prepare_pynamit_inputs(
                 input_directory=input_directory,
                 final_time=float(self.prepare_final_time.value),
                 Nmax=int(self.prepare_Nmax.value),
@@ -494,7 +497,7 @@ class PynamitPanelApp:
                 multi_data=bool(self.prepare_multi_data.value),
                 horizontal_basis_kind=self.prepare_horizontal_basis.value,
             )
-            prepared_path = Path(dynamics.run_directory)
+            prepared_path = Path(simulation.run_data.run_directory)
             set_widget_value(self.prepared_input_directory, str(prepared_path))
             set_widget_value(self.simulation_input_directory, str(prepared_path))
             self._set_status(f"Prepared inputs in [`{prepared_path}`]({prepared_path}).")
@@ -511,7 +514,7 @@ class PynamitPanelApp:
         self.run_simulation_button.loading = True
         should_load_run = False
         try:
-            from pynamit.simulation.prepared_inputs import run_pynamit_from_inputs
+            from pynamit.simulation.workflows.prepared_inputs import run_pynamit_from_inputs
 
             self._sync_simulation_input_availability()
             enabled_inputs = self._selected_simulation_inputs()
@@ -519,22 +522,26 @@ class PynamitPanelApp:
                 raise ValueError("Select at least one prepared input dataset.")
             input_directory = Path(self.simulation_input_directory.value).expanduser()
             run_directory = Path(self.simulation_run_directory.value).expanduser()
-            dynamics = run_pynamit_from_inputs(
+            simulation = run_pynamit_from_inputs(
                 input_directory,
                 run_directory=run_directory,
                 enabled_inputs=enabled_inputs,
                 final_time=float(self.sim_final_time.value),
-                plotsteps=int(self.sim_plotsteps.value),
+                saving_sample_interval=int(self.sim_saving_sample_interval.value),
                 dt=float(self.sim_dt.value),
-                ignore_PFAC=bool(self.sim_ignore_pfac.value),
-                connect_hemispheres=bool(self.sim_connect_hemispheres.value),
-                latitude_boundary=float(self.sim_latitude_boundary.value),
+                enable_pfac_coupling=bool(self.sim_enable_pfac_coupling.value),
+                enable_interhemispheric_coupling=bool(
+                    self.sim_enable_interhemispheric_coupling.value
+                ),
+                interhemispheric_coupling_latitude=float(
+                    self.sim_interhemispheric_coupling_latitude.value
+                ),
                 run_inductive=bool(self.sim_run_inductive.value),
                 run_steady_state=bool(self.sim_run_steady.value),
                 integrator=self.sim_integrator.value,
-                RM_shielding=bool(self.sim_rm_shielding.value),
+                magnetic_boundary_shielding=bool(self.sim_magnetic_boundary_shielding.value),
             )
-            run_path = Path(dynamics.run_directory)
+            run_path = Path(simulation.run_data.run_directory)
             set_widget_value(self.simulation_run_directory, str(run_path))
             set_widget_value(self.run_directory, str(run_path))
             set_widget_value(self.app_mode, "visualize")
@@ -565,6 +572,20 @@ class PynamitPanelApp:
             if not self.view.has_output_state and self.spec.plot_type != "input_summary":
                 spec_data = self.spec.to_dict()
                 spec_data["plot_type"] = "input_summary"
+                self.spec = self.spec.from_dict(spec_data)
+            elif self.view.has_output_state and self.spec.plot_type != "input_summary":
+                has_state = "state" in self.view.run_view.datasets
+                has_steady = "steady_state" in self.view.run_view.datasets
+                spec_data = self.spec.to_dict()
+                if not has_state and spec_data["plot_type"] not in {"global", "hemispheres"}:
+                    spec_data["plot_type"] = "global"
+                spec_data["show_inductive"] = bool(has_state and spec_data["show_inductive"])
+                spec_data["show_noninductive"] = bool(
+                    has_steady and (spec_data["show_noninductive"] or not has_state)
+                )
+                spec_data["show_difference"] = bool(
+                    has_state and has_steady and spec_data["show_difference"]
+                )
                 self.spec = self.spec.from_dict(spec_data)
             self.time_index.end = max(0, self.view.n_time - 1)
             self.time_range.end = max(0, self.view.n_time - 1)
@@ -693,16 +714,16 @@ class PynamitPanelApp:
             self._control_row(
                 self.sim_final_time,
                 self.sim_dt,
-                self.sim_plotsteps,
+                self.sim_saving_sample_interval,
                 self.sim_integrator,
             ),
             self._control_row(
-                self.sim_ignore_pfac,
-                self.sim_connect_hemispheres,
-                self.sim_rm_shielding,
+                self.sim_enable_pfac_coupling,
+                self.sim_enable_interhemispheric_coupling,
+                self.sim_magnetic_boundary_shielding,
                 self.sim_run_inductive,
                 self.sim_run_steady,
-                self.sim_latitude_boundary,
+                self.sim_interhemispheric_coupling_latitude,
             ),
             self._control_row(
                 self.sim_use_conductance,
@@ -907,17 +928,6 @@ def servable(run_directory=None, title="PynaMIT Plot"):
     """Create a servable Panel app."""
     app = build_pynamit_panel_app(run_directory=run_directory)
     return app.servable(title=title)
-
-
-def main(argv=None):
-    """Run the Panel app from ``python -m``."""
-    from pynamit.visualization.gui import main as gui_main
-
-    return gui_main(argv)
-
-
-if __name__ == "__main__":  # pragma: no cover
-    main()
 
 
 __all__ = ["PynamitPanelApp", "build_pynamit_panel_app", "servable"]

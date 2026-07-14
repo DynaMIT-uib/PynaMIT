@@ -249,7 +249,10 @@ class LinearMap:
             if arr.ndim == 2:
                 return self.matmat(arr)
 
-        other_map = as_linear_map(other)
+        return self._compose(as_linear_map(other))
+
+    def _compose(self, other_map: "LinearMap") -> "LinearMap":
+        """Compose this map with a compatible map on its right."""
         if self.shape[1] != other_map.shape[0]:
             raise ValueError(
                 f"Dimension mismatch for composition: {self.shape} @ {other_map.shape}"
@@ -262,11 +265,15 @@ class LinearMap:
             return as_linear_map(
                 self, input_shape=other_map.input_shape, output_shape=self.output_shape
             )
-        self_is_diagonal = self._diagonal_array_func is not None
-        other_is_diagonal = other_map._diagonal_array_func is not None
         composed_einsum = self._compose_einsum_matmul(other_map)
         if composed_einsum is not None:
             return composed_einsum.to_linear_map()
+        return self._composed_linear_map(other_map)
+
+    def _composed_linear_map(self, other_map: "LinearMap") -> "LinearMap":
+        """Build the lazy fallback representation of a composition."""
+        self_is_diagonal = self._diagonal_array_func is not None
+        other_is_diagonal = other_map._diagonal_array_func is not None
 
         def matvec(x: Any) -> Any:
             return self.matvec(other_map.matvec(x))
@@ -281,16 +288,7 @@ class LinearMap:
             return other_map.rmatmat(self.rmatmat(y))
 
         def dense_array(xp: Any) -> Any:
-            if self_is_diagonal and other_is_diagonal:
-                diagonal = self._diagonal_array(xp) * other_map._diagonal_array(xp)
-                return xp.diag(diagonal)
-            if self_is_diagonal:
-                diagonal = self._diagonal_array(xp).reshape(-1, 1)
-                return diagonal * other_map._dense_array(xp)
-            if other_is_diagonal:
-                diagonal = other_map._diagonal_array(xp).reshape(1, -1)
-                return self._dense_array(xp) * diagonal
-            return xp.asarray(self.matmat(other_map._dense_array(xp)))
+            return self._composition_dense_array(other_map, xp)
 
         dtype = np.promote_types(self.dtype, other_map.dtype)
 
@@ -301,12 +299,7 @@ class LinearMap:
                 return self._diagonal_array(xp) * other_map._diagonal_array(xp)
 
         def normal_matrix_diag() -> np.ndarray:
-            if other_is_diagonal:
-                diagonal = np.asarray(other_map.diagonal(backend="numpy"))
-                return np.abs(diagonal) ** 2 * self.normal_matrix_diag()
-            return _normal_matrix_diag_from_matmat(
-                (self.shape[0], other_map.shape[1]), dtype, matmat
-            )
+            return self._composition_normal_matrix_diag(other_map, dtype, matmat)
 
         return LinearMap(
             shape=(self.shape[0], other_map.shape[1]),
@@ -322,6 +315,26 @@ class LinearMap:
             output_shape=self.output_shape,
             input_shape=other_map.input_shape,
         )
+
+    def _composition_dense_array(self, other_map: "LinearMap", xp: Any) -> Any:
+        """Materialize a composition, preserving diagonal structure."""
+        self_is_diagonal = self._diagonal_array_func is not None
+        other_is_diagonal = other_map._diagonal_array_func is not None
+        if self_is_diagonal and other_is_diagonal:
+            diagonal = self._diagonal_array(xp) * other_map._diagonal_array(xp)
+            return xp.diag(diagonal)
+        if self_is_diagonal:
+            return self._diagonal_array(xp).reshape(-1, 1) * other_map._dense_array(xp)
+        if other_is_diagonal:
+            return self._dense_array(xp) * other_map._diagonal_array(xp).reshape(1, -1)
+        return xp.asarray(self.matmat(other_map._dense_array(xp)))
+
+    def _composition_normal_matrix_diag(self, other_map, dtype, matmat):
+        """Return the normal diagonal of a lazy composition."""
+        if other_map._diagonal_array_func is not None:
+            diagonal = np.asarray(other_map.diagonal(backend="numpy"))
+            return np.abs(diagonal) ** 2 * self.normal_matrix_diag()
+        return _normal_matrix_diag_from_matmat((self.shape[0], other_map.shape[1]), dtype, matmat)
 
     def _compose_einsum_matmul(self, other_map: "LinearMap") -> Any:
         """Return a symbolic einsum composition, when safe."""
@@ -855,10 +868,8 @@ def pointwise_matrix_linear_map(matrix: Any) -> LinearMap:
     )
 
 
-def take_linear_map(
-    input_shape: tuple[int, ...], indices: Any, *, axis: int = -1, dtype: Any = np.float64
-) -> LinearMap:
-    """Return a map selecting ``indices`` along one shaped axis."""
+def _normalize_take_selection(input_shape, indices, axis):
+    """Return validated shapes, axis, and integer selection indices."""
     input_shape = tuple(int(dim) for dim in input_shape)
     if not input_shape:
         raise ValueError("input_shape must have at least one axis.")
@@ -880,6 +891,16 @@ def take_linear_map(
     output_shape = list(input_shape)
     output_shape[axis] = int(index_array.size)
     output_shape = tuple(output_shape)
+    return input_shape, output_shape, index_array, axis
+
+
+def take_linear_map(
+    input_shape: tuple[int, ...], indices: Any, *, axis: int = -1, dtype: Any = np.float64
+) -> LinearMap:
+    """Return a map selecting ``indices`` along one shaped axis."""
+    input_shape, output_shape, index_array, axis = _normalize_take_selection(
+        input_shape, indices, axis
+    )
     input_size = int(math.prod(input_shape))
     output_size = int(math.prod(output_shape))
     dtype = np.dtype(dtype)
@@ -975,6 +996,50 @@ def is_noop_linear_map(
     return bool(np.array_equal(diagonal, np.ones_like(diagonal)))
 
 
+def _zero_row_linear_map(input_shape: tuple[int, ...]) -> LinearMap:
+    """Return the neutral zero-row map for vertical stacking."""
+    input_shape = tuple(input_shape)
+    input_size = math.prod(input_shape)
+
+    def matvec(vec: Any) -> Any:
+        xp = get_array_module(vec)
+        return xp.zeros((0,), dtype=xp.asarray(vec).dtype)
+
+    def rmatvec(vec: Any) -> Any:
+        xp = get_array_module(vec)
+        return xp.zeros((input_size,), dtype=xp.asarray(vec).dtype)
+
+    def matmat(block: Any) -> Any:
+        xp = get_array_module(block)
+        block_arr = xp.asarray(block).reshape(input_size, -1)
+        return xp.zeros((0, block_arr.shape[1]), dtype=block_arr.dtype)
+
+    def rmatmat(block: Any) -> Any:
+        xp = get_array_module(block)
+        block_arr = xp.asarray(block)
+        num_rhs = 1 if block_arr.ndim == 1 else block_arr.shape[1]
+        return xp.zeros((input_size, num_rhs), dtype=block_arr.dtype)
+
+    def dense_array(xp: Any) -> Any:
+        return xp.zeros((0, input_size))
+
+    def normal_matrix_diag() -> np.ndarray:
+        return np.zeros(input_size)
+
+    return LinearMap(
+        shape=(0, input_size),
+        dtype=np.float64,
+        _matvec=matvec,
+        _rmatvec=rmatvec,
+        _matmat=matmat,
+        _rmatmat=rmatmat,
+        _dense_array_func=dense_array,
+        _normal_matrix_diag=normal_matrix_diag,
+        output_shape=(0,),
+        input_shape=input_shape,
+    )
+
+
 def vstack_linear_maps(
     maps: Sequence[Any], *, input_shape: Optional[tuple[int, ...]] = None
 ) -> LinearMap:
@@ -990,46 +1055,7 @@ def vstack_linear_maps(
     if not row_maps:
         if input_shape is None:
             raise ValueError("input_shape is required when stacking no maps.")
-        input_shape = tuple(input_shape)
-        input_size = math.prod(input_shape)
-
-        def matvec(vec: Any) -> Any:
-            xp = get_array_module(vec)
-            return xp.zeros((0,), dtype=xp.asarray(vec).dtype)
-
-        def rmatvec(vec: Any) -> Any:
-            xp = get_array_module(vec)
-            return xp.zeros((input_size,), dtype=xp.asarray(vec).dtype)
-
-        def matmat(block: Any) -> Any:
-            xp = get_array_module(block)
-            block_arr = xp.asarray(block).reshape(input_size, -1)
-            return xp.zeros((0, block_arr.shape[1]), dtype=block_arr.dtype)
-
-        def rmatmat(block: Any) -> Any:
-            xp = get_array_module(block)
-            block_arr = xp.asarray(block)
-            num_rhs = 1 if block_arr.ndim == 1 else block_arr.shape[1]
-            return xp.zeros((input_size, num_rhs), dtype=block_arr.dtype)
-
-        def dense_array(xp: Any) -> Any:
-            return xp.zeros((0, input_size))
-
-        def normal_matrix_diag() -> np.ndarray:
-            return np.zeros(input_size)
-
-        return LinearMap(
-            shape=(0, input_size),
-            dtype=np.float64,
-            _matvec=matvec,
-            _rmatvec=rmatvec,
-            _matmat=matmat,
-            _rmatmat=rmatmat,
-            _dense_array_func=dense_array,
-            _normal_matrix_diag=normal_matrix_diag,
-            output_shape=(0,),
-            input_shape=input_shape,
-        )
+        return _zero_row_linear_map(input_shape)
 
     first = row_maps[0]
     input_size = first.shape[1]
@@ -1145,33 +1171,23 @@ def _linear_map_from_scipy_sparse(
             cache[key] = xp.asarray(matrix.toarray())
         return cache[key]
 
+    def apply(matrix, cache, values, input_size):
+        xp = _runtime_array_module(values)
+        values = xp.asarray(values)
+        values = values.reshape(input_size) if values.ndim == 1 else values.reshape(input_size, -1)
+        return matrix @ values if xp is np else cached_dense(matrix, xp, cache) @ values
+
     def matvec(vec: Any) -> np.ndarray:
-        xp = _runtime_array_module(vec)
-        vec_arr = xp.asarray(vec).reshape(shape[1])
-        if xp is np:
-            return sparse @ vec_arr
-        return cached_dense(sparse, xp, dense_cache) @ vec_arr
+        return apply(sparse, dense_cache, vec, shape[1])
 
     def rmatvec(vec: Any) -> np.ndarray:
-        xp = _runtime_array_module(vec)
-        vec_arr = xp.asarray(vec).reshape(shape[0])
-        if xp is np:
-            return adjoint @ vec_arr
-        return cached_dense(adjoint, xp, adjoint_dense_cache) @ vec_arr
+        return apply(adjoint, adjoint_dense_cache, vec, shape[0])
 
     def matmat(block: Any) -> np.ndarray:
-        xp = _runtime_array_module(block)
-        block_arr = xp.asarray(block).reshape(shape[1], -1)
-        if xp is np:
-            return sparse @ block_arr
-        return cached_dense(sparse, xp, dense_cache) @ block_arr
+        return apply(sparse, dense_cache, block, shape[1])
 
     def rmatmat(block: Any) -> np.ndarray:
-        xp = _runtime_array_module(block)
-        block_arr = xp.asarray(block).reshape(shape[0], -1)
-        if xp is np:
-            return adjoint @ block_arr
-        return cached_dense(adjoint, xp, adjoint_dense_cache) @ block_arr
+        return apply(adjoint, adjoint_dense_cache, block, shape[0])
 
     def dense_array(xp: Any) -> Any:
         return xp.asarray(sparse.toarray())
@@ -1251,6 +1267,54 @@ def _linear_map_from_jax_sparse(
     )
 
 
+def _linear_map_from_array(
+    arr: Any,
+    input_shape: Optional[tuple[int, ...]] = None,
+    output_shape: Optional[tuple[int, ...]] = None,
+) -> LinearMap:
+    """Convert a dense array-shaped value into a ``LinearMap``."""
+    if arr.ndim == 1:
+        size = int(arr.size)
+        if input_shape is not None and math.prod(input_shape) != size:
+            raise ValueError(f"1-D operator size {size} mismatch with input {input_shape}.")
+        if output_shape is not None and math.prod(output_shape) != size:
+            raise ValueError(f"1-D operator size {size} mismatch with output {output_shape}.")
+        return diagonal_linear_map(arr, input_shape=input_shape, output_shape=output_shape)
+
+    if arr.ndim < 2:
+        raise ValueError("Operators must be at least 1-D.")
+
+    if arr.ndim == 2 and input_shape is None and output_shape is None:
+        return _linear_map_from_dense(arr)
+
+    inferred_input = input_shape or (arr.shape[-1],)
+    flat_in = math.prod(inferred_input)
+    total_elements = int(arr.size)
+    if output_shape is None:
+        flat_out = total_elements // flat_in
+        if flat_out * flat_in != total_elements:
+            raise ValueError(
+                f"Operator with shape {arr.shape} incompatible with inferred input "
+                f"{inferred_input}."
+            )
+        input_ndim = len(inferred_input)
+        if input_ndim <= arr.ndim and tuple(arr.shape[-input_ndim:]) == inferred_input:
+            inferred_output = tuple(arr.shape[:-input_ndim])
+        else:
+            inferred_output = (flat_out,)
+    else:
+        flat_out = math.prod(output_shape)
+        if flat_out * flat_in != total_elements:
+            raise ValueError(
+                f"Operator with shape {arr.shape} incompatible with provided shapes "
+                f"{output_shape} -> {inferred_input}."
+            )
+        inferred_output = output_shape
+    return _linear_map_from_dense(
+        arr.reshape(flat_out, flat_in), input_shape=inferred_input, output_shape=inferred_output
+    )
+
+
 def as_linear_map(
     op: Any,
     input_shape: Optional[tuple[int, ...]] = None,
@@ -1300,44 +1364,4 @@ def as_linear_map(
     except Exception as exc:
         message = f"Unsupported operator type '{type(op)}' for LinearMap conversion."
         raise TypeError(message) from exc
-
-    if arr.ndim == 1:
-        size = int(arr.size)
-        if input_shape is not None and math.prod(input_shape) != size:
-            raise ValueError(f"1-D operator size {size} mismatch with input {input_shape}.")
-        if output_shape is not None and math.prod(output_shape) != size:
-            raise ValueError(f"1-D operator size {size} mismatch with output {output_shape}.")
-        return diagonal_linear_map(arr, input_shape=input_shape, output_shape=output_shape)
-
-    if arr.ndim < 2:
-        raise ValueError("Operators must be at least 1-D.")
-
-    if arr.ndim == 2 and input_shape is None and output_shape is None:
-        return _linear_map_from_dense(arr)
-
-    inferred_input = input_shape or (arr.shape[-1],)
-    flat_in = math.prod(inferred_input)
-    total_elements = int(arr.size)
-    if output_shape is None:
-        flat_out = total_elements // flat_in
-        if flat_out * flat_in != total_elements:
-            raise ValueError(
-                f"Operator with shape {arr.shape} incompatible with inferred input "
-                f"{inferred_input}."
-            )
-        input_ndim = len(inferred_input)
-        if input_ndim <= arr.ndim and tuple(arr.shape[-input_ndim:]) == inferred_input:
-            inferred_output = tuple(arr.shape[:-input_ndim])
-        else:
-            inferred_output = (flat_out,)
-    else:
-        flat_out = math.prod(output_shape)
-        if flat_out * flat_in != total_elements:
-            raise ValueError(
-                f"Operator with shape {arr.shape} incompatible with provided shapes "
-                f"{output_shape} -> {inferred_input}."
-            )
-        inferred_output = output_shape
-    return _linear_map_from_dense(
-        arr.reshape(flat_out, flat_in), input_shape=inferred_input, output_shape=inferred_output
-    )
+    return _linear_map_from_array(arr, input_shape=input_shape, output_shape=output_shape)

@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
+from pynamit.math.constants import RE
 from pynamit.simulation.config import SimulationConfig, setting_value
 
 
@@ -14,9 +15,10 @@ def test_simulation_config_normalizes_projection_defaults():
     assert config.horizontal_basis_kind == "SH"
     assert config.jr_projection_basis == "SH"
     assert config.Br_projection_basis == "SH"
-    assert config.conductance_projection_basis == "SH"
+    assert config.resistance_projection_basis == "SH"
     assert config.u_projection_basis == "CS"
     assert config.Q_eff_projection_basis == "CS"
+    assert config.E_source_projection_basis == "SH"
 
 
 def test_simulation_config_cs_mode_requires_cs_projection_routes():
@@ -26,9 +28,10 @@ def test_simulation_config_cs_mode_requires_cs_projection_routes():
     assert config.horizontal_basis_kind == "CS"
     assert config.jr_projection_basis == "CS"
     assert config.Br_projection_basis == "CS"
-    assert config.conductance_projection_basis == "CS"
+    assert config.resistance_projection_basis == "CS"
     assert config.u_projection_basis == "CS"
     assert config.Q_eff_projection_basis == "CS"
+    assert config.E_source_projection_basis == "CS"
 
     with pytest.raises(ValueError, match="jr_projection_basis"):
         SimulationConfig(horizontal_basis_kind="CS", jr_projection_basis="SH")
@@ -41,11 +44,11 @@ def test_simulation_config_dataset_roundtrip_preserves_stored_sentinels():
         Mmax=2,
         Ncs=4,
         RM=None,
-        RM_shielding=True,
-        mainfield_B0=None,
-        ignore_PFAC=True,
+        magnetic_boundary_shielding=False,
+        main_field_B0=None,
+        enable_pfac_coupling=False,
         area_weighted_least_squares=True,
-        static_preconditioner=True,
+        reuse_preconditioner=True,
         m_imp_regularization_lambda=1e-3,
     )
 
@@ -53,16 +56,16 @@ def test_simulation_config_dataset_roundtrip_preserves_stored_sentinels():
     restored = SimulationConfig.from_settings(settings)
 
     assert settings.attrs["RM"] == 0
-    assert settings.attrs["mainfield_B0"] == 0
-    assert setting_value(settings, "ignore_PFAC") == 1
+    assert settings.attrs["main_field_B0"] == 0
+    assert setting_value(settings, "enable_pfac_coupling") == 0
     assert restored.RM is None
-    assert restored.RM_shielding
-    assert restored.mainfield_B0 is None
-    assert restored.ignore_PFAC
+    assert not restored.magnetic_boundary_shielding
+    assert restored.main_field_B0 is None
+    assert not restored.enable_pfac_coupling
     assert restored.area_weighted_least_squares
-    assert restored.static_preconditioner
+    assert restored.reuse_preconditioner
     assert restored.m_imp_regularization_lambda == pytest.approx(1e-3)
-    np.testing.assert_allclose(restored.FAC_integration_steps, config.FAC_integration_steps)
+    np.testing.assert_allclose(restored.fac_integration_radii, config.fac_integration_radii)
 
 
 def test_simulation_config_from_minimal_settings_accepts_missing_defaults():
@@ -75,16 +78,57 @@ def test_simulation_config_from_minimal_settings_accepts_missing_defaults():
     assert config.Mmax == 2
     assert config.Ncs == 4
     assert config.horizontal_basis_kind == "SH"
-    assert config.conductance_projection_basis == "SH"
+    assert config.resistance_projection_basis == "SH"
 
 
-def test_simulation_config_preserves_decimal_mainfield_epoch():
+def test_simulation_config_preserves_decimal_main_field_epoch():
     """Main-field epochs can be decimal years."""
-    config = SimulationConfig(mainfield_epoch=2011.813014015728)
+    config = SimulationConfig(main_field_epoch=2011.813014015728)
     restored = SimulationConfig.from_settings(config.to_dataset())
 
-    assert config.mainfield_epoch == pytest.approx(2011.813014015728)
-    assert restored.mainfield_epoch == pytest.approx(config.mainfield_epoch)
+    assert config.main_field_epoch == pytest.approx(2011.813014015728)
+    assert restored.main_field_epoch == pytest.approx(config.main_field_epoch)
+
+
+def test_simulation_config_normalizes_start_time_to_utc():
+    """Equivalent start-time spellings share one persisted identity."""
+    config = SimulationConfig(t0="2020-01-01T01:30:00+01:00")
+
+    assert config.t0 == "2020-01-01 00:30:00"
+    with pytest.raises(ValueError, match="t0"):
+        SimulationConfig(t0="not a time")
+
+
+def test_simulation_config_normalizes_and_validates_main_field_kind():
+    """Main-field model names are canonical persisted configuration."""
+    assert SimulationConfig(main_field_kind=" IGRF ").main_field_kind == "igrf"
+
+    with pytest.raises(ValueError, match="main_field_kind"):
+        SimulationConfig(main_field_kind="unknown")
+
+
+def test_simulation_config_normalizes_executable_policies():
+    """Canonicalize algorithms before building runtime objects."""
+    config = SimulationConfig(
+        integrator=" dop853 ", least_squares_solver=" LSMR ", least_squares_preconditioner=" NONE "
+    )
+
+    assert config.integrator == "DOP853"
+    assert config.least_squares_solver == "lsmr"
+    assert config.least_squares_preconditioner is None
+    assert config.to_dataset().attrs["least_squares_preconditioner"] == "none"
+    assert SimulationConfig.from_settings(config.to_dataset()).least_squares_preconditioner is None
+
+
+def test_simulation_config_parses_persisted_boolean_values_explicitly():
+    """String booleans do not inherit Python's truthiness semantics."""
+    config = SimulationConfig(enable_pfac_coupling="false", enable_interhemispheric_coupling="yes")
+
+    assert not config.enable_pfac_coupling
+    assert config.enable_interhemispheric_coupling
+
+    with pytest.raises(ValueError, match="save_steady_states"):
+        SimulationConfig(save_steady_states="sometimes")
 
 
 def test_simulation_config_from_settings_rejects_conflicting_override():
@@ -103,3 +147,70 @@ def test_simulation_config_from_settings_uses_override_when_missing():
 
     assert config.horizontal_basis_kind == "CS"
     assert config.jr_projection_basis == "CS"
+
+
+def test_simulation_config_enforces_radial_boundary_invariants():
+    """Outer-boundary options and FAC samples share a radial domain."""
+    with pytest.raises(ValueError, match="magnetic_boundary_shielding requires"):
+        SimulationConfig(magnetic_boundary_shielding=True)
+    with pytest.raises(ValueError, match="greater than RI"):
+        SimulationConfig(RI=7.0e6, RM=6.9e6)
+    with pytest.raises(ValueError, match="strictly increasing"):
+        SimulationConfig(fac_integration_radii=[7.0e6, 7.1e6, 7.05e6])
+
+
+def test_simulation_config_owns_immutable_fac_integration_radii():
+    """Frozen configuration owns its FAC radial grid."""
+    source = np.array([7.0e6, 7.1e6, 7.2e6])
+    config = SimulationConfig(fac_integration_radii=source)
+    source[0] = 8.0e6
+
+    assert config.fac_integration_radii[0] == pytest.approx(7.0e6)
+    with pytest.raises(ValueError, match="read-only"):
+        config.fac_integration_radii[0] = 8.0e6
+
+
+def test_simulation_config_defaults_fac_grid_to_outer_boundary():
+    """An RM run receives a compatible default FAC integration grid."""
+    config = SimulationConfig(RI=7.0e6, RM=8.0e6)
+
+    assert config.fac_integration_radii[0] == pytest.approx(config.RI)
+    assert config.fac_integration_radii[-1] == pytest.approx(config.RM)
+
+
+def test_simulation_config_derives_missing_fac_grid_from_loaded_radii():
+    """Legacy settings derive radial samples from their own domain."""
+    settings = xr.Dataset(attrs={"Nmax": 3, "Mmax": 2, "Ncs": 4, "RI": 7.0e6, "RM": 8.0e6})
+
+    config = SimulationConfig.from_settings(settings)
+
+    assert config.fac_integration_radii[0] == pytest.approx(7.0e6)
+    assert config.fac_integration_radii[-1] == pytest.approx(8.0e6)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"Nmax": 0}, "Nmax"),
+        ({"Mmax": -1}, "Mmax"),
+        ({"Nmax": 2, "Mmax": 3}, "Mmax"),
+        ({"Ncs": 3}, "Ncs must be even"),
+        ({"RI": RE}, "reference radius"),
+        ({"interhemispheric_coupling_latitude": 91}, "interhemispheric_coupling_latitude"),
+        (
+            {"interhemispheric_electric_field_weight": np.inf},
+            "interhemispheric_electric_field_weight",
+        ),
+        ({"main_field_epoch": np.nan}, "main_field_epoch"),
+        ({"main_field_B0": 0.0}, "main_field_B0"),
+        ({"main_field_kind": "igrf", "main_field_B0": 3e-5}, "main_field_B0"),
+        ({"integrator": "leapfrog"}, "integrator"),
+        ({"least_squares_solver": "inverse"}, "least_squares_solver"),
+        ({"least_squares_preconditioner": "ilu"}, "least_squares_preconditioner"),
+        ({"m_imp_regularization_lambda": np.nan}, "m_imp_regularization_lambda"),
+    ],
+)
+def test_simulation_config_rejects_invalid_space_and_physical_settings(kwargs, message):
+    """Reject values that cannot define the numerical domain."""
+    with pytest.raises(ValueError, match=message):
+        SimulationConfig(**kwargs)

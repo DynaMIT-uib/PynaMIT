@@ -12,7 +12,7 @@ import pytest
 from pynamit.external_inputs import get_input_source, native_inputs_available, set_input_source
 from pynamit.math import JAX_AVAILABLE, set_backend, use_jax
 from pynamit.math.least_squares_solver import LEAST_SQUARES_SOLVER_ENV, LeastSquaresSolver
-from pynamit.primitives.io import IO
+from pynamit.storage import ArtifactStore
 
 BACKEND_OPTION_NAME = "--backend"
 DATA_OPTION_NAME = "--data-source"
@@ -247,18 +247,16 @@ def configure_runtime(backend: str, data_source: str, least_squares_solver: str)
 @pytest.fixture(autouse=True)
 def isolate_default_run_directories(tmp_path, monkeypatch):
     """Route implicit artifacts into per-test temporary space."""
-    original_builder = IO.build_temporary_run_directory_in_directory
+    original_creator = ArtifactStore.create_temporary_directory
 
-    def _build_temporary_run_directory_in_directory(directory: str | os.PathLike[str]) -> str:
-        target = Path(directory)
-        if not target.is_absolute() and str(target) == "simulation":
-            return original_builder(tmp_path / target)
-        return original_builder(directory)
+    def _create_temporary_directory(parent: str | os.PathLike[str] | None = None) -> str:
+        target = None if parent is None else Path(parent)
+        if target is not None and not target.is_absolute() and str(target) == "simulation":
+            return original_creator(tmp_path / target)
+        return original_creator(parent)
 
     monkeypatch.setattr(
-        IO,
-        "build_temporary_run_directory_in_directory",
-        staticmethod(_build_temporary_run_directory_in_directory),
+        ArtifactStore, "create_temporary_directory", staticmethod(_create_temporary_directory)
     )
 
 

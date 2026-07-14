@@ -5,6 +5,7 @@ import pytest
 import xarray as xr
 
 from pynamit.simulation.config import (
+    SimulationConfig,
     normalize_horizontal_basis_kind,
     normalize_projection_basis_kind,
     resolve_projection_basis_settings,
@@ -16,7 +17,13 @@ from pynamit.simulation.schema import build_simulation_schema, field_spaces_from
 def _settings(**attrs):
     defaults = {"Nmax": 3, "Mmax": 2, "Ncs": 4}
     defaults.update(attrs)
-    return xr.Dataset(attrs=defaults)
+    return SimulationConfig(**defaults)
+
+
+def test_schema_builder_requires_normalized_config():
+    """Schema construction starts after configuration normalization."""
+    with pytest.raises(TypeError, match="SimulationConfig"):
+        build_simulation_schema(xr.Dataset(attrs={"Nmax": 3, "Mmax": 2, "Ncs": 4}))
 
 
 def test_horizontal_basis_kind_is_simulation_policy():
@@ -44,8 +51,9 @@ def test_projection_basis_settings_resolve_defaults_and_inheritance():
     assert resolved == {
         "jr_projection_basis": "SH",
         "Br_projection_basis": "SH",
-        "conductance_projection_basis": "SH",
+        "resistance_projection_basis": "SH",
         "u_projection_basis": "CS",
+        "E_source_projection_basis": "SH",
         "Q_eff_projection_basis": "CS",
     }
 
@@ -70,31 +78,31 @@ def test_setting_value_accepts_attrs_and_data_vars():
 
 def test_sh_schema_uses_mean_free_sh_inputs_and_outputs():
     """SH mode keeps the established mean-free SH storage choices."""
-    schema = build_simulation_schema(_settings(), "SH")
+    schema = build_simulation_schema(_settings())
 
-    assert schema.horizontal_basis is schema.sh_basis_mean_free
+    assert schema.horizontal_basis is schema.mean_free_sh_basis
     assert schema.solid_harmonics.basis is schema.horizontal_basis
-    assert schema.input_field_spaces["jr"].representation is schema.sh_basis_mean_free
-    assert schema.input_field_spaces["Br"].representation is schema.sh_basis_mean_free
-    assert schema.input_field_spaces["u"].representation is schema.sh_basis_mean_free
-    assert schema.input_field_spaces["Q_eff"].representation is schema.sh_basis_mean_free
-    assert schema.input_field_spaces["conductance"].representation is schema.sh_basis
+    assert schema.input_field_spaces["jr"].representation is schema.mean_free_sh_basis
+    assert schema.input_field_spaces["Br"].representation is schema.mean_free_sh_basis
+    assert schema.input_field_spaces["u"].representation is schema.mean_free_sh_basis
+    assert schema.input_field_spaces["Q_eff"].representation is schema.mean_free_sh_basis
+    assert schema.input_field_spaces["resistance"].representation is schema.sh_basis
     assert schema.output_field_spaces["state"].representation is schema.horizontal_basis
 
     assert schema.input_field_spaces["jr"].mean_free
     assert schema.input_field_spaces["Br"].mean_free
     assert schema.input_field_spaces["u"].mean_free
     assert schema.input_field_spaces["Q_eff"].mean_free
-    assert not schema.input_field_spaces["conductance"].mean_free
+    assert not schema.input_field_spaces["resistance"].mean_free
     assert schema.output_field_spaces["state"].mean_free
 
 
 def test_cs_schema_uses_full_length_storage_with_mean_free_intent():
     """CS mode stores full grid coefficients with zero-mean intent."""
-    schema = build_simulation_schema(_settings(), "cs")
+    schema = build_simulation_schema(_settings(horizontal_basis_kind="cs"))
 
     assert schema.horizontal_basis is schema.cs_basis
-    assert schema.solid_harmonics.basis is schema.sh_basis_mean_free
+    assert schema.solid_harmonics.basis is schema.mean_free_sh_basis
     assert all(
         space.representation is schema.cs_basis for space in schema.input_field_spaces.values()
     )
@@ -115,31 +123,31 @@ def test_schema_respects_input_projection_basis_for_sh_mode():
         _settings(
             jr_projection_basis="CS",
             Br_projection_basis="CS",
-            conductance_projection_basis="CS",
+            resistance_projection_basis="CS",
             u_projection_basis="CS",
             Q_eff_projection_basis="CS",
-        ),
-        "SH",
+            E_source_projection_basis="CS",
+        )
     )
 
-    assert schema.input_field_spaces["jr"].representation is schema.sh_basis_mean_free
-    assert schema.input_field_spaces["conductance"].representation is schema.cs_basis
+    assert schema.input_field_spaces["jr"].representation is schema.mean_free_sh_basis
+    assert schema.input_field_spaces["resistance"].representation is schema.cs_basis
     assert all(basis is schema.cs_basis for basis in schema.input_projection_bases.values())
 
 
-def test_sh_schema_can_store_conductance_on_cs_grid():
-    """CS conductance projection basis keeps SH state storage."""
-    schema = build_simulation_schema(_settings(conductance_projection_basis="CS"), "SH")
+def test_sh_schema_can_store_resistance_on_cs_grid():
+    """CS resistance projection basis keeps SH state storage."""
+    schema = build_simulation_schema(_settings(resistance_projection_basis="CS"))
 
-    assert schema.horizontal_basis is schema.sh_basis_mean_free
-    assert schema.input_field_spaces["conductance"].representation is schema.cs_basis
-    assert schema.input_projection_bases["conductance"] is schema.cs_basis
-    assert not schema.input_field_spaces["conductance"].mean_free
+    assert schema.horizontal_basis is schema.mean_free_sh_basis
+    assert schema.input_field_spaces["resistance"].representation is schema.cs_basis
+    assert schema.input_projection_bases["resistance"] is schema.cs_basis
+    assert not schema.input_field_spaces["resistance"].mean_free
 
 
 def test_field_spaces_from_bases_rejects_invalid_field_type():
     """Field spaces reject invalid field type metadata."""
-    schema = build_simulation_schema(_settings(), "SH")
+    schema = build_simulation_schema(_settings())
 
     with pytest.raises(ValueError, match="field_type"):
         field_spaces_from_bases({"bad": schema.sh_basis}, {"bad": "vector"})
@@ -147,7 +155,7 @@ def test_field_spaces_from_bases_rejects_invalid_field_type():
 
 def test_field_spaces_from_bases_requires_matching_keys():
     """Basis and field-type schemas must describe the same groups."""
-    schema = build_simulation_schema(_settings(), "SH")
+    schema = build_simulation_schema(_settings())
 
     with pytest.raises(ValueError, match="same keys"):
         field_spaces_from_bases({"bad": schema.sh_basis}, {})
@@ -155,7 +163,7 @@ def test_field_spaces_from_bases_requires_matching_keys():
 
 def test_schema_mean_free_projection_is_operational_for_cs_state_space():
     """Schema FieldSpace metadata can project CS coefficients."""
-    schema = build_simulation_schema(_settings(), "CS")
+    schema = build_simulation_schema(_settings(horizontal_basis_kind="CS"))
     field_space = schema.output_field_spaces["state"]
     coeffs = np.linspace(0.0, 1.0, field_space.index_length) + 5.0
 
@@ -163,3 +171,13 @@ def test_schema_mean_free_projection_is_operational_for_cs_state_space():
 
     assert projected.shape == coeffs.shape
     np.testing.assert_allclose(schema.cs_basis.scalar_mean(projected), 0.0, atol=1e-12)
+
+
+def test_schema_mappings_cannot_be_mutated_after_construction():
+    """Storage metadata cannot drift after construction."""
+    schema = build_simulation_schema(_settings())
+
+    with pytest.raises(TypeError):
+        schema.input_variables["new"] = ("value",)
+    with pytest.raises(TypeError):
+        schema.input_field_spaces["jr"] = schema.output_field_spaces["state"]

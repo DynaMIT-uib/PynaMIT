@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from pynamit.simulation.mage_workflow import (
+from pynamit.simulation.workflows.mage import (
     cross_spherical,
     direct_E_source_for_pynamit,
     weighted_wind_current_source,
@@ -16,7 +16,12 @@ def _dummy_field(br, btheta, bphi, B0=4.7e-5):
     btheta = np.asarray(btheta, dtype=float)
     bphi = np.asarray(bphi, dtype=float)
     return SimpleNamespace(
-        br=br, btheta=btheta, bphi=bphi, Br=B0 * br, Btheta=B0 * btheta, Bphi=B0 * bphi
+        unit_br=br,
+        unit_btheta=btheta,
+        unit_bphi=bphi,
+        Br=B0 * br,
+        Btheta=B0 * btheta,
+        Bphi=B0 * bphi,
     )
 
 
@@ -46,9 +51,9 @@ def _q_eff_reference_for_pynamit(
     br_floor=1e-3,
 ):
     """Return the Eq. A8 current proxy with PynaMIT's input sign."""
-    b_r = np.asarray(field.br, dtype=float).reshape(-1)
-    b_theta = np.asarray(field.btheta, dtype=float).reshape(-1)
-    b_phi = np.asarray(field.bphi, dtype=float).reshape(-1)
+    b_r = np.asarray(field.unit_br, dtype=float).reshape(-1)
+    b_theta = np.asarray(field.unit_btheta, dtype=float).reshape(-1)
+    b_phi = np.asarray(field.unit_bphi, dtype=float).reshape(-1)
     sigma_p = np.asarray(sigma_p, dtype=float).reshape(-1)
     sigma_h = np.asarray(sigma_h, dtype=float).reshape(-1)
     q_r, q_theta, q_phi = weighted_wind_current_source(

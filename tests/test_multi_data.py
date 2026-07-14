@@ -1,10 +1,8 @@
 """Multi-data test module."""
 
-import os
-import tempfile
 import pytest
 
-from pynamit.default_run import run_pynamit
+from pynamit.simulation.workflows.standard import run_pynamit
 import numpy as np
 
 
@@ -16,26 +14,21 @@ def test_multi_data():
     expected_coeff_min = -8.876382135048725e-09
     expected_n_coeffs = 228
 
-    temp_dir = os.path.join(tempfile.gettempdir(), "test_run_pynamit")
-    if not os.path.exists(temp_dir):
-        os.mkdir(temp_dir)
-
     # Act.
-    dynamics = run_pynamit(
+    simulation = run_pynamit(
         final_time=15,
         dt=5,
         Nmax=10,
         Mmax=8,
         Ncs=20,
-        mainfield_kind="igrf",
-        fig_directory=temp_dir,
-        ignore_PFAC=False,
-        connect_hemispheres=True,
-        latitude_boundary=50,
+        main_field_kind="igrf",
+        enable_pfac_coupling=True,
+        enable_interhemispheric_coupling=True,
+        interhemispheric_coupling_latitude=50,
         use_wind=True,
         steady_state_initialization=True,
         jr_projection_basis="SH",
-        conductance_projection_basis="SH",
+        resistance_projection_basis="SH",
         u_projection_basis="SH",
         integrator="exponential",
         multi_data=True,
@@ -44,8 +37,8 @@ def test_multi_data():
     # Assert.
     coeff_array = np.hstack(
         (
-            dynamics.output_timeseries.datasets["state"]["SH_m_ind"].values[-1],
-            dynamics.output_timeseries.datasets["state"]["SH_m_imp"].values[-1],
+            simulation.run_data.output_series.datasets["state"]["SH_m_ind"].values[-1],
+            simulation.run_data.output_series.datasets["state"]["SH_m_imp"].values[-1],
         )
     )
 

@@ -10,7 +10,7 @@ from pynamit.visualization.input_projection_comparison import plot_input_project
 
 RE = 6381e3
 RI = 6.5e6
-latitude_boundary = 35
+interhemispheric_coupling_latitude = 35
 
 PLOT = True
 
@@ -90,33 +90,33 @@ magnetosphere_grid = pynamit.Grid(lat=magnetosphere_lat, lon=magnetosphere_lon)
 
 print("Setting up simulation object")
 # Set up simulation object.
-dynamics = pynamit.Dynamics(
+simulation = pynamit.Simulation(
     run_directory=run_directory,
     Nmax=Nmax,
     Mmax=Mmax,
     Ncs=Ncs,
     RI=RI,
     RM=1.5 * RI,
-    mainfield_kind="dipole",
-    FAC_integration_steps=rk,
-    ignore_PFAC=False,
-    connect_hemispheres=True,
-    latitude_boundary=latitude_boundary,
-    ih_constraint_scaling=1e-5,
+    main_field_kind="dipole",
+    fac_integration_radii=rk,
+    enable_pfac_coupling=True,
+    enable_interhemispheric_coupling=True,
+    interhemispheric_coupling_latitude=interhemispheric_coupling_latitude,
+    interhemispheric_electric_field_weight=1e-5,
     t0=str(date),
     integrator="exponential",
 )
 
-FAC_b_evaluator = pynamit.FieldEvaluator(
-    dynamics.mainfield, pynamit.Grid(lat=ionosphere_lat, lon=ionosphere_lon), RI
+fac_field_evaluation = pynamit.MagneticFieldEvaluation(
+    simulation.geometry.main_field, pynamit.Grid(lat=ionosphere_lat, lon=ionosphere_lon), RI
 )
 
 plt_lat, plt_lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)
 plt_lat, plt_lon = np.meshgrid(plt_lat, plt_lon)
 plt_grid = pynamit.Grid(lat=plt_lat, lon=plt_lon)
-plt_evaluator = pynamit.SphericalTransform(dynamics.state.basis, plt_grid)
+plt_evaluator = pynamit.SphericalTransform(simulation.geometry.horizontal_basis, plt_grid)
 conductance_plt_evaluator = pynamit.SphericalTransform(
-    dynamics.input_field_spaces["conductance"].representation, plt_grid
+    simulation.run_data.schema.input_field_spaces["resistance"].representation, plt_grid
 )
 
 time = file["time"][:]
@@ -137,7 +137,7 @@ for step in range(0, nstep):
         f"{np.max(np.abs(delta_Br))})"
     )
 
-    dynamics.set_Br(
+    simulation.set_Br(
         delta_Br,
         lat=magnetosphere_lat,
         lon=magnetosphere_lon,
@@ -153,12 +153,12 @@ for step in range(0, nstep):
         print("FAC input contains NaN values. Setting to 0.")
         FAC[np.isnan(FAC)] = 0
 
-    jr = FAC.flatten() * FAC_b_evaluator.br
+    jr = FAC.flatten() * fac_field_evaluation.unit_br
 
     print("Setting jr with (abs. min, RMS, abs. max):")
     print(f"\t({np.min(np.abs(jr))}, {np.sqrt(np.mean(jr**2))}, {np.max(np.abs(jr))})")
 
-    dynamics.set_jr(
+    simulation.set_jr(
         jr,
         lat=ionosphere_lat,
         lon=ionosphere_lon,
@@ -193,7 +193,7 @@ for step in range(0, nstep):
         f"{np.max(np.abs(conductance_pedersen))})"
     )
 
-    dynamics.set_conductance(
+    simulation.set_conductance(
         conductance_hall,
         conductance_pedersen,
         lat=ionosphere_lat,
@@ -222,7 +222,7 @@ for step in range(0, nstep):
         f"{np.max(np.sqrt(u_theta**2 + u_phi**2))})"
     )
 
-    dynamics.set_neutral_wind(
+    simulation.set_neutral_wind(
         u_theta=u_theta,
         u_phi=u_phi,
         lat=u_lat,
@@ -253,4 +253,4 @@ if PLOT:
 
 print("Time evolution")
 final_time = 3600  # seconds
-dynamics.evolve_to_time(final_time, dt=dt, sampling_step_interval=1, saving_sample_interval=1)
+simulation.evolve_to_time(final_time, dt=dt, sampling_step_interval=1, saving_sample_interval=1)

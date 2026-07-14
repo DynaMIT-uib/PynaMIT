@@ -5,6 +5,7 @@ coordinate grids.
 """
 
 import hashlib
+from functools import cached_property
 
 import numpy as np
 
@@ -63,39 +64,40 @@ class Grid(SphericalRepresentation):
         Either `lat` or `theta` must be provided, and either `lon` or
         `phi` must be provided.
         """
-        if lat is not None:
-            self.lat = np.asarray(lat)
-            self.theta = 90 - self.lat
-        elif theta is not None:
-            self.theta = np.asarray(theta)
-            self.lat = 90 - self.theta
-        else:
-            raise ValueError("Latitude or theta must be provided to initialize the grid.")
+        if (lat is None) == (theta is None):
+            raise ValueError("Provide exactly one of latitude or theta.")
+        if (lon is None) == (phi is None):
+            raise ValueError("Provide exactly one of longitude or phi.")
 
-        if lon is not None:
-            self.lon = np.asarray(lon)
-            self.phi = self.lon
-        elif phi is not None:
-            self.phi = np.asarray(phi)
-            self.lon = self.phi
-        else:
-            raise ValueError("Longitude or phi must be provided to initialize the grid.")
+        latitude = np.asarray(lat, dtype=float) if lat is not None else 90.0 - np.asarray(theta)
+        longitude = (
+            np.asarray(lon, dtype=float) if lon is not None else np.asarray(phi, dtype=float)
+        )
+        latitude, longitude = np.broadcast_arrays(latitude, longitude)
 
-        self.lat, self.lon = np.broadcast_arrays(self.lat, self.lon)
-        self.theta, self.phi = np.broadcast_arrays(self.theta, self.phi)
-
-        self.lat = self.lat.reshape(-1)
-        self.lon = self.lon.reshape(-1)
-        self.theta = self.theta.reshape(-1)
-        self.phi = self.phi.reshape(-1)
+        self.lat = np.array(latitude, dtype=float, copy=True).reshape(-1)
+        self.lon = np.array(longitude, dtype=float, copy=True).reshape(-1)
+        if not np.all(np.isfinite(self.lat)) or not np.all(np.isfinite(self.lon)):
+            raise ValueError("Grid coordinates must be finite.")
+        if np.any(np.abs(self.lat) > 90.0):
+            raise ValueError("Grid latitude must be between -90 and 90 degrees.")
+        self.theta = 90.0 - self.lat
+        self.phi = self.lon.copy()
 
         self.size = self.lon.size
         self._hash = None
 
         if area_weights is not None:
-            self.area_weights = np.asarray(area_weights, dtype=float).reshape(-1)
+            self.area_weights = np.array(area_weights, dtype=float, copy=True).reshape(-1)
             if self.area_weights.shape != (self.size,):
                 raise ValueError("area_weights must match the flattened grid size.")
+            if not np.all(np.isfinite(self.area_weights)) or np.any(self.area_weights < 0.0):
+                raise ValueError("area_weights must be finite and non-negative.")
+
+        for array in (self.lat, self.lon, self.theta, self.phi):
+            array.setflags(write=False)
+        if hasattr(self, "area_weights"):
+            self.area_weights.setflags(write=False)
 
         self.validate_metadata()
 
@@ -128,6 +130,15 @@ class Grid(SphericalRepresentation):
     def coefficient_space_signature(self):
         """Return the grid-value compatibility signature."""
         return self.signature
+
+    @cached_property
+    def analysis_signature(self):
+        """Return cache identity for coordinate-weighted analysis."""
+        if not hasattr(self, "area_weights"):
+            return (self.signature, None)
+        weights = np.ascontiguousarray(self.area_weights, dtype="<f8")
+        digest = hashlib.blake2b(weights.tobytes(), digest_size=16)
+        return (self.signature, digest.hexdigest())
 
     @staticmethod
     def _hash_coordinate(digest, values):

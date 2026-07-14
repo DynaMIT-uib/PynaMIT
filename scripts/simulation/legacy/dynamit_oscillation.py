@@ -41,18 +41,18 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
     noon_mlon = d.mlt2mlon(12, date)  # Noon longitude
 
     # Set up simulation object.
-    dynamics = pynamit.Dynamics(
+    simulation = pynamit.Simulation(
         run_directory=run_directory,
         Nmax=Nmax,
         Mmax=Mmax,
         Ncs=Ncs,
         RI=RI,
-        mainfield_kind="igrf",
-        FAC_integration_steps=rk,
-        ignore_PFAC=False,
-        connect_hemispheres=True,
-        latitude_boundary=LATITUDE_BOUNDARY,
-        ih_constraint_scaling=1e-5,
+        main_field_kind="igrf",
+        fac_integration_radii=rk,
+        enable_pfac_coupling=True,
+        enable_interhemispheric_coupling=True,
+        interhemispheric_coupling_latitude=LATITUDE_BOUNDARY,
+        interhemispheric_electric_field_weight=1e-5,
         t0=str(date),
     )
 
@@ -83,7 +83,7 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
     #     np.load("utheta.npy"),
     # )
     # u_lat, u_lon = np.meshgrid(u_lat, u_lon, indexing="ij")
-    # dynamics.set_neutral_wind(
+    # simulation.set_neutral_wind(
     #     u_theta=u_theta,
     #     u_phi=u_phi,
     #     lat=u_lat,
@@ -95,18 +95,18 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
 
     print("Setting conductance", flush=True)
     # Get and set conductance input.
-    conductance_lat = dynamics.state.geometry.grid.lat
-    conductance_lon = dynamics.state.geometry.grid.lon
+    conductance_lat = simulation.geometry.model_grid.lat
+    conductance_lon = simulation.geometry.model_grid.lon
 
     sza = conductance.sunlight.sza(conductance_lat, conductance_lon, date, degrees=True)
     hall_EUV, pedersen_EUV = conductance.EUV_conductance(sza)
     # Add starlight.
     hall_EUV, pedersen_EUV = (np.sqrt(hall_EUV**2 + 1), np.sqrt(pedersen_EUV**2 + 1))
-    dynamics.set_conductance(hall_EUV, pedersen_EUV, lat=conductance_lat, lon=conductance_lon)
+    simulation.set_conductance(hall_EUV, pedersen_EUV, lat=conductance_lat, lon=conductance_lon)
 
     # Get and set static jr input.
-    jr_lat = dynamics.state.geometry.grid.lat
-    jr_lon = dynamics.state.geometry.grid.lon
+    jr_lat = simulation.geometry.model_grid.lat
+    jr_lon = simulation.geometry.model_grid.lon
     apx = apexpy.Apex(refh=(RI - RE) * 1e-3, date=2020)
     mlat, mlon = apx.geo2apex(jr_lat, jr_lon, (RI - RE) * 1e-3)
     mlt = d.mlon2mlt(mlon, date)
@@ -116,9 +116,9 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
     jr[np.abs(jr_lat) < 50] = 0  # Filter low latitude jr
 
     if STEADY_STATE_INITIALIZATION:
-        dynamics.set_jr(jr=jr, lat=jr_lat, lon=jr_lon)
+        simulation.set_jr(jr=jr, lat=jr_lat, lon=jr_lon)
 
-        dynamics.impose_steady_state()
+        simulation.impose_steady_state()
 
     # Create array that will store all jr values.
     time_values = np.arange(
@@ -167,7 +167,7 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
         plt.close()
 
     print("Setting jr", flush=True)
-    dynamics.set_jr(jr=scaled_jr_values, lat=jr_lat, lon=jr_lon, time=time_values)
+    simulation.set_jr(jr=scaled_jr_values, lat=jr_lat, lon=jr_lon, time=time_values)
 
     print("Starting simulation", flush=True)
-    dynamics.evolve_to_time(FINAL_TIME, interpolation=True)
+    simulation.evolve_to_time(FINAL_TIME, interpolation=True)
