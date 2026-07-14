@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field, fields
 import json
 import math
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
-
 
 MAP_FILL_OPTIONS = {
     "none": "No fill",
@@ -67,7 +66,6 @@ class PynamitFigureSpec:
     show_difference: bool = True
     show_reference_line: bool = True
     reference_time_of_day_utc: str = "18:31:00"
-    conductance_overlay: str = "none"
     sim_time_offset_seconds: float = 30.0
     data_time_offset_seconds: float = 0.0
     dbdt_window_points: int = 1

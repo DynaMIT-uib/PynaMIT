@@ -1,9 +1,9 @@
 """Dipole, PFAC, and HC test."""
 
+import numpy as np
 import pytest
 
 from pynamit.simulation.workflows.standard import run_pynamit
-import numpy as np
 
 
 def test_2d_dipole_pfac_hc():

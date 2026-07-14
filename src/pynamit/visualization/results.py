@@ -4,12 +4,13 @@ This module contains plotting functions for global field maps and
 current-state diagnostics.
 """
 
-import numpy as np
-import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
+import matplotlib.pyplot as plt
+import numpy as np
+
+from pynamit.geomagnetism import MagneticFieldEvaluation
 from pynamit.sphere import Grid
 from pynamit.sphere.spherical_transform import SphericalTransform
-from pynamit.geomagnetism import MagneticFieldEvaluation
 from pynamit.visualization.hemisphere import (
     DEFAULT_HEMISPHERE_MIN_ABS_LATITUDE,
     hemisphere_masks_for_latitude,

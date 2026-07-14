@@ -1,12 +1,36 @@
 """Tests for least-squares solver helpers."""
 
+import warnings
+
 import numpy as np
 import pytest
 from scipy.sparse.linalg import lsmr as scipy_lsmr
 
+from pynamit.math import JAX_AVAILABLE, as_linear_map, set_backend, use_jax
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver
-from pynamit.math import JAX_AVAILABLE, as_linear_map, set_backend, use_jax
+
+
+@pytest.mark.parametrize("stop_code", [0, 1, 2])
+def test_lsmr_configured_tolerance_stop_codes_do_not_warn(stop_code):
+    """LSMR termination at a configured tolerance is quiet."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        LeastSquaresSolver._warn_if_lsmr_not_converged(stop_code, column=0)
+
+
+@pytest.mark.parametrize("stop_code", [4, 5])
+def test_lsmr_machine_precision_stop_codes_warn_precisely(stop_code):
+    """A machine-precision limit remains visible and precise."""
+    with pytest.warns(RuntimeWarning, match="reached machine precision"):
+        LeastSquaresSolver._warn_if_lsmr_not_converged(stop_code, column=0)
+
+
+@pytest.mark.parametrize("stop_code", [3, 6, 7])
+def test_lsmr_limit_stop_codes_warn(stop_code):
+    """Condition and iteration limit termination remains visible."""
+    with pytest.warns(RuntimeWarning, match=rf"stop_code={stop_code}"):
+        LeastSquaresSolver._warn_if_lsmr_not_converged(stop_code, column=0)
 
 
 def test_normal_pinv_solves_block_rhs():

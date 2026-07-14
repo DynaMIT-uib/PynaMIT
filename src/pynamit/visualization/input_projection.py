@@ -6,7 +6,7 @@ from pynamit.visualization.field_maps import (
     evaluate_conductance_values,
     evaluate_tangential_coefficients,
 )
-from pynamit.visualization.grid_evaluation import transform_for_source
+from pynamit.visualization.grid_evaluation import transform_for_basis
 
 
 def _input_series(source):
@@ -26,7 +26,7 @@ def _default_grid(source):
 def _make_transform(field_space, grid, transform):
     """Return a transform targeting ``grid`` for ``field_space``."""
     if transform is not None:
-        return transform_for_source(field_space.representation, transform)
+        return transform_for_basis(field_space.representation, transform)
     if grid is None:
         raise ValueError("A target grid or transform is required.")
     return SphericalTransform(field_space.representation, grid)

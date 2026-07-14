@@ -7,11 +7,11 @@ point for simulation scripts.
 
 from pathlib import Path
 
-from pynamit.storage import ArtifactStore
 from pynamit.simulation.workflows.prepared_inputs import (
     prepare_pynamit_inputs,
     run_pynamit_from_inputs,
 )
+from pynamit.storage import ArtifactStore
 
 
 def run_pynamit(

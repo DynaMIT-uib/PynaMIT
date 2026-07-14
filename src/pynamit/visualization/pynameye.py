@@ -5,18 +5,18 @@ New interactive and publication workflows should prefer
 :mod:`pynamit.visualization.figure_builder` and the Panel app.
 """
 
-import numpy as np
+import datetime
+
+import apexpy
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
-import apexpy
+import numpy as np
 from dipole import Dipole
 from polplot import Polarplot
-import datetime
-from pynamit.sphere import Grid
-from pynamit.fields import FieldCoefficients
-from pynamit.fields import FieldSpace
-from pynamit.sphere import CSBasis
-from pynamit.sphere.spherical_transform import SphericalTransform
+
+from pynamit.fields import FieldCoefficients, FieldSpace
+from pynamit.geomagnetism import MagneticFieldEvaluation
+from pynamit.math.constants import RE
 from pynamit.simulation.config import setting_value
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     electric_field_on_grid,
@@ -24,26 +24,24 @@ from pynamit.simulation.electrodynamics.ionospheric_closure import (
     pedersen_geometry_tensor,
     resistance_tensor_on_grid,
 )
-from pynamit.geomagnetism import MagneticFieldEvaluation
-from pynamit.math.constants import RE
+from pynamit.sphere import CSBasis, Grid
+from pynamit.sphere.spherical_transform import SphericalTransform
 from pynamit.visualization.field_maps import (
     evaluate_conductance_coefficients,
     evaluate_JS_from_maps,
     evaluate_wind_coefficients,
 )
-from pynamit.visualization.grid_evaluation import transform_for_source
+from pynamit.visualization.grid_evaluation import transform_for_basis
 from pynamit.visualization.map_coordinates import MapCoordinateContext
-from pynamit.visualization.plot_helpers import (
-    style_global_axis as style_cartopy_global_axis,
-    suppress_empty_contour_warnings,
-)
+from pynamit.visualization.plot_helpers import style_global_axis as style_cartopy_global_axis
+from pynamit.visualization.plot_helpers import suppress_empty_contour_warnings
 from pynamit.visualization.saved_run import SavedRunView
 from pynamit.visualization.state_fields import (
     evaluate_Br_coefficients,
-    evaluate_Phi_coefficients,
-    evaluate_W_coefficients,
     evaluate_equivalent_current_coefficients,
     evaluate_jr_coefficients,
+    evaluate_Phi_coefficients,
+    evaluate_W_coefficients,
 )
 
 
@@ -141,7 +139,7 @@ class PynamEye:
         self.output_field_spaces = self.schema.output_field_spaces
 
         self.resistance_field_space = self.input_field_spaces["resistance"]
-        self.scalar_field_space = self.output_field_spaces["state"]
+        self.scalar_field_space = self.output_field_spaces["state"]["m_imp"]
         self.tangential_field_space = FieldSpace.from_representation(
             self.basis, field_type="tangential", mean_free=self.scalar_field_space.mean_free
         )
@@ -188,7 +186,6 @@ class PynamEye:
         # Keep operator handles for electromagnetic quantities.
         self.m_ind_to_Br_operator = self.geometry.m_ind_to_Br_operator
         self.m_imp_to_jr_operator = self.geometry.m_imp_to_jr_operator
-        self.W_to_dBr_dt = 1 / self.RI
         # Cache maps needed by Joule heating and E-from-B derivation.
         self.sheet_current_maps = {}
 
@@ -279,7 +276,7 @@ class PynamEye:
         etaH_on_grid = closure_values["etaH"]
 
         self.u_coeffs = self.u.array
-        wind_transform = transform_for_source(
+        wind_transform = transform_for_basis(
             self.u.field_space.representation, self.transforms["num"]
         )
         wind = evaluate_wind_coefficients(wind_transform, self.u)
@@ -370,11 +367,11 @@ class PynamEye:
         else:
             state_ds = self.datasets["state"]
 
-        state_field_space = self.output_field_spaces["state"]
-        self.m_ind = self._select_values(state_ds, state_field_space, "m_ind")
-        self.m_imp = self._select_values(state_ds, state_field_space, "m_imp")
-        self.W_coeffs = self._select_values(state_ds, state_field_space, "W")
-        self.Phi_coeffs = self._select_values(state_ds, state_field_space, "Phi")
+        state_field_spaces = self.output_field_spaces["state"]
+        self.m_ind = self._select_values(state_ds, state_field_spaces["m_ind"], "m_ind")
+        self.m_imp = self._select_values(state_ds, state_field_spaces["m_imp"], "m_imp")
+        self.W_coeffs = self._select_values(state_ds, state_field_spaces["W"], "W")
+        self.Phi_coeffs = self._select_values(state_ds, state_field_spaces["Phi"], "Phi")
         self.m_W = self.W_coeffs * self.RI
         self.m_Phi = self.Phi_coeffs * self.RI
 
@@ -603,9 +600,7 @@ class PynamEye:
             self.resistance_transforms[region], self.m_etaP, self.m_etaH
         )
         if region not in self._pedersen_geometry_cache:
-            field = MagneticFieldEvaluation(
-                self.main_field, self.transforms[region].target, self.RI
-            )
+            field = MagneticFieldEvaluation(self.main_field, self.transforms[region].grid, self.RI)
             self._pedersen_geometry_cache[region] = pedersen_geometry_tensor(
                 field.unit_btheta, field.unit_bphi, field.unit_br
             )
@@ -663,7 +658,7 @@ class PynamEye:
 
         if self.m_u is None:
             raise RuntimeError("No saved 'u' dataset is available for wind plotting.")
-        wind_transform = transform_for_source(
+        wind_transform = transform_for_basis(
             self.u.field_space.representation, self.transforms["global_vector"]
         )
         wind = evaluate_wind_coefficients(wind_transform, self.u, include_magnitude=False)

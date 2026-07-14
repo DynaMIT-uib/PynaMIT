@@ -9,13 +9,12 @@ import numpy as np
 import ppigrf
 
 from pynamit.coordinates import wrap_longitude_180
-from pynamit.math.constants import RE
 from pynamit.geomagnetism.kaiju_geopack import (
     kaiju_geopack_alignment,
     kaiju_geopack_dipole,
     kaiju_geopack_sm,
 )
-
+from pynamit.math.constants import RE
 
 MAIN_FIELD_KINDS = ("radial", "dipole", "kaiju_dipole", "igrf")
 _DIPOLE_KINDS = frozenset({"dipole", "kaiju_dipole"})

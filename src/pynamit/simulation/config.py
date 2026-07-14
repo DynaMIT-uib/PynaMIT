@@ -10,9 +10,9 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+from pynamit.geomagnetism.main_field import normalize_main_field_kind
 from pynamit.math.constants import RE
 from pynamit.math.least_squares_solver import LeastSquaresSolver, get_default_least_squares_solver
-from pynamit.geomagnetism.main_field import normalize_main_field_kind
 
 INDEPENDENT_PROJECTION_BASIS_KEYS = ("jr", "Br", "resistance", "u", "E_source")
 PROJECTION_BASIS_KEYS = INDEPENDENT_PROJECTION_BASIS_KEYS + ("Q_eff",)
@@ -467,7 +467,7 @@ class SimulationConfig:
         }
 
     @classmethod
-    def from_settings(cls, settings: Any, **overrides) -> "SimulationConfig":
+    def from_settings(cls, settings: Any, **overrides) -> SimulationConfig:
         """Build a normalized config from settings and overrides."""
         kwargs = {}
         for config_field in fields(cls):

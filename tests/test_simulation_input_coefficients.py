@@ -2,8 +2,8 @@
 
 import numpy as np
 
-from pynamit.math.constants import RE
 from pynamit.fields import FieldCoefficients
+from pynamit.math.constants import RE
 from pynamit.simulation.api import Simulation
 
 
@@ -35,7 +35,7 @@ def test_simulation_reuses_input_transforms_for_shared_representations(tmp_path)
     assert transforms["jr"] is transforms["Q_eff"]
     assert transforms["jr"] is transforms["E_source"]
     assert transforms["resistance"] is not transforms["jr"]
-    assert transforms["jr"].target is simulation.geometry.model_grid
+    assert transforms["jr"].grid is simulation.geometry.model_grid
 
 
 def test_set_jr_accepts_input_basis_coefficients(tmp_path):

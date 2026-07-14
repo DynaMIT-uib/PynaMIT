@@ -1,14 +1,14 @@
 """Run-invariant spatial and magnetic context for simulations."""
 
 from __future__ import annotations
-from functools import cached_property
+
 import logging
-from typing import Optional
+from functools import cached_property
 
 import numpy as np
 from numpy.typing import ArrayLike
 
-from pynamit.math.constants import RE, mu0
+from pynamit.geomagnetism import MagneticFieldEvaluation, MainField
 from pynamit.math import (
     LinearMap,
     as_linear_map,
@@ -18,14 +18,12 @@ from pynamit.math import (
     take_linear_map,
 )
 from pynamit.math.backend import to_numpy
-from pynamit.sphere import Grid, SolidHarmonics, SurfaceOperators
-from pynamit.sphere.spherical_transform import SphericalTransform, resolve_sqrt_weights
-from pynamit.geomagnetism import MagneticFieldEvaluation
+from pynamit.math.constants import RE, mu0
 from pynamit.math.tensor_operations import weighted_tensor_pinv
 from pynamit.simulation.config import SimulationConfig
-from pynamit.geomagnetism import MainField
 from pynamit.simulation.electrodynamics import ionospheric_closure, magnetic_boundary
-from pynamit.sphere import CSBasis, is_sh_basis
+from pynamit.sphere import CSBasis, Grid, SolidHarmonics, SurfaceOperators, is_sh_basis
+from pynamit.sphere.spherical_transform import SphericalTransform, resolve_sqrt_weights
 
 logger = logging.getLogger(__name__)
 
@@ -56,8 +54,8 @@ class SimulationGeometry:
         cs_basis: CSBasis,
         main_field: MainField,
         config: SimulationConfig,
-        pfac_matrix: Optional[ArrayLike] = None,
-        solid_harmonics: Optional[SolidHarmonics] = None,
+        pfac_matrix: ArrayLike | None = None,
+        solid_harmonics: SolidHarmonics | None = None,
     ) -> None:
         """Initialize the geometric context."""
         if not isinstance(horizontal_basis, SurfaceOperators):
@@ -76,6 +74,7 @@ class SimulationGeometry:
             raise NotImplementedError(
                 f"{type(self.horizontal_basis).__name__} requires solid harmonics for JS coupling."
             )
+        self.magnetic_basis = self.solid_harmonics.basis
         self.main_field = main_field
 
         # Store the configuration values used by geometric construction.
@@ -106,38 +105,30 @@ class SimulationGeometry:
         self.surface_laplacian_operator = self.horizontal_basis.get_surface_laplacian_operator(
             self.RI
         )
+        self.magnetic_laplacian_operator = self.magnetic_basis.get_surface_laplacian_operator(
+            self.RI
+        )
         self.helmholtz_curl_free_potential_operator = (
             self.horizontal_basis.get_helmholtz_curl_free_potential_operator()
         )
         self.helmholtz_divergence_free_potential_operator = (
             self.horizontal_basis.get_helmholtz_divergence_free_potential_operator()
         )
+        self.surface_gauge_operator = self._build_surface_gauge_operator()
         self.m_imp_to_jr_operator = self.RI / mu0 * self.surface_laplacian_operator
-        self.m_ind_to_Br_operator = -(self.RI**2) * self.surface_laplacian_operator
+        self.m_ind_to_Br_operator = -(self.RI**2) * self.magnetic_laplacian_operator
         self.faraday_rate_scale = 1.0 / self.RI
-        self.horizontal_solid_projection_is_identity = (
-            self.solid_harmonics.basis.coefficients_are_compatible_with(self.horizontal_basis)
-        )
-        self.horizontal_to_solid_harmonic_operator = (
-            self._build_horizontal_to_solid_harmonic_operator()
-        )
-        self.solid_harmonic_to_horizontal_operator = (
-            self._build_solid_harmonic_to_horizontal_operator()
-        )
+        self.surface_to_magnetic_operator = self._build_surface_to_magnetic_operator()
         self.poloidal_to_boundary_potential_jump_factor_operator = diagonal_linear_map(
             self.solid_harmonics.poloidal_to_boundary_potential_jump_factor
         )
-        self.horizontal_to_boundary_potential_jump_factor_operator = (
-            self.poloidal_to_boundary_potential_jump_factor_operator
-            @ self.horizontal_to_solid_harmonic_operator
-        )
 
-    def _init_pfac_matrix(self, pfac_matrix: Optional[ArrayLike]) -> None:
+    def _init_pfac_matrix(self, pfac_matrix: ArrayLike | None) -> None:
         """Validate and retain an optional persisted PFAC matrix."""
         self._pfac_matrix = None
         if pfac_matrix is None:
             return
-        expected_shape = (self.horizontal_basis.index_length, self.horizontal_basis.index_length)
+        expected_shape = (self.magnetic_basis.index_length, self.horizontal_basis.index_length)
         matrix = np.asarray(pfac_matrix)
         if matrix.shape != expected_shape:
             raise ValueError(f"pfac_matrix must have shape {expected_shape}; got {matrix.shape}.")
@@ -145,57 +136,6 @@ class SimulationGeometry:
             raise ValueError("pfac_matrix must contain only finite values.")
         self._pfac_matrix = matrix.copy()
         self._pfac_matrix.flags.writeable = False
-
-    @cached_property
-    def horizontal_to_solid_harmonic(self) -> np.ndarray:
-        """Return the explicit horizontal-to-solid matrix."""
-        return np.asarray(self.horizontal_to_solid_harmonic_operator.to_matrix(backend="numpy"))
-
-    @cached_property
-    def solid_harmonic_to_horizontal(self) -> np.ndarray:
-        """Return the explicit solid-to-horizontal matrix."""
-        return np.asarray(self.solid_harmonic_to_horizontal_operator.to_matrix(backend="numpy"))
-
-    @cached_property
-    def helmholtz_curl_free_potential(self) -> np.ndarray:
-        """Return the curl-free Helmholtz-potential selector."""
-        return self.helmholtz_curl_free_potential_operator.array
-
-    @cached_property
-    def helmholtz_divergence_free_potential(self) -> np.ndarray:
-        """Return the divergence-free Helmholtz-potential selector."""
-        return self.helmholtz_divergence_free_potential_operator.array
-
-    @cached_property
-    def m_imp_to_jr(self) -> np.ndarray:
-        """Return the explicit imposed-potential to jr matrix."""
-        return np.asarray(self.m_imp_to_jr_operator.to_matrix(backend="numpy")).copy()
-
-    @cached_property
-    def m_ind_to_Br(self) -> np.ndarray:
-        """Return the explicit induced-potential to Br matrix."""
-        return np.asarray(self.m_ind_to_Br_operator.to_matrix(backend="numpy")).copy()
-
-    @cached_property
-    def poloidal_to_boundary_potential_jump_factor(self) -> np.ndarray:
-        """Return the explicit solid-harmonic jump-factor matrix."""
-        return np.asarray(
-            self.poloidal_to_boundary_potential_jump_factor_operator.to_matrix(backend="numpy")
-        ).copy()
-
-    @cached_property
-    def horizontal_to_boundary_potential_jump_factor(self) -> np.ndarray:
-        """Return the explicit horizontal-to-jump-factor matrix."""
-        return np.asarray(
-            self.horizontal_to_boundary_potential_jump_factor_operator.to_matrix(backend="numpy")
-        ).copy()
-
-    @cached_property
-    def radial_current_constraint_matrix(self) -> np.ndarray:
-        """Return the explicit radial-current constraint matrix."""
-        return np.asarray(
-            self.radial_current_constraint_operator.to_matrix(backend="numpy")
-        ).copy()
 
     def tangential_to_helmholtz(self, vec: np.ndarray) -> np.ndarray:
         """Convert tangential vector field to Helmholtz coeffs."""
@@ -220,11 +160,11 @@ class SimulationGeometry:
         self.horizontal_transform = SphericalTransform(
             self.horizontal_basis, self.model_grid, area_weighted=self.area_weighted_least_squares
         )
-        if self.solid_harmonics.basis is self.horizontal_basis:
+        if self.magnetic_basis is self.horizontal_basis:
             self.solid_harmonic_transform = self.horizontal_transform
         else:
             self.solid_harmonic_transform = SphericalTransform(
-                self.solid_harmonics.basis,
+                self.magnetic_basis,
                 self.model_grid,
                 area_weighted=self.area_weighted_least_squares,
             )
@@ -256,16 +196,43 @@ class SimulationGeometry:
             self.model_grid, area_weighted=self.area_weighted_least_squares, vector=vector
         )
 
-    def _build_horizontal_to_solid_harmonic_operator(self):
-        """Project horizontal coefficients into the SH radial space.
+    def _build_surface_gauge_operator(self) -> LinearMap | None:
+        """Return a normalized zero-mean constraint if needed."""
+        is_mean_free = getattr(
+            self.horizontal_basis, "scalar_fields_are_mean_free_by_construction", None
+        )
+        if callable(is_mean_free) and is_mean_free():
+            return None
 
-        The horizontal basis owns surface operators. ``SolidHarmonics``
-        owns the radial laws and wraps the SH basis used for their
-        angular coefficients. For the CS horizontal path this is a grid
-        least-squares projection from CS nodal values to those SH
-        coefficients; for the SH path it is the identity.
+        mean_weights = getattr(self.horizontal_basis, "scalar_mean_weights", None)
+        if mean_weights is None:
+            raise TypeError(
+                f"{type(self.horizontal_basis).__name__} must provide scalar mean weights "
+                "when its coefficient space includes a constant gauge."
+            )
+        weights = np.asarray(mean_weights, dtype=float)
+        expected_shape = (self.horizontal_basis.index_length,)
+        if weights.shape != expected_shape:
+            raise ValueError(
+                f"Surface mean weights must have shape {expected_shape}; got {weights.shape}."
+            )
+        normalized_mean = np.sqrt(self.horizontal_basis.index_length) * weights
+        return as_linear_map(
+            normalized_mean.reshape(1, -1),
+            input_shape=expected_shape,
+            output_shape=(1,),
+        )
+
+    def _build_surface_to_magnetic_operator(self):
+        """Project surface coefficients into magnetic SH space.
+
+        The horizontal basis owns ionospheric surface operators.
+        The magnetic basis owns the poloidal state and its radial
+        continuation. For the CS surface path this map removes surface
+        content that cannot be represented by the configured magnetic
+        harmonics; for the SH path it is the identity.
         """
-        if self.horizontal_solid_projection_is_identity:
+        if self.magnetic_basis.coefficients_are_compatible_with(self.horizontal_basis):
             return identity_linear_map((self.horizontal_basis.index_length,))
         solid_to_grid = self.solid_harmonic_transform.scalar_coeffs_to_grid
         horizontal_to_grid = self.horizontal_transform.scalar_coeffs_to_grid
@@ -278,53 +245,32 @@ class SimulationGeometry:
             output_shape=(self.solid_harmonics.basis.index_length,),
         )
 
-    def _build_solid_harmonic_to_horizontal_operator(self):
-        """Project solid-harmonic coefficients to horizontal space."""
-        if self.horizontal_solid_projection_is_identity:
-            return identity_linear_map((self.horizontal_basis.index_length,))
-        horizontal_to_grid = self.horizontal_transform.scalar_coeffs_to_grid
-        solid_to_grid = self.solid_harmonic_transform.scalar_coeffs_to_grid
-        grid_to_horizontal = weighted_tensor_pinv(
-            horizontal_to_grid, sqrt_weights=self.model_grid_sqrt_weights(), n_leading_flattened=1
-        )
-        return as_linear_map(
-            np.asarray(grid_to_horizontal @ solid_to_grid),
-            input_shape=(self.solid_harmonics.basis.index_length,),
-            output_shape=(self.horizontal_basis.index_length,),
-        )
-
-    def _horizontal_to_solid_harmonic_matrix(self):
-        """Return an explicit horizontal-to-solid map when needed."""
-        if self.horizontal_solid_projection_is_identity:
-            return None
-        return self.horizontal_to_solid_harmonic
-
     def solid_harmonic_transform_for(self, transform: SphericalTransform) -> SphericalTransform:
-        """Return a solid transform for ``transform.target``."""
-        if self.solid_harmonics.basis.coefficients_are_compatible_with(transform.source):
+        """Return a solid transform for ``transform.grid``."""
+        if self.magnetic_basis.coefficients_are_compatible_with(transform.basis):
             return transform
         cache_key = (
-            getattr(self.solid_harmonics.basis, "signature", id(self.solid_harmonics.basis)),
+            getattr(self.magnetic_basis, "signature", id(self.magnetic_basis)),
             (
-                transform.target.analysis_signature
+                transform.grid.analysis_signature
                 if self.area_weighted_least_squares
-                else transform.target.signature
+                else transform.grid.signature
             ),
             self.area_weighted_least_squares,
         )
         if cache_key not in self._solid_transform_cache:
             self._solid_transform_cache[cache_key] = SphericalTransform(
-                self.solid_harmonics.basis,
-                transform.target,
+                self.magnetic_basis,
+                transform.grid,
                 area_weighted=self.area_weighted_least_squares,
             )
         return self._solid_transform_cache[cache_key]
 
     def m_ind_to_gridded_JS(
         self,
-        transform: Optional[SphericalTransform] = None,
+        transform: SphericalTransform | None = None,
         *,
-        solid_transform: Optional[SphericalTransform] = None,
+        solid_transform: SphericalTransform | None = None,
     ) -> np.ndarray:
         """Map induced-potential coefficients to JS."""
         if solid_transform is None:
@@ -339,14 +285,13 @@ class SimulationGeometry:
             radius=self.RI,
             boundary_radius=self.RM,
             boundary_shielding=self.magnetic_boundary_shielding,
-            horizontal_to_solid_harmonic=self._horizontal_to_solid_harmonic_matrix(),
         )
 
     def m_imp_to_gridded_JS(
         self,
-        transform: Optional[SphericalTransform] = None,
+        transform: SphericalTransform | None = None,
         *,
-        solid_transform: Optional[SphericalTransform] = None,
+        solid_transform: SphericalTransform | None = None,
     ) -> np.ndarray:
         """Map imposed-potential coefficients to JS."""
         transform = self.horizontal_transform if transform is None else transform
@@ -356,19 +301,12 @@ class SimulationGeometry:
             self.solid_harmonics,
             transform,
             solid_transform=solid_transform,
-            horizontal_to_solid_harmonic=self._horizontal_to_solid_harmonic_matrix(),
             pfac_coupling_matrix=(
                 None
                 if self.main_field.kind == "radial" or not self.enable_pfac_coupling
                 else self.pfac_coupling_matrix
             ),
         )
-
-    def _solid_to_horizontal_coefficients(self, values):
-        """Map solid-harmonic coefficient rows to horizontal rows."""
-        if self.horizontal_solid_projection_is_identity:
-            return values
-        return np.tensordot(self.solid_harmonic_to_horizontal, values, axes=([1], [0]))
 
     def _init_constraint_mappings(self) -> None:
         """Initialize geometric operators related to constraints."""
@@ -419,8 +357,8 @@ class SimulationGeometry:
             scale = scale * np.asarray(output_scale)
         scale_operator = diagonal_linear_map(
             scale.reshape(-1),
-            input_shape=(transform.target.size,),
-            output_shape=(transform.target.size,),
+            input_shape=(transform.grid.size,),
+            output_shape=(transform.grid.size,),
         )
         return scale_operator @ transform.scalar_coeffs_to_grid_operator
 
@@ -454,13 +392,13 @@ class SimulationGeometry:
         transform = self.horizontal_transform if transform is None else transform
         return (
             self._build_horizontal_grid_to_apex_operator(
-                evaluator=evaluator, grid=transform.target, output_mask=output_mask
+                evaluator=evaluator, grid=transform.grid, output_mask=output_mask
             )
             @ transform.helmholtz_coeffs_to_gridded_vector_operator
         )
 
     @cached_property
-    def interhemispheric_electric_field_difference_matrix(self) -> Optional[np.ndarray]:
+    def interhemispheric_electric_field_difference_matrix(self) -> np.ndarray | None:
         """Return explicit low-latitude E-apex difference tensor."""
         operator = self.interhemispheric_electric_field_difference_operator
         if operator is None:
@@ -548,13 +486,13 @@ class SimulationGeometry:
             JS_to_solid_poloidal *= boundary_response_factor
         else:
             JS_to_solid_poloidal *= np.asarray(boundary_response_factor).reshape((-1, 1, 1))
-        JS_to_horizontal_poloidal = self._solid_to_horizontal_coefficients(JS_to_solid_poloidal)
-        return np.tensordot(JS_to_horizontal_poloidal, m_imp_to_JS, axes=2)
+        return np.tensordot(JS_to_solid_poloidal, m_imp_to_JS, axes=2)
 
     def _build_pfac_matrix(self) -> None:
         """Construct the PFAC coupling matrix by radial integration."""
-        n = self.horizontal_basis.index_length
-        pfac_matrix = np.zeros((n, n))
+        pfac_matrix = np.zeros(
+            (self.magnetic_basis.index_length, self.horizontal_basis.index_length)
+        )
         if self.main_field.kind == "radial" or not self.enable_pfac_coupling:
             pfac_matrix.flags.writeable = False
             self._pfac_matrix = pfac_matrix
@@ -592,10 +530,10 @@ class SimulationGeometry:
 
     def Br_to_gridded_JS(
         self,
-        transform: Optional[SphericalTransform] = None,
+        transform: SphericalTransform | None = None,
         *,
-        solid_transform: Optional[SphericalTransform] = None,
-    ) -> Optional[np.ndarray]:
+        solid_transform: SphericalTransform | None = None,
+    ) -> np.ndarray | None:
         """Map boundary-Br coefficients to JS."""
         if self.RM is None:
             return None
@@ -610,5 +548,4 @@ class SimulationGeometry:
             solid_transform,
             radius=self.RI,
             boundary_radius=self.RM,
-            horizontal_to_solid_harmonic=self._horizontal_to_solid_harmonic_matrix(),
         )

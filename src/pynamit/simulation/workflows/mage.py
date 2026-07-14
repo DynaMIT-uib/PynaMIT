@@ -8,8 +8,8 @@ from typing import Any
 
 import numpy as np
 
-from pynamit.geomagnetism.kaiju_geopack import axis_lat_lon
 from pynamit.geomagnetism import MainField, decimal_year
+from pynamit.geomagnetism.kaiju_geopack import axis_lat_lon
 
 DEFAULT_NMAX = 50
 DEFAULT_MMAX = 50

@@ -1,10 +1,10 @@
 """Magnetic outer-boundary test."""
 
+import numpy as np
 import pytest
 
-from pynamit.simulation.workflows.standard import run_pynamit
-import numpy as np
 from pynamit.math.constants import RE
+from pynamit.simulation.workflows.standard import run_pynamit
 
 
 def test_magnetic_boundary():

@@ -1,8 +1,9 @@
 """Make (among other things) figures for graphical abstract."""
 
-import polplot
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+import polplot
+
 from pynamit.visualization.pynameye import PynamEye
 
 path = "../simulation/data/pynamit_paper_simulation"  # Where the save files are located
@@ -38,7 +39,7 @@ if FAC:
     fig, axes = plt.subplots(ncols=3, figsize=(12, 4))
     paxes = [polplot.Polarplot(ax) for ax in axes]
 
-    for t, pax in zip(ts, paxes[:2]):
+    for t, pax in zip(ts, paxes[:2], strict=True):
         a.set_time(t)
         a.plot_jr(pax, region="north")
         pax.writeLATlabels(backgroundcolor=(0, 0, 0, 0))
@@ -60,15 +61,13 @@ if TS_ILLUSTRATION:
     fig, axes = plt.subplots(ncols=4, figsize=(15, 4))
     paxes = [polplot.Polarplot(ax) for ax in axes]
 
-    for t, pax in zip(ts, paxes):
+    for t, pax in zip(ts, paxes, strict=True):
         a.set_time(t, steady_state=True if t == 0 else False)
         a.plot_Br(pax, region="north", levels=np.linspace(-300, 300, 22) * 1e-9)
         a.plot_electric_potential(pax, region="north")
         a.plot_electric_field_stream_function(pax, region="north")
         pax.ax.set_title(
-            r"t" + ("=" if t > 0 else "$<$") + "{} s".format(t if t < 1 else t - 480),
-            size=22,
-            pad=-10,
+            r"t" + ("=" if t > 0 else "$<$") + f"{t if t < 1 else t - 480} s", size=22, pad=-10
         )
 
         pax.writeLATlabels(backgroundcolor=(0, 0, 0, 0))
@@ -109,7 +108,7 @@ if LONG_TS:
         a.plot_Br(ax, region="global")
         a.plot_equivalent_current(ax, region="global")
         a.style_global_axis(ax, draw_labels=True if i == 0 else False)
-        ax.set_title("t={} s".format(t))
+        ax.set_title(f"t={t} s")
 
     plt.tight_layout()
     plt.savefig("figures/long_ts.png", dpi=200)
@@ -126,7 +125,7 @@ if LONG_TS_POLAR:
         ax = polplot.Polarplot(ax)
         a.plot_Br(ax, region=LONG_TS_POLAR)
         a.plot_equivalent_current(ax, region=LONG_TS_POLAR)
-        ax.ax.set_title("t={} s".format(t))
+        ax.ax.set_title(f"t={t} s")
 
     plt.tight_layout()
     plt.savefig("figures/long_ts" + LONG_TS_POLAR + ".png", dpi=200)
@@ -143,7 +142,7 @@ if LONG_TS_POLAR_E:
         ax = polplot.Polarplot(ax)
         a.plot_electric_potential(ax, region=LONG_TS_POLAR_E)
         a.plot_electric_field_stream_function(ax, region=LONG_TS_POLAR_E)
-        ax.ax.set_title("t={} s".format(t))
+        ax.ax.set_title(f"t={t} s")
 
     plt.tight_layout()
     plt.savefig("figures/long_ts_electric_field_" + LONG_TS_POLAR_E + ".png", dpi=200)
@@ -155,9 +154,9 @@ if TIMESERIES:
 
     for t in ts:
         a.set_time(t)
-        a.make_multipanel_output_figure(label="t = {:.1f} s".format(t))
+        a.make_multipanel_output_figure(label=f"t = {t:.1f} s")
 
-        plt.savefig("tmp/fig{:.2f}.png".format(t))
+        plt.savefig(f"tmp/fig{t:.2f}.png")
 
 if COLORBAR:
     fig, ax = plt.subplots(figsize=(3, 10))

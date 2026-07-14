@@ -4,14 +4,12 @@ import numpy as np
 import pytest
 
 import pynamit
+from pynamit.fields import FieldCoefficients, FieldSpace
 from pynamit.math import JAX_AVAILABLE, set_backend, to_numpy, use_jax
-from pynamit.sphere import BasisEvaluator
-from pynamit.fields import FieldCoefficients
-from pynamit.sphere.spherical_transform import SphericalTransform
-from pynamit.fields import FieldSpace
-from pynamit.storage.field_time_series import TIME_TOLERANCE_SECONDS, FieldTimeSeries
-from pynamit.sphere import CSBasis, Grid, SHBasis
+from pynamit.sphere import BasisEvaluator, CSBasis, Grid, SHBasis
 from pynamit.sphere.cubed_sphere.cs_grid import CSGridRemapper
+from pynamit.sphere.spherical_transform import SphericalTransform
+from pynamit.storage.field_time_series import TIME_TOLERANCE_SECONDS, FieldTimeSeries
 
 
 def _regular_grid():
@@ -132,23 +130,28 @@ def test_spherical_transform_regularization_uses_diagonal_operators():
     scalar_regularization = transform.scalar_least_squares_problem.regularization_matrices[0]
     helmholtz_regularization = transform.helmholtz_least_squares_problem.regularization_matrices[0]
 
-    np.testing.assert_allclose(transform.L, np.diag(n))
-    np.testing.assert_allclose(
-        transform.L_helmholtz.reshape(2 * basis.index_length, 2 * basis.index_length),
-        np.diag(helmholtz_weights.reshape(-1)),
-    )
     np.testing.assert_allclose(scalar_regularization.diagonal(backend="numpy"), n)
     np.testing.assert_allclose(
         helmholtz_regularization.diagonal(backend="numpy"), helmholtz_weights.reshape(-1)
     )
     np.testing.assert_allclose(
-        transform.helmholtz_regularization_term(helmholtz_coeffs),
+        transform.apply_helmholtz_regularization(helmholtz_coeffs),
         helmholtz_weights * helmholtz_coeffs,
     )
     np.testing.assert_allclose(
-        transform.scalar_regularization_term(scalar_coeffs),
-        np.dot(scalar_coeffs, n * scalar_coeffs),
+        transform.apply_scalar_regularization(scalar_coeffs), n * scalar_coeffs
     )
+
+
+def test_spherical_transform_requires_configured_regularization():
+    """Missing regularization configuration produces a clear error."""
+    basis = SHBasis(3, 2, mean_free=True)
+    transform = SphericalTransform(basis, _regular_grid())
+
+    with pytest.raises(RuntimeError, match="Scalar regularization requires reg_lambda"):
+        transform.apply_scalar_regularization(np.zeros(basis.index_length))
+    with pytest.raises(RuntimeError, match="Helmholtz regularization requires reg_lambda"):
+        transform.apply_helmholtz_regularization(np.zeros((2, basis.index_length)))
 
 
 def test_spherical_transform_projects_tangential_grid_values():
@@ -548,7 +551,7 @@ def test_cs_non_native_scalar_analysis_solves_against_remap_operator():
     assert coeffs.shape == (basis.index_length,)
     assert projected_rows.shape == coeff_rows.shape
     np.testing.assert_allclose(transform.synthesize_scalar(coeffs), value_rows[0])
-    for projected, expected_values in zip(projected_rows, value_rows):
+    for projected, expected_values in zip(projected_rows, value_rows, strict=True):
         np.testing.assert_allclose(transform.synthesize_scalar(projected), expected_values)
 
 

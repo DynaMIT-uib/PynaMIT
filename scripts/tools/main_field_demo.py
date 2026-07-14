@@ -1,9 +1,9 @@
 """Main-field demo."""
 
-import polplot
 import matplotlib.pyplot as plt
-from pynamit import CSBasis
-from pynamit import MainField
+import polplot
+
+from pynamit import CSBasis, MainField
 
 RE = 6371.2e3
 
@@ -19,7 +19,7 @@ lat, lon = 90 - cs_basis.arr_theta, cs_basis.arr_phi
 mask = lat > 50
 lat, lon = lat[mask], lon[mask]
 
-for pax, kind in zip(paxes, ["radial", "dipole", "igrf"]):
+for pax, kind in zip(paxes, ["radial", "dipole", "igrf"], strict=True):
     pax.scatter(lat, lon / 15, marker="o", s=30)
 
     mf = MainField(kind=kind)

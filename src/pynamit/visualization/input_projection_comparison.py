@@ -1,24 +1,23 @@
 """Compare raw driver inputs with their projected reconstruction."""
 
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
-import h5py as h5
 import cartopy.crs as ccrs
+import h5py as h5
+import matplotlib.gridspec as gridspec
+import matplotlib.pyplot as plt
+import numpy as np
 
-from pynamit.sphere import Grid
-from pynamit.sphere.spherical_transform import SphericalTransform
-from pynamit.geomagnetism import MagneticFieldEvaluation
 from pynamit.coordinates import (
     local_time_longitude_to_geographic as _local_time_longitude_to_geographic,
 )
+from pynamit.geomagnetism import MagneticFieldEvaluation
+from pynamit.sphere import Grid
+from pynamit.sphere.spherical_transform import SphericalTransform
 from pynamit.visualization.input_projection import evaluate_projected_input
 from pynamit.visualization.plot_helpers import (
     build_percentile_color_scale,
     style_global_input_axis,
 )
 from pynamit.visualization.saved_run import SavedRunView
-
 
 _INPUT_TIMESERIES_KEY = {
     "Br": "Br",
@@ -324,7 +323,7 @@ def _create_comparison_layout(
         axis.remove()
 
     time_axes = np.atleast_1d(time_subfigure.subplots(1, n_columns, sharey=True))
-    for axis, timestep in zip(time_axes, timesteps):
+    for axis, timestep in zip(time_axes, timesteps, strict=True):
         axis.text(0.5, 0.5, f"{timestep * input_dt}s", ha="center", va="center", fontsize=9)
         axis.axis("off")
 

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Optional, Sequence
+from typing import Any
 
 import numpy as np
 
@@ -20,7 +21,7 @@ def _dtype_of(value: Any):
     return np.asarray(value).dtype if dtype is None else dtype
 
 
-def _batched_einsum_string(einsum_string: str, operand_index: int) -> Optional[str]:
+def _batched_einsum_string(einsum_string: str, operand_index: int) -> str | None:
     """Return an einsum string with one extra batch axis."""
     spec = einsum_string.replace(" ", "")
     if "..." in spec or "->" not in spec:
@@ -51,7 +52,7 @@ def _parse_explicit_einsum(einsum_string: str) -> tuple[tuple[str, ...], str]:
     return operands, rhs
 
 
-def _dense_axis_labels(einsum_map: "_EinsumMap") -> tuple[str, str]:
+def _dense_axis_labels(einsum_map: _EinsumMap) -> tuple[str, str]:
     """Return output and input labels from a dense einsum."""
     _, dense_output = _parse_explicit_einsum(einsum_map.einsum_string_dense)
     output_ndim = len(einsum_map.output_shape)
@@ -105,7 +106,7 @@ def _remap_component_subscripts(
 
 
 def _remap_einsum_components(
-    einsum_map: "_EinsumMap", output_labels: str, input_labels: str, used_labels: set[str]
+    einsum_map: _EinsumMap, output_labels: str, input_labels: str, used_labels: set[str]
 ) -> tuple[str, ...]:
     """Remap map component labels to requested external labels."""
     component_subscripts, _ = _parse_explicit_einsum(einsum_map.einsum_string_dense)
@@ -115,7 +116,7 @@ def _remap_einsum_components(
     return _remap_component_subscripts(component_subscripts, label_map, used_labels)
 
 
-def compose_einsum_maps(left: "_EinsumMap", right: "_EinsumMap") -> "_EinsumMap":
+def compose_einsum_maps(left: _EinsumMap, right: _EinsumMap) -> _EinsumMap:
     """Return a fused einsum representation of ``left @ right``.
 
     The shaped domain of ``left`` must exactly match the shaped range of
@@ -148,8 +149,8 @@ def compose_einsum_maps(left: "_EinsumMap", right: "_EinsumMap") -> "_EinsumMap"
 
 
 def compose_diagonal_einsum_map(
-    diagonal_values: Any, diagonal_shape: tuple[int, ...], einsum_map: "_EinsumMap", *, side: str
-) -> "_EinsumMap":
+    diagonal_values: Any, diagonal_shape: tuple[int, ...], einsum_map: _EinsumMap, *, side: str
+) -> _EinsumMap:
     """Fuse a shaped diagonal scale with an einsum map."""
     diagonal_shape = tuple(diagonal_shape)
     if side not in {"left", "right"}:
@@ -191,7 +192,7 @@ def compose_diagonal_einsum_map(
 
 def dense_tensor_einsum_map(
     tensor: Any, *, output_shape: tuple[int, ...], input_shape: tuple[int, ...]
-) -> "_EinsumMap":
+) -> _EinsumMap:
     """Return an einsum representation of an explicit dense tensor."""
     used_labels: set[str] = set()
     labels = _allocate_labels(len(output_shape) + len(input_shape), used_labels)
@@ -207,7 +208,7 @@ def dense_tensor_einsum_map(
     )
 
 
-def scale_einsum_map(einsum_map: "_EinsumMap", scalar: Any) -> "_EinsumMap":
+def scale_einsum_map(einsum_map: _EinsumMap, scalar: Any) -> _EinsumMap:
     """Return an einsum map representing ``scalar * einsum_map``."""
     xp = get_array_module(scalar, *einsum_map.component_tensors)
     scalar_tensor = xp.asarray(scalar)
@@ -274,15 +275,15 @@ class _EinsumMap:
     einsum_string_rmatvec: str
     output_shape: tuple[int, ...]
     input_shape: tuple[int, ...]
-    _einsum_path_matvec: Optional[list] = field(default=None, repr=False)
-    _einsum_path_rmatvec: Optional[list] = field(default=None, repr=False)
-    _einsum_path_matmat: Optional[list] = field(default=None, repr=False)
-    _einsum_path_rmatmat: Optional[list] = field(default=None, repr=False)
-    _einsum_path_normal_diag: Optional[list] = field(default=None, repr=False)
-    _einsum_string_matmat: Optional[str] = field(default=None, repr=False)
-    _einsum_string_rmatmat: Optional[str] = field(default=None, repr=False)
-    _einsum_string_normal_diag: Optional[str] = field(default=None, repr=False)
-    _component_arrays_np: Optional[list[np.ndarray]] = field(default=None, repr=False)
+    _einsum_path_matvec: list | None = field(default=None, repr=False)
+    _einsum_path_rmatvec: list | None = field(default=None, repr=False)
+    _einsum_path_matmat: list | None = field(default=None, repr=False)
+    _einsum_path_rmatmat: list | None = field(default=None, repr=False)
+    _einsum_path_normal_diag: list | None = field(default=None, repr=False)
+    _einsum_string_matmat: str | None = field(default=None, repr=False)
+    _einsum_string_rmatmat: str | None = field(default=None, repr=False)
+    _einsum_string_normal_diag: str | None = field(default=None, repr=False)
+    _component_arrays_np: list[np.ndarray] | None = field(default=None, repr=False)
 
     @property
     def dtype(self):
@@ -407,19 +408,19 @@ class _EinsumMap:
             )[0]
         return self._einsum_path_rmatvec
 
-    def _matmat_string(self) -> Optional[str]:
+    def _matmat_string(self) -> str | None:
         """Return a batched matvec einsum string if possible."""
         if self._einsum_string_matmat is None:
             self._einsum_string_matmat = _batched_einsum_string(self.einsum_string_matvec, -1)
         return self._einsum_string_matmat
 
-    def _rmatmat_string(self) -> Optional[str]:
+    def _rmatmat_string(self) -> str | None:
         """Return a batched adjoint einsum string if possible."""
         if self._einsum_string_rmatmat is None:
             self._einsum_string_rmatmat = _batched_einsum_string(self.einsum_string_rmatvec, 0)
         return self._einsum_string_rmatmat
 
-    def _matmat_path(self) -> Optional[list]:
+    def _matmat_path(self) -> list | None:
         """Return the cached optimized NumPy path for matmat."""
         einsum_string = self._matmat_string()
         if einsum_string is None:
@@ -431,7 +432,7 @@ class _EinsumMap:
             )[0]
         return self._einsum_path_matmat
 
-    def _rmatmat_path(self) -> Optional[list]:
+    def _rmatmat_path(self) -> list | None:
         """Return the cached optimized NumPy path for rmatmat."""
         einsum_string = self._rmatmat_string()
         if einsum_string is None:
@@ -466,7 +467,7 @@ class _EinsumMap:
         )
         return grad_x.reshape(-1)
 
-    def _matmat_numpy(self, x_block: Any) -> Optional[np.ndarray]:
+    def _matmat_numpy(self, x_block: Any) -> np.ndarray | None:
         """Apply multiple vectors with cached NumPy paths."""
         einsum_string = self._matmat_string()
         einsum_path = self._matmat_path()
@@ -479,7 +480,7 @@ class _EinsumMap:
         )
         return res.reshape(math.prod(self.output_shape), block.shape[1])
 
-    def _rmatmat_numpy(self, y_block: Any) -> Optional[np.ndarray]:
+    def _rmatmat_numpy(self, y_block: Any) -> np.ndarray | None:
         """Apply adjoints using cached NumPy paths."""
         einsum_string = self._rmatmat_string()
         einsum_path = self._rmatmat_path()

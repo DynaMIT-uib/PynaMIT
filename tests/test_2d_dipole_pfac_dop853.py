@@ -1,7 +1,8 @@
 """Dipole, PFAC and DOP853 test."""
 
-from pynamit.simulation.workflows.standard import run_pynamit
 import numpy as np
+
+from pynamit.simulation.workflows.standard import run_pynamit
 
 
 def test_2d_dipole_pfac_dop853(pynamit_approx):

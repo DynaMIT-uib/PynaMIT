@@ -1,10 +1,12 @@
 """Visualize the simulation case."""
 
-import numpy as np
-import matplotlib.pyplot as plt
 import datetime
-from polplot import Polarplot
 from string import ascii_lowercase as abc
+
+import matplotlib.pyplot as plt
+import numpy as np
+from polplot import Polarplot
+
 from pynamit.visualization.pynameye import PynamEye
 from pynamit.visualization.state_fields import evaluate_Phi_coefficients
 
@@ -19,12 +21,10 @@ for plot_num, simulation_time in enumerate([0, 480]):
     phin = evaluate_Phi_coefficients(a.geometry, a.Phi_coeffs, a.transforms["north"])
     phis = evaluate_Phi_coefficients(a.geometry, a.Phi_coeffs, a.transforms["south"])
     print(
-        datetime.datetime.now(),
-        "CPCP in the North is {:.1f} kV".format((phin.max() - phin.min()) * 1e-3),
+        datetime.datetime.now(), f"CPCP in the North is {(phin.max() - phin.min()) * 1e-3:.1f} kV"
     )
     print(
-        datetime.datetime.now(),
-        "CPCP in the South is {:.1f} kV".format((phis.max() - phis.min()) * 1e-3),
+        datetime.datetime.now(), f"CPCP in the South is {(phis.max() - phis.min()) * 1e-3:.1f} kV"
     )
     conductance_levels = np.linspace(0, 20, 22)
 

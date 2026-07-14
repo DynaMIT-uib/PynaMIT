@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from pynamit.math.backend import to_jax, to_numpy, use_jax
-from pynamit.storage.field_time_series import TIME_TOLERANCE_SECONDS
 from pynamit.simulation.electrodynamics import induction
+from pynamit.storage.field_time_series import TIME_TOLERANCE_SECONDS
+
+if TYPE_CHECKING:
+    from pynamit.simulation.api import Simulation
 
 
 def _positive_integer(value, *, name):
@@ -117,15 +121,15 @@ class _EvolutionOptions:
         return 1 if self.run_inductive else self.sampling_step_interval
 
     @property
-    def report_step_interval(self) -> int:
-        """Return loop-step interval for progress reports and saves."""
+    def save_step_interval(self) -> int:
+        """Return the step interval between persisted samples."""
         return self.sampling_step_interval * self.saving_sample_interval
 
 
 class SimulationRunner:
     """Coordinate simulation execution, sampling, and persistence."""
 
-    def __init__(self, simulation):
+    def __init__(self, simulation: Simulation):
         self.simulation = simulation
         self._cached_exponential_operator = None
         self._cached_exponential_dt = None
@@ -134,7 +138,7 @@ class SimulationRunner:
     def evolve_to_time(
         self,
         t,
-        dt=np.float64(5e-4),
+        dt=5e-4,
         sampling_step_interval=200,
         saving_sample_interval=10,
         quiet=False,
@@ -260,8 +264,7 @@ class SimulationRunner:
         inductive_m_ind = self.simulation.run_data.output_series.get_entry(
             "state", self.simulation.current_time, interpolation=False
         )["m_ind"]
-        inductive_m_ind = to_jax(inductive_m_ind) if use_jax() else inductive_m_ind
-        return self.simulation.response.project_scalar_mean_free(inductive_m_ind)
+        return to_jax(inductive_m_ind) if use_jax() else inductive_m_ind
 
     def _new_inductive_state(self, options: _EvolutionOptions):
         """Build a new inductive state from steady state or zero."""
@@ -277,9 +280,10 @@ class SimulationRunner:
         if not options.quiet:
             print("Initializing inductive state from zero.", flush=True)
         self.simulation.current_time = np.float64(0)
-        zeros = np.zeros(self.simulation.run_data.schema.output_field_spaces["state"].index_length)
-        zeros = to_jax(zeros) if use_jax() else zeros
-        return self.simulation.response.project_scalar_mean_free(zeros)
+        zeros = np.zeros(
+            self.simulation.run_data.schema.output_field_spaces["state"]["m_ind"].index_length
+        )
+        return to_jax(zeros) if use_jax() else zeros
 
     def _saved_outputs_reach_target(self, options: _EvolutionOptions) -> bool:
         """Return whether requested outputs reach target."""
@@ -323,7 +327,7 @@ class SimulationRunner:
             )
             is_sample_step = is_final_step or step % options.sampling_step_interval == 0
             should_save_sample = is_final_step or (
-                is_sample_step and step % options.report_step_interval == 0
+                is_sample_step and step % options.save_step_interval == 0
             )
             steady_state_m_ind = self._steady_state_for_step(
                 options, is_sample_step, is_final_step, E_coeffs_noninductive
@@ -381,7 +385,7 @@ class SimulationRunner:
         self, step: int, total_steps_estimate: int, options: _EvolutionOptions
     ) -> None:
         """Print progress at the configured interval."""
-        if options.quiet or not (step == 0 or step % options.report_step_interval == 0):
+        if options.quiet or not (step == 0 or step % options.save_step_interval == 0):
             return
         print(
             f"Evolution step {step}/{total_steps_estimate} "
@@ -411,13 +415,13 @@ class SimulationRunner:
         if self.simulation.config.integrator != "exponential":
             return None
 
-        operator = self.simulation.response.m_ind_to_E_df_matrix
+        operator = self.simulation.response.m_ind_feedback_matrix
         dt = float(dt)
         if operator is not self._cached_exponential_operator or dt != self._cached_exponential_dt:
             self._cached_exponential_operator = operator
             self._cached_exponential_dt = dt
             self._cached_exponential_propagator = induction.exponential_propagator(
-                self.simulation.response, dt, m_ind_to_E_df_matrix=operator
+                self.simulation.response, dt, m_ind_feedback_matrix=operator
             )
         return self._cached_exponential_propagator
 
@@ -442,11 +446,10 @@ class SimulationRunner:
     def _record_output_state(self, key, m_ind, E_coeffs_noninductive, m_imp_noninductive):
         """Append a complete model response to one output stream."""
         response = self.simulation.response
-        m_ind = response.project_scalar_mean_free(m_ind)
         E_coeffs_inductive, m_imp_inductive = response.calculate_inductive_response(m_ind)
 
         E_coeffs = response.project_helmholtz_mean_free(E_coeffs_noninductive + E_coeffs_inductive)
-        m_imp = response.project_scalar_mean_free(m_imp_noninductive + m_imp_inductive)
+        m_imp = response.project_surface_scalar_mean_free(m_imp_noninductive + m_imp_inductive)
 
         state_data = {
             "m_ind": to_numpy(m_ind),
@@ -484,6 +487,3 @@ class SimulationRunner:
                 ),
                 flush=True,
             )
-
-
-__all__ = ["SimulationRunner"]

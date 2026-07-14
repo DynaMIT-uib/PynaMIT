@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -72,8 +72,9 @@ def load_iaga2002_magnetometer_data(filepath, station_code, *, logger=None):
     station_prefix = str(station_code).upper()
     try:
         with filepath.open("r") as file:
-            for header_line_num, line in enumerate(file):
+            for line_number, line in enumerate(file):
                 if line.startswith("DATE"):
+                    header_line_num = line_number
                     header_content = line.strip().split()
                     break
             else:

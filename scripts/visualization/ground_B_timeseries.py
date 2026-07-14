@@ -1,14 +1,16 @@
 """Ground magnetic field time series visualization."""
 
+import datetime
 from pathlib import Path
-import numpy as np
+
+import apexpy
+import dipole
 import matplotlib.pyplot as plt
+import numpy as np
+
 import pynamit
 from pynamit.math.constants import RE
 from pynamit.storage import ArtifactStore
-import dipole
-import datetime
-import apexpy
 
 periods = [50, 25, 10, 5, 1]
 DATA_DIRECTORY = Path("../simulation/oscillations")
@@ -55,8 +57,10 @@ for state_data in state_data_list:
     # Calculate the time series.
     m_ind = state_data.SH_m_ind.values.T
 
-    Br = (ground_evaluator.G * m_ind_to_Br_ground.reshape((1, -1))).dot(m_ind)
-    Bh = (-ground_evaluator.G_grad * m_ind_to_Bh_ground.reshape((1, -1))).dot(m_ind)
+    Br = (ground_evaluator.scalar_coeffs_to_grid * m_ind_to_Br_ground.reshape((1, -1))).dot(m_ind)
+    Bh = (
+        -ground_evaluator.scalar_coeffs_to_gridded_gradient * m_ind_to_Bh_ground.reshape((1, -1))
+    ).dot(m_ind)
     Btheta, Bphi = np.split(Bh, 2, axis=0)
 
     ii, jj = np.unravel_index(np.arange(len(glat)), mlt.shape)
@@ -106,7 +110,7 @@ fig, axesA = plt.subplots(ncols=Ncols, nrows=Nrows, sharex=True)
 fig, axesphi = plt.subplots(ncols=Ncols, nrows=Nrows, sharex=True)
 
 
-for p, state_data in zip(periods, state_data_list):
+for p, state_data in zip(periods, state_data_list, strict=True):
     sd = state_data.sel(time=slice(200, None))
     t = sd.time.values
 
@@ -115,7 +119,7 @@ for p, state_data in zip(periods, state_data_list):
     ).T
 
     m_ind = sd.SH_m_ind.values.T
-    Br = (ground_evaluator.G * m_ind_to_Br_ground.reshape((1, -1))).dot(m_ind)
+    Br = (ground_evaluator.scalar_coeffs_to_grid * m_ind_to_Br_ground.reshape((1, -1))).dot(m_ind)
 
     # Fit the wave parameters.
     m = np.linalg.lstsq(G_fourier, Br.T)[0]

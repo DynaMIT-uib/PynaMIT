@@ -25,8 +25,8 @@ from typing import Any
 import numpy as np
 
 import pynamit
-from pynamit.math.constants import RE
 from pynamit.geomagnetism.main_field import decimal_year
+from pynamit.math.constants import RE
 from pynamit.simulation.schema import INPUT_DATASET_KEYS
 from pynamit.simulation.workflows.prepared_inputs import (
     RUN_MANIFEST_FILENAME,
@@ -34,7 +34,6 @@ from pynamit.simulation.workflows.prepared_inputs import (
     run_pynamit_from_inputs,
     write_input_manifest,
 )
-
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 RI = RE + 110e3
@@ -58,6 +57,8 @@ class PaperSimulationSettings:
     conductance_lambda: float = 0.001
     wind_lambda: float = 0.001
     jr_lambda: float | None = None
+    area_weighted_least_squares: bool = False
+    m_imp_regularization_lambda: float = 0.0
     artifact_storage: str = "auto"
     prepare_inputs: bool = True
     run_simulation: bool = True
@@ -92,11 +93,11 @@ def _dipole_radial_sampling(settings: PaperSimulationSettings) -> np.ndarray:
 
 def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
     """Project the paper-simulation inputs into a reusable package."""
-    from lompe import conductance
     import apexpy
     import dipole
     import pyamps
     import pyhwm2014
+    from lompe import conductance
 
     input_directory = Path(settings.input_directory).expanduser()
     input_directory.mkdir(parents=True, exist_ok=True)
@@ -114,6 +115,7 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
         enable_pfac_coupling=False,
         enable_interhemispheric_coupling=False,
         interhemispheric_coupling_latitude=settings.interhemispheric_coupling_latitude,
+        area_weighted_least_squares=settings.area_weighted_least_squares,
         t0=str(settings.date),
     )
 
@@ -212,6 +214,7 @@ def run_paper_simulation(settings: PaperSimulationSettings = SETTINGS) -> pynami
         steady_state_initialization=False,
         run_inductive=True,
         run_steady_state=False,
+        m_imp_regularization_lambda=settings.m_imp_regularization_lambda,
         artifact_storage=settings.artifact_storage,
     )
 

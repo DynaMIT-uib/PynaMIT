@@ -1,11 +1,13 @@
 """Script for testing various things with spherical harmonics."""
 
+import datetime
+
 import numpy as np
-import pynamit
+import ppigrf
 import pyhwm2014  # https://github.com/rilma/pyHWM14
 from lompe import conductance
-import datetime
-import ppigrf
+
+import pynamit
 
 Nmax, Mmax = 20, 20
 Ncs = 30
@@ -83,7 +85,7 @@ if False:
     u_coeff_df, u_coeff_cf = np.split(u_coeffs, 2)
 
     misfit = G_df.dot(u_coeff_df) + G_cf.dot(u_coeff_cf) - d
-    print("rms misfit for fitted wind field is {:.5f} m/s".format(np.sqrt(np.mean(misfit**2))))
+    print(f"rms misfit for fitted wind field is {np.sqrt(np.mean(misfit**2)):.5f} m/s")
 
     # Get IGRF gauss coefficients.
     igrf_date = datetime.datetime(date.year, 1, 1)

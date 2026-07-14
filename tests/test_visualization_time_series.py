@@ -242,7 +242,7 @@ def test_ground_dbdt_magnitude_differentiates_components_first():
     br_values = -down * 1e-9
     bh_values = np.stack([-north * 1e-9, east * 1e-9])
 
-    magnitude = renderer.ground_matrix_at_times(
+    magnitude = renderer._ground_matrix_at_times(
         "Magnitude", br_values, bh_values, source_times, target_times, quantity="dbdt"
     )
 
@@ -263,7 +263,7 @@ def test_station_dbdt_uses_supplied_simulation_cadence():
         index=measured_times,
     )
 
-    values = renderer.station_values_at_times(
+    values = renderer._station_values_at_times(
         measured, pd.DatetimeIndex([measured_times[10]]), dbdt_cadence_seconds=10.0
     )
 
@@ -434,7 +434,7 @@ def test_ground_plot_times_preserve_one_second_station_resolution():
         ),
     )
 
-    plot_times = renderer.ground_plot_times()
+    plot_times = renderer._ground_plot_times()
 
     assert plot_times[0] == pd.Timestamp("2020-01-01T00:00:01")
     assert plot_times[-1] == pd.Timestamp("2020-01-01T00:00:20")

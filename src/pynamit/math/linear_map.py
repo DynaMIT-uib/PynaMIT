@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any, Callable, Literal, Optional, Sequence, TypeAlias
+from typing import Any, Literal, TypeAlias
 
 import numpy as np
 import scipy.sparse
@@ -51,17 +52,17 @@ class LinearMap:
     dtype: Any
     _matvec: VectorizedMapFunc = field(repr=False)
     _rmatvec: VectorizedMapFunc = field(repr=False)
-    _matmat: Optional[VectorizedMapFunc] = field(default=None, repr=False)
-    _rmatmat: Optional[VectorizedMapFunc] = field(default=None, repr=False)
-    _dense_array_func: Optional[Callable[[Any], Any]] = field(default=None, repr=False)
-    _diagonal_array_func: Optional[Callable[[Any], Any]] = field(default=None, repr=False)
-    _normal_matrix_diag: Optional[Callable[[], np.ndarray]] = field(default=None, repr=False)
+    _matmat: VectorizedMapFunc | None = field(default=None, repr=False)
+    _rmatmat: VectorizedMapFunc | None = field(default=None, repr=False)
+    _dense_array_func: Callable[[Any], Any] | None = field(default=None, repr=False)
+    _diagonal_array_func: Callable[[Any], Any] | None = field(default=None, repr=False)
+    _normal_matrix_diag: Callable[[], np.ndarray] | None = field(default=None, repr=False)
     _backend_context: tuple[Any, ...] = field(default=(), repr=False)
     _is_noop: bool = field(default=False, repr=False)
     _einsum_map: Any = field(default=None, repr=False, compare=False)
     _dense_tensor: Any = field(default=None, repr=False, compare=False)
-    output_shape: Optional[tuple[int, ...]] = None
-    input_shape: Optional[tuple[int, ...]] = None
+    output_shape: tuple[int, ...] | None = None
+    input_shape: tuple[int, ...] | None = None
     _dense_cache: dict[str, Any] = field(
         default_factory=dict, init=False, repr=False, compare=False
     )
@@ -94,7 +95,7 @@ class LinearMap:
         """Return a stable cache key for one array module."""
         return getattr(xp, "__name__", repr(xp))
 
-    def _cached_dense(self, xp: Any) -> Optional[Any]:
+    def _cached_dense(self, xp: Any) -> Any | None:
         """Return cached dense materialization for ``xp`` if present."""
         return self._dense_cache.get(self._dense_cache_key(xp))
 
@@ -102,7 +103,7 @@ class LinearMap:
         """Store dense materialization for ``xp``."""
         self._dense_cache[self._dense_cache_key(xp)] = dense
 
-    def _cached_array(self, xp: Any) -> Optional[Any]:
+    def _cached_array(self, xp: Any) -> Any | None:
         """Return cached shaped materialization for ``xp``."""
         return self._array_cache.get(self._dense_cache_key(xp))
 
@@ -251,7 +252,7 @@ class LinearMap:
 
         return self._compose(as_linear_map(other))
 
-    def _compose(self, other_map: "LinearMap") -> "LinearMap":
+    def _compose(self, other_map: LinearMap) -> LinearMap:
         """Compose this map with a compatible map on its right."""
         if self.shape[1] != other_map.shape[0]:
             raise ValueError(
@@ -270,7 +271,7 @@ class LinearMap:
             return composed_einsum.to_linear_map()
         return self._composed_linear_map(other_map)
 
-    def _composed_linear_map(self, other_map: "LinearMap") -> "LinearMap":
+    def _composed_linear_map(self, other_map: LinearMap) -> LinearMap:
         """Build the lazy fallback representation of a composition."""
         self_is_diagonal = self._diagonal_array_func is not None
         other_is_diagonal = other_map._diagonal_array_func is not None
@@ -316,7 +317,7 @@ class LinearMap:
             input_shape=other_map.input_shape,
         )
 
-    def _composition_dense_array(self, other_map: "LinearMap", xp: Any) -> Any:
+    def _composition_dense_array(self, other_map: LinearMap, xp: Any) -> Any:
         """Materialize a composition, preserving diagonal structure."""
         self_is_diagonal = self._diagonal_array_func is not None
         other_is_diagonal = other_map._diagonal_array_func is not None
@@ -336,7 +337,7 @@ class LinearMap:
             return np.abs(diagonal) ** 2 * self.normal_matrix_diag()
         return _normal_matrix_diag_from_matmat((self.shape[0], other_map.shape[1]), dtype, matmat)
 
-    def _compose_einsum_matmul(self, other_map: "LinearMap") -> Any:
+    def _compose_einsum_matmul(self, other_map: LinearMap) -> Any:
         """Return a symbolic einsum composition, when safe."""
         self_is_diagonal = self._diagonal_array_func is not None
         other_is_diagonal = other_map._diagonal_array_func is not None
@@ -415,7 +416,7 @@ class LinearMap:
             self._dense_tensor, output_shape=self.output_shape, input_shape=self.input_shape
         )
 
-    def __add__(self, other: Any) -> "LinearMap":
+    def __add__(self, other: Any) -> LinearMap:
         """Add two linear maps with identical shaped domains."""
         other_map = as_linear_map(other)
         if self.shape != other_map.shape:
@@ -464,17 +465,17 @@ class LinearMap:
             input_shape=self.input_shape,
         )
 
-    def __radd__(self, other: Any) -> "LinearMap":
+    def __radd__(self, other: Any) -> LinearMap:
         """Add two linear maps with identical shaped domains."""
         if np.isscalar(other) and other == 0:
             return self
         return self.__add__(other)
 
-    def __sub__(self, other: Any) -> "LinearMap":
+    def __sub__(self, other: Any) -> LinearMap:
         """Subtract another linear map."""
         return self.__add__(-as_linear_map(other))
 
-    def __mul__(self, other: Any) -> "LinearMap":
+    def __mul__(self, other: Any) -> LinearMap:
         """Scale this linear map."""
         if not np.isscalar(other):
             return NotImplemented
@@ -535,11 +536,11 @@ class LinearMap:
             input_shape=self.input_shape,
         )
 
-    def __rmul__(self, other: Any) -> "LinearMap":
+    def __rmul__(self, other: Any) -> LinearMap:
         """Scale this linear map."""
         return self.__mul__(other)
 
-    def __neg__(self) -> "LinearMap":
+    def __neg__(self) -> LinearMap:
         """Negate this linear map."""
         return -1.0 * self
 
@@ -611,8 +612,8 @@ def _dense_array_candidate(value: Any) -> Any:
 
 def _map_shapes(
     shape: MatrixShape,
-    input_shape: Optional[tuple[int, ...]] = None,
-    output_shape: Optional[tuple[int, ...]] = None,
+    input_shape: tuple[int, ...] | None = None,
+    output_shape: tuple[int, ...] | None = None,
 ) -> tuple[tuple[int, ...], tuple[int, ...]]:
     """Return shape metadata compatible with flat dimensions."""
     in_shape = (shape[1],) if input_shape is None else tuple(input_shape)
@@ -626,8 +627,8 @@ def _map_shapes(
 
 def _linear_map_from_dense(
     matrix: Any,
-    input_shape: Optional[tuple[int, ...]] = None,
-    output_shape: Optional[tuple[int, ...]] = None,
+    input_shape: tuple[int, ...] | None = None,
+    output_shape: tuple[int, ...] | None = None,
 ) -> LinearMap:
     mat_array = _dense_array_candidate(matrix)
     if mat_array.ndim != 2:
@@ -686,8 +687,8 @@ def _linear_map_from_dense(
 
 def diagonal_linear_map(
     diag_values: Any,
-    input_shape: Optional[tuple[int, ...]] = None,
-    output_shape: Optional[tuple[int, ...]] = None,
+    input_shape: tuple[int, ...] | None = None,
+    output_shape: tuple[int, ...] | None = None,
 ) -> LinearMap:
     """Return a map backed by a diagonal vector."""
     diag_array = _dense_array_candidate(diag_values).reshape(-1)
@@ -976,8 +977,8 @@ def take_linear_map(
 def is_noop_linear_map(
     value: Any,
     *,
-    input_shape: Optional[tuple[int, ...]] = None,
-    output_shape: Optional[tuple[int, ...]] = None,
+    input_shape: tuple[int, ...] | None = None,
+    output_shape: tuple[int, ...] | None = None,
 ) -> bool:
     """Return whether ``value`` is an explicit diagonal identity map."""
     try:
@@ -1041,7 +1042,7 @@ def _zero_row_linear_map(input_shape: tuple[int, ...]) -> LinearMap:
 
 
 def vstack_linear_maps(
-    maps: Sequence[Any], *, input_shape: Optional[tuple[int, ...]] = None
+    maps: Sequence[Any], *, input_shape: tuple[int, ...] | None = None
 ) -> LinearMap:
     """Return one map formed by vertically stacking row maps."""
     row_maps = tuple(
@@ -1121,8 +1122,8 @@ def vstack_linear_maps(
 
 def _linear_map_from_linear_operator(
     op: ScipyLinearOperator,
-    input_shape: Optional[tuple[int, ...]] = None,
-    output_shape: Optional[tuple[int, ...]] = None,
+    input_shape: tuple[int, ...] | None = None,
+    output_shape: tuple[int, ...] | None = None,
 ) -> LinearMap:
     shape = tuple(int(dim) for dim in op.shape)
     out_shape, in_shape = _map_shapes(shape, input_shape, output_shape)
@@ -1154,8 +1155,8 @@ def _linear_map_from_linear_operator(
 
 def _linear_map_from_scipy_sparse(
     op: scipy.sparse.spmatrix,
-    input_shape: Optional[tuple[int, ...]] = None,
-    output_shape: Optional[tuple[int, ...]] = None,
+    input_shape: tuple[int, ...] | None = None,
+    output_shape: tuple[int, ...] | None = None,
 ) -> LinearMap:
     sparse = op.tocsr()
     adjoint = sparse.conjugate().transpose().tocsr()
@@ -1211,8 +1212,8 @@ def _linear_map_from_scipy_sparse(
 
 def _linear_map_from_jax_sparse(
     op: Any,
-    input_shape: Optional[tuple[int, ...]] = None,
-    output_shape: Optional[tuple[int, ...]] = None,
+    input_shape: tuple[int, ...] | None = None,
+    output_shape: tuple[int, ...] | None = None,
 ) -> LinearMap:
     shape = tuple(int(dim) for dim in op.shape)
     out_shape, in_shape = _map_shapes(shape, input_shape, output_shape)
@@ -1269,8 +1270,8 @@ def _linear_map_from_jax_sparse(
 
 def _linear_map_from_array(
     arr: Any,
-    input_shape: Optional[tuple[int, ...]] = None,
-    output_shape: Optional[tuple[int, ...]] = None,
+    input_shape: tuple[int, ...] | None = None,
+    output_shape: tuple[int, ...] | None = None,
 ) -> LinearMap:
     """Convert a dense array-shaped value into a ``LinearMap``."""
     if arr.ndim == 1:
@@ -1317,8 +1318,8 @@ def _linear_map_from_array(
 
 def as_linear_map(
     op: Any,
-    input_shape: Optional[tuple[int, ...]] = None,
-    output_shape: Optional[tuple[int, ...]] = None,
+    input_shape: tuple[int, ...] | None = None,
+    output_shape: tuple[int, ...] | None = None,
 ) -> LinearMap:
     """Convert supported operator types into a ``LinearMap``."""
     if isinstance(op, LinearMap):

@@ -25,9 +25,6 @@ exclude_patterns = []
 
 nitpicky = True
 nitpick_ignore = [
-    ("py:class", "ElectrodynamicResponse"),
-    ("py:class", "RunData"),
-    ("py:class", "SimulationGeometry"),
     ("py:class", "ndarray"),
     ("py:class", "optional"),
     ("py:class", "pynamit.math.least_squares_problem.LeastSquaresProblem"),

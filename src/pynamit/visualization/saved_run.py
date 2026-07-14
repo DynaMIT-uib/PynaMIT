@@ -6,12 +6,11 @@ from dataclasses import dataclass
 
 import xarray as xr
 
-from pynamit.storage import ArtifactStore
-from pynamit.storage import FieldTimeSeries
+from pynamit.geomagnetism import MainField
 from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.geometry import SimulationGeometry, build_main_field
-from pynamit.geomagnetism import MainField
 from pynamit.simulation.schema import SimulationSchema, build_simulation_schema
+from pynamit.storage import ArtifactStore, FieldTimeSeries
 
 
 @dataclass
@@ -37,7 +36,7 @@ class SavedRunView:
         build_geometry=False,
         artifact_storage="auto",
         print_info=False,
-    ) -> "SavedRunView":
+    ) -> SavedRunView:
         """Load one saved run for visualization."""
         artifact_store = ArtifactStore(run_directory, preferred_dataset_storage=artifact_storage)
         datasets = {"settings": cls._load_required_dataset(artifact_store, "settings", print_info)}

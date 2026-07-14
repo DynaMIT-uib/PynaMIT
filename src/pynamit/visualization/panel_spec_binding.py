@@ -34,7 +34,6 @@ def current_figure_spec(app) -> PynamitFigureSpec:
         show_reference_line=bool(app.show_reference_line.value),
         reference_time_of_day_utc=str(app.reference_time.value),
         show_station_labels=bool(app.spec.show_station_labels),
-        conductance_overlay=app.spec.conductance_overlay,
         sim_time_offset_seconds=float(app.sim_time_offset.value),
         data_time_offset_seconds=float(app.data_time_offset.value),
         dbdt_window_points=max(1, int(app.dbdt_window_points.value)),

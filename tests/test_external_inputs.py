@@ -6,15 +6,15 @@ import numpy as np
 import pytest
 
 from pynamit.external_inputs import (
-    _load_fallback,
     _expand_time_series,
+    _load_fallback,
     _select_fallback_entry,
     get_conductance_inputs,
+    get_input_source,
     get_jr_inputs,
     get_wind_inputs,
-    get_input_source,
-    set_input_source,
     save_fallback_dataset,
+    set_input_source,
 )
 
 

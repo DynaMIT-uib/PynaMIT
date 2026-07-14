@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import datetime as dt
-from pathlib import Path
 import stat
+from pathlib import Path
 
-from pynamit.storage import ArtifactStore
 from pynamit.simulation.schema import RUN_ARTIFACT_NAMES
+from pynamit.storage import ArtifactStore
 from pynamit.visualization.figure_specs import PynamitFigureSpec
 from pynamit.visualization.run_fields import SavedCoefficientFieldView
-
 
 _CACHE_ARTIFACTS = tuple(sorted(RUN_ARTIFACT_NAMES))
 _VIEW_CACHE: dict[tuple[str, int, int], tuple[tuple, SavedCoefficientFieldView]] = {}

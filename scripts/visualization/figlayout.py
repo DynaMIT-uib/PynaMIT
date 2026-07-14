@@ -3,14 +3,13 @@
 import datetime
 
 import dipole
-from lompe import conductance
 import numpy as np
 import pyamps
 import pyhwm2014  # https://github.com/rilma/pyHWM14
+from lompe import conductance
 
 import pynamit
 from pynamit.visualization.results import plot_state_diagnostics
-
 
 RE = 6371.2e3
 RI = RE + 110e3

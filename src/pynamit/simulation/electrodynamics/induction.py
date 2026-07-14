@@ -14,11 +14,16 @@ logger = logging.getLogger(__name__)
 
 def m_ind_time_derivative(response, m_ind, E_coeffs_noninductive):
     """Return ``d(m_ind)/dt`` for the current ionospheric response."""
-    E_df_total = response.m_ind_to_E_df_operator.matvec(m_ind)
-    E_df_total += response.geometry.helmholtz_divergence_free_potential_operator.matvec(
-        E_coeffs_noninductive
+    magnetic_W = response.m_ind_feedback_operator.matvec(m_ind)
+    surface_W_noninductive = (
+        response.geometry.helmholtz_divergence_free_potential_operator.matvec(
+            E_coeffs_noninductive
+        )
     )
-    return response.geometry.faraday_rate_scale * E_df_total
+    magnetic_W += response.geometry.surface_to_magnetic_operator.matvec(
+        surface_W_noninductive
+    )
+    return response.geometry.faraday_rate_scale * magnetic_W
 
 
 def steady_state_m_ind(response, E_coeffs_noninductive):
@@ -26,15 +31,14 @@ def steady_state_m_ind(response, E_coeffs_noninductive):
     E_noninductive_df = response.geometry.helmholtz_divergence_free_potential_operator.matvec(
         E_coeffs_noninductive
     )
-    steady = response.noninductive_E_df_to_steady_m_ind_operator.matvec(E_noninductive_df)
-    return response.project_scalar_mean_free(steady)
+    return response.noninductive_E_df_to_steady_m_ind_operator.matvec(E_noninductive_df)
 
 
-def exponential_propagator(response, dt, *, m_ind_to_E_df_matrix=None):
+def exponential_propagator(response, dt, *, m_ind_feedback_matrix=None):
     """Return the exact propagator for one constant-closure step."""
-    if m_ind_to_E_df_matrix is None:
-        m_ind_to_E_df_matrix = response.m_ind_to_E_df_matrix
-    rate_matrix = response.geometry.faraday_rate_scale * m_ind_to_E_df_matrix
+    if m_ind_feedback_matrix is None:
+        m_ind_feedback_matrix = response.m_ind_feedback_matrix
+    rate_matrix = response.geometry.faraday_rate_scale * m_ind_feedback_matrix
     return expm(float(dt) * to_numpy(rate_matrix))
 
 
@@ -48,7 +52,7 @@ def evolve_m_ind(
 
     if integrator == "euler":
         derivative = m_ind_time_derivative(response, backend_m_ind, backend_E_noninductive)
-        return response.project_scalar_mean_free(backend_m_ind + dt * derivative)
+        return backend_m_ind + dt * derivative
 
     if integrator == "exponential":
         if steady_state is None:
@@ -57,20 +61,22 @@ def evolve_m_ind(
             propagator = exponential_propagator(response, dt)
         difference = backend_m_ind - xp.asarray(steady_state)
         evolved = propagator @ to_numpy(difference) + to_numpy(steady_state)
-        result = response.project_scalar_mean_free(evolved)
-        return to_jax(result) if use_jax() else result
+        return to_jax(evolved) if use_jax() else evolved
 
     logger.debug("Using scipy.solve_ivp with method=%r.", integrator)
-    m_ind_to_E_df = to_numpy(response.m_ind_to_E_df_matrix)
+    m_ind_feedback = to_numpy(response.m_ind_feedback_matrix)
     E_noninductive_df = to_numpy(
         response.geometry.helmholtz_divergence_free_potential_operator.matvec(
             backend_E_noninductive
         )
     )
+    magnetic_W_noninductive = to_numpy(
+        response.geometry.surface_to_magnetic_operator.matvec(E_noninductive_df)
+    )
     rate_scale = float(response.geometry.faraday_rate_scale)
 
     def rhs(_time, values):
-        return rate_scale * (m_ind_to_E_df @ values + E_noninductive_df)
+        return rate_scale * (m_ind_feedback @ values + magnetic_W_noninductive)
 
     solution = solve_ivp(
         fun=rhs,
@@ -86,7 +92,7 @@ def evolve_m_ind(
             f"{solution.status}: {solution.message}"
         )
 
-    result = response.project_scalar_mean_free(solution.y[:, -1])
+    result = solution.y[:, -1]
     return to_jax(result) if use_jax() else result
 
 

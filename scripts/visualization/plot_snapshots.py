@@ -1,10 +1,11 @@
 """Snapshot plotting."""
 
-import polplot
-import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.gridspec import GridSpec
 import dipole
+import matplotlib.pyplot as plt
+import numpy as np
+import polplot
+from matplotlib.gridspec import GridSpec
+
 from pynamit import Grid, SphericalTransform
 from pynamit.visualization.pynameye import PynamEye
 from pynamit.visualization.state_fields import evaluate_Phi_coefficients
@@ -59,7 +60,7 @@ if GLOBAL_TIMESERIES:
                 draw_labels=True if i == 0 else False,
                 draw_coastlines=True if i == 0 else False,
             )
-            ax.set_title("t={} s".format(t))
+            ax.set_title(f"t={t} s")
 
     for fig in [fig_E, fig_B, fig_Q]:
         fig.tight_layout()
@@ -154,9 +155,9 @@ if POLAR_TIMESERIES:
         ).set_edgecolor("face")
 
         for ax_left, ax_right in zip(
-            [ax_left_E, ax_left_B, ax_left_Q], [ax_right_E, ax_right_B, ax_right_Q]
+            [ax_left_E, ax_left_B, ax_left_Q], [ax_right_E, ax_right_B, ax_right_Q], strict=True
         ):
-            ax_left.ax.set_title("t={} s".format(t), loc="right")
+            ax_left.ax.set_title(f"t={t} s", loc="right")
 
             if i == 0:  # write some labels
                 ax_left.writeLATlabels(backgroundcolor=(0, 0, 0, 0), color="black")
@@ -236,7 +237,7 @@ if EQUATORIAL_EFIELD:
     d = dipole.Dipole(a.time.year)
 
     fig, ax = plt.subplots()
-    for i, t in enumerate(ts):
+    for t in ts:
         if t == 0:
             a.set_time(t + DT, steady_state=True)
         else:
@@ -260,11 +261,11 @@ if EQUATORIAL_EFIELD:
         if t == ts[-1]:
             ax.plot(vr, label="steady state", color="black", linewidth=3)
         else:
-            ax.plot(vr, label="t={} s".format(t))
+            ax.plot(vr, label=f"t={t} s")
     ax.set_title("not entirely accurate -- see dl")
 
     ii = list(map(int, np.linspace(0, len(mlt), 7)))
     ax.set_xticks(ii)
-    ax.set_xticklabels(["{:.0f}".format(x) for x in np.hstack((mlt[ii[:-1]], mlt[0]))])
+    ax.set_xticklabels([f"{x:.0f}" for x in np.hstack((mlt[ii[:-1]], mlt[0]))])
 
     plt.show()

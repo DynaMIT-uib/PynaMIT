@@ -127,7 +127,7 @@ def split_wrapped_curve(lon_values, lat_values, central_longitude=0.0):
         if lon_slice.size >= 2:
             jump_indices = np.where(np.abs(np.diff(lon_slice)) > 180.0)[0] + 1
             split_points = np.r_[0, jump_indices, lon_slice.size]
-            for begin, end in zip(split_points[:-1], split_points[1:]):
+            for begin, end in zip(split_points[:-1], split_points[1:], strict=True):
                 if end - begin >= 2:
                     segments.append((lon_slice[begin:end], lat_slice[begin:end]))
         start_idx = end_idx
@@ -495,7 +495,7 @@ def draw_timeseries_curve_map(
     artists = []
     legend_handles = []
 
-    for layer, values in zip(layers, layer_values):
+    for layer, values in zip(layers, layer_values, strict=True):
         style = _curve_layer_style(layer, default_linewidth)
         layer_zoffset = curve_layer_zoffset(layer)
         if add_legend:

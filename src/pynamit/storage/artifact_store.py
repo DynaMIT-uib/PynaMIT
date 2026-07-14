@@ -6,15 +6,15 @@ The storage API uses fixed artifact names like
 
 from __future__ import annotations
 
-from contextlib import nullcontext
-from datetime import datetime
 import importlib
 import importlib.util
 import os
-from pathlib import Path
 import shutil
 import tempfile
-from typing import Callable
+from collections.abc import Callable
+from contextlib import nullcontext
+from datetime import datetime
+from pathlib import Path
 
 import numpy as np
 import xarray as xr

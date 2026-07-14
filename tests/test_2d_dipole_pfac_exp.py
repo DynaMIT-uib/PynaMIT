@@ -1,7 +1,8 @@
 """Dipole, PFAC and exponential test."""
 
-from pynamit.simulation.workflows.standard import run_pynamit
 import numpy as np
+
+from pynamit.simulation.workflows.standard import run_pynamit
 
 
 def test_2d_dipole_pfac_exp(pynamit_approx):

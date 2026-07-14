@@ -1,10 +1,12 @@
 """Time-series storage for field coefficients."""
 
+from collections.abc import Mapping
+
 import numpy as np
 import pandas as pd
 import xarray as xr
-from pynamit.fields import FieldCoefficients
-from pynamit.fields import FieldSpace
+
+from pynamit.fields import FieldCoefficients, FieldSpace
 
 TIME_TOLERANCE_SECONDS = 1e-6
 _VALUE_CHANGE_RTOL = 1e-6
@@ -25,6 +27,7 @@ class FieldTimeSeries:
         """
         self.variables = self._normalize_variables(variables)
         self.field_spaces = self._normalize_field_spaces(field_spaces)
+        self._variable_field_spaces = self._expand_variable_field_spaces()
 
         # Initialize in-memory series and persistence bookkeeping.
         self.datasets = {}
@@ -33,12 +36,7 @@ class FieldTimeSeries:
         self._full_save_required: dict[str, bool] = {}
         self._storage_kinds: dict[str, str] = {}
 
-        self._coefficient_indexes = {}
-        for key in self.variables.keys():
-            self._coefficient_indexes[key] = pd.MultiIndex.from_arrays(
-                self.field_spaces[key].multiindex_arrays(),
-                names=self.field_spaces[key].index_names,
-            )
+        self._coefficient_layouts = self._build_coefficient_layouts()
 
     def _normalize_variables(self, variables):
         """Return variable-name tuples after schema validation."""
@@ -59,21 +57,90 @@ class FieldTimeSeries:
         if set(field_spaces) != set(self.variables):
             raise ValueError("FieldTimeSeries field_spaces and variables must use the same keys.")
         normalized = {}
-        for key, field_space in field_spaces.items():
-            if not isinstance(field_space, FieldSpace):
+        for key, group_spaces in field_spaces.items():
+            if isinstance(group_spaces, FieldSpace):
+                normalized[key] = group_spaces
+                continue
+            if not isinstance(group_spaces, Mapping):
                 raise TypeError(
-                    "FieldTimeSeries field_spaces values must be FieldSpace instances."
+                    "FieldTimeSeries field_spaces values must be FieldSpace instances "
+                    "or variable-to-FieldSpace mappings."
                 )
-            normalized[key] = field_space
+            expected = set(self.variables[key])
+            if set(group_spaces) != expected:
+                raise ValueError(
+                    f"Field spaces for {key!r} must use variables {sorted(expected)}."
+                )
+            if not all(isinstance(space, FieldSpace) for space in group_spaces.values()):
+                raise TypeError(
+                    "Variable field-space mappings must contain only FieldSpace instances."
+                )
+            normalized[key] = dict(group_spaces)
         return normalized
 
-    def get_field_space(self, key):
-        """Return the field-space descriptor for one stored series."""
-        return self.field_spaces[key]
+    def _expand_variable_field_spaces(self):
+        """Return one explicit field space for every stored variable."""
+        expanded = {}
+        for key, names in self.variables.items():
+            group_spaces = self.field_spaces[key]
+            expanded[key] = (
+                {name: group_spaces for name in names}
+                if isinstance(group_spaces, FieldSpace)
+                else dict(group_spaces)
+            )
+        return expanded
+
+    def _build_coefficient_layouts(self):
+        """Build coefficient dimensions and indexes by variable."""
+        layouts = {}
+        for key, variable_spaces in self._variable_field_spaces.items():
+            signatures = {space.signature for space in variable_spaces.values()}
+            shared_layout = len(signatures) == 1
+            kinds = [space.kind.lower() for space in variable_spaces.values()]
+            unique_kinds = len(set(kinds)) == len(signatures)
+            signature_labels = {}
+            for variable, field_space in variable_spaces.items():
+                signature = field_space.signature
+                if signature in signature_labels:
+                    continue
+                signature_labels[signature] = (
+                    field_space.kind.lower() if unique_kinds else variable.lower()
+                )
+
+            layouts[key] = {}
+            for variable, field_space in variable_spaces.items():
+                label = signature_labels[field_space.signature]
+                dimension = "i" if shared_layout else f"{label}_i"
+                index_names = tuple(
+                    field_space.index_names
+                    if shared_layout
+                    else (f"{label}_{name}" for name in field_space.index_names)
+                )
+                index = pd.MultiIndex.from_arrays(
+                    field_space.multiindex_arrays(), names=index_names
+                )
+                layouts[key][variable] = {
+                    "dimension": dimension,
+                    "index_names": index_names,
+                    "index": index,
+                }
+        return layouts
+
+    def get_field_space(self, key, variable=None):
+        """Return a group or variable field space."""
+        group_spaces = self.field_spaces[key]
+        if isinstance(group_spaces, FieldSpace):
+            return group_spaces
+        if variable is not None:
+            return group_spaces[variable]
+        spaces = tuple(group_spaces.values())
+        if spaces and all(space.signature == spaces[0].signature for space in spaces[1:]):
+            return spaces[0]
+        raise ValueError(f"{key!r} contains multiple field spaces; specify a variable name.")
 
     def get_data_var_name(self, key, var):
         """Return the xarray variable name for one series variable."""
-        return f"{self.get_field_space(key).kind}_{var}"
+        return f"{self.get_field_space(key, var).kind}_{var}"
 
     @staticmethod
     def _time_value(time):
@@ -97,7 +164,6 @@ class FieldTimeSeries:
 
     def _validate_loaded_dataset(self, key, dataset):
         """Validate persisted coefficients against their schema."""
-        field_space = self.get_field_space(key)
         expected_data_vars = {
             self.get_data_var_name(key, variable) for variable in self.variables[key]
         }
@@ -107,7 +173,9 @@ class FieldTimeSeries:
                 f"expected {sorted(expected_data_vars)}."
             )
 
-        required_coordinates = {"time", *field_space.index_names}
+        required_coordinates = {"time"}
+        for layout in self._coefficient_layouts[key].values():
+            required_coordinates.update(layout["index_names"])
         missing_coordinates = required_coordinates - set(dataset.coords)
         if missing_coordinates:
             raise ValueError(
@@ -123,23 +191,30 @@ class FieldTimeSeries:
         if times.size > 1 and np.any(np.diff(times) <= 0.0):
             raise ValueError(f"Persisted {key!r} times must be strictly increasing.")
 
-        for data_var in expected_data_vars:
-            if tuple(dataset[data_var].dims) != ("time", "i"):
+        for variable in self.variables[key]:
+            data_var = self.get_data_var_name(key, variable)
+            dimension = self._coefficient_layouts[key][variable]["dimension"]
+            if tuple(dataset[data_var].dims) != ("time", dimension):
                 raise ValueError(
-                    f"Persisted {data_var!r} dimensions must be ('time', 'i'), "
+                    f"Persisted {data_var!r} dimensions must be ('time', {dimension!r}), "
                     f"got {dataset[data_var].dims}."
                 )
 
-        coefficient_multiindex = pd.MultiIndex.from_arrays(
-            [dataset[name].values for name in field_space.index_names],
-            names=field_space.index_names,
-        )
-        expected_multiindex = self._coefficient_indexes[key]
-        if not coefficient_multiindex.equals(expected_multiindex):
-            raise ValueError(
-                f"Persisted {key!r} coefficient index does not match the simulation schema."
+        indexes = {}
+        for layout in self._coefficient_layouts[key].values():
+            dimension = layout["dimension"]
+            if dimension in indexes:
+                continue
+            index = pd.MultiIndex.from_arrays(
+                [dataset[name].values for name in layout["index_names"]],
+                names=layout["index_names"],
             )
-        return coefficient_multiindex
+            if not index.equals(layout["index"]):
+                raise ValueError(
+                    f"Persisted {key!r} coefficient index does not match the simulation schema."
+                )
+            indexes[dimension] = index
+        return indexes
 
     def load(self, key, store):
         """Load a persisted time-series dataset.
@@ -153,12 +228,18 @@ class FieldTimeSeries:
         dataset = store.load_dataset(key)
 
         if dataset is not None:
-            storage_representation = self.get_field_space(key).representation
-            coefficient_multiindex = self._validate_loaded_dataset(key, dataset)
-            coords = xr.Coordinates.from_pandas_multiindex(coefficient_multiindex, dim="i")
-            self.datasets[key] = dataset.drop_vars(
-                storage_representation.index_names
-            ).assign_coords(coords)
+            coefficient_indexes = self._validate_loaded_dataset(key, dataset)
+            index_names = {
+                name
+                for layout in self._coefficient_layouts[key].values()
+                for name in layout["index_names"]
+            }
+            restored = dataset.drop_vars(index_names)
+            for dimension, index in coefficient_indexes.items():
+                restored = restored.assign_coords(
+                    xr.Coordinates.from_pandas_multiindex(index, dim=dimension)
+                )
+            self.datasets[key] = restored
             self._pending_start[key] = int(self.datasets[key].sizes.get("time", 0))
             self._full_save_required[key] = False
             if storage_kind is not None:
@@ -195,18 +276,21 @@ class FieldTimeSeries:
 
         data_vars = {}
         for var in data:
-            values = FieldCoefficients(self.field_spaces[key], data[var], name=f"{key}.{var}")
+            field_space = self.get_field_space(key, var)
+            values = FieldCoefficients(field_space, data[var], name=f"{key}.{var}")
+            dimension = self._coefficient_layouts[key][var]["dimension"]
             data_vars[self.get_data_var_name(key, var)] = (
-                ["time", "i"],
+                ["time", dimension],
                 values.to_vector().reshape((1, -1)),
             )
 
-        return xr.Dataset(
-            data_vars=data_vars,
-            coords=xr.Coordinates.from_pandas_multiindex(
-                self._coefficient_indexes[key], dim="i"
-            ).merge({"time": [time_value]}),
-        )
+        coords = xr.Coordinates({"time": [time_value]})
+        indexes = {}
+        for layout in self._coefficient_layouts[key].values():
+            indexes.setdefault(layout["dimension"], layout["index"])
+        for dimension, index in indexes.items():
+            coords = coords.merge(xr.Coordinates.from_pandas_multiindex(index, dim=dimension))
+        return xr.Dataset(data_vars=data_vars, coords=coords)
 
     def _merge_entry_dataset(self, key, dataset, time_value):
         """Insert or replace one entry while preserving sorted times."""
@@ -337,7 +421,10 @@ class FieldTimeSeries:
         key : str
             The key identifying which time-series to save.
         """
-        dataset = self.datasets[key].reset_index("i")
+        index_dimensions = sorted(
+            {layout["dimension"] for layout in self._coefficient_layouts[key].values()}
+        )
+        dataset = self.datasets[key].reset_index(index_dimensions)
         time_size = int(dataset.sizes.get("time", 0))
         pending_start = int(self._pending_start.get(key, 0))
         full_save_required = bool(self._full_save_required.get(key, False))

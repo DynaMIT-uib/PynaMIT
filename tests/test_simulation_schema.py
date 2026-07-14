@@ -87,34 +87,39 @@ def test_sh_schema_uses_mean_free_sh_inputs_and_outputs():
     assert schema.input_field_spaces["u"].representation is schema.mean_free_sh_basis
     assert schema.input_field_spaces["Q_eff"].representation is schema.mean_free_sh_basis
     assert schema.input_field_spaces["resistance"].representation is schema.sh_basis
-    assert schema.output_field_spaces["state"].representation is schema.horizontal_basis
+    assert all(
+        space.representation is schema.horizontal_basis
+        for space in schema.output_field_spaces["state"].values()
+    )
 
     assert schema.input_field_spaces["jr"].mean_free
     assert schema.input_field_spaces["Br"].mean_free
     assert schema.input_field_spaces["u"].mean_free
     assert schema.input_field_spaces["Q_eff"].mean_free
     assert not schema.input_field_spaces["resistance"].mean_free
-    assert schema.output_field_spaces["state"].mean_free
+    assert all(space.mean_free for space in schema.output_field_spaces["state"].values())
 
 
-def test_cs_schema_uses_full_length_storage_with_mean_free_intent():
-    """CS mode stores full grid coefficients with zero-mean intent."""
+def test_cs_schema_separates_magnetic_and_surface_state_spaces():
+    """Keep radial magnetic quantities in mean-free SH space."""
     schema = build_simulation_schema(_settings(horizontal_basis_kind="cs"))
 
     assert schema.horizontal_basis is schema.cs_basis
     assert schema.solid_harmonics.basis is schema.mean_free_sh_basis
+    assert schema.input_field_spaces["Br"].representation is schema.mean_free_sh_basis
     assert all(
-        space.representation is schema.cs_basis for space in schema.input_field_spaces.values()
-    )
-    assert all(
-        space.representation is schema.cs_basis for space in schema.output_field_spaces.values()
+        space.representation is schema.cs_basis
+        for key, space in schema.input_field_spaces.items()
+        if key != "Br"
     )
     assert all(basis is schema.cs_basis for basis in schema.input_projection_bases.values())
 
-    state_space = schema.output_field_spaces["state"]
-    assert state_space.mean_free
-    assert state_space.index_length == schema.cs_basis.index_length
-    assert state_space.coefficient_length == schema.cs_basis.index_length
+    state_spaces = schema.output_field_spaces["state"]
+    assert state_spaces["m_ind"].representation is schema.mean_free_sh_basis
+    assert all(
+        state_spaces[name].representation is schema.cs_basis for name in ("m_imp", "Phi", "W")
+    )
+    assert all(space.mean_free for space in state_spaces.values())
 
 
 def test_schema_respects_input_projection_basis_for_sh_mode():
@@ -162,9 +167,9 @@ def test_field_spaces_from_bases_requires_matching_keys():
 
 
 def test_schema_mean_free_projection_is_operational_for_cs_state_space():
-    """Schema FieldSpace metadata can project CS coefficients."""
+    """Surface-state metadata applies the CS mean-free gauge."""
     schema = build_simulation_schema(_settings(horizontal_basis_kind="CS"))
-    field_space = schema.output_field_spaces["state"]
+    field_space = schema.output_field_spaces["state"]["m_imp"]
     coeffs = np.linspace(0.0, 1.0, field_space.index_length) + 5.0
 
     projected = field_space.project_mean_free(coeffs)
@@ -181,3 +186,5 @@ def test_schema_mappings_cannot_be_mutated_after_construction():
         schema.input_variables["new"] = ("value",)
     with pytest.raises(TypeError):
         schema.input_field_spaces["jr"] = schema.output_field_spaces["state"]
+    with pytest.raises(TypeError):
+        schema.output_field_spaces["state"]["m_ind"] = schema.input_field_spaces["jr"]

@@ -12,10 +12,10 @@ from __future__ import annotations
 import json
 import os
 from copy import deepcopy
-from functools import lru_cache
+from functools import cache, lru_cache
 from importlib import import_module, resources
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -27,46 +27,25 @@ if _INPUT_SOURCE == "auto":
     _INPUT_SOURCE = "native"
 
 
-class OptionalLibs:
-    """Proxy that attempts to import optional dependencies lazily."""
+@cache
+def _load_optional_module(name: str, package: str) -> Any | None:
+    """Import and cache one optional input dependency."""
+    if _INPUT_SOURCE == "fallback":
+        return None
 
-    def __init__(self) -> None:
-        self._imports: Dict[str, Optional[Any]] = {}
-
-    def clear(self) -> None:
-        """Clear cached imports."""
-        self._imports.clear()
-
-    def load(self, name: str, package: str) -> Optional[Any]:
-        """Attempt to import an optional dependency."""
-        if _INPUT_SOURCE == "fallback":
-            return None
-
-        if name in self._imports:
-            return self._imports[name]
-
-        module: Optional[Any]
+    try:
+        if name == package:
+            return import_module(package)
         try:
-            if name == package:
-                module = import_module(package)
-            else:
-                try:
-                    module = import_module(f"{package}.{name}")
-                except ModuleNotFoundError:
-                    parent = import_module(package)
-                    module = getattr(parent, name)
-        except Exception as exc:
-            raise RuntimeError(
-                f"Native input source {package!r} is not available. "
-                "Install the native input dependencies or explicitly call "
-                "set_input_source('fallback') to use bundled sample data."
-            ) from exc
-
-        self._imports[name] = module
-        return module
-
-
-OPTIONAL = OptionalLibs()
+            return import_module(f"{package}.{name}")
+        except ModuleNotFoundError:
+            return getattr(import_module(package), name)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Native input source {package!r} is not available. "
+            "Install the native input dependencies or explicitly call "
+            "set_input_source('fallback') to use bundled sample data."
+        ) from exc
 
 
 def native_inputs_available() -> bool:
@@ -76,7 +55,7 @@ def native_inputs_available() -> bool:
             import_module("lompe.conductance")
         except ModuleNotFoundError:
             module = import_module("lompe")
-            getattr(module, "conductance")
+            _ = module.conductance
         import_module("pyamps")
         import_module("pyhwm2014")
     except Exception:
@@ -89,7 +68,7 @@ def get_input_source() -> str:
     return _INPUT_SOURCE
 
 
-def set_input_source(source: Optional[str]) -> str:
+def set_input_source(source: str | None) -> str:
     """Set the preferred input source mode."""
     global _INPUT_SOURCE
 
@@ -103,14 +82,14 @@ def set_input_source(source: Optional[str]) -> str:
         raise ValueError("Input source must be 'fallback' or 'native'.")
 
     _INPUT_SOURCE = normalized
-    OPTIONAL.clear()
+    _load_optional_module.cache_clear()
 
     os.environ["PYNAMIT_INPUT_SOURCE"] = normalized
 
     return _INPUT_SOURCE
 
 
-def _read_fallback(path: Optional[os.PathLike[str] | str] = None) -> Dict[str, Any]:
+def _read_fallback(path: os.PathLike[str] | str | None = None) -> dict[str, Any]:
     """Read and normalize one fallback-input dataset."""
     if path is None:
         with resources.as_file(FALLBACK_RESOURCE) as resource_path:
@@ -151,7 +130,7 @@ def _read_fallback(path: Optional[os.PathLike[str] | str] = None) -> Dict[str, A
             },
         }
 
-    fallback: Dict[str, Any] = {
+    fallback: dict[str, Any] = {
         "version": int(payload.get("version", 2)),
         "time": np.asarray(payload.get("time", [0.0])),
         "wind": {
@@ -183,19 +162,19 @@ def _read_fallback(path: Optional[os.PathLike[str] | str] = None) -> Dict[str, A
 
 
 @lru_cache(maxsize=1)
-def _bundled_fallback() -> Dict[str, Any]:
+def _bundled_fallback() -> dict[str, Any]:
     """Return the process-local parsed bundled fallback data."""
     return _read_fallback()
 
 
-def _load_fallback(path: Optional[os.PathLike[str] | str] = None) -> Dict[str, Any]:
+def _load_fallback(path: os.PathLike[str] | str | None = None) -> dict[str, Any]:
     """Load fallback data, returning values owned by the caller."""
     if path is not None:
         return _read_fallback(path)
     return deepcopy(_bundled_fallback())
 
 
-def _expand_time_series(data: np.ndarray, time: Optional[np.ndarray]) -> np.ndarray:
+def _expand_time_series(data: np.ndarray, time: np.ndarray | None) -> np.ndarray:
     base = np.asarray(data).reshape(-1)
     if time is None or time.size <= 1:
         return base
@@ -213,11 +192,11 @@ def save_fallback_dataset(
     jr: np.ndarray,
     u_theta: np.ndarray,
     u_phi: np.ndarray,
-    time: Optional[np.ndarray] = None,
+    time: np.ndarray | None = None,
     grid_id: str = "default",
-    wind_lat: Optional[np.ndarray] = None,
-    wind_lon: Optional[np.ndarray] = None,
-    indent: Optional[int] = 2,
+    wind_lat: np.ndarray | None = None,
+    wind_lon: np.ndarray | None = None,
+    indent: int | None = 2,
 ) -> Path:
     """Save a fallback input dataset to a JSON file."""
     destination_path = Path(destination)
@@ -266,12 +245,12 @@ def save_fallback_dataset(
 
 
 def _select_fallback_entry(
-    entries: Dict[str, Dict[str, np.ndarray]], lat: np.ndarray, lon: np.ndarray, quantity: str
-) -> Dict[str, np.ndarray]:
+    entries: dict[str, dict[str, np.ndarray]], lat: np.ndarray, lon: np.ndarray, quantity: str
+) -> dict[str, np.ndarray]:
     if not entries:
         raise ValueError(f"No fallback {quantity} data available.")
 
-    def _entry_sort_key(value: str) -> Tuple[int, Any]:
+    def _entry_sort_key(value: str) -> tuple[int, Any]:
         try:
             return (0, int(value))
         except ValueError:
@@ -282,7 +261,7 @@ def _select_fallback_entry(
         return entries[key]
 
     target_hash = Grid(lat=lat, lon=lon).hash
-    for key, entry in entries.items():
+    for entry in entries.values():
         entry_lat = np.asarray(entry["lat"])
         entry_lon = np.asarray(entry["lon"])
         if entry_lat.size != lat.size or entry_lon.size != lon.size:
@@ -298,11 +277,11 @@ def _select_fallback_entry(
 
 
 def get_conductance_inputs(
-    date: Any, lat: np.ndarray, lon: np.ndarray, time: Optional[np.ndarray]
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    date: Any, lat: np.ndarray, lon: np.ndarray, time: np.ndarray | None
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Return Hall and Pedersen conductance on grid."""
     source = get_input_source()
-    conductance = OPTIONAL.load("conductance", "lompe")
+    conductance = _load_optional_module("conductance", "lompe")
     if conductance is not None:
         hall, pedersen = conductance.hardy_EUV(lon, lat, 5, date, starlight=1, dipole=True)
         hall = _expand_time_series(hall, time)
@@ -320,12 +299,12 @@ def get_conductance_inputs(
 
 
 def get_jr_inputs(
-    date: Any, lat: np.ndarray, lon: np.ndarray, time: Optional[np.ndarray]
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    date: Any, lat: np.ndarray, lon: np.ndarray, time: np.ndarray | None
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Return upward current density on the requested grid."""
     source = get_input_source()
-    dipole = OPTIONAL.load("dipole", "dipole")
-    pyamps = OPTIONAL.load("pyamps", "pyamps")
+    dipole = _load_optional_module("dipole", "dipole")
+    pyamps = _load_optional_module("pyamps", "pyamps")
 
     if dipole is not None and pyamps is not None:
         d = dipole.Dipole(date.year)
@@ -351,14 +330,14 @@ def get_jr_inputs(
 
 
 def get_wind_inputs(
-    date: Any, use_wind: bool, time: Optional[np.ndarray]
-) -> Optional[Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Optional[np.ndarray]]]:
+    date: Any, use_wind: bool, time: np.ndarray | None
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray | None] | None:
     """Return neutral wind components if requested."""
     if not use_wind:
         return None
 
     source = get_input_source()
-    pyhwm2014 = OPTIONAL.load("pyhwm2014", "pyhwm2014")
+    pyhwm2014 = _load_optional_module("pyhwm2014", "pyhwm2014")
     if pyhwm2014 is not None:
         model = pyhwm2014.HWM142D(
             alt=110.0,

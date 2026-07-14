@@ -6,15 +6,15 @@ spherical-basis coefficients and grid values.
 
 import numpy as np
 
-from pynamit.math.backend import get_array_module, to_numpy
+from pynamit.math.backend import get_array_module
+from pynamit.math.least_squares_problem import LeastSquaresProblem
+from pynamit.math.least_squares_solver import LeastSquaresSolver, get_default_least_squares_solver
 from pynamit.math.linear_map import (
     LinearMap,
     as_linear_map,
     diagonal_linear_map,
     is_noop_linear_map,
 )
-from pynamit.math.least_squares_problem import LeastSquaresProblem
-from pynamit.math.least_squares_solver import LeastSquaresSolver, get_default_least_squares_solver
 from pynamit.sphere.core import SurfaceOperators
 from pynamit.sphere.grid import Grid
 
@@ -62,8 +62,8 @@ class SphericalTransform:
 
     def __init__(
         self,
-        source,
-        target,
+        basis,
+        grid,
         *,
         grid_remap_basis=None,
         sqrt_weights=None,
@@ -71,22 +71,22 @@ class SphericalTransform:
         pinv_rtol=1e-15,
         area_weighted=False,
     ):
-        """Initialize a transform from ``source`` to ``target``."""
-        if not isinstance(source, SurfaceOperators):
-            raise TypeError("SphericalTransform source must implement SurfaceOperators.")
-        if not isinstance(target, Grid):
-            raise TypeError("SphericalTransform target must be a Grid.")
-        source.validate_metadata()
-        self.source = source
-        self.target = target
+        """Initialize a transform between ``basis`` and ``grid``."""
+        if not isinstance(basis, SurfaceOperators):
+            raise TypeError("SphericalTransform basis must implement SurfaceOperators.")
+        if not isinstance(grid, Grid):
+            raise TypeError("SphericalTransform grid must be a Grid.")
+        basis.validate_metadata()
+        self.basis = basis
+        self.grid = grid
         self.grid_remap_basis = grid_remap_basis
         self.explicit_sqrt_weights = sqrt_weights is not None
         self.area_weighted = bool(area_weighted)
         self.sqrt_weights = resolve_sqrt_weights(
-            target, sqrt_weights=sqrt_weights, area_weighted=area_weighted
+            grid, sqrt_weights=sqrt_weights, area_weighted=area_weighted
         )
         self.helmholtz_sqrt_weights = resolve_sqrt_weights(
-            target, sqrt_weights=sqrt_weights, area_weighted=area_weighted, vector=True
+            grid, sqrt_weights=sqrt_weights, area_weighted=area_weighted, vector=True
         )
         self.reg_lambda = reg_lambda
         self.pinv_rtol = pinv_rtol
@@ -95,23 +95,23 @@ class SphericalTransform:
         self._helmholtz_least_squares_problem = None
         self._input_transforms = {}
 
-    def _evaluate_source_on_target(self, derivative=None):
-        """Evaluate the source on the target grid."""
-        return self.source.get_scalar_evaluation_matrix(self.target, derivative=derivative)
+    def _evaluate_basis_on_grid(self, derivative=None):
+        """Evaluate the basis on the transform grid."""
+        return self.basis.get_scalar_evaluation_matrix(self.grid, derivative=derivative)
 
     @property
     def scalar_coeffs_to_grid(self):
         """Matrix mapping scalar coefficients to grid values."""
         if not hasattr(self, "_scalar_coeffs_to_grid"):
-            self._scalar_coeffs_to_grid = self._evaluate_source_on_target()
+            self._scalar_coeffs_to_grid = self._evaluate_basis_on_grid()
         return self._scalar_coeffs_to_grid
 
     @property
     def scalar_coeffs_to_grid_operator(self):
         """Operator mapping scalar coefficients to grid values."""
         if not hasattr(self, "_scalar_coeffs_to_grid_operator"):
-            self._scalar_coeffs_to_grid_operator = self.source.get_scalar_evaluation_operator(
-                self.target
+            self._scalar_coeffs_to_grid_operator = self.basis.get_scalar_evaluation_operator(
+                self.grid
             )
         return self._scalar_coeffs_to_grid_operator
 
@@ -124,7 +124,7 @@ class SphericalTransform:
                     self._scalar_coeffs_to_gridded_gradient[0]
                 )
             else:
-                self._scalar_coeffs_to_gridded_theta_derivative = self._evaluate_source_on_target(
+                self._scalar_coeffs_to_gridded_theta_derivative = self._evaluate_basis_on_grid(
                     derivative="theta"
                 )
         return self._scalar_coeffs_to_gridded_theta_derivative
@@ -134,7 +134,7 @@ class SphericalTransform:
         """Operator evaluating the theta derivative."""
         if not hasattr(self, "_scalar_coeffs_to_gridded_theta_derivative_operator"):
             self._scalar_coeffs_to_gridded_theta_derivative_operator = (
-                self.source.get_scalar_evaluation_operator(self.target, derivative="theta")
+                self.basis.get_scalar_evaluation_operator(self.grid, derivative="theta")
             )
         return self._scalar_coeffs_to_gridded_theta_derivative_operator
 
@@ -147,7 +147,7 @@ class SphericalTransform:
                     self._scalar_coeffs_to_gridded_gradient[1]
                 )
             else:
-                self._scalar_coeffs_to_gridded_phi_derivative = self._evaluate_source_on_target(
+                self._scalar_coeffs_to_gridded_phi_derivative = self._evaluate_basis_on_grid(
                     derivative="phi"
                 )
         return self._scalar_coeffs_to_gridded_phi_derivative
@@ -157,7 +157,7 @@ class SphericalTransform:
         """Operator evaluating the phi derivative."""
         if not hasattr(self, "_scalar_coeffs_to_gridded_phi_derivative_operator"):
             self._scalar_coeffs_to_gridded_phi_derivative_operator = (
-                self.source.get_scalar_evaluation_operator(self.target, derivative="phi")
+                self.basis.get_scalar_evaluation_operator(self.grid, derivative="phi")
             )
         return self._scalar_coeffs_to_gridded_phi_derivative_operator
 
@@ -165,8 +165,8 @@ class SphericalTransform:
     def scalar_coeffs_to_gridded_gradient(self):
         """Matrix evaluating the horizontal gradient."""
         if not hasattr(self, "_scalar_coeffs_to_gridded_gradient"):
-            self._scalar_coeffs_to_gridded_gradient = self.source.get_surface_gradient_matrix(
-                self.target
+            self._scalar_coeffs_to_gridded_gradient = self.basis.get_surface_gradient_matrix(
+                self.grid
             )
         return self._scalar_coeffs_to_gridded_gradient
 
@@ -175,7 +175,7 @@ class SphericalTransform:
         """Operator evaluating the horizontal gradient."""
         if not hasattr(self, "_scalar_coeffs_to_gridded_gradient_operator"):
             self._scalar_coeffs_to_gridded_gradient_operator = (
-                self.source.get_surface_gradient_operator(self.target)
+                self.basis.get_surface_gradient_operator(self.grid)
             )
         return self._scalar_coeffs_to_gridded_gradient_operator
 
@@ -184,7 +184,7 @@ class SphericalTransform:
         """Matrix evaluating r-hat x horizontal gradient."""
         if not hasattr(self, "_scalar_coeffs_to_gridded_rhat_cross_gradient"):
             self._scalar_coeffs_to_gridded_rhat_cross_gradient = (
-                self.source.get_rhat_cross_gradient_matrix(self.target)
+                self.basis.get_rhat_cross_gradient_matrix(self.grid)
             )
         return self._scalar_coeffs_to_gridded_rhat_cross_gradient
 
@@ -193,7 +193,7 @@ class SphericalTransform:
         """Operator evaluating r-hat x horizontal gradient."""
         if not hasattr(self, "_scalar_coeffs_to_gridded_rhat_cross_gradient_operator"):
             self._scalar_coeffs_to_gridded_rhat_cross_gradient_operator = (
-                self.source.get_rhat_cross_gradient_operator(self.target)
+                self.basis.get_rhat_cross_gradient_operator(self.grid)
             )
         return self._scalar_coeffs_to_gridded_rhat_cross_gradient_operator
 
@@ -212,7 +212,7 @@ class SphericalTransform:
                 )
             else:
                 self._helmholtz_coeffs_to_gridded_vector = (
-                    self.source.get_helmholtz_synthesis_matrix(self.target)
+                    self.basis.get_helmholtz_synthesis_matrix(self.grid)
                 )
         return self._helmholtz_coeffs_to_gridded_vector
 
@@ -221,7 +221,7 @@ class SphericalTransform:
         """Operator evaluating horizontal vector field expansions."""
         if not hasattr(self, "_helmholtz_coeffs_to_gridded_vector_operator"):
             self._helmholtz_coeffs_to_gridded_vector_operator = (
-                self.source.get_helmholtz_synthesis_operator(self.target)
+                self.basis.get_helmholtz_synthesis_operator(self.grid)
             )
         return self._helmholtz_coeffs_to_gridded_vector_operator
 
@@ -256,62 +256,42 @@ class SphericalTransform:
         return self.helmholtz_coeffs_to_gridded_vector
 
     @property
-    def L(self):
-        """Degree-weighted regularization matrix for scalar fields."""
-        if not hasattr(self, "_L"):
-            if self.reg_lambda is None:
-                self._L = None
-            else:
-                self._L = np.asarray(self.L_operator.to_matrix(backend="numpy"))
-        return self._L
-
-    @property
-    def L_operator(self):
+    def scalar_regularization_operator(self):
         """Degree-weighted regularization operator for scalar fields."""
-        if not hasattr(self, "_L_operator"):
+        if not hasattr(self, "_scalar_regularization_operator"):
             if self.reg_lambda is None:
-                self._L_operator = None
+                self._scalar_regularization_operator = None
             else:
-                if not hasattr(self.source, "n"):
+                if not hasattr(self.basis, "n"):
                     raise NotImplementedError(
                         "Degree-weighted scalar regularization requires basis.n."
                     )
-                self._L_operator = diagonal_linear_map(
-                    np.asarray(self.source.n),
-                    input_shape=(self.source.index_length,),
-                    output_shape=(self.source.index_length,),
+                self._scalar_regularization_operator = diagonal_linear_map(
+                    np.asarray(self.basis.n),
+                    input_shape=(self.basis.index_length,),
+                    output_shape=(self.basis.index_length,),
                 )
-        return self._L_operator
+        return self._scalar_regularization_operator
 
     @property
-    def L_helmholtz(self):
-        """Degree-weighted regularization for Helmholtz fields."""
-        if not hasattr(self, "_L_helmholtz"):
-            if self.reg_lambda is None:
-                self._L_helmholtz = None
-            else:
-                self._L_helmholtz = to_numpy(self.L_helmholtz_operator.array)
-        return self._L_helmholtz
-
-    @property
-    def L_helmholtz_operator(self):
+    def helmholtz_regularization_operator(self):
         """Degree-weighted Helmholtz regularization operator."""
-        if not hasattr(self, "_L_helmholtz_operator"):
+        if not hasattr(self, "_helmholtz_regularization_operator"):
             if self.reg_lambda is None:
-                self._L_helmholtz_operator = None
+                self._helmholtz_regularization_operator = None
             else:
-                if not hasattr(self.source, "n"):
+                if not hasattr(self.basis, "n"):
                     raise NotImplementedError(
                         "Degree-weighted Helmholtz regularization requires basis.n."
                     )
-                n = np.asarray(self.source.n)
+                n = np.asarray(self.basis.n)
                 weights = np.stack([n * (n + 1) / (2 * n + 1), (n + 1) / 2], axis=0)
-                self._L_helmholtz_operator = diagonal_linear_map(
+                self._helmholtz_regularization_operator = diagonal_linear_map(
                     weights.reshape(-1),
-                    input_shape=(2, self.source.index_length),
-                    output_shape=(2, self.source.index_length),
+                    input_shape=(2, self.basis.index_length),
+                    output_shape=(2, self.basis.index_length),
                 )
-        return self._L_helmholtz_operator
+        return self._helmholtz_regularization_operator
 
     @property
     def scalar_least_squares_problem(self) -> LeastSquaresProblem:
@@ -319,11 +299,11 @@ class SphericalTransform:
         if self._scalar_least_squares_problem is None:
             self._scalar_least_squares_problem = LeastSquaresProblem(
                 A=self.scalar_coeffs_to_grid_operator,
-                solution_shape=self.source.index_length,
-                data_shapes=self.target.size,
+                solution_shape=self.basis.index_length,
+                data_shapes=self.grid.size,
                 sqrt_weights=self.sqrt_weights,
                 regularization_weights=self.reg_lambda,
-                regularization_matrices=self.L_operator,
+                regularization_matrices=self.scalar_regularization_operator,
             )
         return self._scalar_least_squares_problem
 
@@ -333,11 +313,11 @@ class SphericalTransform:
         if self._helmholtz_least_squares_problem is None:
             self._helmholtz_least_squares_problem = LeastSquaresProblem(
                 A=self.helmholtz_coeffs_to_gridded_vector_operator,
-                solution_shape=(2, self.source.index_length),
-                data_shapes=(2, self.target.size),
+                solution_shape=(2, self.basis.index_length),
+                data_shapes=(2, self.grid.size),
                 sqrt_weights=self.helmholtz_sqrt_weights,
                 regularization_weights=self.reg_lambda,
-                regularization_matrices=self.L_helmholtz_operator,
+                regularization_matrices=self.helmholtz_regularization_operator,
             )
         return self._helmholtz_least_squares_problem
 
@@ -348,17 +328,17 @@ class SphericalTransform:
         return solver.solve(problem=problem, rhs=grid_values)
 
     def synthesize_scalar(self, coeffs, derivative=None):
-        """Synthesize scalar coefficients on the target grid."""
+        """Synthesize scalar coefficients on the transform grid."""
         coeff_array = self._coefficient_array(coeffs, preserve_backend=True)
         return self._coefficients_to_grid(coeff_array, derivative=derivative)
 
     def synthesize_helmholtz(self, coeffs):
-        """Synthesize Helmholtz coefficients on the target grid."""
+        """Synthesize Helmholtz coefficients on the transform grid."""
         coeff_array = self._coefficient_array(coeffs, helmholtz=True, preserve_backend=True)
         return self._coefficients_to_grid(coeff_array, helmholtz=True)
 
     def analyze_scalar(self, grid_values, solver_type=None):
-        """Analyze scalar grid values into source coefficients."""
+        """Analyze scalar grid values into basis coefficients."""
         if self._scalar_analysis_is_noop():
             return grid_values
         return self._solve_least_squares(
@@ -371,15 +351,21 @@ class SphericalTransform:
             self.helmholtz_least_squares_problem, grid_values, solver_type
         )
 
-    def scalar_regularization_term(self, coeffs):
-        """Return the scalar regularization term."""
+    def apply_scalar_regularization(self, coeffs):
+        """Apply scalar degree regularization to coefficients."""
+        operator = self.scalar_regularization_operator
+        if operator is None:
+            raise RuntimeError("Scalar regularization requires reg_lambda to be configured.")
         coeff_array = self._coefficient_array(coeffs)
-        return np.dot(coeff_array, self.L_operator.matvec(coeff_array))
+        return operator.matvec(coeff_array)
 
-    def helmholtz_regularization_term(self, coeffs):
-        """Return the Helmholtz regularization term."""
+    def apply_helmholtz_regularization(self, coeffs):
+        """Apply Helmholtz degree regularization to coefficients."""
+        operator = self.helmholtz_regularization_operator
+        if operator is None:
+            raise RuntimeError("Helmholtz regularization requires reg_lambda to be configured.")
         coeff_array = self._coefficient_array(coeffs, helmholtz=True)
-        return self.L_helmholtz_operator.matvec(coeff_array.reshape(-1)).reshape(coeff_array.shape)
+        return operator.matvec(coeff_array.reshape(-1)).reshape(coeff_array.shape)
 
     def project_scalar(
         self,
@@ -391,7 +377,7 @@ class SphericalTransform:
         reg_lambda=None,
         pinv_rtol=1e-15,
     ):
-        """Project scalar grid values to source-coefficient rows."""
+        """Project scalar grid values to basis-coefficient rows."""
         return self._project(
             values,
             input_grid=input_grid,
@@ -458,7 +444,7 @@ class SphericalTransform:
             analysis_transform = self
             grid_values = (
                 value_batch
-                if input_grid.same_as(self.target)
+                if input_grid.same_as(self.grid)
                 else self._remap_batch_to_grid(value_batch, input_grid, helmholtz=helmholtz)
             )
 
@@ -480,14 +466,14 @@ class SphericalTransform:
         """Return whether scalar analysis is a no-op."""
         return is_noop_linear_map(
             self.scalar_coeffs_to_grid_operator,
-            input_shape=(self.source.index_length,),
-            output_shape=(self.target.size,),
+            input_shape=(self.basis.index_length,),
+            output_shape=(self.grid.size,),
         )
 
     def _coefficient_array(self, coeffs, *, helmholtz=False, preserve_backend=False):
         """Return validated coefficient values."""
         values = getattr(coeffs, "array", coeffs)
-        shape = (2, self.source.index_length) if helmholtz else (self.source.index_length,)
+        shape = (2, self.basis.index_length) if helmholtz else (self.basis.index_length,)
         expected_size = int(np.prod(shape))
         size = getattr(values, "size", None)
         if size is None:
@@ -526,7 +512,7 @@ class SphericalTransform:
         ):
             raise ValueError("operator must be a vector, matrix, or LinearMap.")
         try:
-            op = as_linear_map(operator, output_shape=(self.source.index_length,))
+            op = as_linear_map(operator, output_shape=(self.basis.index_length,))
         except ValueError as exc:
             raise ValueError("operator must be a vector, matrix, or LinearMap.") from exc
 
@@ -585,13 +571,13 @@ class SphericalTransform:
 
     def _validate_direct_projection_basis(self, projection_basis):
         """Raise if direct-fit coefficients would not match storage."""
-        if self.source is projection_basis:
+        if self.basis is projection_basis:
             return
-        compatible = getattr(self.source, "coefficients_are_compatible_with", None)
+        compatible = getattr(self.basis, "coefficients_are_compatible_with", None)
         if callable(compatible) and compatible(projection_basis):
             return
         raise ValueError(
-            "Direct projection basis is not coefficient-compatible with the transform source."
+            "Direct projection basis is not coefficient-compatible with the transform basis."
         )
 
     def _get_input_transform(
@@ -634,7 +620,7 @@ class SphericalTransform:
             raise TypeError(
                 f"Grid-to-grid projection requires grid_remap_basis to provide {method_name}()."
             )
-        operator = remap_operator(input_grid, self.target)
+        operator = remap_operator(input_grid, self.grid)
         try:
             return as_linear_map(operator, input_shape=input_shape, output_shape=output_shape)
         except (TypeError, ValueError) as exc:
@@ -649,10 +635,10 @@ class SphericalTransform:
             "scalar_grid_remap_operator",
             input_grid,
             input_shape=(input_grid.size,),
-            output_shape=(self.target.size,),
+            output_shape=(self.grid.size,),
         )
         interpolated = operator.matmat(np.asarray(value_batch).T)
-        return np.asarray(interpolated).reshape(self.target.size, -1).T
+        return np.asarray(interpolated).reshape(self.grid.size, -1).T
 
     def _helmholtz_batch_remap_to_grid(self, value_batch, input_grid):
         """Apply the tangential grid remap to field rows."""
@@ -661,10 +647,10 @@ class SphericalTransform:
             "tangential_grid_remap_operator",
             input_grid,
             input_shape=(2, input_grid.size),
-            output_shape=(2, self.target.size),
+            output_shape=(2, self.grid.size),
         )
         interpolated = operator.matmat(values.reshape(values.shape[0], -1).T)
-        return np.moveaxis(np.asarray(interpolated).reshape(2, self.target.size, -1), -1, 0)
+        return np.moveaxis(np.asarray(interpolated).reshape(2, self.grid.size, -1), -1, 0)
 
     def _remap_batch_to_grid(self, value_batch, input_grid, *, helmholtz):
         """Apply grid remap operators to field slices."""

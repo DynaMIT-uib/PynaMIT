@@ -1,19 +1,21 @@
 """Tests for main-field model conventions."""
 
 import datetime as dt
-import numpy as np
+
 import dipole
+import numpy as np
 import pytest
 
-from pynamit.math.constants import RE
+from pynamit.geomagnetism import MainField
 from pynamit.geomagnetism.kaiju_geopack import (
+    KaijuGeopackSM,
     axis_lat_lon,
     kaiju_geopack_coefficients,
     kaiju_geopack_dipole,
     kaiju_geopack_sm,
 )
+from pynamit.math.constants import RE
 from pynamit.simulation.config import SimulationConfig
-from pynamit.geomagnetism import MainField
 from pynamit.simulation.geometry import build_main_field
 
 
@@ -226,6 +228,37 @@ def test_kaiju_sm_transform_round_trips_coordinates_and_vectors():
     np.testing.assert_allclose(((geo_lon - lon + 180.0) % 360.0) - 180.0, 0.0, atol=1e-12)
     np.testing.assert_allclose(geo_east, east, atol=1e-12)
     np.testing.assert_allclose(geo_north, north, atol=1e-12)
+
+
+def test_kaiju_sm_transform_owns_an_immutable_rotation_matrix():
+    """SM transforms cannot be changed through caller-owned arrays."""
+    reference = kaiju_geopack_sm(2011.0)
+    supplied_matrix = reference.geo_to_sm_matrix.copy()
+
+    transform = KaijuGeopackSM(reference.epoch, reference.coefficients, supplied_matrix)
+    supplied_matrix[0, 0] = 0.0
+
+    np.testing.assert_allclose(transform.geo_to_sm_matrix, reference.geo_to_sm_matrix)
+    assert not transform.geo_to_sm_matrix.flags.writeable
+    with pytest.raises(ValueError, match="read-only"):
+        transform.geo_to_sm_matrix[0, 0] = 0.0
+
+
+@pytest.mark.parametrize(
+    ("matrix", "message"),
+    [
+        (np.ones((2, 2)), "shape"),
+        (np.full((3, 3), np.nan), "finite"),
+        (np.diag([1.0, 1.0, 2.0]), "orthogonal"),
+        (np.diag([1.0, 1.0, -1.0]), "proper rotation"),
+    ],
+)
+def test_kaiju_sm_transform_rejects_invalid_rotation_matrices(matrix, message):
+    """SM transforms validate rotation invariants at construction."""
+    reference = kaiju_geopack_sm(2011.0)
+
+    with pytest.raises(ValueError, match=message):
+        KaijuGeopackSM(reference.epoch, reference.coefficients, matrix)
 
 
 def test_dipole_magnetic_latitude_trace_uses_geographic_conversion():

@@ -4,11 +4,6 @@ import datetime as dt
 
 import numpy as np
 
-from pynamit.math.constants import RE, mu0
-from pynamit.storage import ArtifactStore
-from pynamit.simulation.api import Simulation
-from pynamit.sphere import SHBasis
-from pynamit.sphere import SolidHarmonics
 from pynamit.coordinates import (
     datetime_to_utc_hours,
     local_noon_longitude,
@@ -18,9 +13,15 @@ from pynamit.coordinates import (
     longitude_to_local_time_hours,
     wrap_longitude_180,
 )
-from pynamit.visualization.grid_evaluation import build_evaluator
-from pynamit.visualization.grid_evaluation import build_plot_grid
-from pynamit.visualization.grid_evaluation import build_JS_operators
+from pynamit.math.constants import RE, mu0
+from pynamit.simulation.api import Simulation
+from pynamit.sphere import SHBasis, SolidHarmonics
+from pynamit.storage import ArtifactStore
+from pynamit.visualization.grid_evaluation import (
+    build_evaluator,
+    build_JS_operators,
+    build_plot_grid,
+)
 from pynamit.visualization.hemisphere import (
     coerce_hemisphere_min_abs_latitude,
     hemisphere_masks_for_latitude,

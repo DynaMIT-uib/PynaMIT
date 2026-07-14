@@ -4,7 +4,7 @@ import numpy as np
 
 from pynamit.math.constants import mu0
 from pynamit.visualization.field_maps import evaluate_JS_from_maps
-from pynamit.visualization.grid_evaluation import transform_for_source
+from pynamit.visualization.grid_evaluation import transform_for_basis
 
 
 def current_output_key(simulation, preferred=None):
@@ -35,11 +35,11 @@ def current_output_entry(simulation, key=None):
 def evaluate_Br_coefficients(geometry, m_ind, transform):
     """Evaluate radial magnetic perturbation from ``m_ind``."""
     coeffs = geometry.m_ind_to_Br_operator.matvec(m_ind)
-    return transform_for_source(geometry.horizontal_basis, transform).synthesize_scalar(coeffs)
+    return geometry.solid_harmonic_transform_for(transform).synthesize_scalar(coeffs)
 
 
 def evaluate_Br(simulation, transform, *, key=None):
-    """Evaluate radial magnetic perturbation on ``transform.target``."""
+    """Evaluate radial magnetic perturbation on ``transform.grid``."""
     entry = current_output_entry(simulation, key=key)
     return evaluate_Br_coefficients(simulation.geometry, entry["m_ind"], transform)
 
@@ -47,11 +47,11 @@ def evaluate_Br(simulation, transform, *, key=None):
 def evaluate_jr_coefficients(geometry, m_imp, transform):
     """Evaluate radial current density from ``m_imp`` coefficients."""
     coeffs = geometry.m_imp_to_jr_operator.matvec(m_imp)
-    return transform_for_source(geometry.horizontal_basis, transform).synthesize_scalar(coeffs)
+    return transform_for_basis(geometry.horizontal_basis, transform).synthesize_scalar(coeffs)
 
 
 def evaluate_jr(simulation, transform, *, key=None):
-    """Evaluate radial current density on ``transform.target``."""
+    """Evaluate radial current density on ``transform.grid``."""
     entry = current_output_entry(simulation, key=key)
     return evaluate_jr_coefficients(simulation.geometry, entry["m_imp"], transform)
 
@@ -61,7 +61,7 @@ def evaluate_equivalent_current_coefficients(geometry, m_ind, transform):
     coeffs = (
         -geometry.RI
         / mu0
-        * geometry.horizontal_to_boundary_potential_jump_factor_operator.matvec(m_ind)
+        * geometry.poloidal_to_boundary_potential_jump_factor_operator.matvec(m_ind)
     )
     return geometry.solid_harmonic_transform_for(transform).synthesize_scalar(coeffs)
 
@@ -77,7 +77,7 @@ def evaluate_JS_coefficients(geometry, m_imp, m_ind, transform, *, Br=None):
     m_imp = np.asarray(m_imp)
     m_ind = np.asarray(m_ind)
 
-    horizontal_transform = transform_for_source(geometry.horizontal_basis, transform)
+    horizontal_transform = transform_for_basis(geometry.horizontal_basis, transform)
     m_imp_to_JS = geometry.m_imp_to_gridded_JS(horizontal_transform)
     m_ind_to_JS = geometry.m_ind_to_gridded_JS(horizontal_transform)
     Br_to_JS = geometry.Br_to_gridded_JS(horizontal_transform) if Br is not None else None
@@ -101,7 +101,7 @@ def evaluate_JS(simulation, transform, *, key=None):
 
 def evaluate_Phi_coefficients(geometry, Phi, transform):
     """Evaluate saved curl-free E coefficients as potential in volts."""
-    return geometry.RI * transform_for_source(
+    return geometry.RI * transform_for_basis(
         geometry.horizontal_basis, transform
     ).synthesize_scalar(Phi)
 
@@ -114,7 +114,7 @@ def evaluate_Phi(simulation, transform, *, key=None):
 
 def evaluate_W_coefficients(geometry, W, transform):
     """Evaluate divergence-free E coefficients as potential in volts."""
-    return geometry.RI * transform_for_source(
+    return geometry.RI * transform_for_basis(
         geometry.horizontal_basis, transform
     ).synthesize_scalar(W)
 

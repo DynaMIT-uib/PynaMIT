@@ -239,6 +239,7 @@ def test_pointwise_matrix_linear_map_matches_local_component_transform():
 def test_structured_dense_builders_preserve_jax_backend(monkeypatch):
     """New structured maps should materialize matrices on JAX."""
     import jax.numpy as jnp
+
     import pynamit.math.linear_map as linear_map_module
 
     previous_backend = use_jax()
@@ -485,6 +486,7 @@ def test_pointwise_linear_map_accepts_numpy_inputs_with_jax_backend():
 def test_dense_linear_map_preserves_jax_dense_source(monkeypatch):
     """JAX dense inputs should not materialize during creation."""
     import jax.numpy as jnp
+
     import pynamit.math.linear_map as linear_map_module
 
     matrix = jnp.asarray([[1.0, 2.0], [3.0, 5.0], [7.0, 11.0]])
@@ -512,6 +514,7 @@ def test_dense_linear_map_preserves_jax_dense_source(monkeypatch):
 def test_diagonal_linear_map_preserves_jax_dense_source(monkeypatch):
     """JAX diagonal inputs should not materialize during creation."""
     import jax.numpy as jnp
+
     import pynamit.math.linear_map as linear_map_module
 
     diagonal = jnp.asarray([2.0, 3.0])
@@ -1189,6 +1192,7 @@ def test_einsum_linear_map_dense_uses_active_backend():
 def test_einsum_linear_map_dtype_does_not_materialize_jax_components(monkeypatch):
     """Einsum-backed dtype should only inspect dtype metadata."""
     import jax.numpy as jnp
+
     import pynamit.math._einsum_linear_map as einsum_map_module
 
     linear_map = einsum_linear_map(

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import traceback
 from io import StringIO
 from pathlib import Path
-import traceback
 
 import matplotlib.pyplot as plt
 
@@ -72,6 +72,19 @@ class PynamitPanelApp:
         self._busy = False
         self._loaded_run_directory = None
 
+        self._build_run_widgets()
+        default_input_directory = str(
+            Path(self.spec.run_directory).expanduser() / "prepared_inputs"
+        )
+        self._build_input_preparation_widgets(default_input_directory)
+        self._build_simulation_widgets(default_input_directory)
+        self._build_data_widgets()
+        self._build_visualization_widgets()
+        self._build_output_widgets()
+        self._bind_callbacks()
+        self._load_run()
+
+    def _build_run_widgets(self):
         pn = self.pn
         self.app_mode = pn.widgets.Select(
             label="Mode",
@@ -87,9 +100,26 @@ class PynamitPanelApp:
             label="Run directory", value=self.spec.run_directory, min_width=280
         )
         self.load_button = pn.widgets.Button(label="Load", color="primary", width=85)
-        default_input_directory = str(
-            Path(self.spec.run_directory).expanduser() / "prepared_inputs"
+        self.plot_type = pn.widgets.Select(
+            label="Plot",
+            options=PANEL_PLOT_TYPE_OPTIONS,
+            value=(
+                self.spec.plot_type
+                if self.spec.plot_type in PLOT_TYPE_OPTIONS
+                else "ground_curve_map"
+            ),
+            width=180,
         )
+        self.time_index = pn.widgets.IntSlider(
+            label="Time", start=0, end=0, value=0, step=1, min_width=320
+        )
+        self.time_label = pn.pane.Markdown("", width=260)
+        self.time_range = pn.widgets.IntRangeSlider(
+            label="Time range", start=0, end=0, value=(0, 0), step=1, min_width=320
+        )
+
+    def _build_input_preparation_widgets(self, default_input_directory):
+        pn = self.pn
         self.prepared_input_directory = pn.widgets.TextInput(
             label="Input package", value=default_input_directory, min_width=280
         )
@@ -112,6 +142,9 @@ class PynamitPanelApp:
         self.prepare_button = pn.widgets.Button(
             label="Prepare input package", color="primary", width=180
         )
+
+    def _build_simulation_widgets(self, default_input_directory):
+        pn = self.pn
         self.simulation_input_directory = pn.widgets.TextInput(
             label="Input package", value=default_input_directory, min_width=280
         )
@@ -151,24 +184,9 @@ class PynamitPanelApp:
         self.run_simulation_button = pn.widgets.Button(
             label="Run from inputs", color="primary", width=150
         )
-        self.plot_type = pn.widgets.Select(
-            label="Plot",
-            options=PANEL_PLOT_TYPE_OPTIONS,
-            value=(
-                self.spec.plot_type
-                if self.spec.plot_type in PLOT_TYPE_OPTIONS
-                else "ground_curve_map"
-            ),
-            width=180,
-        )
-        self.time_index = pn.widgets.IntSlider(
-            label="Time", start=0, end=0, value=0, step=1, min_width=320
-        )
-        self.time_label = pn.pane.Markdown("", width=260)
-        self.time_range = pn.widgets.IntRangeSlider(
-            label="Time range", start=0, end=0, value=(0, 0), step=1, min_width=320
-        )
 
+    def _build_data_widgets(self):
+        pn = self.pn
         self.fill = pn.widgets.Select(
             label="Filled contours",
             options={label: key for key, label in MAP_FILL_OPTIONS.items()},
@@ -264,6 +282,9 @@ class PynamitPanelApp:
         self.show_hall_conductance_overlay = pn.widgets.Checkbox(
             label="Hall contours", value=self.spec.show_hall_conductance_overlay, width=120
         )
+
+    def _build_visualization_widgets(self):
+        pn = self.pn
         self.show_reference_line = pn.widgets.Checkbox(
             label="Reference line", value=self.spec.show_reference_line, width=130
         )
@@ -327,6 +348,8 @@ class PynamitPanelApp:
             label="Zoom window", value=self.spec.zoom_window, width=130
         )
 
+    def _build_output_widgets(self):
+        pn = self.pn
         self.redraw_button = pn.widgets.Button(label="Redraw", color="primary", width=95)
         self.save_button = pn.widgets.Button(label="Save figure", color="warning", width=120)
         self.save_movie_button = pn.widgets.Button(label="Save movie", color="warning", width=120)
@@ -363,6 +386,7 @@ class PynamitPanelApp:
             min_height=560,
         )
 
+    def _bind_callbacks(self):
         self.load_button.on_click(self._load_run)
         self.prepare_button.on_click(self._prepare_inputs)
         self.run_simulation_button.on_click(self._run_simulation)
@@ -413,8 +437,6 @@ class PynamitPanelApp:
         ):
             widget.param.watch(self._control_changed, "value")
 
-        self._load_run()
-
     def _set_status(self, message, *, error=False):
         prefix = "**Error:** " if error else ""
         self.status.object = f"{prefix}{message}" if message else ""
@@ -435,8 +457,8 @@ class PynamitPanelApp:
         }
 
     def _available_simulation_inputs(self, input_directory):
-        from pynamit.storage import ArtifactStore
         from pynamit.simulation.schema import INPUT_DATASET_KEYS
+        from pynamit.storage import ArtifactStore
 
         input_directory = ArtifactStore.require_artifact_directory(
             Path(input_directory).expanduser(), ("settings",)

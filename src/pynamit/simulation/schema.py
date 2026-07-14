@@ -7,12 +7,17 @@ This module centralizes the basis and ``FieldSpace`` choices used by
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any
 
 from pynamit.fields import FieldSpace
 from pynamit.simulation.config import PROJECTION_BASIS_KEYS, SimulationConfig
-from pynamit.sphere import CSBasis, SHBasis, SolidHarmonics
-
+from pynamit.sphere import (
+    BasisView,
+    CSBasis,
+    SHBasis,
+    SolidHarmonics,
+    SphericalBasis,
+    SurfaceOperators,
+)
 
 INPUT_VARIABLES = {
     "jr": ("jr",),
@@ -39,8 +44,6 @@ OUTPUT_VARIABLES = {
     "steady_state": ("m_ind", "m_imp", "Phi", "W"),
 }
 
-OUTPUT_FIELD_TYPES = {"state": "scalar", "steady_state": "scalar"}
-
 INPUT_DATASET_KEYS = tuple(INPUT_VARIABLES)
 OUTPUT_DATASET_KEYS = tuple(OUTPUT_VARIABLES)
 RUN_ARTIFACT_NAMES = frozenset(
@@ -66,16 +69,16 @@ class SimulationSchema:
     metadata for inputs and outputs.
     """
 
-    cs_basis: Any
-    sh_basis: Any
-    mean_free_sh_basis: Any
-    horizontal_basis: Any
+    cs_basis: CSBasis
+    sh_basis: SHBasis
+    mean_free_sh_basis: BasisView
+    horizontal_basis: SurfaceOperators
     solid_harmonics: SolidHarmonics
     input_variables: Mapping[str, tuple[str, ...]]
     output_variables: Mapping[str, tuple[str, ...]]
     input_field_spaces: Mapping[str, FieldSpace]
-    output_field_spaces: Mapping[str, FieldSpace]
-    input_projection_bases: Mapping[str, Any]
+    output_field_spaces: Mapping[str, Mapping[str, FieldSpace]]
+    input_projection_bases: Mapping[str, SurfaceOperators]
 
     def __post_init__(self):
         """Own immutable copies of the canonical schema mappings."""
@@ -83,16 +86,25 @@ class SimulationSchema:
             "input_variables",
             "output_variables",
             "input_field_spaces",
-            "output_field_spaces",
             "input_projection_bases",
         ):
             object.__setattr__(self, name, MappingProxyType(dict(getattr(self, name))))
+        object.__setattr__(
+            self,
+            "output_field_spaces",
+            MappingProxyType(
+                {
+                    key: MappingProxyType(dict(variable_spaces))
+                    for key, variable_spaces in self.output_field_spaces.items()
+                }
+            ),
+        )
 
 
 def field_spaces_from_bases(
-    bases: dict[str, Any],
-    field_types: dict[str, str],
-    mean_free_by_key: dict[str, bool] | None = None,
+    bases: Mapping[str, SphericalBasis],
+    field_types: Mapping[str, str],
+    mean_free_by_key: Mapping[str, bool] | None = None,
 ) -> dict[str, FieldSpace]:
     """Return field-space descriptors for time-series schemas."""
     if set(bases) != set(field_types):
@@ -132,7 +144,10 @@ def build_simulation_schema(config: SimulationConfig) -> SimulationSchema:
     if horizontal_basis_kind == "CS":
         input_bases = {
             "jr": cs_basis,
-            "Br": cs_basis,
+            # Boundary Br participates in radial continuation and is
+            # therefore stored in the magnetic SH space even when its
+            # source samples are remapped through the CS grid.
+            "Br": mean_free_sh_basis,
             "resistance": cs_basis,
             "u": cs_basis,
             "Q_eff": cs_basis,
@@ -146,7 +161,14 @@ def build_simulation_schema(config: SimulationConfig) -> SimulationSchema:
             "Q_eff": True,
             "E_source": True,
         }
-        input_projection_bases = dict(input_bases)
+        input_projection_bases = {
+            "jr": cs_basis,
+            "Br": cs_basis,
+            "resistance": cs_basis,
+            "u": cs_basis,
+            "Q_eff": cs_basis,
+            "E_source": cs_basis,
+        }
     else:
         projection_bases = {"SH": mean_free_sh_basis, "CS": cs_basis}
         input_bases = {
@@ -167,14 +189,24 @@ def build_simulation_schema(config: SimulationConfig) -> SimulationSchema:
             "E_source": projection_bases[projection_basis_kinds["E_source"]],
         }
 
-    output_bases = {"state": horizontal_basis, "steady_state": horizontal_basis}
-
     input_field_spaces = field_spaces_from_bases(
         input_bases, INPUT_FIELD_TYPES, mean_free_by_key=input_mean_free
     )
-    output_field_spaces = field_spaces_from_bases(
-        output_bases, OUTPUT_FIELD_TYPES, mean_free_by_key={"state": True, "steady_state": True}
+    magnetic_state_space = FieldSpace.from_representation(
+        mean_free_sh_basis, field_type="scalar", mean_free=True
     )
+    surface_state_space = FieldSpace.from_representation(
+        horizontal_basis, field_type="scalar", mean_free=True
+    )
+    output_field_spaces = {
+        key: {
+            "m_ind": magnetic_state_space,
+            "m_imp": surface_state_space,
+            "Phi": surface_state_space,
+            "W": surface_state_space,
+        }
+        for key in OUTPUT_VARIABLES
+    }
 
     return SimulationSchema(
         cs_basis=cs_basis,

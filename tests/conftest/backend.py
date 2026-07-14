@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import tempfile
 from pathlib import Path
-from typing import List, Tuple
 
 import pytest
 
@@ -19,7 +18,7 @@ DATA_OPTION_NAME = "--data-source"
 SOLVER_OPTION_NAME = "--least-squares-solver"
 
 
-def _available_backends(requested: List[str] | None) -> List[str]:
+def _available_backends(requested: list[str] | None) -> list[str]:
     selectable = ["numpy"]
     if JAX_AVAILABLE:
         selectable.append("jax")
@@ -35,7 +34,7 @@ def _available_backends(requested: List[str] | None) -> List[str]:
     return requested
 
 
-def _available_sources(requested: List[str] | None) -> List[str]:
+def _available_sources(requested: list[str] | None) -> list[str]:
     selectable = ["fallback"]
     if requested is None or "native" in requested:
         native_available = native_inputs_available()
@@ -55,13 +54,13 @@ def _available_sources(requested: List[str] | None) -> List[str]:
     return requested
 
 
-def _available_least_squares_solvers(requested: List[str] | None) -> List[str]:
+def _available_least_squares_solvers(requested: list[str] | None) -> list[str]:
     selectable = list(LeastSquaresSolver.VALID_SOLVERS)
     if not requested:
         configured = os.environ.get(LEAST_SQUARES_SOLVER_ENV, "normal_pinv")
         requested = [configured]
 
-    expanded: List[str] = []
+    expanded: list[str] = []
     for solver in requested:
         expanded.extend(selectable if solver == "all" else [solver])
 
@@ -72,7 +71,7 @@ def _available_least_squares_solvers(requested: List[str] | None) -> List[str]:
             f"Available options: {', '.join(selectable)} or all."
         )
 
-    unique: List[str] = []
+    unique: list[str] = []
     for solver in expanded:
         if solver not in unique:
             unique.append(solver)
@@ -125,8 +124,8 @@ def pytest_configure(config: pytest.Config) -> None:
     )
 
 
-def _build_combinations(backends: List[str], sources: List[str]) -> List[Tuple[str, str]]:
-    combos: List[Tuple[str, str]] = []
+def _build_combinations(backends: list[str], sources: list[str]) -> list[tuple[str, str]]:
+    combos: list[tuple[str, str]] = []
     if "numpy" in backends:
         combos.append(("numpy", "fallback"))
         if "native" in sources:
@@ -138,9 +137,9 @@ def _build_combinations(backends: List[str], sources: List[str]) -> List[Tuple[s
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     """Parametrise tests from available backends and data sources."""
-    backends: List[str] = getattr(metafunc.config, "_pynamit_backend_list", ["numpy"])
-    sources: List[str] = getattr(metafunc.config, "_pynamit_data_sources", ["fallback"])
-    solvers: List[str] = getattr(
+    backends: list[str] = getattr(metafunc.config, "_pynamit_backend_list", ["numpy"])
+    sources: list[str] = getattr(metafunc.config, "_pynamit_data_sources", ["fallback"])
+    solvers: list[str] = getattr(
         metafunc.config, "_pynamit_least_squares_solvers", ["normal_pinv"]
     )
 

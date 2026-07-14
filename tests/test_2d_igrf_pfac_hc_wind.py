@@ -1,9 +1,9 @@
 """IGRF, PFAC, HC, and wind test."""
 
+import numpy as np
 import pytest
 
 from pynamit.simulation.workflows.standard import run_pynamit
-import numpy as np
 
 
 def test_2d_igrf_pfac_hc_wind():

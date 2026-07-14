@@ -10,10 +10,9 @@ from typing import Any
 import numpy as np
 import xarray as xr
 
-from pynamit.storage import ArtifactStore
-from pynamit.storage import FieldTimeSeries
 from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.schema import SimulationSchema, build_simulation_schema
+from pynamit.storage import ArtifactStore, FieldTimeSeries
 
 
 @dataclass
@@ -97,7 +96,9 @@ class RunData:
         matrix = np.asarray(pfac_matrix)
         if matrix.ndim != 2:
             raise ValueError(f"pfac_matrix must be two-dimensional; got shape {matrix.shape}.")
-        dataarray = xr.DataArray(matrix, dims=("i", "j"), name="PFAC_matrix")
+        dataarray = xr.DataArray(
+            matrix, dims=("magnetic_i", "surface_i"), name="PFAC_matrix"
+        )
         self.artifact_store.save_dataarray(dataarray, "PFAC_matrix", print_info=print_info)
         self.pfac_matrix = dataarray
 

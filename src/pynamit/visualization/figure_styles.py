@@ -1,10 +1,9 @@
 """Shared style tables and small helpers for PynaMIT figures."""
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 
 from pynamit.visualization.plot_helpers import symmetric_contour_levels_without_zero
-
 
 FIELD_PLOT_KWARGS = {
     "Br": {

@@ -12,12 +12,8 @@ from pynamit.simulation.runner import SimulationRunner
 
 class _FakeResponse:
     def __init__(self):
-        self.m_ind_to_E_df_matrix = np.eye(1)
+        self.m_ind_feedback_matrix = np.eye(1)
         self.geometry = SimpleNamespace(main_field=SimpleNamespace(kind="radial"))
-
-    @staticmethod
-    def project_scalar_mean_free(values):
-        return np.asarray(values)
 
     @staticmethod
     def activate_inputs_at_time(_input_series, _time):
@@ -42,7 +38,11 @@ class _FakeSimulation:
         self.run_data = SimpleNamespace(
             input_series=SimpleNamespace(),
             output_series=SimpleNamespace(datasets={}),
-            schema=SimpleNamespace(output_field_spaces={"state": SimpleNamespace(index_length=1)}),
+            schema=SimpleNamespace(
+                output_field_spaces={
+                    "state": {"m_ind": SimpleNamespace(index_length=1)}
+                }
+            ),
             save_output_dataset=lambda key: self.saved.append((key, float(self.current_time))),
         )
 
@@ -132,8 +132,8 @@ def test_exponential_propagator_reused_until_operator_or_dt_changes(monkeypatch)
     runner = SimulationRunner(simulation)
     calls = []
 
-    def build_propagator(_response, dt, *, m_ind_to_E_df_matrix):
-        calls.append((m_ind_to_E_df_matrix, dt))
+    def build_propagator(_response, dt, *, m_ind_feedback_matrix):
+        calls.append((m_ind_feedback_matrix, dt))
         return np.array([[len(calls)]], dtype=float)
 
     monkeypatch.setattr(induction, "exponential_propagator", build_propagator)
@@ -141,7 +141,7 @@ def test_exponential_propagator_reused_until_operator_or_dt_changes(monkeypatch)
     first = runner._exponential_propagator_for_step(0.1)
     second = runner._exponential_propagator_for_step(0.1)
     third = runner._exponential_propagator_for_step(0.05)
-    simulation.response.m_ind_to_E_df_matrix = np.eye(1) * 2.0
+    simulation.response.m_ind_feedback_matrix = np.eye(1) * 2.0
     fourth = runner._exponential_propagator_for_step(0.05)
 
     assert first is second

@@ -95,7 +95,9 @@ if SIMULATE_DYNAMIC_RESPONSE:
     plt.close()
 
     # Manipulate GTB to remove the r x grad(T) part.
-    GrxgradT = -simulation.geometry.horizontal_transform.G_rxgrad * RI
+    GrxgradT = (
+        -simulation.geometry.horizontal_transform.scalar_coeffs_to_gridded_rhat_cross_gradient * RI
+    )
     simulation.response.GTB = simulation.response.GTB - GrxgradT  # Subtract GrxgradT off
 
     # Run the simulation.

@@ -14,7 +14,6 @@ import os
 
 from pynamit.visualization.panel_app import servable
 
-
 RUN_DIRECTORY = os.environ.get("PYNAMIT_RUN_DIR") or None
 TITLE = "PynaMIT Plot"
 

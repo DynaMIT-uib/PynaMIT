@@ -2,7 +2,18 @@
 
 import runpy
 
+import pynamit
+import pynamit.simulation as simulation_api
 from pynamit.simulation.workflows import standard as standard_workflow
+
+
+def test_simulation_package_has_an_explicit_public_api():
+    """The simulation package exports only its stable entry points."""
+    assert simulation_api.__all__ == ["Simulation", "SimulationConfig"]
+    assert simulation_api.Simulation is pynamit.Simulation
+    assert simulation_api.SimulationConfig is pynamit.SimulationConfig
+    assert not hasattr(simulation_api, "InputPipeline")
+    assert not hasattr(simulation_api, "SimulationRunner")
 
 
 def test_main_module_import_is_inert(monkeypatch):

@@ -382,7 +382,7 @@ class BasisView(SurfaceOperators):
         self.index_arrays = tuple(
             self._slice_index_arrays(parent_basis, self._parent_coefficient_indices)
         )
-        for name, values in zip(self.index_names, self.index_arrays):
+        for name, values in zip(self.index_names, self.index_arrays, strict=True):
             if isinstance(name, str) and name.isidentifier() and not hasattr(self, name):
                 setattr(self, name, values)
 

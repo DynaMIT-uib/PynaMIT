@@ -5,9 +5,9 @@ import pytest
 import xarray as xr
 
 import pynamit
-from pynamit.simulation.run_data import RunData
 from pynamit.simulation.api import Simulation
 from pynamit.simulation.config import SimulationConfig
+from pynamit.simulation.run_data import RunData
 from pynamit.storage import ArtifactStore
 
 
@@ -17,12 +17,12 @@ def _settings(**attrs):
     return xr.Dataset(attrs=defaults)
 
 
-def _state_payload(n_coeffs):
+def _state_payload(n_magnetic, n_surface):
     return {
-        "m_ind": np.zeros(n_coeffs),
-        "m_imp": np.zeros(n_coeffs),
-        "Phi": np.zeros(n_coeffs),
-        "W": np.zeros(n_coeffs),
+        "m_ind": np.zeros(n_magnetic),
+        "m_imp": np.zeros(n_surface),
+        "Phi": np.zeros(n_surface),
+        "W": np.zeros(n_surface),
     }
 
 
@@ -45,26 +45,31 @@ def test_run_data_owns_schema_artifacts_and_field_series(tmp_path):
     assert data.config.horizontal_basis_kind == "CS"
     assert data.config.jr_projection_basis == "CS"
     data.save_settings_if_missing()
-    n_state = data.schema.output_field_spaces["state"].coefficient_length
+    state_spaces = data.schema.output_field_spaces["state"]
+    n_magnetic = state_spaces["m_ind"].coefficient_length
+    n_surface = state_spaces["m_imp"].coefficient_length
     data.save_pfac_matrix_if_missing(
-        xr.DataArray(np.eye(n_state), dims=("row", "col"), name="PFAC_matrix")
+        xr.DataArray(
+            np.zeros((n_magnetic, n_surface)), dims=("row", "col"), name="PFAC_matrix"
+        )
     )
     data.input_series.add_entry(
         "jr", {"jr": np.arange(data.schema.input_field_spaces["jr"].coefficient_length)}, time=0.0
     )
     data.save_input_dataset("jr")
-    data.add_output_entry("state", _state_payload(n_state), time=0.0)
+    data.add_output_entry("state", _state_payload(n_magnetic, n_surface), time=0.0)
     data.save_output_dataset("state")
 
     reloaded = RunData.open(settings, run_directory=run_dir, artifact_storage="netcdf")
 
     assert reloaded.settings_saved is True
     assert reloaded.pfac_matrix is not None
+    assert reloaded.pfac_matrix.dims == ("magnetic_i", "surface_i")
     assert "jr" in reloaded.input_series.datasets
     assert "state" in reloaded.output_series.datasets
-    np.testing.assert_allclose(reloaded.pfac_matrix.values, np.eye(n_state))
+    np.testing.assert_allclose(reloaded.pfac_matrix.values, np.zeros((n_magnetic, n_surface)))
     np.testing.assert_allclose(
-        reloaded.output_series.get_entry("state", 0.0)["m_imp"], np.zeros(n_state)
+        reloaded.output_series.get_entry("state", 0.0)["m_imp"], np.zeros(n_surface)
     )
 
 

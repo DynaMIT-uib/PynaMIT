@@ -7,8 +7,8 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from pynamit.math.constants import mu0
 from pynamit.geomagnetism import MagneticFieldEvaluation
+from pynamit.math.constants import mu0
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     joule_heating_from_current,
     pedersen_geometry_tensor,
@@ -87,12 +87,14 @@ def _state_evaluation_context(config, geometry, evaluator):
     solid_evaluator = geometry.solid_harmonic_transform_for(evaluator)
     return {
         "RI": ri,
-        "m_ind_to_Br": evaluator.scalar_coeffs_to_grid_operator @ geometry.m_ind_to_Br_operator,
+        "m_ind_to_Br": (
+            solid_evaluator.scalar_coeffs_to_grid_operator @ geometry.m_ind_to_Br_operator
+        ),
         "m_imp_to_jr": evaluator.scalar_coeffs_to_grid_operator @ geometry.m_imp_to_jr_operator,
         "m_ind_to_Jeq": (-ri / mu0)
         * (
             solid_evaluator.scalar_coeffs_to_grid_operator
-            @ geometry.horizontal_to_boundary_potential_jump_factor_operator
+            @ geometry.poloidal_to_boundary_potential_jump_factor_operator
         ),
     }
 
@@ -153,7 +155,9 @@ def _input_scalar_grid_at_time(
     if stored_name is None:
         return _nan_field(shape)
     index = _dataset_index_at_time(dataset, timestamp, fallback_start_time=fallback_start_time)
-    return evaluator.G.dot(dataset[stored_name].isel(time=index).values).reshape(shape)
+    return evaluator.scalar_coeffs_to_grid.dot(
+        dataset[stored_name].isel(time=index).values
+    ).reshape(shape)
 
 
 def _input_tangential_grid_at_time(
@@ -236,7 +240,7 @@ def compute_state_comparison_fields_at_index(
                 datasets["resistance"], target_time, fallback_start_time=fallback_start_time
             )
             etaP_coeffs = datasets["resistance"][etaP_var].isel(time=resistance_index).values
-            etaP = resistance_evaluator.G.dot(etaP_coeffs)
+            etaP = resistance_evaluator.scalar_coeffs_to_grid.dot(etaP_coeffs)
 
     result = {}
     for dataset_key in output_keys:
@@ -287,7 +291,7 @@ def compute_state_comparison_fields_at_index(
                     sheet_current, etaP, state_evaluation_context["pedersen_geometry"]
                 )
                 if etaP is not None
-                else np.full(evaluator.target.size, np.nan)
+                else np.full(evaluator.grid.size, np.nan)
             )
         result["state" if dataset_key == "state" else "steady"] = fields
     return result
@@ -385,14 +389,14 @@ class SavedCoefficientFieldView:
     @classmethod
     def from_directory(
         cls, run_directory, *, nlat=60, nlon=100, wind_nlat=19, wind_nlon=37
-    ) -> "SavedCoefficientFieldView":
+    ) -> SavedCoefficientFieldView:
         """Load artifacts needed by map and input-driver figures."""
         run_view = SavedRunView.from_directory(
             run_directory, optional_datasets=INPUT_ARTIFACT_KEYS + ("state", "steady_state")
         )
         schema = run_view.schema
         has_output_state = any(key in run_view.datasets for key in ("state", "steady_state"))
-        output_basis = schema.output_field_spaces["state"].representation
+        output_basis = schema.output_field_spaces["state"]["m_imp"].representation
         lat, lon, grid = build_plot_grid(nlat=nlat, nlon=nlon)
         wind_lat, wind_lon, wind_grid = build_plot_grid(
             nlat=wind_nlat, nlon=wind_nlon, lat_range=(-75.0, 75.0), lon_range=(-180.0, 180.0)
@@ -520,7 +524,7 @@ class SavedCoefficientFieldView:
             self.sheet_current_maps = _sheet_current_maps(geometry, self.state_evaluator)
         if needs_joule and "pedersen_geometry" not in self.state_evaluation_context:
             field = MagneticFieldEvaluation(
-                geometry.main_field, self.state_evaluator.target, self.run_view.config.RI
+                geometry.main_field, self.state_evaluator.grid, self.run_view.config.RI
             )
             self.state_evaluation_context["pedersen_geometry"] = pedersen_geometry_tensor(
                 field.unit_btheta, field.unit_bphi, field.unit_br

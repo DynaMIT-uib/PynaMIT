@@ -5,11 +5,6 @@ import pytest
 from scipy.sparse import csr_matrix
 
 import pynamit
-from pynamit.sphere.spherical_transform import (
-    SphericalTransform,
-    grid_sqrt_area_weights,
-    resolve_sqrt_weights,
-)
 from pynamit.math import (
     JAX_AVAILABLE,
     LinearMap,
@@ -23,21 +18,26 @@ from pynamit.math import (
 )
 from pynamit.math.tensor_operations import weighted_tensor_pinv
 from pynamit.sphere import (
-    SphericalBasis,
     BasisView,
     CSBasis,
     Grid,
     SHBasis,
     SolidHarmonics,
-    SurfaceOperators,
+    SphericalBasis,
     SphericalRepresentation,
+    SurfaceOperators,
+)
+from pynamit.sphere.spherical_transform import (
+    SphericalTransform,
+    grid_sqrt_area_weights,
+    resolve_sqrt_weights,
 )
 
 
 def test_public_sphere_package_is_canonical():
     """Spherical basis types are available from the public package."""
-    from pynamit.sphere.cubed_sphere.cs_basis import CSBasis as ConcreteCSBasis
     from pynamit.sphere.core import SphericalBasis as CoreBasis
+    from pynamit.sphere.cubed_sphere.cs_basis import CSBasis as ConcreteCSBasis
     from pynamit.sphere.spherical_harmonics.sh_basis import SHBasis as ConcreteSHBasis
 
     assert CSBasis is ConcreteCSBasis
@@ -551,9 +551,9 @@ def test_grid_basis_regularization_requires_degree_metadata():
     )
 
     with pytest.raises(NotImplementedError, match="requires basis.n"):
-        _ = evaluator.L
+        _ = evaluator.scalar_regularization_operator
     with pytest.raises(NotImplementedError, match="requires basis.n"):
-        _ = evaluator.L_helmholtz
+        _ = evaluator.helmholtz_regularization_operator
 
 
 def test_area_weight_defaults_use_grid_areas_or_sin_theta():
@@ -874,9 +874,11 @@ def test_spherical_transform_reuses_sh_evaluation_context(monkeypatch):
     monkeypatch.setattr(sh_basis, "legendre", counted_legendre)
     monkeypatch.setattr(sh_basis, "legendre_derivative", counted_derivative)
 
-    transform.scalar_coeffs_to_grid
-    transform.scalar_coeffs_to_gridded_theta_derivative
-    transform.scalar_coeffs_to_gridded_phi_derivative
+    _ = (
+        transform.scalar_coeffs_to_grid,
+        transform.scalar_coeffs_to_gridded_theta_derivative,
+        transform.scalar_coeffs_to_gridded_phi_derivative,
+    )
 
     assert calls == {"legendre": 1, "derivative": 1}
 

@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import numpy as np
-from scipy.special import binom
 from scipy.sparse import coo_matrix
+from scipy.special import binom
 
 
 def _first_derivative_weights(sample_offsets, step_size):
@@ -41,7 +41,7 @@ class CSFiniteDifferences:
             )
 
         if Ns < order:
-            raise ValueError("Ns must be >= order. You gave {} and {}".format(Ns, order))
+            raise ValueError(f"Ns must be >= order. You gave {Ns} and {order}")
 
         if order != 1:
             raise NotImplementedError("Only first order differentiation is supported.")
@@ -111,13 +111,14 @@ class CSFiniteDifferences:
         new_xi, new_eta, new_k = basis.geo2cube(phi, 90 - theta)
         new_i, new_j = new_xi / h + (N - 1) / 2, new_eta / h + (N - 1) / 2
 
-        assert np.all(
-            (np.isclose(new_i - np.rint(new_i), 0) | np.isclose(new_j - np.rint(new_j), 0))
-        )
+        on_i_grid_line = np.isclose(new_i - np.rint(new_i), 0)
+        on_j_grid_line = np.isclose(new_j - np.rint(new_j), 0)
+        if not np.all(on_i_grid_line | on_j_grid_line):
+            raise RuntimeError(
+                "Cross-face interpolation points must align with at least one target-grid axis."
+            )
 
-        integer_pairs = np.isclose(new_i - np.rint(new_i), 0) & np.isclose(
-            new_j - np.rint(new_j), 0
-        )
+        integer_pairs = on_i_grid_line & on_j_grid_line
         cols[integer_pairs] = np.ravel_multi_index(
             (
                 new_k[integer_pairs],
@@ -127,11 +128,17 @@ class CSFiniteDifferences:
             shape,
         )
 
-        i_is_float = ~np.isclose(np.rint(new_i) - new_i, 0)
-        j_is_float = ~np.isclose(np.rint(new_j) - new_j, 0)
+        i_is_float = ~on_i_grid_line
+        j_is_float = ~on_j_grid_line
 
-        assert sum(i_is_float & j_is_float) == 0
-        assert sum(i_is_float | j_is_float) == sum(cols == -1)
+        if np.any(i_is_float & j_is_float):
+            raise RuntimeError(
+                "Cross-face interpolation cannot interpolate along both grid axes at once."
+            )
+        if np.count_nonzero(i_is_float | j_is_float) != np.count_nonzero(cols == -1):
+            raise RuntimeError(
+                "Cross-face interpolation classification is inconsistent with target columns."
+            )
 
         j_floats = new_j[j_is_float].reshape((-1, 1))
         i_floats = new_i[i_is_float].reshape((-1, 1))
@@ -177,7 +184,7 @@ class CSFiniteDifferences:
             (stacked_weights.reshape(-1), (stacked_rows.reshape(-1), stacked_cols.reshape(-1))),
             shape=(rows.max() + 1, size),
         )
-        matrix.count_nonzero()
+        matrix.sum_duplicates()
         return matrix
 
 

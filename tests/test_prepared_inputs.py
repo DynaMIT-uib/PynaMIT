@@ -3,11 +3,10 @@
 import numpy as np
 import pytest
 
-from pynamit.math.constants import RE
-from pynamit.storage import ArtifactStore
-from pynamit.simulation.config import SimulationConfig
-from pynamit.simulation.api import Simulation
 from pynamit.geomagnetism import MainField
+from pynamit.math.constants import RE
+from pynamit.simulation.api import Simulation
+from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.workflows import prepared_inputs as prepared_inputs_module
 from pynamit.simulation.workflows.prepared_inputs import (
     INPUT_MANIFEST_FILENAME,
@@ -25,6 +24,7 @@ from pynamit.simulation.workflows.prepared_inputs import (
     validate_prepared_input_compatibility,
     write_input_manifest,
 )
+from pynamit.storage import ArtifactStore
 
 
 def test_geographic_wind_is_rotated_into_model_coordinates():

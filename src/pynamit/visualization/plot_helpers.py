@@ -2,9 +2,9 @@
 
 from contextlib import contextmanager
 
-import numpy as np
 import cartopy.crs as ccrs
 import matplotlib.colors as mcolors
+import numpy as np
 
 from pynamit.visualization.local_time import apply_local_time_grid_labels
 
@@ -51,7 +51,7 @@ def draw_line_contour_legend(ax, overlay_keys, kwargs_source, title="Line contou
     if not overlay_keys:
         return
     y_pos = np.linspace(0.78, 0.22, len(overlay_keys)) if len(overlay_keys) > 1 else [0.5]
-    for y, var_key in zip(y_pos, overlay_keys):
+    for y, var_key in zip(y_pos, overlay_keys, strict=True):
         kwargs = kwargs_source[var_key]
         interval = kwargs["levels"][1] - kwargs["levels"][0]
         label = (

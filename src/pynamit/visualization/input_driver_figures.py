@@ -62,6 +62,7 @@ class InputDriverRenderer:
         for label, axis in zip(
             ["a", "b", "c", "d", "e", "f"],
             [pax_jr_n.ax, pax_jr_s.ax, ax_br, ax_source, ax_sigma_p, ax_sigma_h],
+            strict=True,
         ):
             add_panel_label(axis, label)
 

@@ -7,8 +7,8 @@ from dataclasses import dataclass
 
 import numpy as np
 import scipy.sparse as sp
-from scipy.spatial import Delaunay
 from scipy.interpolate import griddata
+from scipy.spatial import Delaunay
 
 from pynamit.math import as_linear_map, identity_linear_map
 from pynamit.math.backend import to_numpy, use_jax

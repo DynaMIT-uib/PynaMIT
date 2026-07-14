@@ -5,20 +5,22 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
-from scripts.simulation.mage_forcing_final import SETTINGS as MAGE_RUN_SETTINGS
 from scripts.simulation.mage_forcing_final import DEFAULT_MAGE_RUN_ROOT as MAGE_RUN_ROOT
-from scripts.simulation.mage_project_inputs import DEFAULT_FORCING_CANDIDATES
-from scripts.simulation.mage_project_inputs import DEFAULT_INPUT_DIRECTORY
-from scripts.simulation.mage_project_inputs import DEFAULT_MAGE_RUN_ROOT as MAGE_PROJECT_ROOT
-from scripts.simulation.mage_project_inputs import DEFAULT_RESULT_DIRECTORY
-from scripts.simulation.mage_project_inputs import SETTINGS as MAGE_PROJECT_SETTINGS
-from scripts.simulation.mage_project_inputs import _clear_existing_input_package
+from scripts.simulation.mage_forcing_final import SETTINGS as MAGE_RUN_SETTINGS
 from scripts.simulation.mage_prepare_forcing import (
     DEFAULT_GAMERA_DIR,
     DEFAULT_OUTPUT_NAME,
     integrate_tiegcm_step,
 )
+from scripts.simulation.mage_project_inputs import (
+    DEFAULT_FORCING_CANDIDATES,
+    DEFAULT_INPUT_DIRECTORY,
+    DEFAULT_RESULT_DIRECTORY,
+    _clear_existing_input_package,
+)
+from scripts.simulation.mage_project_inputs import DEFAULT_MAGE_RUN_ROOT as MAGE_PROJECT_ROOT
+from scripts.simulation.mage_project_inputs import SETTINGS as MAGE_PROJECT_SETTINGS
+
 from pynamit.simulation.workflows.mage import (
     boundary_radius_from_h5,
     centered_dipole_alignment_attrs,
@@ -166,7 +168,9 @@ def test_load_weighted_winds_reads_all_prepared_products():
 
     loaded = load_weighted_winds(h5_like, 0)
 
-    for value, expected in zip(loaded, ([1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0])):
+    for value, expected in zip(
+        loaded, ([1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0]), strict=True
+    ):
         np.testing.assert_allclose(value, expected)
 
 

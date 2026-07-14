@@ -5,7 +5,28 @@ import pytest
 import xarray as xr
 
 from pynamit.math.constants import RE
+from pynamit.simulation import Simulation
 from pynamit.simulation.config import SimulationConfig, setting_value
+
+
+def test_simulation_constructs_from_normalized_config(tmp_path):
+    """A public config can construct a simulation directly."""
+    config = SimulationConfig(
+        Nmax=2, Mmax=1, Ncs=4, main_field_kind="radial", enable_pfac_coupling=False
+    )
+
+    simulation = Simulation.from_config(
+        config, run_directory=tmp_path, artifact_storage="netcdf", backend="numpy"
+    )
+
+    assert simulation.config.to_dataset().identical(config.to_dataset())
+    assert simulation.run_data.run_directory == str(tmp_path)
+
+
+def test_simulation_from_config_requires_normalized_config():
+    """Reject settings-like objects at the explicit config boundary."""
+    with pytest.raises(TypeError, match="requires a SimulationConfig"):
+        Simulation.from_config({"Nmax": 2})
 
 
 def test_simulation_config_normalizes_projection_defaults():

@@ -1,11 +1,12 @@
 """Spherical Harmonic Basis Class."""
 
-from collections import OrderedDict
-import numpy as np
 import math
 import warnings
-from packaging import version
+from collections import OrderedDict
+
+import numpy as np
 import scipy
+from packaging import version
 
 from pynamit.math import as_linear_map
 from pynamit.math.backend import get_array_module, to_numpy, use_jax
@@ -402,7 +403,7 @@ class SHBasis(SurfaceOperators):
         P_std = np.empty((theta.size, len(self.index_pairs)), dtype=np.float64)
         dP_std = np.empty_like(P_std) if compute_derivative else None
 
-        for i, (ct, st) in enumerate(zip(cos_theta, sin_theta)):
+        for i, (ct, st) in enumerate(zip(cos_theta, sin_theta, strict=True)):
             p_all, dp_dz_all = lpmn(self.Mmax, self.Nmax, ct)
             for j, (n, m) in enumerate(self.index_pairs):
                 cs_phase = (-1) ** m

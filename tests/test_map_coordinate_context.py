@@ -3,8 +3,8 @@
 import datetime as dt
 from types import SimpleNamespace
 
-import numpy as np
 import cartopy.crs as ccrs
+import numpy as np
 
 from pynamit.coordinates import local_noon_longitude
 from pynamit.visualization.map_coordinates import MapCoordinateContext

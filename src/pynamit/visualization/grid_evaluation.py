@@ -20,13 +20,13 @@ def build_evaluator(basis, grid, **kwargs):
     return SphericalTransform(basis, grid, **kwargs)
 
 
-def transform_for_source(source, transform):
-    """Return ``transform`` or an equivalent one for ``source``."""
-    if transform.source.coefficients_are_compatible_with(source):
+def transform_for_basis(basis, transform):
+    """Return ``transform`` or an equivalent one for ``basis``."""
+    if transform.basis.coefficients_are_compatible_with(basis):
         return transform
     return SphericalTransform(
-        source,
-        transform.target,
+        basis,
+        transform.grid,
         sqrt_weights=(transform.sqrt_weights if transform.explicit_sqrt_weights else None),
         reg_lambda=transform.reg_lambda,
         pinv_rtol=transform.pinv_rtol,
@@ -69,4 +69,4 @@ def build_JS_operators(settings, sh_basis, transform, pfac_coupling_matrix=None)
     return {"m_ind_to_JS": m_ind_to_JS, "m_imp_to_JS": m_imp_to_JS, "Br_to_JS": Br_to_JS}
 
 
-__all__ = ["build_evaluator", "build_plot_grid", "build_JS_operators", "transform_for_source"]
+__all__ = ["build_evaluator", "build_plot_grid", "build_JS_operators", "transform_for_basis"]

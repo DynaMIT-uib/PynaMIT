@@ -3,10 +3,10 @@
 import numpy as np
 import pytest
 
-from pynamit.simulation.workflows.standard import run_pynamit
 from pynamit.math.constants import RE
 from pynamit.math.tensor_operations import tensor_pinv, weighted_tensor_pinv
 from pynamit.simulation.api import Simulation
+from pynamit.simulation.workflows.standard import run_pynamit
 
 
 def test_default_horizontal_basis_is_sh(tmp_path):
@@ -27,9 +27,11 @@ def test_default_horizontal_basis_is_sh(tmp_path):
     assert geometry.horizontal_basis.mean_free
     assert not schema.sh_basis.mean_free
     assert schema.sh_basis.index_length == geometry.horizontal_basis.index_length + 1
-    assert geometry.horizontal_solid_projection_is_identity
-    assert "horizontal_to_solid_harmonic" not in geometry.__dict__
-    assert "solid_harmonic_to_horizontal" not in geometry.__dict__
+    assert geometry.surface_gauge_operator is None
+    np.testing.assert_allclose(
+        geometry.surface_to_magnetic_operator.to_matrix(backend="numpy"),
+        np.eye(geometry.magnetic_basis.index_length),
+    )
 
 
 def test_horizontal_basis_kind_is_persisted(tmp_path):
@@ -51,7 +53,35 @@ def test_horizontal_basis_kind_is_persisted(tmp_path):
     assert simulation.run_data.schema.input_field_spaces["Br"].mean_free
     assert simulation.run_data.schema.input_field_spaces["u"].mean_free
     assert not simulation.run_data.schema.input_field_spaces["resistance"].mean_free
-    assert simulation.run_data.schema.output_field_spaces["state"].mean_free
+    assert all(
+        field_space.mean_free
+        for field_space in simulation.run_data.schema.output_field_spaces["state"].values()
+    )
+
+
+def test_cs_surface_gauge_makes_m_imp_system_unique(tmp_path):
+    """The CS constant gauge is constrained without regularization."""
+    simulation = Simulation(
+        run_directory=str(tmp_path / "run"),
+        Nmax=2,
+        Mmax=1,
+        Ncs=4,
+        enable_pfac_coupling=False,
+        horizontal_basis_kind="CS",
+        m_imp_regularization_lambda=0.0,
+        artifact_storage="netcdf",
+    )
+
+    geometry = simulation.geometry
+    gauge = geometry.surface_gauge_operator
+    assert gauge is not None
+    np.testing.assert_allclose(
+        gauge.matvec(np.ones(geometry.horizontal_basis.index_length)),
+        np.sqrt(geometry.horizontal_basis.index_length),
+    )
+
+    system = simulation.response._m_imp_problem.data_operator.to_matrix(backend="numpy")
+    assert np.linalg.matrix_rank(system) == geometry.horizontal_basis.index_length
 
 
 def test_area_weighted_least_squares_option_is_persisted(tmp_path):
@@ -79,8 +109,8 @@ def test_area_weighted_least_squares_option_is_persisted(tmp_path):
     )
 
 
-def test_cs_horizontal_basis_runs_with_cs_outputs(tmp_path):
-    """CS horizontal basis routes the state through CS coefficients."""
+def test_cs_horizontal_basis_runs_with_split_state_spaces(tmp_path):
+    """CS surface fields coexist with the SH magnetic state."""
     simulation = run_pynamit(
         final_time=0.0,
         dt=0.1,
@@ -98,9 +128,10 @@ def test_cs_horizontal_basis_runs_with_cs_outputs(tmp_path):
     )
 
     state = simulation.run_data.output_series.datasets["state"]
-    assert "CS_m_ind" in state
+    assert "SH_m_ind" in state
     assert "CS_m_imp" in state
-    assert state["CS_m_ind"].shape[-1] == simulation.geometry.horizontal_basis.index_length
+    assert state["SH_m_ind"].shape[-1] == simulation.geometry.magnetic_basis.index_length
+    assert state["CS_m_imp"].shape[-1] == simulation.geometry.horizontal_basis.index_length
     assert simulation.run_data.schema.horizontal_basis is simulation.geometry.horizontal_basis
 
 
@@ -131,7 +162,7 @@ def test_cs_horizontal_basis_runs_with_pfac(tmp_path):
     assert simulation.run_data.schema.horizontal_basis is simulation.geometry.horizontal_basis
     assert simulation.geometry.solid_harmonics.basis is not simulation.geometry.horizontal_basis
     assert pfac.shape == (
-        simulation.geometry.horizontal_basis.index_length,
+        simulation.geometry.magnetic_basis.index_length,
         simulation.geometry.horizontal_basis.index_length,
     )
     assert np.linalg.norm(pfac) > 0.0
@@ -160,7 +191,7 @@ def test_cs_horizontal_basis_supports_rm_solid_harmonics(tmp_path):
     assert m_ind_to_JS.shape == (
         2,
         geometry.model_grid.size,
-        simulation.geometry.horizontal_basis.index_length,
+        simulation.geometry.magnetic_basis.index_length,
     )
     assert Br_to_JS.shape == m_ind_to_JS.shape
     assert np.all(np.isfinite(m_ind_to_JS))
@@ -257,7 +288,7 @@ def test_cs_horizontal_basis_combines_pfac_rm_and_connected_terms(tmp_path):
     geometry = simulation.geometry
 
     assert geometry.pfac_coupling_matrix.shape == (
-        simulation.geometry.horizontal_basis.index_length,
+        simulation.geometry.magnetic_basis.index_length,
         simulation.geometry.horizontal_basis.index_length,
     )
     assert geometry.Br_to_gridded_JS().shape == (geometry.m_ind_to_gridded_JS().shape)
@@ -270,8 +301,8 @@ def test_cs_horizontal_basis_combines_pfac_rm_and_connected_terms(tmp_path):
     assert np.all(np.isfinite(geometry.Br_to_gridded_JS()))
 
 
-def test_cs_to_solid_harmonic_projection_matches_grid_least_squares(tmp_path):
-    """CS-to-SH projection uses the standard grid LS projection."""
+def test_surface_to_magnetic_projection_matches_grid_least_squares(tmp_path):
+    """The CS-surface to magnetic-SH bridge uses grid least squares."""
     simulation = Simulation(
         run_directory=str(tmp_path / "run"),
         Nmax=2,
@@ -288,19 +319,20 @@ def test_cs_to_solid_harmonic_projection_matches_grid_least_squares(tmp_path):
         @ geometry.horizontal_transform.scalar_coeffs_to_grid
     )
 
-    np.testing.assert_allclose(geometry.horizontal_to_solid_harmonic, expected)
+    surface_to_magnetic = geometry.surface_to_magnetic_operator.to_matrix(backend="numpy")
+    np.testing.assert_allclose(surface_to_magnetic, expected)
 
     rng = np.random.default_rng(20260520)
     radial_coeffs = rng.standard_normal(simulation.geometry.solid_harmonics.basis.index_length)
     cs_coeffs = geometry.solid_harmonic_transform.scalar_coeffs_to_grid @ radial_coeffs
 
     np.testing.assert_allclose(
-        geometry.horizontal_to_solid_harmonic @ cs_coeffs, radial_coeffs, atol=1e-10
+        surface_to_magnetic @ cs_coeffs, radial_coeffs, atol=1e-10
     )
 
 
-def test_cs_to_solid_harmonic_supports_area_weighted_projection(tmp_path):
-    """CS-to-SH projection can use CS cell-area weighting."""
+def test_surface_to_magnetic_supports_area_weighted_projection(tmp_path):
+    """The surface-to-magnetic bridge can use CS cell-area weighting."""
     simulation = Simulation(
         run_directory=str(tmp_path / "run"),
         Nmax=2,
@@ -322,7 +354,9 @@ def test_cs_to_solid_harmonic_supports_area_weighted_projection(tmp_path):
         @ geometry.horizontal_transform.scalar_coeffs_to_grid
     )
 
-    np.testing.assert_allclose(geometry.horizontal_to_solid_harmonic, expected)
+    np.testing.assert_allclose(
+        geometry.surface_to_magnetic_operator.to_matrix(backend="numpy"), expected
+    )
 
 
 def test_invalid_horizontal_basis_kind_is_rejected(tmp_path):

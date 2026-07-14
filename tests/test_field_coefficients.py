@@ -3,8 +3,7 @@
 import numpy as np
 import pytest
 
-from pynamit.fields import FieldCoefficients
-from pynamit.fields import FieldSpace
+from pynamit.fields import FieldCoefficients, FieldSpace
 from pynamit.sphere import CSBasis, Grid, SHBasis
 
 

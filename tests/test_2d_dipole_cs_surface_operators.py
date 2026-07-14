@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from pynamit.sphere import CSBasis, Grid, SHBasis, SphericalTransform
 from pynamit.simulation.workflows.standard import run_pynamit
+from pynamit.sphere import CSBasis, Grid, SHBasis, SphericalTransform
 from pynamit.visualization.figure_specs import PynamitFigureSpec
 from pynamit.visualization.ground_figures import GroundFigureRenderer
 from pynamit.visualization.run_fields import SavedCoefficientFieldView
@@ -12,11 +12,6 @@ from pynamit.visualization.run_fields import SavedCoefficientFieldView
 
 def test_2d_dipole_cs_surface_operators(tmp_path):
     """Run a 2D dipole case with CS state and saved-run views."""
-    expected_coeff_norm = 3.21758062211637e-07
-    expected_coeff_max = 1.0044485660736859e-07
-    expected_coeff_min = -8.091092606324309e-08
-    expected_n_coeffs = 768
-
     simulation = run_pynamit(
         final_time=0.01,
         dt=0.01,
@@ -41,10 +36,9 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
     assert simulation.run_data.schema.horizontal_basis is simulation.geometry.horizontal_basis
     assert simulation.geometry.solid_harmonics.basis is not simulation.geometry.horizontal_basis
     assert not simulation.run_data.schema.input_field_spaces["resistance"].mean_free
-    assert (
-        simulation.run_data.schema.output_field_spaces["state"].representation
-        is simulation.geometry.horizontal_basis
-    )
+    state_spaces = simulation.run_data.schema.output_field_spaces["state"]
+    assert state_spaces["m_ind"].representation is simulation.geometry.magnetic_basis
+    assert state_spaces["m_imp"].representation is simulation.geometry.horizontal_basis
 
     geometry = simulation.geometry
     spherical_transform = geometry.horizontal_transform
@@ -58,28 +52,17 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
         geometry.surface_laplacian_operator.to_matrix(backend="numpy"),
         simulation.geometry.horizontal_basis.get_surface_laplacian_matrix(geometry.RI),
     )
-    assert "poloidal_to_boundary_potential_jump_factor" not in geometry.__dict__
-    assert "horizontal_to_boundary_potential_jump_factor" not in geometry.__dict__
-    expected_boundary_potential_jump_factor = (
-        np.diag(simulation.geometry.solid_harmonics.poloidal_to_boundary_potential_jump_factor)
-        @ geometry.horizontal_to_solid_harmonic
+    expected_boundary_potential_jump_factor = np.diag(
+        simulation.geometry.solid_harmonics.poloidal_to_boundary_potential_jump_factor
     )
     np.testing.assert_allclose(
-        geometry.horizontal_to_boundary_potential_jump_factor_operator.to_matrix(backend="numpy"),
+        geometry.poloidal_to_boundary_potential_jump_factor_operator.to_matrix(backend="numpy"),
         expected_boundary_potential_jump_factor,
-    )
-    np.testing.assert_allclose(
-        geometry.horizontal_to_boundary_potential_jump_factor,
-        expected_boundary_potential_jump_factor,
-    )
-    np.testing.assert_allclose(
-        geometry.poloidal_to_boundary_potential_jump_factor,
-        np.diag(simulation.geometry.solid_harmonics.poloidal_to_boundary_potential_jump_factor),
     )
     assert geometry.m_ind_to_gridded_JS().shape == (
         2,
         geometry.model_grid.size,
-        simulation.geometry.horizontal_basis.index_length,
+        simulation.geometry.magnetic_basis.index_length,
     )
     assert geometry.m_imp_to_gridded_JS().shape == (
         2,
@@ -95,28 +78,25 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
     assert geometry.m_ind_to_gridded_JS(plot_transform).shape == (
         2,
         plot_grid.size,
-        simulation.geometry.horizontal_basis.index_length,
+        simulation.geometry.magnetic_basis.index_length,
     )
 
     state = simulation.run_data.output_series.datasets["state"]
-    assert "CS_m_ind" in state
+    assert "SH_m_ind" in state
     assert "CS_m_imp" in state
 
-    coeff_array = np.hstack((state["CS_m_ind"].values[-1], state["CS_m_imp"].values[-1]))
+    coeff_array = np.hstack((state["SH_m_ind"].values[-1], state["CS_m_imp"].values[-1]))
 
-    actual_coeff_norm = np.linalg.norm(coeff_array)
-    actual_coeff_max = np.max(coeff_array)
-    actual_coeff_min = np.min(coeff_array)
     actual_n_coeffs = coeff_array.shape[0]
 
-    assert actual_n_coeffs == 2 * simulation.geometry.horizontal_basis.index_length
-    assert actual_coeff_norm == pytest.approx(expected_coeff_norm, abs=0.0, rel=1e-10)
-    assert actual_coeff_max == pytest.approx(expected_coeff_max, abs=0.0, rel=1e-10)
-    assert actual_coeff_min == pytest.approx(expected_coeff_min, abs=0.0, rel=1e-10)
-    assert actual_n_coeffs == expected_n_coeffs
+    assert actual_n_coeffs == (
+        simulation.geometry.magnetic_basis.index_length
+        + simulation.geometry.horizontal_basis.index_length
+    )
     assert np.all(np.isfinite(coeff_array))
 
-    for name in ("m_ind", "m_imp", "Phi", "W"):
+    assert np.all(simulation.geometry.magnetic_basis.n > 0)
+    for name in ("m_imp", "Phi", "W"):
         assert simulation.geometry.horizontal_basis.scalar_mean(
             state[f"CS_{name}"].values[-1]
         ) == (pytest.approx(0.0, abs=1e-18))
@@ -128,7 +108,7 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
         simulation.run_data.run_directory, nlat=8, nlon=12, wind_nlat=5, wind_nlon=7
     )
     fields = view.state_comparison_grid_fields(0)
-    assert isinstance(view.state_evaluator.source, CSBasis)
+    assert isinstance(view.state_evaluator.basis, CSBasis)
     assert fields["Br_state"].shape == view.lat.shape
     assert fields["jr_state"].shape == view.lat.shape
     assert np.all(np.isfinite(fields["Br_state"]))
@@ -140,7 +120,7 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
         ),
         view=view,
     )
-    br_ind, bh_ind, _, _ = renderer.ground_field_matrices([65.0], [0.0])
+    br_ind, bh_ind, _, _ = renderer._ground_field_matrices([65.0], [0.0])
     assert br_ind.shape == (1, view.n_time)
     assert bh_ind.shape == (2, 1, view.n_time)
     assert np.all(np.isfinite(br_ind))

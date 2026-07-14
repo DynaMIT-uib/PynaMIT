@@ -10,8 +10,8 @@ from pynamit.simulation.electrodynamics.ionospheric_closure import (
     hall_geometry_tensor,
     joule_heating_from_current,
     pedersen_geometry_tensor,
-    resistance_to_conductance,
     resistance_tensor_on_grid,
+    resistance_to_conductance,
     solve_Q_eff_coefficients,
     wind_motional_E_tensor,
 )

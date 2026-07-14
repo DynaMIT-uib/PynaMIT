@@ -1,7 +1,8 @@
 """SHIndices and Schmidt quasi-normalization helpers."""
 
-import numpy as np
 import math
+
+import numpy as np
 
 
 class SHIndices:
@@ -25,8 +26,7 @@ class SHIndices:
 
     def __iter__(self):
         """Iterate over the SHIndices."""
-        for p in self.index_pairs:
-            yield p
+        yield from self.index_pairs
 
     def __len__(self):
         """Return length of the SHIndices."""

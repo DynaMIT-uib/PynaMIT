@@ -42,6 +42,20 @@ class KaijuGeopackSM:
     coefficients: GeopackDipoleCoefficients
     geo_to_sm_matrix: np.ndarray
 
+    def __post_init__(self) -> None:
+        """Own and validate the GEO-to-SM rotation matrix."""
+        matrix = np.array(self.geo_to_sm_matrix, dtype=float, copy=True)
+        if matrix.shape != (3, 3):
+            raise ValueError("geo_to_sm_matrix must have shape (3, 3).")
+        if not np.all(np.isfinite(matrix)):
+            raise ValueError("geo_to_sm_matrix must contain only finite values.")
+        if not np.allclose(matrix @ matrix.T, np.eye(3), atol=1e-10, rtol=1e-10):
+            raise ValueError("geo_to_sm_matrix must be orthogonal.")
+        if not np.isclose(np.linalg.det(matrix), 1.0, atol=1e-10, rtol=1e-10):
+            raise ValueError("geo_to_sm_matrix must be a proper rotation matrix.")
+        matrix.setflags(write=False)
+        object.__setattr__(self, "geo_to_sm_matrix", matrix)
+
     @property
     def sm_to_geo_matrix(self) -> np.ndarray:
         """Return the inverse SM-to-GEO rotation matrix."""

@@ -51,13 +51,16 @@ extend-exclude = ["__init__.py", "notebooks/", "scripts/simulation/legacy/"]
 line-length = 99
 
 [tool.ruff.lint]
-extend-select = ["E", "W", "D"]
+extend-select = ["B", "E", "I", "UP", "W", "D"]
 
 [tool.ruff.lint.pycodestyle]
 max-doc-length = 72
 
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"
+
+[tool.ruff.lint.isort]
+split-on-trailing-comma = false
 
 [tool.ruff.format]
 skip-magic-trailing-comma = true

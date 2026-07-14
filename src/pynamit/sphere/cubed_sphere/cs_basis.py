@@ -5,16 +5,16 @@ basis.
 """
 
 from collections import OrderedDict
+
 import numpy as np
 import scipy.sparse as sp
 
 from pynamit.math import as_linear_map, identity_linear_map
 from pynamit.math.backend import get_array_module, to_numpy, use_jax
 from pynamit.sphere.core import SurfaceOperators
-from pynamit.sphere.cubed_sphere.cs_coordinates import CSCoordinateSystem
+from pynamit.sphere.cubed_sphere import cs_coordinates, cs_vectors
 from pynamit.sphere.cubed_sphere.cs_differencing import CSFiniteDifferences
 from pynamit.sphere.cubed_sphere.cs_grid import CSGridGeometry, CSGridRemapper
-from pynamit.sphere.cubed_sphere.cs_vectors import CSVectorTransforms
 
 
 class CSBasis(SurfaceOperators):
@@ -613,7 +613,7 @@ class CSBasis(SurfaceOperators):
         ValueError
             If `N` is less than 1.
         """
-        return CSCoordinateSystem.coordinate(i, N)
+        return cs_coordinates.coordinate(i, N)
 
     def eta(self, j, N):
         """Calculate eta coordinate for grid index.
@@ -642,7 +642,7 @@ class CSBasis(SurfaceOperators):
         ValueError
             If `N` is less than 1.
         """
-        return CSCoordinateSystem.coordinate(j, N)
+        return cs_coordinates.coordinate(j, N)
 
     def get_delta(self, xi, eta):
         """Calculate delta parameter for metric calculations.
@@ -661,7 +661,7 @@ class CSBasis(SurfaceOperators):
         ndarray
             Delta values with shape determined by broadcasting rules.
         """
-        return CSCoordinateSystem.delta(xi, eta)
+        return cs_coordinates.delta(xi, eta)
 
     def get_metric_tensor(self, xi, eta, r=1, covariant=True):
         """Calculate metric tensor components.
@@ -691,7 +691,7 @@ class CSBasis(SurfaceOperators):
             number of input points. Last two dimensions are tensor
             indices.
         """
-        return CSCoordinateSystem.metric_tensor(xi, eta, r=r, covariant=covariant)
+        return cs_coordinates.metric_tensor(xi, eta, r=r, covariant=covariant)
 
     def cube2cartesian(self, xi, eta, r=1, block=0):
         """Calculate Cartesian ECEF coordinates of given points.
@@ -724,7 +724,7 @@ class CSBasis(SurfaceOperators):
             Array of Cartesian z coordinates, shape determined by input
             according to broadcasting rules.
         """
-        return CSCoordinateSystem.cube_to_cartesian(xi, eta, r=r, block=block)
+        return cs_coordinates.cube_to_cartesian(xi, eta, r=r, block=block)
 
     def cube2spherical(self, xi, eta, block, r=1, deg=False):
         """Convert from cubed sphere to spherical coordinates.
@@ -755,7 +755,7 @@ class CSBasis(SurfaceOperators):
         phi : ndarray
             Longitude in radians or degrees.
         """
-        return CSCoordinateSystem.cube_to_spherical(xi, eta, block, r=r, deg=deg)
+        return cs_coordinates.cube_to_spherical(xi, eta, block, r=r, deg=deg)
 
     def get_Pc(self, xi, eta, r=1, block=0, inverse=False):
         """Get Pc matrix.
@@ -799,7 +799,7 @@ class CSBasis(SurfaceOperators):
             the last two dimensions refer to column and row of the
             matrix.
         """
-        return CSVectorTransforms.pc(xi, eta, r=r, block=block, inverse=inverse)
+        return cs_vectors.pc(xi, eta, r=r, block=block, inverse=inverse)
 
     def get_Ps(self, xi, eta, r=1, block=0, inverse=False):
         """Get Ps matrix.
@@ -845,7 +845,7 @@ class CSBasis(SurfaceOperators):
             the last two dimensions refer to column and row of the
             matrix.
         """
-        return CSVectorTransforms.ps(xi, eta, r=r, block=block, inverse=inverse)
+        return cs_vectors.ps(xi, eta, r=r, block=block, inverse=inverse)
 
     def get_Qij(self, xi, eta, block_i, block_j):
         """Get Qij matrix.
@@ -888,7 +888,7 @@ class CSBasis(SurfaceOperators):
             where the last two dimensions refer to column and row of the
             matrix.
         """
-        return CSVectorTransforms.q_between_blocks(xi, eta, block_i, block_j)
+        return cs_vectors.q_between_blocks(xi, eta, block_i, block_j)
 
     def get_Q(self, lat, r, inverse=False):
         """Get Q matrix.
@@ -918,7 +918,7 @@ class CSBasis(SurfaceOperators):
             ``(N, 3, 3)`` array, where ``N`` is the size implied by
             broadcasting the input.
         """
-        return CSVectorTransforms.spherical_q(lat, r, inverse=inverse)
+        return cs_vectors.spherical_q(lat, r, inverse=inverse)
 
     def get_Diff(self, N, coordinate="xi", Ns=1, Ni=4, order=1):
         """Get scalar field differentiation matrix.
@@ -1045,7 +1045,7 @@ class CSBasis(SurfaceOperators):
         Cartesian space to determine block membership. This ensures
         unique block assignment even for points near block boundaries.
         """
-        return CSCoordinateSystem.block(lon, lat)
+        return cs_coordinates.cube_face(lon, lat)
 
     def geo2cube(self, lon, lat, block=None):
         """Convert geocentric coordinates to cube coordinates.
@@ -1076,7 +1076,7 @@ class CSBasis(SurfaceOperators):
         block : array
             Index of the block that `xi`, `eta` belongs to.
         """
-        return CSCoordinateSystem.geo_to_cube(lon, lat, block=block)
+        return cs_coordinates.geo_to_cube(lon, lat, block=block)
 
     def interpolate_vector_components(
         self, u_east, u_north, u_r, theta, phi, theta_target, phi_target, **kwargs

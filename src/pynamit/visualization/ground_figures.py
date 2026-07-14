@@ -6,12 +6,12 @@ from pathlib import Path
 
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
 import numpy as np
 import pandas as pd
+from matplotlib.lines import Line2D
 
-from pynamit.math.constants import RE
 from pynamit.coordinates import local_time_hours_to_longitude
+from pynamit.math.constants import RE
 from pynamit.sphere import Grid
 from pynamit.visualization.figure_context import as_figure_spec, get_saved_field_view
 from pynamit.visualization.grid_evaluation import build_evaluator
@@ -42,7 +42,6 @@ from pynamit.visualization.time_series import (
     vector_magnitude_preserve_shape,
 )
 
-
 _GROUND_FIELD_CACHE = {}
 _STATION_FILE_CACHE = {}
 
@@ -57,19 +56,19 @@ class GroundFigureRenderer:
         self._station_data_directory_cache = None
 
     @property
-    def time_index(self):
+    def _time_index(self):
         """Saved-run time index."""
         return self.view.time_index
 
     def render_curve_map(self):
         """Render a ground magnetic time-curve map."""
-        target_times = self.ground_plot_times()
-        source_times = self.time_index + pd.to_timedelta(
+        target_times = self._ground_plot_times()
+        source_times = self._time_index + pd.to_timedelta(
             float(self.spec.sim_time_offset_seconds), unit="s"
         )
         dbdt_cadence_seconds = get_time_index_median_cadence_seconds(source_times)
         normalized_time = np.linspace(0.0, 1.0, len(target_times))
-        lon, lat, station_labels, measured_values = self.curve_sites_and_measurements(
+        lon, lat, station_labels, measured_values = self._curve_sites_and_measurements(
             target_times, dbdt_cadence_seconds=dbdt_cadence_seconds
         )
         if lon.size == 0:
@@ -78,8 +77,8 @@ class GroundFigureRenderer:
                 "and local-time filtering."
             )
 
-        br_ind, bh_ind, br_steady, bh_steady = self.ground_field_matrices(lat, lon)
-        layers = self.curve_layers(
+        br_ind, bh_ind, br_steady, bh_steady = self._ground_field_matrices(lat, lon)
+        layers = self._curve_layers(
             br_ind,
             bh_ind,
             br_steady,
@@ -96,18 +95,18 @@ class GroundFigureRenderer:
         curve_height_deg = 4.0
         low_latitude_scale = max(float(self.spec.low_latitude_scale), np.finfo(float).tiny)
         low_latitude_cutoff = max(float(self.spec.min_abs_dip_latitude), 0.0)
-        low_latitude_values = self.site_magnetic_latitude(lat, lon, target_times[0])
+        low_latitude_values = self._site_magnetic_latitude(lat, lon, target_times[0])
         site_curve_scale = np.where(
             np.abs(low_latitude_values) < low_latitude_cutoff, low_latitude_scale, 1.0
         )
         value_scale, display_scale = (
             (0.5 * float(self.spec.curve_scale_value), float(self.spec.curve_scale_value))
             if self.spec.curve_scale_mode == "manual"
-            else self.ground_value_scale(layers, fallback=self.spec.curve_scale_value)
+            else self._ground_value_scale(layers, fallback=self.spec.curve_scale_value)
         )
-        signal_label = self.ground_signal_label(self.spec.ground_quantity)
+        signal_label = self._ground_signal_label(self.spec.ground_quantity)
         unit = "nT/s" if self.spec.ground_quantity == "dbdt" else "nT"
-        reference_line = self.ground_reference_line(target_times, display_scale)
+        reference_line = self._ground_reference_line(target_times, display_scale)
         curve_center_lon, curve_center_lat = reference_aligned_curve_centers(
             lon,
             lat,
@@ -198,8 +197,8 @@ class GroundFigureRenderer:
             curve_height_deg=curve_height_deg,
             value_scale=value_scale,
             scale_display_value=display_scale,
-            scale_annotation=self.scale_label(display_scale, unit),
-            duration_annotation=self.duration_label(target_times),
+            scale_annotation=self._scale_label(display_scale, unit),
+            duration_annotation=self._duration_label(target_times),
             map_extent=map_extent,
             low_lat_scale_annotation=(
                 rf"$|\lambda_\mathrm{{m}}| < {low_latitude_cutoff:g}^\circ$ x "
@@ -219,27 +218,27 @@ class GroundFigureRenderer:
 
     def render_timeseries(self):
         """Render selected-station ground magnetic time series."""
-        stations, _ = self.station_table()
+        stations, _ = self._station_table()
         station_code = str(self.spec.ground_station).upper()
         rows = stations[stations["IAGA"] == station_code]
         if rows.empty:
             raise ValueError(f"Unknown station {station_code!r}.")
         station = rows.iloc[0]
-        br_ind, bh_ind, br_steady, bh_steady = self.ground_field_matrices(
+        br_ind, bh_ind, br_steady, bh_steady = self._ground_field_matrices(
             [station["GEOLAT"]], [station["GEOLON"]]
         )
-        source_times = self.time_index + pd.to_timedelta(
+        source_times = self._time_index + pd.to_timedelta(
             float(self.spec.sim_time_offset_seconds), unit="s"
         )
         dbdt_cadence_seconds = get_time_index_median_cadence_seconds(source_times)
-        target_times = self.ground_plot_times()
-        measured = self.station_measured_dataframe(station_code, target_times)
+        target_times = self._ground_plot_times()
+        measured = self._station_measured_dataframe(station_code, target_times)
 
         components = ["North", "East", "Down"]
         fig, axes = plt.subplots(3, 1, figsize=(11, 7), sharex=True, constrained_layout=True)
         x_start = target_times[0]
         x_end = target_times[-1]
-        for axis, component in zip(axes, components):
+        for axis, component in zip(axes, components, strict=True):
             if measured is not None and self.spec.include_station_data:
                 values = measured.loc[x_start:x_end, component]
                 if self.spec.ground_quantity == "dbdt":
@@ -272,7 +271,7 @@ class GroundFigureRenderer:
                         "This run has no steady_state output. Disable Non-inductive "
                         "ground curves, or rerun with save_steady_states=True."
                     )
-                values = self.ground_matrix_at_times(
+                values = self._ground_matrix_at_times(
                     component,
                     br_values,
                     bh_values,
@@ -290,23 +289,23 @@ class GroundFigureRenderer:
             axis.legend(loc="best")
         axes[-1].set_xlabel(f"Time on {target_times[0].strftime('%Y-%m-%d')}")
         fig.suptitle(
-            f"Ground {self.ground_signal_label(self.spec.ground_quantity)} at {station_code}",
+            f"Ground {self._ground_signal_label(self.spec.ground_quantity)} at {station_code}",
             fontsize=14,
         )
         return fig
 
-    def target_times(self):
+    def _target_times(self):
         """Return the selected target time interval."""
         start, end = [int(value) for value in self.spec.time_range]
         start = max(0, min(start, self.view.n_time - 1))
         end = max(start, min(end, self.view.n_time - 1))
         if end == start:
             end = min(self.view.n_time - 1, start + min(60, max(self.view.n_time - 1, 1)))
-        return self.time_index[start : end + 1]
+        return self._time_index[start : end + 1]
 
-    def ground_plot_times(self):
+    def _ground_plot_times(self):
         """Return ground-plot times with 1 s station resolution."""
-        selected = self.target_times()
+        selected = self._target_times()
         if not self.spec.include_station_data or len(selected) < 2:
             return selected
         start = pd.Timestamp(selected[0]).ceil("1s")
@@ -315,7 +314,7 @@ class GroundFigureRenderer:
             return selected
         return pd.date_range(start, end, freq="1s")
 
-    def ground_field_matrices(self, site_lat, site_lon):
+    def _ground_field_matrices(self, site_lat, site_lon):
         """Return ground field matrices for sites."""
         lat_arr = np.asarray(site_lat, dtype=float).reshape(-1)
         lon_arr = np.asarray(site_lon, dtype=float).reshape(-1)
@@ -336,29 +335,22 @@ class GroundFigureRenderer:
         grid = Grid(lat=lat_arr, lon=lon_arr)
         ri = float(self.view.run_view.config.RI)
         solid_harmonics = geometry.solid_harmonics
-        horizontal_to_solid = (
-            None
-            if geometry.horizontal_solid_projection_is_identity
-            else geometry.horizontal_to_solid_harmonic
-        )
         solid_basis = solid_harmonics.basis
         evaluator = build_evaluator(solid_basis, grid)
         ve_to_ground = solid_harmonics.regular_reference_shift(ri, RE)
         m_ind_to_br = -(ri**2) * solid_basis.laplacian(ri)
-        m_ind_to_br_ground = ve_to_ground * m_ind_to_br * evaluator.G
-        m_ind_to_bh_ground = (solid_basis.n + 1) * ve_to_ground * evaluator.G_grad
+        m_ind_to_br_ground = ve_to_ground * m_ind_to_br * evaluator.scalar_coeffs_to_grid
+        m_ind_to_bh_ground = (
+            (solid_basis.n + 1) * ve_to_ground * evaluator.scalar_coeffs_to_gridded_gradient
+        )
 
         m_ind = self.view.dataset_values("state", "m_ind").T
-        if horizontal_to_solid is not None:
-            m_ind = horizontal_to_solid.dot(m_ind)
         steady_dataset = self.view.run_view.datasets.get("steady_state")
         if steady_dataset is None:
             br_steady = None
             bh_steady = None
         else:
             m_ind_steady = self.view.dataset_values("steady_state", "m_ind").T
-            if horizontal_to_solid is not None:
-                m_ind_steady = horizontal_to_solid.dot(m_ind_steady)
             br_steady = m_ind_to_br_ground.dot(m_ind_steady)
             bh_steady = m_ind_to_bh_ground.dot(m_ind_steady)
         cached = (
@@ -372,12 +364,12 @@ class GroundFigureRenderer:
             _GROUND_FIELD_CACHE.pop(next(iter(_GROUND_FIELD_CACHE)))
         return cached
 
-    def curve_sites_and_measurements(self, target_times, *, dbdt_cadence_seconds=None):
+    def _curve_sites_and_measurements(self, target_times, *, dbdt_cadence_seconds=None):
         """Return curve-map sites and measured values."""
         station_labels = []
         measured_values = None
         if self.spec.include_station_data:
-            station_sites = self.ground_curve_station_sites(target_times)
+            station_sites = self._ground_curve_station_sites(target_times)
             station_lon = station_sites["GEOLON"].to_numpy(dtype=float)
             station_lat = station_sites["GEOLAT"].to_numpy(dtype=float)
             candidate_labels = station_sites["IAGA"].astype(str).to_list()
@@ -385,12 +377,12 @@ class GroundFigureRenderer:
             lat_values = []
             measured_rows = []
             for station_code, site_lon, site_lat in zip(
-                candidate_labels, station_lon, station_lat
+                candidate_labels, station_lon, station_lat, strict=True
             ):
-                measured = self.load_local_station_dataframe(station_code, target_times)
+                measured = self._load_local_station_dataframe(station_code, target_times)
                 if measured is None:
                     continue
-                station_values = self.station_values_at_times(
+                station_values = self._station_values_at_times(
                     measured, target_times, dbdt_cadence_seconds=dbdt_cadence_seconds
                 )
                 if station_values.size == len(target_times) and np.isfinite(station_values[0]):
@@ -421,7 +413,7 @@ class GroundFigureRenderer:
         )
         return lon[site_mask], lat[site_mask], station_labels, measured_values
 
-    def curve_layers(
+    def _curve_layers(
         self,
         br_ind,
         bh_ind,
@@ -452,7 +444,7 @@ class GroundFigureRenderer:
                 {
                     "series_key": "inductive",
                     "label": "Inductive",
-                    "values": self.ground_matrix_at_times(
+                    "values": self._ground_matrix_at_times(
                         self.spec.ground_component,
                         br_ind,
                         bh_ind,
@@ -477,7 +469,7 @@ class GroundFigureRenderer:
                 {
                     "series_key": "magnetostatic",
                     "label": "Non-inductive",
-                    "values": self.ground_matrix_at_times(
+                    "values": self._ground_matrix_at_times(
                         self.spec.ground_component,
                         br_steady,
                         bh_steady,
@@ -494,7 +486,7 @@ class GroundFigureRenderer:
             )
         return layers
 
-    def station_table(self):
+    def _station_table(self):
         """Return normalized station metadata and source path."""
         if self._station_table_cache is not None:
             return self._station_table_cache
@@ -527,17 +519,17 @@ class GroundFigureRenderer:
             "pynamit_plot_defaults.json or place station data in mag_data/."
         )
 
-    def station_data_directory(self):
+    def _station_data_directory(self):
         """Return directory containing station data files."""
         if self._station_data_directory_cache is not None:
             return self._station_data_directory_cache
-        _, stations_path = self.station_table()
+        _, stations_path = self._station_table()
         self._station_data_directory_cache = Path(stations_path).expanduser().parent
         return self._station_data_directory_cache
 
-    def load_local_station_dataframe(self, station_code, target_times):
+    def _load_local_station_dataframe(self, station_code, target_times):
         """Load local IAGA2002 station data for a curve map."""
-        data_dir = self.station_data_directory()
+        data_dir = self._station_data_directory()
         source_start = pd.Timestamp(target_times[0]) - pd.to_timedelta(
             float(self.spec.data_time_offset_seconds), unit="s"
         )
@@ -553,10 +545,10 @@ class GroundFigureRenderer:
             measured, station_code, data_time_offset_seconds=self.spec.data_time_offset_seconds
         )
 
-    def station_measured_dataframe(self, station_code, target_index):
+    def _station_measured_dataframe(self, station_code, target_index):
         """Download/load station data for one selected station."""
         try:
-            _, stations_path = self.station_table()
+            _, stations_path = self._station_table()
         except ValueError:
             return None
         data_dir = str(pd.io.common.stringify_path(stations_path)).rsplit("/", 1)[0]
@@ -605,9 +597,9 @@ class GroundFigureRenderer:
             index=measured_index,
         )
 
-    def station_values_at_times(self, measured, target_times, *, dbdt_cadence_seconds=None):
+    def _station_values_at_times(self, measured, target_times, *, dbdt_cadence_seconds=None):
         """Return measured station values sampled at target times."""
-        component = self.ground_component_base(self.spec.ground_component)
+        component = self._ground_component_base(self.spec.ground_component)
         components = ["North", "East", "Down"] if component == "Magnitude" else [component]
 
         sampled = []
@@ -633,13 +625,13 @@ class GroundFigureRenderer:
             if component == "Magnitude"
             else np.asarray(sampled[0], dtype=float)
         )
-        if self.ground_component_uses_abs(self.spec.ground_component):
+        if self._ground_component_uses_abs(self.spec.ground_component):
             return np.abs(values)
         return values
 
-    def ground_curve_station_sites(self, target_times):
+    def _ground_curve_station_sites(self, target_times):
         """Return filtered station metadata."""
-        stations, _ = self.station_table()
+        stations, _ = self._station_table()
         mask = geographic_local_time_mask(
             stations["GEOLAT"].to_numpy(dtype=float),
             stations["GEOLON"].to_numpy(dtype=float),
@@ -649,7 +641,7 @@ class GroundFigureRenderer:
         )
         return stations.loc[mask].reset_index(drop=True)
 
-    def site_magnetic_latitude(self, lat, lon, event_time):
+    def _site_magnetic_latitude(self, lat, lon, event_time):
         """Return magnetic latitude used for low-latitude selection."""
         lat_arr = np.asarray(lat, dtype=float)
         lon_arr = np.asarray(lon, dtype=float)
@@ -664,7 +656,7 @@ class GroundFigureRenderer:
         raise ValueError(f"Unsupported main_field kind for magnetic latitude: {main_field.kind!r}")
 
     @staticmethod
-    def ground_component_base(component):
+    def _ground_component_base(component):
         """Strip absolute-value wrapper from a component name."""
         component = str(component)
         if component.startswith("Abs") and component[3:] in {"North", "East", "Down"}:
@@ -672,14 +664,14 @@ class GroundFigureRenderer:
         return component
 
     @staticmethod
-    def ground_component_uses_abs(component):
+    def _ground_component_uses_abs(component):
         """Return whether a component is absolute valued."""
         component = str(component)
         return component.startswith("Abs") and component[3:] in {"North", "East", "Down"}
 
-    def ground_component_matrix(self, component, br_values, bh_values):
+    def _ground_component_matrix(self, component, br_values, bh_values):
         """Return component matrix in nT."""
-        base = self.ground_component_base(component)
+        base = self._ground_component_base(component)
         if base == "North":
             values = -np.asarray(bh_values[0], dtype=float) * 1e9
         elif base == "East":
@@ -689,16 +681,16 @@ class GroundFigureRenderer:
         elif base == "Magnitude":
             values = vector_magnitude_preserve_shape(
                 [
-                    self.ground_component_matrix("North", br_values, bh_values),
-                    self.ground_component_matrix("East", br_values, bh_values),
-                    self.ground_component_matrix("Down", br_values, bh_values),
+                    self._ground_component_matrix("North", br_values, bh_values),
+                    self._ground_component_matrix("East", br_values, bh_values),
+                    self._ground_component_matrix("Down", br_values, bh_values),
                 ]
             )
         else:
             raise ValueError(f"Unsupported ground component: {component!r}")
-        return np.abs(values) if self.ground_component_uses_abs(component) else values
+        return np.abs(values) if self._ground_component_uses_abs(component) else values
 
-    def ground_matrix_at_times(
+    def _ground_matrix_at_times(
         self,
         component,
         br_values,
@@ -715,15 +707,15 @@ class GroundFigureRenderer:
         if str(quantity) != "dbdt":
             return resample_matrix_to_times(
                 source_index,
-                self.ground_component_matrix(component, br_values, bh_values),
+                self._ground_component_matrix(component, br_values, bh_values),
                 target_index,
             )
-        base = self.ground_component_base(component)
+        base = self._ground_component_base(component)
         cadence = get_time_index_median_cadence_seconds(source_index)
         if base == "Magnitude":
             return vector_magnitude_preserve_shape(
                 [
-                    self.ground_matrix_at_times(
+                    self._ground_matrix_at_times(
                         sub_component,
                         br_values,
                         bh_values,
@@ -737,15 +729,15 @@ class GroundFigureRenderer:
             )
         values = compute_centered_difference_matrix_at_times(
             source_index,
-            self.ground_component_matrix(base, br_values, bh_values),
+            self._ground_component_matrix(base, br_values, bh_values),
             target_index,
             half_window_points=max(1, int(self.spec.dbdt_window_points)),
             cadence_seconds=dbdt_cadence_seconds or cadence,
         )
-        return np.abs(values) if self.ground_component_uses_abs(component) else values
+        return np.abs(values) if self._ground_component_uses_abs(component) else values
 
     @staticmethod
-    def ground_value_scale(layers, *, fallback=10.0):
+    def _ground_value_scale(layers, *, fallback=10.0):
         """Choose a readable automatic curve value scale."""
         finite = []
         for layer in layers:
@@ -762,7 +754,7 @@ class GroundFigureRenderer:
         return max(0.5 * display, np.finfo(float).tiny), display
 
     @staticmethod
-    def duration_label(time_index):
+    def _duration_label(time_index):
         """Return a compact duration label."""
         if len(time_index) < 2:
             return "0 s"
@@ -781,7 +773,7 @@ class GroundFigureRenderer:
         return f"{seconds} s"
 
     @staticmethod
-    def scale_label(value, unit):
+    def _scale_label(value, unit):
         """Return curve scale label."""
         value = float(value)
         if abs(value - round(value)) < 1e-9:
@@ -791,11 +783,11 @@ class GroundFigureRenderer:
         return f"{value:.1f} {unit}"
 
     @staticmethod
-    def ground_signal_label(quantity):
+    def _ground_signal_label(quantity):
         """Return a reader-facing ground signal label."""
         return "dB/dt" if str(quantity) == "dbdt" else "B"
 
-    def ground_reference_line(self, target_times, display_scale):
+    def _ground_reference_line(self, target_times, display_scale):
         """Return the reference line payload for curve maps."""
         if not self.spec.show_reference_line or len(target_times) < 2:
             return None
@@ -1115,7 +1107,7 @@ class GroundFigureRenderer:
         )
         label_zorders = curve_site_group_zorders(lon, central_longitude=central_longitude) + 0.04
         for station_code, station_lon, station_lat, zorder in zip(
-            station_labels, label_lon, label_lat, label_zorders
+            station_labels, label_lon, label_lat, label_zorders, strict=True
         ):
             axis.text(
                 station_lon,

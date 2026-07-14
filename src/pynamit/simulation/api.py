@@ -1,16 +1,17 @@
 """User-facing assembly of a PynaMIT simulation."""
 
 import numpy as np
+
+from pynamit.math.backend import set_backend
 from pynamit.math.constants import RE
 from pynamit.simulation.config import SimulationConfig
-from pynamit.storage import ArtifactStore
-from pynamit.simulation.run_data import RunData
-from pynamit.simulation.runner import SimulationRunner
+from pynamit.simulation.electrodynamics import ionospheric_closure
 from pynamit.simulation.geometry import SimulationGeometry, build_main_field
 from pynamit.simulation.inputs import InputPipeline
-from pynamit.simulation.electrodynamics import ionospheric_closure
 from pynamit.simulation.response import ElectrodynamicResponse
-from pynamit.math.backend import set_backend
+from pynamit.simulation.run_data import RunData
+from pynamit.simulation.runner import SimulationRunner
+from pynamit.storage import ArtifactStore
 
 
 class Simulation:
@@ -148,7 +149,9 @@ class Simulation:
         reuse_preconditioner : bool, optional
             Keep a reusable iterative-solver preconditioner when valid.
         m_imp_regularization_lambda : float, optional
-            Regularization strength for imposed-potential solves.
+            Optional Tikhonov regularization strength for the imposed
+            potential. The default is unregularized; coefficient gauges
+            are constrained separately.
         artifact_storage : {'auto', 'netcdf', 'zarr'}, optional
             Preferred backend for new saved xarray artifacts. Existing
             artifacts keep their format on restart.
@@ -158,17 +161,17 @@ class Simulation:
             ``"numpy"``/``False`` enforce NumPy arrays, while
             ``"jax"``/``True`` enables JAX.
         horizontal_basis_kind : {'SH', 'CS'}, optional
-            Basis requested for horizontal state coefficients and
-            surface operators. ``'SH'`` is the default. ``'CS'`` uses
+            Basis requested for horizontal surface potentials and
+            operators. ``'SH'`` is the default. ``'CS'`` uses
             cubed-sphere nodal coefficients and finite-difference
-            derivatives for horizontal surface operators. Radial
-            Laplace-continuation terms use the SH radial-continuation
-            basis.
+            derivatives. The magnetic state and radial continuation
+            remain in the configured mean-free SH magnetic space.
         area_weighted_least_squares : bool, optional
             Use surface-area weights for least-squares projections when
             no explicit ``sqrt_weights`` are supplied. Cubed-sphere
             grids use their native cell areas; ordinary spherical grids
-            use ``sin(theta)``.
+            use ``sin(theta)``. Disabled by default to preserve the
+            established projection norm.
         """
         set_backend(backend)
         config = SimulationConfig(
@@ -232,6 +235,30 @@ class Simulation:
         self.run_data.save_settings_if_missing(print_info=True)
 
     @classmethod
+    def from_config(
+        cls,
+        config: SimulationConfig,
+        *,
+        run_directory=None,
+        artifact_storage="auto",
+        backend="auto",
+    ):
+        """Construct a simulation from a normalized configuration.
+
+        ``run_directory``, ``artifact_storage``, and ``backend`` are
+        execution preferences rather than persisted model settings, so
+        they remain explicit alongside the configuration.
+        """
+        if not isinstance(config, SimulationConfig):
+            raise TypeError("Simulation.from_config requires a SimulationConfig.")
+        return cls(
+            run_directory=run_directory,
+            artifact_storage=artifact_storage,
+            backend=backend,
+            **config.to_kwargs(),
+        )
+
+    @classmethod
     def from_directory(cls, run_directory, **kwargs):
         """Construct a simulation from one run directory."""
         run_directory = ArtifactStore.require_artifact_directory(run_directory, ("settings",))
@@ -240,21 +267,23 @@ class Simulation:
             run_directory, preferred_dataset_storage=artifact_storage
         ).load_dataset("settings")
 
-        config_kwargs = SimulationConfig.from_settings(settings).to_kwargs()
-        config_kwargs.update(
-            {
-                name: value
-                for name, value in kwargs.items()
-                if name in config_kwargs and value is not None
-            }
-        )
-        extra_kwargs = {name: value for name, value in kwargs.items() if name not in config_kwargs}
-        return cls(run_directory=run_directory, **config_kwargs, **extra_kwargs)
+        stored_config = SimulationConfig.from_settings(settings)
+        config_values = stored_config.to_kwargs()
+        config_overrides = {
+            name: value
+            for name, value in kwargs.items()
+            if name in config_values and value is not None
+        }
+        config = SimulationConfig(**{**config_values, **config_overrides})
+        runtime_kwargs = {
+            name: value for name, value in kwargs.items() if name not in config_values
+        }
+        return cls.from_config(config, run_directory=run_directory, **runtime_kwargs)
 
     def evolve_to_time(
         self,
         t,
-        dt=np.float64(5e-4),
+        dt=5e-4,
         sampling_step_interval=200,
         saving_sample_interval=10,
         quiet=False,
@@ -770,34 +799,18 @@ class Simulation:
         wind_reg_lambda=None,
         Q_eff_reg_lambda=None,
         pinv_rtol=1e-15,
-        *,
-        fit_coefficients=True,
     ):
-        """Compute and store Q_eff from neutral wind and conductance."""
-        self._input_pipeline.require_no_exclusive_conflict("Q_eff")
-        if fit_coefficients:
-            input_time, wind_coeff_rows = self._input_pipeline.project_tangential_samples(
-                "u",
-                u_theta,
-                u_phi,
-                lat=lat,
-                lon=lon,
-                theta=theta,
-                phi=phi,
-                time=time,
-                sqrt_weights=sqrt_weights,
-                reg_lambda=wind_reg_lambda,
-                pinv_rtol=pinv_rtol,
-            )
-            q_coeff_rows = self._input_pipeline.fit_Q_eff_from_neutral_wind(
-                input_time, wind_coeff_rows, reg_lambda=Q_eff_reg_lambda, pinv_rtol=pinv_rtol
-            )
-            self._input_pipeline.add_input_coefficients(
-                "Q_eff", {"Q_eff": q_coeff_rows}, input_time
-            )
-            return
+        """Fit and store Q_eff coefficients from wind and conductance.
 
-        Q_eff_theta, Q_eff_phi, Q_lat, Q_lon = self.calculate_Q_eff_from_neutral_wind(
+        The wind is projected once, then ``Q_eff`` is solved in its
+        storage basis so that the resistance-weighted electric response
+        matches the wind forcing. Use
+        ``calculate_Q_eff_from_neutral_wind`` to inspect the equivalent
+        model-grid field without storing it.
+        """
+        self._input_pipeline.require_no_exclusive_conflict("Q_eff")
+        input_time, wind_coeff_rows = self._input_pipeline.project_tangential_samples(
+            "u",
             u_theta,
             u_phi,
             lat=lat,
@@ -809,15 +822,10 @@ class Simulation:
             reg_lambda=wind_reg_lambda,
             pinv_rtol=pinv_rtol,
         )
-        self.set_Q_eff(
-            Q_eff_theta=Q_eff_theta,
-            Q_eff_phi=Q_eff_phi,
-            lat=Q_lat,
-            lon=Q_lon,
-            time=time,
-            reg_lambda=Q_eff_reg_lambda,
-            pinv_rtol=pinv_rtol,
+        q_coeff_rows = self._input_pipeline.fit_Q_eff_from_neutral_wind(
+            input_time, wind_coeff_rows, reg_lambda=Q_eff_reg_lambda, pinv_rtol=pinv_rtol
         )
+        self._input_pipeline.add_input_coefficients("Q_eff", {"Q_eff": q_coeff_rows}, input_time)
 
     def calculate_Q_eff_from_neutral_wind(
         self,

@@ -42,7 +42,6 @@ from pynamit.simulation.workflows.mage import (
     gamera_internal_dipole_axes,
 )
 
-
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_GAMERA_DIR = Path("/disk/Gamera_Dong")
 DEFAULT_OUTPUT_DIR = SCRIPT_DIR / "mage_prepared"

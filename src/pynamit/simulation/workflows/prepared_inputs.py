@@ -23,13 +23,12 @@ from pynamit.external_inputs import (
     get_jr_inputs,
     get_wind_inputs,
 )
-from pynamit.math.constants import RE
-from pynamit.storage import ArtifactStore
-from pynamit.storage import FieldTimeSeries
-from pynamit.simulation.config import SimulationConfig
-from pynamit.simulation.api import Simulation
 from pynamit.geomagnetism import MainField, decimal_year
+from pynamit.math.constants import RE
+from pynamit.simulation.api import Simulation
+from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.schema import INPUT_DATASET_KEYS, RUN_ARTIFACT_NAMES
+from pynamit.storage import ArtifactStore, FieldTimeSeries
 
 INPUT_MANIFEST_FILENAME = "pynamit_input_manifest.json"
 RUN_MANIFEST_FILENAME = "pynamit_run_manifest.json"
@@ -674,8 +673,9 @@ def run_pynamit_from_inputs(
             interhemispheric_electric_field_weight
         )
     run_directory = _run_directory(run_directory)
-    simulation = Simulation(
-        run_directory=run_directory, artifact_storage=artifact_storage, **config_kwargs
+    config = SimulationConfig(**config_kwargs)
+    simulation = Simulation.from_config(
+        config, run_directory=run_directory, artifact_storage=artifact_storage
     )
     loaded_inputs = load_prepared_inputs_into_simulation(
         simulation,

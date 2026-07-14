@@ -276,7 +276,7 @@ class FieldComparisonRenderer:
                 for col in range(n_panels)
             ]
             if row_index == 0:
-                for axis, (_, title) in zip(axes, panel_specs):
+                for axis, (_, title) in zip(axes, panel_specs, strict=True):
                     axis.ax.set_title(title, fontsize=14)
             axes[0].ax.text(
                 -0.4,
@@ -308,7 +308,7 @@ class FieldComparisonRenderer:
         axes = [
             fig.add_subplot(grid[0, col], projection=ccrs.PlateCarree()) for col in range(n_panels)
         ]
-        for axis, (_, title) in zip(axes, panel_specs):
+        for axis, (_, title) in zip(axes, panel_specs, strict=True):
             axis.set_title(title, fontsize=14)
         for index, axis in enumerate(axes):
             style_global_comparison_axis(axis, left_labels=(index == 0), bottom_labels=True)
@@ -363,7 +363,7 @@ class FieldComparisonRenderer:
         y_positions = (
             [0.5] if len(overlay_keys) == 1 else np.linspace(0.78, 0.22, len(overlay_keys))
         )
-        for y_pos, key in zip(y_positions, overlay_keys):
+        for y_pos, key in zip(y_positions, overlay_keys, strict=True):
             kwargs = plot_kwargs[key]
             field_diff_kwargs = diff_kwargs[key]
             state_interval = kwargs["levels"][1] - kwargs["levels"][0]

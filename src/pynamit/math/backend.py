@@ -11,14 +11,15 @@ from __future__ import annotations
 
 import os
 import types
+from collections.abc import Iterable
 from contextlib import contextmanager
 from functools import wraps
-from typing import Any, Iterable, Optional, Union
+from typing import Any
 
 import numpy as _np
 
 JAX_AVAILABLE = False
-_jax_namespace: Optional[types.ModuleType] = None
+_jax_namespace: types.ModuleType | None = None
 _jax_array_type: tuple[type, ...] = ()
 _jax_device_put = None
 _jax_jit = None
@@ -27,7 +28,6 @@ _jax_vmap = None
 try:  # pragma: no cover - we fall back gracefully when JAX is absent
     import jax
     import jax.numpy as _jnp
-
     from jax import jit as _jax_jit  # type: ignore[assignment]
     from jax import vmap as _jax_vmap  # type: ignore[assignment]
 
@@ -48,7 +48,7 @@ except Exception:  # pragma: no cover - JAX is optional
     _jax_namespace = None
 
 
-def _env_flag(value: Optional[str]) -> bool:
+def _env_flag(value: str | None) -> bool:
     if value is None:
         return False
     return value.strip().lower() in {"1", "true", "yes", "on"}
@@ -57,7 +57,7 @@ def _env_flag(value: Optional[str]) -> bool:
 _USE_JAX = JAX_AVAILABLE and _env_flag(os.environ.get("PYNAMIT_USE_JAX"))
 
 
-def use_jax(flag: Optional[bool] = None) -> bool:
+def use_jax(flag: bool | None = None) -> bool:
     """Query or set whether JAX should be used."""
     global _USE_JAX
     if flag is not None:
@@ -67,7 +67,7 @@ def use_jax(flag: Optional[bool] = None) -> bool:
     return bool(_USE_JAX and JAX_AVAILABLE)
 
 
-def set_backend(backend: Union[str, bool, None]) -> str:
+def set_backend(backend: str | bool | None) -> str:
     """Set the active array backend."""
     if isinstance(backend, bool):
         target = backend
@@ -92,7 +92,7 @@ def set_backend(backend: Union[str, bool, None]) -> str:
 
 
 @contextmanager
-def backend_context(backend: Union[str, bool, None]):
+def backend_context(backend: str | bool | None):
     """Temporarily set the active array backend inside a context."""
     previous_backend = use_jax()
     previous_env = os.environ.get("PYNAMIT_USE_JAX")

@@ -7,6 +7,40 @@ time evolution, persistence, and visualization.  The simulation APIs should
 stay readable when used interactively, while the implementation keeps the
 physics-specific transformations in focused modules.
 
+API boundaries
+--------------
+
+PynaMIT has four API tiers:
+
+* The stable primary API is the explicit export set of ``pynamit`` and
+  ``pynamit.simulation``. The high-level optional visualization API is the
+  explicit lazy export set of ``pynamit.visualization``. Together they contain
+  the simulation facade, normalized configuration, field values and spaces,
+  spherical bases and transforms, background-field utilities, backend
+  selection, saved-run views, and renderers.
+* Reusable packages such as ``pynamit.sphere``, ``pynamit.geomagnetism``,
+  ``pynamit.math``, and ``pynamit.storage`` provide advanced scientific and
+  infrastructure APIs. Their package export lists define the supported
+  entry points; implementation submodules do not extend that promise merely
+  because Python can import them.
+  Focused electrodynamics and workflow functions are advanced module APIs at
+  their documented module paths rather than primary package exports.
+* ``Simulation.config``, ``Simulation.current_time``,
+  ``Simulation.run_data``, ``Simulation.geometry``, and
+  ``Simulation.response`` are stable attributes for inspection and
+  diagnostics. This guarantees the ownership path, not every constructor or
+  non-underscored member of the collaborator's concrete class. Named geometry
+  maps and response operators are advanced diagnostic surfaces and may be
+  expensive to materialize.
+* Underscored attributes, including ``simulation._input_pipeline`` and
+  ``simulation._runner``, caches, and scheduling helpers are internal. Tests
+  may exercise these objects directly without turning them into user API.
+
+Compatibility names such as ``BasisEvaluator``, ``set_u``, and the
+``SphericalTransform.G*`` properties remain supported, but implementation
+code uses the canonical descriptive names. New code should enter through the
+primary names rather than adding further aliases.
+
 High-level flow
 ---------------
 
@@ -35,13 +69,12 @@ The main setup path is:
 6. ``RunData`` owns persisted settings, input time series, and output
    time series.
 
-These ownership paths are also the inspection API. Persisted objects are
-reached through ``simulation.run_data`` (for example
-``simulation.run_data.output_series`` and ``simulation.run_data.schema``), while the
-horizontal basis, solid harmonics, and background field are reached through
-``simulation.geometry``. ``Simulation`` does not copy those references onto
-parallel top-level attributes. This keeps its initialization small and makes
-the owner of each object unambiguous.
+Persisted objects are reached through ``simulation.run_data`` (for example
+``simulation.run_data.output_series`` and ``simulation.run_data.schema``),
+while the horizontal basis, solid harmonics, and background field are reached
+through ``simulation.geometry``. ``Simulation`` does not copy those
+references onto parallel top-level attributes. This keeps its initialization
+small and makes the owner of each object unambiguous.
 
 Keep this layering intact: configuration should not perform numerical work,
 schema should not read run data, input projection should not evolve the model,
@@ -66,6 +99,7 @@ concepts from the PynaMIT simulation model::
 The simulation package is grouped by runtime role::
 
     simulation/
+      __init__.py            stable Simulation and SimulationConfig exports
       api.py                 public simulation facade
       response.py            active inputs, response solves, and operator caches
       geometry.py            run-specific spatial and magnetic mappings
@@ -120,12 +154,25 @@ legacy settings do so through ``SimulationConfig.from_settings`` before
 crossing those boundaries. Runtime policy is read from that shared config
 rather than copied into mutable state attributes.
 
+Programmatic callers can pass a normalized configuration through
+``Simulation.from_config``. Storage format, run directory, and array backend
+remain separate arguments because they are execution preferences rather than
+persisted physical model settings.
+
 ``pynamit.simulation.schema`` is the canonical home for basis and field-space
 selection.  New persisted input or output streams should be declared through
 the schema tables and built into ``FieldSpace`` objects there.  This keeps
 storage names, field types, mean-free choices, and projection bases visible in
 one place. A built ``SimulationSchema`` owns immutable mapping copies so
 storage metadata cannot drift after the corresponding time series exist.
+
+Numerical policies that can change an established calculation are explicit
+and persisted. ``area_weighted_least_squares=False`` retains the historical
+unweighted projection convention; enabling it changes the least-squares norm,
+not the underlying field equations. Likewise,
+``m_imp_regularization_lambda=0.0`` leaves the physical imposed-potential
+problem unregularized. Reproducibility workflows pin both choices explicitly
+instead of inheriting a future policy change.
 
 Numerical operators and value identity
 ----------------------------------------
@@ -143,9 +190,13 @@ grid-value compatibility and remapping identity. Its separate analysis
 signature also includes optional area weights: equal coordinates can share
 synthesis matrices while requiring different weighted least-squares analyses.
 Transform caches must choose deliberately between those two identities.
-Mean-freedom is owned by coefficient spaces, not by geometry.  The schema's
-``sh_basis`` retains the mean/monopole term for quantities such as resistance,
-while ``mean_free_sh_basis`` is used for gauge potentials.  Each stored
+Mean-freedom is owned by coefficient spaces, not by post-step cleanup. The
+schema's ``sh_basis`` retains the mean/monopole term for quantities such as
+resistance, while ``mean_free_sh_basis`` is used for radial magnetic fields.
+The evolving ``m_ind`` and prescribed boundary ``Br`` therefore live directly
+in the mean-free magnetic SH space. ``m_imp``, ``Phi``, and ``W`` live in the
+selected horizontal surface space. In CS mode the latter space retains its
+nodal layout and uses an explicit zero-area-mean gauge constraint. Each stored
 representation supplies its own synthesis operator on the model grid, so
 ``SimulationGeometry`` does not carry a parallel full-scalar transform.
 
@@ -166,18 +217,20 @@ Spatial bases
 Spherical harmonics and cubed-sphere support have different implementation
 needs, but they should present the same public basis contract wherever
 possible. ``CSBasis`` is the public cubed-sphere basis facade. Its private
-implementation collaborators are split into:
+implementation is split into:
 
-* ``CSCoordinateSystem`` for panel and coordinate transforms.
+* ``cs_coordinates`` for panel and coordinate transforms.
 * ``CSGridGeometry`` and ``CSGridRemapper`` for grid shape, indexing, and
   remapping, including scattered scalar and vector interpolation.
 * ``CSFiniteDifferences`` for derivative stencils and sparse operators.
-* ``CSVectorTransforms`` for vector-basis conversions.
+* ``cs_vectors`` for vector-basis conversions.
 
 Prefer adding focused CS behavior to one of these collaborators instead of
-growing ``CSBasis`` again. The familiar coordinate and interpolation methods
-remain on ``CSBasis`` as its public facade, while their implementations belong
-to those collaborators. Keep the ``CS`` abbreviation in class names.
+growing ``CSBasis`` again. Stateless coordinate and vector calculations are
+module functions rather than artificial namespace objects. The familiar
+coordinate and interpolation methods remain on ``CSBasis`` as its public
+facade, while their implementations belong to those focused modules. Keep the
+``CS`` abbreviation in class names that represent actual objects.
 
 ``sphere`` is a warranted standalone package because its bases, grids,
 analysis/synthesis transforms, and solid-harmonic continuation form a coherent
@@ -223,6 +276,11 @@ Public setters such as ``set_jr``, ``set_resistance``, ``set_neutral_wind``,
 ``set_Q_eff``, and ``set_E_source`` should remain thin API methods.  When a
 new input stream is added, prefer extending the schema and the private input
 specification table over hand-writing a new projection path inside ``Simulation``.
+``set_Q_eff_from_neutral_wind`` follows one coefficient-space route: it fits
+the stored ``Q_eff`` so its resistance-weighted electric response matches the
+projected wind forcing. ``calculate_Q_eff_from_neutral_wind`` is the separate
+non-persisting diagnostic for callers that need the equivalent model-grid
+field.
 
 Prepared external inputs
 ------------------------
@@ -312,6 +370,14 @@ suggesting that it contains only the direct electric-field input or encoding
 the absence of ``m_imp``. The imposed potential then completes the response
 required by the radial-current and optional interhemispheric constraints.
 
+The magnetic and horizontal surface spaces coincide in the default SH mode.
+They are intentionally distinct in CS mode. ``surface_to_magnetic_operator``
+is the only bridge in Faraday's law: it projects the surface ``W`` potential
+onto the configured magnetic harmonics. PFAC coupling has the corresponding
+rectangular shape, mapping surface ``m_imp`` coefficients to magnetic
+poloidal coefficients. This prevents unobservable high-resolution CS modes
+from being carried as part of the evolving magnetic state.
+
 Expensive optional geometry follows use rather than construction. The PFAC
 coupling matrix is reused when persisted, but a new one is not built merely to
 construct ``Simulation`` or project inputs. It is constructed and saved when a
@@ -335,8 +401,15 @@ curl-free and divergence-free electric-potential coefficients normalized by
 by ``RI`` to display volts. Stored ``m_ind`` and ``m_imp`` follow the normalized
 magnetic-potential convention documented with ``SolidHarmonics``. With these
 definitions, ``m_imp_to_jr = RI / mu0 * surface_laplacian``,
-``m_ind_to_Br = -RI**2 * surface_laplacian``, and
+``m_ind_to_Br = -RI**2 * magnetic_laplacian``, and
 ``d(m_ind)/dt = W / RI`` use one sign and radius convention across the code.
+
+The CS imposed-potential system has one physically irrelevant constant gauge.
+``surface_gauge_operator`` adds the exact zero-area-mean equation needed to
+make its coefficient solution unique. This is a constraint, not Tikhonov
+regularization: ``m_imp_regularization_lambda`` remains an optional numerical
+policy that also damps physically observable coefficient directions when it
+is positive.
 
 ``SimulationGeometry`` names describe the physical map rather than the symbols
 used in one derivation. In particular, ``pedersen_geometry_tensor``,
@@ -400,11 +473,14 @@ maintain. Time values are finite scalar coordinates. Near-equal floating
 checkpoint labels replace one another with the declared absolute tolerance so
 roundoff cannot create duplicate logical times.
 
-Coefficient time series have two intentional representations. In memory, the
-``i`` dimension carries the schema's coefficient ``MultiIndex``. On disk, that
-index is reset to explicit coordinate columns so NetCDF and Zarr persist the
-same portable structure. Loading validates those columns and reconstructs the
-in-memory index before exposing the series.
+Coefficient time series have two intentional representations. In memory, each
+coefficient dimension carries its schema ``MultiIndex``. A group with one
+coefficient space keeps the compact ``i`` dimension; a mixed group, such as CS
+output with SH ``m_ind`` and CS surface potentials, uses distinct ``sh_i`` and
+``cs_i`` dimensions. On disk, those indexes are reset to explicit coordinate
+columns so NetCDF and Zarr persist the same portable structure. Loading
+validates every column and reconstructs the in-memory indexes before exposing
+the series.
 
 The time tolerance is a time-coordinate policy measured in seconds. It is
 shared with evolution checkpoint decisions but is distinct from the relative

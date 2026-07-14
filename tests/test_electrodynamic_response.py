@@ -166,6 +166,7 @@ def test_induction_matrix_assembly_stays_on_jax():
     response = object.__new__(ElectrodynamicResponse)
     response.geometry = SimpleNamespace(
         horizontal_basis=SimpleNamespace(index_length=n),
+        surface_to_magnetic_operator=as_linear_map(jnp.eye(n)),
         helmholtz_divergence_free_potential_operator=as_linear_map(
             jnp.asarray(divergence_free_potential), input_shape=(2, n), output_shape=(n,)
         ),
@@ -192,20 +193,20 @@ def test_induction_matrix_assembly_stays_on_jax():
     response._driving_E_to_m_imp_operator = None
     response._driving_E_to_total_E_operator = None
     response._driving_E_to_E_df_operator = None
-    response._m_ind_to_E_df_operator = None
-    response._m_ind_to_E_df_matrix = None
+    response._m_ind_feedback_operator = None
+    response._m_ind_feedback_matrix = None
     response.config = SimpleNamespace(enable_interhemispheric_coupling=True)
     response._interhemispheric_electric_field_constraint_cache = _dummy_constraint_map()
     response._ensure_m_imp_response_matrices = lambda: None
 
     try:
         set_backend("jax")
-        response._build_m_ind_to_E_df_matrix()
+        response._build_m_ind_feedback_matrix()
     finally:
         set_backend(previous_backend)
 
-    assert "jax" in type(response._m_ind_to_E_df_matrix).__module__
-    np.testing.assert_allclose(np.asarray(response._m_ind_to_E_df_matrix), expected)
+    assert "jax" in type(response._m_ind_feedback_matrix).__module__
+    np.testing.assert_allclose(np.asarray(response._m_ind_feedback_matrix), expected)
 
 
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
@@ -246,7 +247,7 @@ def test_m_imp_solve_uses_shaped_response_operators():
     response._jr_to_m_imp_operator = None
     response._driving_E_to_m_imp_operator = None
     response._ensure_m_imp_response_matrices = lambda: None
-    response.project_scalar_mean_free = lambda coeffs: coeffs
+    response.project_surface_scalar_mean_free = lambda coeffs: coeffs
     response.config = SimpleNamespace(enable_interhemispheric_coupling=True)
 
     expected = jr_to_m_imp @ jr_coeffs
@@ -263,6 +264,7 @@ def test_m_imp_problem_uses_radial_current_constraint_operator_directly():
 
     class GeometryStub:
         horizontal_basis = SimpleNamespace(index_length=n)
+        surface_gauge_operator = None
         radial_current_constraint_operator = as_linear_map(
             radial_current_constraint, input_shape=(n,), output_shape=(n,)
         )
@@ -402,7 +404,7 @@ def test_model_operator_accessors_match_runtime_operator_chain():
     m_imp_to_E = np.arange(2 * n * n, dtype=float).reshape(2, n, n) / 30.0
     driving_E_to_m_imp = np.arange(n * 2 * n, dtype=float).reshape(n, 2, n) / 40.0
     jr_to_m_imp = np.arange(n * n, dtype=float).reshape(n, n) / 50.0
-    m_ind_to_E_df = np.arange(n * n, dtype=float).reshape(n, n) / 60.0
+    m_ind_to_E = np.arange(2 * n * n, dtype=float).reshape(2, n, n) / 60.0
     scale = 2.5
 
     response = object.__new__(ElectrodynamicResponse)
@@ -411,6 +413,7 @@ def test_model_operator_accessors_match_runtime_operator_chain():
         helmholtz_divergence_free_potential_operator=as_linear_map(
             divergence_free_potential, input_shape=(2, n), output_shape=(n,)
         ),
+        surface_to_magnetic_operator=as_linear_map(np.eye(n)),
         faraday_rate_scale=scale,
         Br_to_gridded_JS=lambda: None,
     )
@@ -436,7 +439,9 @@ def test_model_operator_accessors_match_runtime_operator_chain():
     response._driving_E_to_m_imp_matrix = driving_E_to_m_imp
     response._jr_to_m_imp_operator = None
     response._driving_E_to_m_imp_operator = None
-    response._m_ind_to_E_df_operator = as_linear_map(m_ind_to_E_df)
+    response._m_ind_to_E_coeffs_cache = as_linear_map(
+        m_ind_to_E, input_shape=(n,), output_shape=(2, n)
+    )
     response._driving_E_to_total_E_operator = None
     response._driving_E_to_E_df_operator = None
     response.Q_eff = None
@@ -450,11 +455,12 @@ def test_model_operator_accessors_match_runtime_operator_chain():
     M_imp_to_E = m_imp_to_E.reshape(2 * n, n)
     driving_E_feedback = driving_E_to_m_imp.reshape(n, 2 * n)
     driving_E_to_total_E = np.eye(2 * n) + M_imp_to_E @ driving_E_feedback
+    M_ind_to_E = m_ind_to_E.reshape(2 * n, n)
 
     expected_edf = {
         "E_df_from_u": D @ driving_E_to_total_E @ U,
         "E_df_from_jr": D @ M_imp_to_E @ jr_to_m_imp,
-        "E_df_from_m_ind": m_ind_to_E_df,
+        "E_df_from_m_ind": D @ driving_E_to_total_E @ M_ind_to_E,
     }
     expected_rates = {
         key.replace("E_df_from_", "d_m_ind_dt_from_"): scale * value
@@ -503,6 +509,7 @@ def test_model_matrix_accessors_accept_explicit_jax_backend():
             input_shape=(2, n),
             output_shape=(n,),
         ),
+        surface_to_magnetic_operator=as_linear_map(np.eye(n)),
         faraday_rate_scale=1.0,
         Br_to_gridded_JS=lambda: None,
     )
@@ -527,7 +534,9 @@ def test_model_matrix_accessors_accept_explicit_jax_backend():
     response._driving_E_to_m_imp_matrix = None
     response._jr_to_m_imp_operator = None
     response._driving_E_to_m_imp_operator = None
-    response._m_ind_to_E_df_operator = as_linear_map(np.eye(n))
+    response._m_ind_to_E_coeffs_cache = as_linear_map(
+        np.ones((2, n, n)), input_shape=(n,), output_shape=(2, n)
+    )
     response._driving_E_to_total_E_operator = None
     response._driving_E_to_E_df_operator = None
     response.Q_eff = None

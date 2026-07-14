@@ -11,7 +11,6 @@ import pytest
 
 from pynamit.geomagnetism.kaiju_geopack import kaiju_geopack_sm
 
-
 KAIJU_REPO = Path(os.environ.get("KAIJU_REPO", "~/Repos/kaiju")).expanduser()
 GEOPACK_SOURCES = (
     KAIJU_REPO / "src/base/kdefs.F90",

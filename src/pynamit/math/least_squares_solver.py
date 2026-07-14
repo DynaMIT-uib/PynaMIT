@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import os
 import warnings
-from typing import Any, Callable, Dict, Final, List, Optional, Tuple, Union
+from collections.abc import Callable
+from typing import Any, Final
 
 import numpy as np
 from scipy.sparse.linalg import LinearOperator, cg, lsmr
@@ -15,23 +16,24 @@ from pynamit.math.backend import (
     get_array_module,
     to_numpy,
 )
+
 from .least_squares_problem import LeastSquaresProblem
 from .linear_map import LinearMap, as_linear_map, diagonal_linear_map
 
 ITERATION_SAFETY_FACTOR: Final = 10
 LEAST_SQUARES_SOLVER_ENV: Final = "PYNAMIT_LEAST_SQUARES_SOLVER"
-LSMR_SUCCESS_STOP_CODES: Final = frozenset({0, 1, 2})
-PreconditionerInput = Optional[Union[LinearOperator, LinearMap]]
+LSMR_TOLERANCE_STOP_CODES: Final = frozenset({0, 1, 2})
+PreconditionerInput = LinearOperator | LinearMap | None
 
 
 class LeastSquaresSolver:
     """A collection of algorithms for solving least-squares problems."""
 
-    VALID_SOLVERS: Final[Tuple[str, ...]] = ("normal_solve", "normal_pinv", "lsmr", "cgls", "svd")
-    VALID_PRECONDITIONERS: Final[Tuple[str, ...]] = ("jacobi", "pinv")
+    VALID_SOLVERS: Final[tuple[str, ...]] = ("normal_solve", "normal_pinv", "lsmr", "cgls", "svd")
+    VALID_PRECONDITIONERS: Final[tuple[str, ...]] = ("jacobi", "pinv")
 
     def __init__(
-        self, solver: str = "lsmr", tolerance: float = 1e-13, preconditioner: Optional[str] = None
+        self, solver: str = "lsmr", tolerance: float = 1e-13, preconditioner: str | None = None
     ):
         if solver not in self.VALID_SOLVERS:
             raise ValueError(f"Solver must be one of {self.VALID_SOLVERS}")
@@ -42,7 +44,7 @@ class LeastSquaresSolver:
             raise ValueError(f"Preconditioner must be one of {self.VALID_PRECONDITIONERS}")
         self.preconditioner_type = preconditioner
 
-        self._solve_methods: Dict[str, Callable] = {
+        self._solve_methods: dict[str, Callable] = {
             "svd": self._solve_svd,
             "normal_solve": self._solve_normal_solve,
             "normal_pinv": self._solve_normal_pinv,
@@ -53,7 +55,7 @@ class LeastSquaresSolver:
     def solve(
         self,
         problem: LeastSquaresProblem,
-        rhs: Union[np.ndarray, List[np.ndarray]],
+        rhs: np.ndarray | list[np.ndarray],
         preconditioner: PreconditionerInput = None,
         **kwargs,
     ) -> Any:
@@ -69,8 +71,8 @@ class LeastSquaresSolver:
         return solution_block.reshape(problem.solution_shape + rhs_shape)
 
     def build_preconditioner(
-        self, problem: LeastSquaresProblem, preconditioner_type: Optional[str] = None
-    ) -> Optional[LinearMap]:
+        self, problem: LeastSquaresProblem, preconditioner_type: str | None = None
+    ) -> LinearMap | None:
         """Build preconditioner for the specified solver and problem."""
         selected_type = (
             preconditioner_type if preconditioner_type is not None else self.preconditioner_type
@@ -87,13 +89,13 @@ class LeastSquaresSolver:
 
     def build_response_solver(
         self, problem: LeastSquaresProblem, preconditioner: PreconditionerInput = None
-    ) -> Callable[[Union[np.ndarray, List[np.ndarray]]], Any]:
+    ) -> Callable[[np.ndarray | list[np.ndarray]], Any]:
         """Return a reusable solver for matching RHS response blocks."""
         preconditioner_map = self._prepare_preconditioner(problem, preconditioner)
         if self.solver == "normal_pinv":
             return self._build_normal_pinv_response_solver(problem)
 
-        def solve_response(rhs: Union[np.ndarray, List[np.ndarray]]) -> Any:
+        def solve_response(rhs: np.ndarray | list[np.ndarray]) -> Any:
             return self.solve(problem, rhs, preconditioner=preconditioner_map)
 
         return solve_response
@@ -129,12 +131,12 @@ class LeastSquaresSolver:
 
     def _build_normal_pinv_response_solver(
         self, problem: LeastSquaresProblem
-    ) -> Callable[[Union[np.ndarray, List[np.ndarray]]], Any]:
+    ) -> Callable[[np.ndarray | list[np.ndarray]], Any]:
         """Build a normal-pinv response solver with cached factors."""
         xp, _, system_matrix_adjoint, _ = problem.dense_normal_equations()
         normal_pinv = problem.dense_normal_pinv(self.tolerance)
 
-        def solve_response(rhs: Union[np.ndarray, List[np.ndarray]]) -> Any:
+        def solve_response(rhs: np.ndarray | list[np.ndarray]) -> Any:
             rhs_block, rhs_shape, _ = problem.assemble_rhs_block(rhs)
             if rhs_block is None:
                 dtype = problem.A[0].dtype if problem.A else np.float64
@@ -146,7 +148,7 @@ class LeastSquaresSolver:
 
     def _dense_normal_equations(
         self, problem: LeastSquaresProblem, rhs_block: np.ndarray
-    ) -> Tuple[Any, Any, Any]:
+    ) -> tuple[Any, Any, Any]:
         """Return dense normal-equation matrix and RHS."""
         xp, _, system_matrix_adjoint, normal_matrix = problem.dense_normal_equations()
         rhs = block_until_ready(xp.asarray(rhs_block))
@@ -157,7 +159,7 @@ class LeastSquaresSolver:
         problem: LeastSquaresProblem,
         rhs_block: np.ndarray,
         num_rhs: int,
-        preconditioner: Optional[LinearMap],
+        preconditioner: LinearMap | None,
         **kwargs,
     ) -> np.ndarray:
         xp = get_array_module(rhs_block)
@@ -181,7 +183,7 @@ class LeastSquaresSolver:
         problem: LeastSquaresProblem,
         rhs_block: Any,
         num_rhs: int,
-        preconditioner: Optional[LinearMap],
+        preconditioner: LinearMap | None,
         **kwargs,
     ) -> Any:
         """Solve rectangular least squares with internal JAX LSMR."""
@@ -199,7 +201,7 @@ class LeastSquaresSolver:
         return xp.stack(columns, axis=1)
 
     def _preconditioned_system(
-        self, system_map: LinearMap, preconditioner: Optional[LinearMap]
+        self, system_map: LinearMap, preconditioner: LinearMap | None
     ) -> tuple[LinearMap, Callable[[Any], Any]]:
         """Return the solve operator and solution transform."""
         if preconditioner is None:
@@ -219,11 +221,20 @@ class LeastSquaresSolver:
 
     @staticmethod
     def _warn_if_lsmr_not_converged(stop_code: int, column: int) -> None:
-        """Warn when LSMR stops before reaching a tolerance."""
-        if stop_code in LSMR_SUCCESS_STOP_CODES:
+        """Warn when LSMR misses a tolerance or numerical limit."""
+        if stop_code in LSMR_TOLERANCE_STOP_CODES:
             return
+        if stop_code in {4, 5}:
+            message = (
+                f"LSMR reached machine precision before satisfying the configured tolerances "
+                f"for RHS column {column} (stop_code={stop_code})."
+            )
+        else:
+            message = (
+                f"LSMR may not have converged for RHS column {column} (stop_code={stop_code})."
+            )
         warnings.warn(
-            f"LSMR may not have converged for RHS column {column} (stop_code={stop_code}).",
+            message,
             RuntimeWarning,
             stacklevel=3,
         )
@@ -233,7 +244,7 @@ class LeastSquaresSolver:
         problem: LeastSquaresProblem,
         rhs_block: np.ndarray,
         num_rhs: int,
-        preconditioner: Optional[LinearMap],
+        preconditioner: LinearMap | None,
         **kwargs,
     ) -> np.ndarray:
         xp = get_array_module(rhs_block)
@@ -264,6 +275,7 @@ class LeastSquaresSolver:
                     f"CGLS solver did not converge for RHS column {column} "
                     f"(exit_code={exit_code}).",
                     RuntimeWarning,
+                    stacklevel=2,
                 )
             columns.append(sol)
         return np.column_stack(columns)
@@ -273,7 +285,7 @@ class LeastSquaresSolver:
         problem: LeastSquaresProblem,
         rhs_block: Any,
         num_rhs: int,
-        preconditioner: Optional[LinearMap],
+        preconditioner: LinearMap | None,
         **kwargs,
     ) -> Any:
         """Solve normal equations with JAX CG."""
@@ -298,7 +310,7 @@ class LeastSquaresSolver:
 
     def _prepare_preconditioner(
         self, problem: LeastSquaresProblem, preconditioner: PreconditionerInput
-    ) -> Optional[LinearMap]:
+    ) -> LinearMap | None:
         """Return a validated preconditioner for an iterative solver."""
         if preconditioner is None:
             return None
@@ -356,7 +368,7 @@ class LeastSquaresSolver:
         )
 
     def _build_spectral_preconditioner(
-        self, size: int, vt: Any, weights: Any, solution_shape: Tuple[int, ...]
+        self, size: int, vt: Any, weights: Any, solution_shape: tuple[int, ...]
     ) -> LinearMap:
         """Build a backend-aware spectral preconditioner."""
         xp = get_array_module(vt, weights)
@@ -394,7 +406,7 @@ class LeastSquaresSolver:
 
     def _get_pinv_components(
         self, problem: LeastSquaresProblem, tol: float
-    ) -> Tuple[Any, Any, Any]:
+    ) -> tuple[Any, Any, Any]:
         """Return SVD factors for preconditioners."""
         xp = get_array_module()
         if xp is np:

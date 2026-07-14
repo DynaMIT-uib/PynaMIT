@@ -1,12 +1,14 @@
 """Investigate intepolation regularization and resolution."""
 
-import numpy as np
-import pynamit
-import dipole
-import pyhwm2014  # https://github.com/rilma/pyHWM14
 import datetime
-import matplotlib.pyplot as plt
+
 import cartopy.crs as ccrs
+import dipole
+import matplotlib.pyplot as plt
+import numpy as np
+import pyhwm2014  # https://github.com/rilma/pyHWM14
+
+import pynamit
 
 plt.rcParams["figure.constrained_layout.use"] = True
 
@@ -201,22 +203,20 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
             if field_type == "tangential"
             else output_spherical_transform.synthesize_scalar
         )
-        regularization_term = (
-            input_spherical_transform.helmholtz_regularization_term
+        apply_regularization = (
+            input_spherical_transform.apply_helmholtz_regularization
             if field_type == "tangential"
-            else input_spherical_transform.scalar_regularization_term
+            else input_spherical_transform.apply_scalar_regularization
         )
 
         input_sh = pynamit.FieldCoefficients(field_space, analyze_input(input_grid_values))
 
-        print(
-            "Interpolation with Nmax = %d, Mmax = %d:, reg lambda: %e" % (Nmax, Mmax, reg_lambda)
-        )
+        print(f"Interpolation with Nmax = {Nmax:d}, Mmax = {Mmax:d}:, reg lambda: {reg_lambda:e}")
 
         if L_CURVE:
             reg_lambda_values.append(reg_lambda)
             # sh_norms.append(np.linalg.norm(input_sh.array))
-            sh_norms.append(np.linalg.norm(regularization_term(input_sh.array)))
+            sh_norms.append(np.linalg.norm(apply_regularization(input_sh.array)))
             input_sh_on_input_grid = synthesize_input(input_sh)
             sh_resiudal_norms.append(
                 np.linalg.norm(input_sh_on_input_grid - input_grid_values)
@@ -230,7 +230,7 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
                 np.linalg.norm(cs_interpolated_output - sh_interpolated_output)
                 / np.linalg.norm(cs_interpolated_output)
             )
-            print("   Relative grid error = %e" % (relative_grid_errors[-1]))
+            print(f"   Relative grid error = {relative_grid_errors[-1]:e}")
 
         if SH_COMPARISON:
             cs_interpolated_output_sh = pynamit.FieldCoefficients(
@@ -240,7 +240,7 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
                 np.linalg.norm(cs_interpolated_output_sh.array - input_sh.array)
                 / np.linalg.norm(cs_interpolated_output_sh.array)
             )
-            print("   Relative coefficient error = %e" % (relative_coeff_errors[-1]))
+            print(f"   Relative coefficient error = {relative_coeff_errors[-1]:e}")
 
         if PLOT:
             if GRID_COMPARISON:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -12,6 +12,9 @@ from pynamit.simulation.electrodynamics import ionospheric_closure
 from pynamit.simulation.schema import INPUT_VARIABLES
 from pynamit.sphere import Grid
 from pynamit.sphere.spherical_transform import SphericalTransform
+
+if TYPE_CHECKING:
+    from pynamit.simulation.api import Simulation
 
 _WIND_FORCING_GROUP = "wind_forcing"
 
@@ -38,7 +41,7 @@ _INPUT_SPECS = {
 class InputPipeline:
     """Validate, project, and store simulation inputs."""
 
-    def __init__(self, simulation: Any):
+    def __init__(self, simulation: Simulation):
         self.simulation = simulation
         self._transforms_by_representation = {}
         self.projection_transforms = {}
@@ -280,7 +283,7 @@ class InputPipeline:
     ):
         """Project tangential samples."""
         input_data = self.tangential_input_data(key, theta_component, phi_component)
-        input_time = self.adapt_input_time(time, input_data)
+        input_time = self.resolve_input_times(time, input_data)
         input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
         coeff_rows = self.projection_transform_for(key).project_helmholtz(
             input_data[key],
@@ -302,7 +305,7 @@ class InputPipeline:
         ].representation
         wind_synthesis = wind_representation.get_helmholtz_synthesis_operator(grid)
         Q_eff_values = []
-        for time_value, wind_coeffs in zip(input_time, wind_coeff_rows):
+        for time_value, wind_coeffs in zip(input_time, wind_coeff_rows, strict=True):
             response.activate_inputs_at_time(self.simulation.run_data.input_series, time_value)
             wind_on_grid = np.asarray(wind_synthesis.matvec(wind_coeffs)).reshape((2, grid.size))
             Q_eff_values.append(
@@ -328,7 +331,7 @@ class InputPipeline:
         q_coeff_rows = []
         cached_resistance_tensor = None
         Q_eff_to_E = None
-        for time_value, wind_coeffs in zip(input_time, wind_coeff_rows):
+        for time_value, wind_coeffs in zip(input_time, wind_coeff_rows, strict=True):
             response.activate_inputs_at_time(self.simulation.run_data.input_series, time_value)
             E_wind_coeffs = response.u_coeffs_to_E_coeffs.matvec(wind_coeffs)
             resistance_tensor = response.resistance_tensor_on_grid
@@ -362,7 +365,7 @@ class InputPipeline:
         pinv_rtol=1e-15,
     ) -> None:
         """Project gridded input data and store coefficient entries."""
-        input_time = self.adapt_input_time(time, input_data)
+        input_time = self.resolve_input_times(time, input_data)
         input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
         transform = self.projection_transform_for(key)
         field_space = self.simulation.run_data.schema.input_field_spaces[key]
@@ -445,13 +448,13 @@ class InputPipeline:
 
     def add_input_coefficients(self, key: str, input_data: dict[str, Any], time) -> None:
         """Store input-basis coefficients directly in a time series."""
-        input_time = self.adapt_input_time(time, input_data)
+        input_time = self.resolve_input_times(time, input_data)
         self.validate_input_time_rows(key, input_time, input_data)
         self.add_projected_rows(key, input_data, input_time)
         self.simulation.run_data.save_input_dataset(key)
 
-    def adapt_input_time(self, time, data: dict[str, Any]):
-        """Return time values compatible with input data rows."""
+    def resolve_input_times(self, time, data: dict[str, Any]):
+        """Resolve times, defaulting one row to the current time."""
         if time is None:
             if any(data[var].shape[0] > 1 for var in data):
                 raise ValueError(
@@ -511,6 +514,3 @@ class InputPipeline:
             raise ValueError(
                 f"sqrt_weights and reg_lambda are not supported for {key}_projection_basis='CS'."
             )
-
-
-__all__ = ["InputPipeline"]

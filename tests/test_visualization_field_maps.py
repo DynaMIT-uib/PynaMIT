@@ -101,10 +101,10 @@ def test_live_JS_evaluation_includes_boundary_field():
             return other is self
 
     class Transform:
-        source = CompatibleBasis()
+        basis = CompatibleBasis()
 
     class SimulationGeometry:
-        horizontal_basis = Transform.source
+        horizontal_basis = Transform.basis
 
         @staticmethod
         def m_imp_to_gridded_JS(transform):

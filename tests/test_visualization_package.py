@@ -3,9 +3,10 @@
 import importlib
 
 import numpy as np
-import pynamit
 import pytest
 import xarray as xr
+
+import pynamit
 
 
 def test_magnetic_boundary_operators_are_available():
@@ -158,7 +159,7 @@ def test_saved_state_joule_uses_pedersen_dissipation():
     run_fields = importlib.import_module("pynamit.visualization.run_fields")
 
     class IdentityEvaluator:
-        G = np.eye(2)
+        scalar_coeffs_to_grid = np.eye(2)
         scalar_coeffs_to_grid_operator = np.eye(2)
 
         @staticmethod
@@ -275,7 +276,11 @@ def test_saved_field_view_aligns_inputs_by_time_not_index(tmp_path):
 
     view = run_fields.SavedCoefficientFieldView.from_directory(tmp_path)
     fields = view.input_grid_fields(1)
-    expected = view.input_evaluators["Br"].G.dot(br_coefficients[2]).reshape(view.lat.shape)
+    expected = (
+        view.input_evaluators["Br"]
+        .scalar_coeffs_to_grid.dot(br_coefficients[2])
+        .reshape(view.lat.shape)
+    )
 
     assert view.n_time == 2
     assert view.run_view.datasets["Br"].sizes["time"] == 3
@@ -338,6 +343,15 @@ def test_figure_spec_rejects_invalid_renderer_values(kwargs):
 
     with pytest.raises(ValueError):
         figure_specs.PynamitFigureSpec(**kwargs)
+
+
+def test_figure_spec_preserves_removed_options_as_extra_metadata():
+    """Old configuration files retain a removed option as metadata."""
+    figure_specs = importlib.import_module("pynamit.visualization.figure_specs")
+
+    spec = figure_specs.PynamitFigureSpec.from_dict({"conductance_overlay": "hall"})
+
+    assert spec.extra == {"conductance_overlay": "hall"}
 
 
 def test_run_plot_defaults_are_applied(tmp_path):

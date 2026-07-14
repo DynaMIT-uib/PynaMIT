@@ -22,8 +22,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pynamit
-
-from pynamit.storage import ArtifactStore
 from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.workflows.mage import (
     DEFAULT_MMAX,
@@ -36,7 +34,7 @@ from pynamit.simulation.workflows.prepared_inputs import (
     RUN_MANIFEST_FILENAME,
     load_prepared_inputs_into_simulation,
 )
-
+from pynamit.storage import ArtifactStore
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 LATITUDE_BOUNDARY = 35.0
@@ -58,6 +56,7 @@ class MageForcingSettings:
     sampling_step_interval: int = 1
     saving_sample_interval: int = 1
     integrator: str = "exponential"
+    m_imp_regularization_lambda: float = 0.0
     steady_state_initialization: bool = False
     save_steady_states: bool = False
     artifact_storage: str = "auto"
@@ -103,6 +102,7 @@ def main(settings: MageForcingSettings = SETTINGS) -> None:
             "interhemispheric_electric_field_weight": 1e-5,
             "save_steady_states": settings.save_steady_states,
             "integrator": settings.integrator,
+            "m_imp_regularization_lambda": settings.m_imp_regularization_lambda,
         }
     )
 
@@ -142,7 +142,7 @@ def main(settings: MageForcingSettings = SETTINGS) -> None:
     simulation = pynamit.Simulation(
         run_directory=run_directory, artifact_storage=settings.artifact_storage, **config_kwargs
     )
-    state_size = int(simulation.geometry.horizontal_basis.index_length)
+    state_size = int(simulation.geometry.magnetic_basis.index_length)
     dense_matrix_mib = state_size * state_size * 8.0 / 1024.0**2
     print(
         f"Induction coefficient count: {state_size}; one dense float64 operator "

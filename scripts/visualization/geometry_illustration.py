@@ -1,7 +1,7 @@
 """SimulationGeometry illustration."""
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 
 RADIAL = False  # True for radial field lines, False for dipole

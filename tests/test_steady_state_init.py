@@ -1,10 +1,10 @@
 """Steady state initialization test module."""
 
+import numpy as np
 import pytest
 
 from pynamit.simulation.api import Simulation
 from pynamit.simulation.workflows.standard import run_pynamit
-import numpy as np
 
 
 def test_steady_state_init():

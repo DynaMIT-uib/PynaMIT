@@ -8,12 +8,11 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from pynamit.sphere import SHBasis
-from pynamit.simulation.workflows.standard import run_pynamit
-from pynamit.storage import ArtifactStore
 from pynamit.fields import FieldSpace
-from pynamit.storage import FieldTimeSeries
 from pynamit.simulation.api import Simulation
+from pynamit.simulation.workflows.standard import run_pynamit
+from pynamit.sphere import SHBasis
+from pynamit.storage import ArtifactStore, FieldTimeSeries
 
 
 def _small_dataset(values: np.ndarray | None = None) -> xr.Dataset:
@@ -203,7 +202,7 @@ def test_artifact_store_zarr_missing_chunk_raises_instead_of_filling(tmp_path):
 
     loaded = store.load_dataset("state")
     with pytest.raises(Exception) as excinfo:
-        loaded["value"].values
+        _ = loaded["value"].values
 
     message = str(excinfo.value).lower()
     assert "chunk" in message or excinfo.type.__name__ in {"ChunkNotFoundError", "KeyError"}

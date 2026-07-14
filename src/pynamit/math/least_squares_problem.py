@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from functools import cached_property
-from typing import Any, List, Optional, Tuple, TypeAlias, Union
+from typing import Any, TypeAlias
 
 import numpy as np
 import scipy.sparse
@@ -13,9 +13,9 @@ from scipy.sparse.linalg import LinearOperator
 from pynamit.math.backend import asarray, block_after_jax_linalg, get_array_module
 from pynamit.math.linear_map import LinearMap, as_linear_map, vstack_linear_maps
 
-OperatorInput: TypeAlias = Union[np.ndarray, scipy.sparse.spmatrix, LinearOperator, LinearMap]
-OperatorInputList: TypeAlias = Union[OperatorInput, List[OperatorInput]]
-NumericInputList: TypeAlias = Union[float, List[float]]
+OperatorInput: TypeAlias = np.ndarray | scipy.sparse.spmatrix | LinearOperator | LinearMap
+OperatorInputList: TypeAlias = OperatorInput | list[OperatorInput]
+NumericInputList: TypeAlias = float | list[float]
 
 
 class LeastSquaresProblem:
@@ -24,11 +24,11 @@ class LeastSquaresProblem:
     def __init__(
         self,
         A: OperatorInputList,
-        solution_shape: Union[int, Tuple[int, ...]],
-        data_shapes: Union[Any, List[Any]],
-        sqrt_weights: Optional[Union[Any, List[Any]]] = None,
-        regularization_weights: Optional[NumericInputList] = None,
-        regularization_matrices: Optional[OperatorInputList] = None,
+        solution_shape: int | tuple[int, ...],
+        data_shapes: Any | list[Any],
+        sqrt_weights: Any | list[Any] | None = None,
+        regularization_weights: NumericInputList | None = None,
+        regularization_matrices: OperatorInputList | None = None,
     ):
         self.solution_shape = (
             (solution_shape,) if isinstance(solution_shape, int) else tuple(solution_shape)
@@ -73,7 +73,7 @@ class LeastSquaresProblem:
             )
         )
 
-    def _create_weight_operator(self, w_val: Any, shape: Tuple[int, ...]) -> Optional[LinearMap]:
+    def _create_weight_operator(self, w_val: Any, shape: tuple[int, ...]) -> LinearMap | None:
         if w_val is None:
             return None
         flat_dim = math.prod(shape)
@@ -87,7 +87,7 @@ class LeastSquaresProblem:
         return as_linear_map(w_val, output_shape=shape, input_shape=shape)
 
     @cached_property
-    def scaled_lambdas(self) -> List[float]:
+    def scaled_lambdas(self) -> list[float]:
         """Compute scaled regularization weights."""
         diag_A_T_A = self.data_operator.normal_matrix_diag()
         active_diag_A = diag_A_T_A[diag_A_T_A > 0]
@@ -157,13 +157,11 @@ class LeastSquaresProblem:
         return self._dense_system_matrix_cache[backend_key]
 
     @cached_property
-    def svd(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def svd(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Compute the SVD of the dense system matrix."""
         return np.linalg.svd(self.dense_system_matrix, full_matrices=False)
 
-    def assemble_rhs_block(
-        self, b: Union[Any, List[Any]]
-    ) -> Tuple[Optional[Any], Tuple[int, ...], int]:
+    def assemble_rhs_block(self, b: Any | list[Any]) -> tuple[Any | None, tuple[int, ...], int]:
         """Assemble one or more right-hand side columns."""
         b_list = self._prepare_input_list(b, "b", count=self.num_data_terms)
         processed = [
@@ -249,9 +247,9 @@ class LeastSquaresProblem:
 
     @staticmethod
     def _prepare_input_list(
-        item: Optional[Any],
+        item: Any | None,
         name: str,
-        count: Optional[int] = None,
+        count: int | None = None,
         is_optional: bool = False,
         default_val: Any = None,
     ) -> list:
@@ -268,7 +266,7 @@ class LeastSquaresProblem:
 
     def _normalize_data_shapes(
         self, data_shapes: Any, expected_count: int
-    ) -> List[Tuple[int, ...]]:
+    ) -> list[tuple[int, ...]]:
         if not isinstance(data_shapes, list):
             data_shapes = [data_shapes]
         if len(data_shapes) == 1 and expected_count > 1:
@@ -278,8 +276,8 @@ class LeastSquaresProblem:
         return [(s,) if isinstance(s, int) else tuple(s) for s in data_shapes]
 
     def _process_b_vector(
-        self, b_val: Any, data_shape: Tuple[int, ...]
-    ) -> Tuple[Optional[Any], Optional[Tuple[int, ...]]]:
+        self, b_val: Any, data_shape: tuple[int, ...]
+    ) -> tuple[Any | None, tuple[int, ...] | None]:
         if b_val is None:
             return None, None
         b = asarray(b_val)

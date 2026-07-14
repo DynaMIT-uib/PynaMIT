@@ -7,10 +7,11 @@ in Cartesian 3D and on Cartopy projection 4) Plot eastward and northward
 vector fields on cubed sphere blocks
 """
 
+import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
 import numpy as np
+
 from pynamit.sphere.cubed_sphere import cs_basis
-import cartopy.crs as ccrs
 
 p = cs_basis.CSBasis()
 

@@ -20,11 +20,10 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import pynamit
 
+import pynamit
 from pynamit.coordinates import wrap_longitude_180
-from pynamit.geomagnetism import MagneticFieldEvaluation
-from pynamit.geomagnetism import MainField, decimal_year
+from pynamit.geomagnetism import MagneticFieldEvaluation, MainField, decimal_year
 from pynamit.simulation.workflows.mage import (
     DEFAULT_MMAX,
     DEFAULT_NCS,
@@ -103,6 +102,7 @@ class MageInputProjectionSettings:
     conductance_lambda: float = CONDUCTANCE_LAMBDA
     jr_lambda: float = JR_LAMBDA
     e_source_lambda: float = E_SOURCE_LAMBDA
+    area_weighted_least_squares: bool = False
     artifact_storage: str = "auto"
 
 
@@ -273,6 +273,7 @@ def project_mage_inputs(settings: MageInputProjectionSettings = SETTINGS) -> Pat
             t0=str(event_time),
             save_steady_states=False,
             integrator="exponential",
+            area_weighted_least_squares=settings.area_weighted_least_squares,
             artifact_storage=settings.artifact_storage,
         )
 

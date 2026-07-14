@@ -271,7 +271,7 @@ def _finite_segment_peak_candidates(abs_values, min_prominence):
         original_peak_indices = (segment_start + segment_peak_indices[valid_peak_mask]).astype(int)
         candidate_indices.extend(original_peak_indices.tolist())
         for original_peak_idx, peak_prominence in zip(
-            original_peak_indices, segment_peak_prominences[valid_peak_mask]
+            original_peak_indices, segment_peak_prominences[valid_peak_mask], strict=True
         ):
             if not np.isfinite(peak_prominence):
                 peak_prominence = _estimate_peak_prominence_numpy(abs_values, original_peak_idx)
