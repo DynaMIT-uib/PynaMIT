@@ -18,9 +18,6 @@ from pynamit.external_inputs import (
 )
 
 
-pytestmark = pytest.mark.requires_native_inputs
-
-
 def _utc_now():
     """Return a timezone-aware UTC datetime for input-source calls."""
     return datetime.datetime.now(datetime.UTC)
@@ -47,6 +44,17 @@ def test_fallback_conductance(force_fallback):
     assert pedersen.shape == (entry["pedersen"].size,)
     np.testing.assert_allclose(out_lat, entry["lat"])
     np.testing.assert_allclose(out_lon, entry["lon"])
+
+
+def test_bundled_fallback_loads_return_independent_arrays():
+    """Cached parsing must not expose shared mutable input arrays."""
+    first = _load_fallback()
+    second = _load_fallback()
+
+    first["wind"]["lat"][0] += 1.0
+
+    assert not np.shares_memory(first["wind"]["lat"], second["wind"]["lat"])
+    assert first["wind"]["lat"][0] != second["wind"]["lat"][0]
 
 
 def test_fallback_grid_selection_uses_grid_hash(monkeypatch):

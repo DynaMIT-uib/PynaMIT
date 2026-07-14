@@ -99,7 +99,7 @@ class LeastSquaresSolver:
         return solve_response
 
     def _solve_svd(
-        self, problem: LeastSquaresProblem, rhs_block: np.ndarray, *args, **kwargs
+        self, problem: LeastSquaresProblem, rhs_block: np.ndarray, *_args, **_kwargs
     ) -> np.ndarray:
         xp = get_array_module(rhs_block)
         u, s, vt = problem.svd
@@ -111,18 +111,17 @@ class LeastSquaresSolver:
         return xp.asarray(solution)
 
     def _solve_normal_solve(
-        self, problem: LeastSquaresProblem, rhs_block: np.ndarray, *args, **kwargs
+        self, problem: LeastSquaresProblem, rhs_block: np.ndarray, *_args, **_kwargs
     ) -> np.ndarray:
         """Solve the normal equations with a direct dense solve."""
         xp, normal_matrix, normal_rhs = self._dense_normal_equations(problem, rhs_block)
         return block_after_jax_linalg(xp.linalg.solve(normal_matrix, normal_rhs))
 
     def _solve_normal_pinv(
-        self, problem: LeastSquaresProblem, rhs_block: np.ndarray, *args, **kwargs
+        self, problem: LeastSquaresProblem, rhs_block: np.ndarray, *_args, **_kwargs
     ) -> np.ndarray:
         """Solve through the pseudo-inverse of the normal equations."""
-        xp, normal_matrix, normal_rhs = self._dense_normal_equations(problem, rhs_block)
-        del normal_matrix
+        _, _, normal_rhs = self._dense_normal_equations(problem, rhs_block)
         normal_pinv = problem.dense_normal_pinv(self.tolerance)
         # Finish this dependent backend matmul before callers assemble
         # NumPy/SciPy blocks.

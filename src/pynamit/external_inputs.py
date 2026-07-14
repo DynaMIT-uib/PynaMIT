@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
+from copy import deepcopy
+from functools import lru_cache
 from importlib import import_module, resources
+from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
@@ -108,7 +110,8 @@ def set_input_source(source: Optional[str]) -> str:
     return _INPUT_SOURCE
 
 
-def _load_fallback(path: Optional[os.PathLike[str] | str] = None) -> Dict[str, Any]:
+def _read_fallback(path: Optional[os.PathLike[str] | str] = None) -> Dict[str, Any]:
+    """Read and normalize one fallback-input dataset."""
     if path is None:
         with resources.as_file(FALLBACK_RESOURCE) as resource_path:
             payload = json.loads(resource_path.read_text())
@@ -177,6 +180,19 @@ def _load_fallback(path: Optional[os.PathLike[str] | str] = None) -> Dict[str, A
         }
 
     return fallback
+
+
+@lru_cache(maxsize=1)
+def _bundled_fallback() -> Dict[str, Any]:
+    """Return the process-local parsed bundled fallback data."""
+    return _read_fallback()
+
+
+def _load_fallback(path: Optional[os.PathLike[str] | str] = None) -> Dict[str, Any]:
+    """Load fallback data, returning values owned by the caller."""
+    if path is not None:
+        return _read_fallback(path)
+    return deepcopy(_bundled_fallback())
 
 
 def _expand_time_series(data: np.ndarray, time: Optional[np.ndarray]) -> np.ndarray:

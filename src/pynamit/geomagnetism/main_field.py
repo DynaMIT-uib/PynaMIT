@@ -75,7 +75,7 @@ def _east_north_up_to_spherical(vector):
     return np.stack((vector[2], -vector[1], vector[0]))
 
 
-def _dipole_field_components(model, r, theta, phi):
+def _dipole_field_components(model, r, theta, _phi):
     """Evaluate a centered-dipole field in spherical components."""
     Bn, Br = model.B(90 - theta, r * 1e-3)
     return (Br * 1e-9, -Bn * 1e-9, Bn * 0)
