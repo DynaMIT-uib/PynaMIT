@@ -183,8 +183,13 @@ class LinearMap:
             return dense
 
         eye_dtype = np.result_type(self.dtype, np.float64)
-        eye = xp.eye(self.shape[1], dtype=eye_dtype)
-        dense = self.matmat(eye)
+        if self.shape[0] < self.shape[1]:
+            output_identity = xp.eye(self.shape[0], dtype=eye_dtype)
+            adjoint = self.rmatmat(output_identity)
+            dense = xp.swapaxes(xp.conjugate(adjoint), -2, -1)
+        else:
+            input_identity = xp.eye(self.shape[1], dtype=eye_dtype)
+            dense = self.matmat(input_identity)
         dense = np.asarray(dense) if xp is np else xp.asarray(dense)
         self._store_dense(xp, dense)
         return dense
@@ -328,7 +333,13 @@ class LinearMap:
             return self._diagonal_array(xp).reshape(-1, 1) * other_map._dense_array(xp)
         if other_is_diagonal:
             return self._dense_array(xp) * other_map._diagonal_array(xp).reshape(1, -1)
-        return xp.asarray(self.matmat(other_map._dense_array(xp)))
+        eye_dtype = np.result_type(self.dtype, other_map.dtype, np.float64)
+        if self.shape[0] < other_map.shape[1]:
+            output_identity = xp.eye(self.shape[0], dtype=eye_dtype)
+            adjoint = other_map.rmatmat(self.rmatmat(output_identity))
+            return xp.swapaxes(xp.conjugate(adjoint), -2, -1)
+        input_identity = xp.eye(other_map.shape[1], dtype=eye_dtype)
+        return xp.asarray(self.matmat(other_map.matmat(input_identity)))
 
     def _composition_normal_matrix_diag(self, other_map, dtype, matmat):
         """Return the normal diagonal of a lazy composition."""

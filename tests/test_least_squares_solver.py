@@ -8,7 +8,70 @@ from scipy.sparse.linalg import lsmr as scipy_lsmr
 
 from pynamit.math import JAX_AVAILABLE, as_linear_map, set_backend, use_jax
 from pynamit.math.least_squares_problem import LeastSquaresProblem
-from pynamit.math.least_squares_solver import LeastSquaresSolver
+from pynamit.math.least_squares_solver import (
+    LeastSquaresSolver,
+    sparse_constrained_least_squares_map,
+)
+
+
+def test_unregularized_problem_skips_normal_diagonal_scaling():
+    """No-reg problems skip a potentially expensive normal diagonal."""
+    problem = LeastSquaresProblem(A=np.eye(2), solution_shape=2, data_shapes=2)
+
+    assert problem.scaled_lambdas == []
+    assert "data_operator" not in problem.__dict__
+
+    zero_weight_problem = LeastSquaresProblem(
+        A=np.eye(2),
+        solution_shape=2,
+        data_shapes=2,
+        regularization_matrices=np.eye(2),
+        regularization_weights=0.0,
+    )
+    assert zero_weight_problem.scaled_lambdas == [0.0]
+    assert "data_operator" not in zero_weight_problem.__dict__
+
+
+def test_sparse_constrained_least_squares_map_matches_kkt_and_adjoint():
+    """Constrained analysis handles rectangular and complex RHS data."""
+    A = np.array(
+        [
+            [1.0, 0.0, 0.5],
+            [0.0, 1.0, -0.25],
+            [1.0, -1.0, 0.0],
+            [0.5, 0.25, 1.0],
+        ]
+    )
+    constraint = np.array([[1.0, 1.0, 1.0]])
+    sqrt_weights = np.array([1.0, 2.0, 0.5, 1.5])
+    operator = sparse_constrained_least_squares_map(
+        A,
+        constraint,
+        sqrt_weights=sqrt_weights,
+        input_shape=(2, 2),
+        output_shape=(3,),
+    )
+    rhs = np.array([1.0 + 0.5j, -0.25j, 2.0 - 0.75j, -1.0 + 0.25j])
+
+    weights = np.diag(sqrt_weights**2)
+    kkt = np.block(
+        [
+            [A.T @ weights @ A, constraint.T],
+            [constraint, np.zeros((1, 1))],
+        ]
+    )
+    expected_rhs = np.concatenate([A.T @ weights @ rhs, np.zeros(1)])
+    expected = np.linalg.solve(kkt, expected_rhs)[: A.shape[1]]
+
+    np.testing.assert_allclose(operator.matvec(rhs), expected)
+    np.testing.assert_allclose(constraint @ operator.matvec(rhs), np.zeros(1), atol=1e-14)
+    coefficient_probe = np.array([0.5 - 0.25j, 1.0j, -0.75 + 0.1j])
+    np.testing.assert_allclose(
+        np.vdot(coefficient_probe, operator.matvec(rhs)),
+        np.vdot(operator.rmatvec(coefficient_probe), rhs),
+        rtol=1e-13,
+        atol=1e-13,
+    )
 
 
 @pytest.mark.parametrize("stop_code", [0, 1, 2])

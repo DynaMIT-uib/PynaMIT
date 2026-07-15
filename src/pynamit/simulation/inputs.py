@@ -338,7 +338,7 @@ class InputPipeline:
             if resistance_tensor is not cached_resistance_tensor:
                 cached_resistance_tensor = resistance_tensor
                 Q_eff_to_E = ionospheric_closure.tangential_current_to_E_coeffs_operator(
-                    self.simulation.geometry.helmholtz_analysis_matrix,
+                    self.simulation.geometry.helmholtz_analysis_operator,
                     resistance_tensor,
                     q_synthesis,
                 )

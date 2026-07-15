@@ -139,18 +139,21 @@ class SimulationGeometry:
 
     def tangential_to_helmholtz(self, vec: np.ndarray) -> np.ndarray:
         """Convert tangential vector field to Helmholtz coeffs."""
-        coeffs = np.tensordot(self.helmholtz_analysis_matrix, vec, 2)
+        coeffs = self.helmholtz_analysis_operator.matvec(vec).reshape(
+            2, self.horizontal_basis.index_length
+        )
         projector = getattr(self.horizontal_basis, "project_helmholtz_mean_free", None)
         return projector(coeffs) if callable(projector) else coeffs
 
+    @property
+    def helmholtz_analysis_operator(self) -> LinearMap:
+        """Map gridded vectors to Helmholtz coefficients."""
+        return self.horizontal_transform.helmholtz_analysis_operator
+
     @cached_property
     def helmholtz_analysis_matrix(self) -> np.ndarray:
-        """Matrix mapping gridded vectors to Helmholtz coefficients."""
-        return weighted_tensor_pinv(
-            self.horizontal_transform.helmholtz_coeffs_to_gridded_vector,
-            sqrt_weights=self.model_grid_sqrt_weights(vector=True),
-            n_leading_flattened=2,
-        )
+        """Explicit matrix mapping gridded vectors to coefficients."""
+        return self.helmholtz_analysis_operator.array
 
     def _init_spatial_context(self, cs_basis: CSBasis) -> None:
         """Set up grid, transforms, and background-field evaluators."""
@@ -473,7 +476,7 @@ class SimulationGeometry:
     def _pfac_integrand_at_radius(
         self,
         radius,
-        gridded_JS_to_poloidal,
+        gridded_JS_to_poloidal_operator,
         outer_regular_to_ionosphere,
         boundary_response_factor,
     ):
@@ -486,29 +489,30 @@ class SimulationGeometry:
         footpoint_field = MagneticFieldEvaluation(self.main_field, footpoint_grid, self.RI)
         footpoint_transform = SphericalTransform(self.horizontal_basis, footpoint_grid)
 
-        m_imp_to_jr_grid = footpoint_transform.contract_scalar_coeffs_to_grid(
-            self.m_imp_to_jr_operator
+        jr_to_gridded_JS = pointwise_matrix_linear_map(
+            np.array(
+                [shell_field.Btheta / footpoint_field.Br, shell_field.Bphi / footpoint_field.Br]
+            ).reshape(2, 1, self.model_grid.size)
         )
-        jr_to_JS = np.array(
-            [shell_field.Btheta / footpoint_field.Br, shell_field.Bphi / footpoint_field.Br]
-        )
-        m_imp_to_JS = np.einsum("ij,jk->ijk", jr_to_JS, m_imp_to_jr_grid, optimize=True)
 
-        shell_to_ionosphere = np.array(
+        poloidal_scale = np.array(
             self.solid_harmonics.regular_reference_shift(radius, self.RI), copy=True
-        ).reshape((-1, 1, 1))
+        )
         if self.RM is not None:
-            shell_to_ionosphere -= (
+            poloidal_scale -= (
                 outer_regular_to_ionosphere
                 * np.asarray(self.solid_harmonics.irregular_reference_shift(radius, self.RM))
-            ).reshape((-1, 1, 1))
+            )
 
-        JS_to_poloidal = gridded_JS_to_poloidal * shell_to_ionosphere
-        if np.ndim(boundary_response_factor) == 0:
-            JS_to_poloidal *= boundary_response_factor
-        else:
-            JS_to_poloidal *= np.asarray(boundary_response_factor).reshape((-1, 1, 1))
-        return np.tensordot(JS_to_poloidal, m_imp_to_JS, axes=2)
+        poloidal_scale *= boundary_response_factor
+        integrand_operator = (
+            diagonal_linear_map(poloidal_scale)
+            @ gridded_JS_to_poloidal_operator
+            @ jr_to_gridded_JS
+            @ footpoint_transform.scalar_coeffs_to_grid_operator
+            @ self.m_imp_to_jr_operator
+        )
+        return np.asarray(integrand_operator.to_matrix(backend="numpy"))
 
     def _build_pfac_matrix(self) -> None:
         """Construct the PFAC coupling matrix by radial integration."""
@@ -532,6 +536,11 @@ class SimulationGeometry:
             n_leading_flattened=2,
             rtol=0,
         )
+        gridded_JS_to_poloidal_operator = as_linear_map(
+            gridded_JS_to_poloidal,
+            input_shape=(2, self.model_grid.size),
+            output_shape=(self.poloidal_basis.index_length,),
+        )
         outer_regular_to_ionosphere, boundary_response_factor = self._pfac_boundary_response()
 
         for i, radial_midpoint in enumerate(radial_midpoints):
@@ -543,7 +552,7 @@ class SimulationGeometry:
             )
             pfac_matrix += radial_step_widths[i] * self._pfac_integrand_at_radius(
                 radial_midpoint,
-                gridded_JS_to_poloidal,
+                gridded_JS_to_poloidal_operator,
                 outer_regular_to_ionosphere,
                 boundary_response_factor,
             )

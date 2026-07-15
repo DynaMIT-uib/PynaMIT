@@ -89,6 +89,11 @@ class LeastSquaresProblem:
     @cached_property
     def scaled_lambdas(self) -> list[float]:
         """Compute scaled regularization weights."""
+        if not any(
+            matrix is not None and self.regularization_weights[index] > 0.0
+            for index, matrix in enumerate(self.regularization_matrices)
+        ):
+            return [0.0] * len(self.regularization_matrices)
         diag_A_T_A = self.data_operator.normal_matrix_diag()
         active_diag_A = diag_A_T_A[diag_A_T_A > 0]
         data_term_scale = np.median(active_diag_A) if active_diag_A.size > 0 else 1.0

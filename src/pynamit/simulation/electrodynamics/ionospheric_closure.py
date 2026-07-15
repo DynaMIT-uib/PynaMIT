@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import numpy as np
 
-from pynamit.math import einsum_linear_map_from_matvec
 from pynamit.math.backend import get_array_module
 from pynamit.math.linear_map import as_linear_map, pointwise_matrix_linear_map
 
@@ -100,17 +99,31 @@ def joule_heating_from_current(sheet_current, etaP, pedersen_geometry):
 
 def wind_to_E_coeffs_operator(helmholtz_analysis, wind_to_E_grid, wind_synthesis):
     """Return the operator mapping neutral-wind coefficients to E."""
-    xp = get_array_module(helmholtz_analysis, wind_to_E_grid, wind_synthesis)
-    n_coefficients = int(helmholtz_analysis.shape[1])
-    return einsum_linear_map_from_matvec(
-        component_tensors=[
-            xp.asarray(helmholtz_analysis),
-            xp.asarray(wind_to_E_grid),
-            xp.asarray(wind_synthesis),
-        ],
-        einsum_string_matvec="cmpg,pqg,qgrs,rs->cm",
+    n_grid = int(wind_to_E_grid.shape[-1])
+    n_coefficients = int(
+        helmholtz_analysis.output_shape[1]
+        if hasattr(helmholtz_analysis, "output_shape")
+        else helmholtz_analysis.shape[1]
+    )
+    grid_to_coefficients = as_linear_map(
+        helmholtz_analysis,
+        input_shape=(2, n_grid),
         output_shape=(2, n_coefficients),
-        input_shape=wind_synthesis.shape[2:],
+    )
+    n_wind_coefficients = int(
+        wind_synthesis.input_shape[1]
+        if hasattr(wind_synthesis, "input_shape")
+        else wind_synthesis.shape[-1]
+    )
+    wind_to_grid = as_linear_map(
+        wind_synthesis,
+        input_shape=(2, n_wind_coefficients),
+        output_shape=(2, n_grid),
+    )
+    return (
+        grid_to_coefficients
+        @ pointwise_matrix_linear_map(wind_to_E_grid)
+        @ wind_to_grid
     )
 
 
@@ -118,7 +131,11 @@ def tangential_current_to_E_coeffs_operator(
     helmholtz_analysis, resistance_tensor, sheet_current_synthesis
 ):
     """Map sheet-current coefficients to E coefficients."""
-    n_coefficients = int(helmholtz_analysis.shape[1])
+    n_coefficients = int(
+        helmholtz_analysis.output_shape[1]
+        if hasattr(helmholtz_analysis, "output_shape")
+        else helmholtz_analysis.shape[1]
+    )
     grid_to_coefficients = as_linear_map(
         helmholtz_analysis,
         input_shape=(2, resistance_tensor.shape[-1]),

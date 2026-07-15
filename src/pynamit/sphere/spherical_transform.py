@@ -6,7 +6,7 @@ spherical-basis coefficients and grid values.
 
 import numpy as np
 
-from pynamit.math.backend import get_array_module
+from pynamit.math.backend import get_array_module, use_jax
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver, get_default_least_squares_solver
 from pynamit.math.linear_map import (
@@ -15,6 +15,7 @@ from pynamit.math.linear_map import (
     diagonal_linear_map,
     is_noop_linear_map,
 )
+from pynamit.math.tensor_operations import weighted_tensor_pinv
 from pynamit.sphere.core import SurfaceOperators
 from pynamit.sphere.grid import Grid
 
@@ -226,6 +227,45 @@ class SphericalTransform:
         return self._helmholtz_coeffs_to_gridded_vector_operator
 
     @property
+    def helmholtz_analysis_operator(self):
+        """Map gridded vectors to unregularized coefficients."""
+        if self.reg_lambda is not None:
+            raise RuntimeError(
+                "helmholtz_analysis_operator is only available for unregularized "
+                "transforms; use analyze_helmholtz() for a regularized fit."
+            )
+        if not hasattr(self, "_helmholtz_analysis_operator"):
+            optimized = self._specialized_helmholtz_analysis_operator()
+            if optimized is not None:
+                self._helmholtz_analysis_operator = optimized
+            else:
+                analysis = weighted_tensor_pinv(
+                    self.helmholtz_coeffs_to_gridded_vector,
+                    sqrt_weights=self.helmholtz_sqrt_weights,
+                    n_leading_flattened=2,
+                )
+                self._helmholtz_analysis_operator = as_linear_map(
+                    analysis,
+                    input_shape=(2, self.grid.size),
+                    output_shape=(2, self.basis.index_length),
+                )
+        return self._helmholtz_analysis_operator
+
+    def _specialized_helmholtz_analysis_operator(self):
+        """Return an available basis-specific analysis operator."""
+        if use_jax():
+            return None
+        if not hasattr(self, "_specialized_helmholtz_analysis_operator_cache"):
+            factory = getattr(self.basis, "get_helmholtz_analysis_operator", None)
+            operator = (
+                factory(self.grid, sqrt_weights=self.helmholtz_sqrt_weights)
+                if callable(factory)
+                else None
+            )
+            self._specialized_helmholtz_analysis_operator_cache = operator
+        return self._specialized_helmholtz_analysis_operator_cache
+
+    @property
     def G(self):
         """Scalar coefficient-to-grid synthesis matrix."""
         return self.scalar_coeffs_to_grid
@@ -347,9 +387,38 @@ class SphericalTransform:
 
     def analyze_helmholtz(self, grid_values, solver_type=None):
         """Analyze grid values into Helmholtz coefficients."""
+        if solver_type is None and self.reg_lambda is None:
+            operator = self._specialized_helmholtz_analysis_operator()
+            if operator is not None:
+                return self._apply_specialized_helmholtz_analysis(operator, grid_values)
         return self._solve_least_squares(
             self.helmholtz_least_squares_problem, grid_values, solver_type
         )
+
+    def _apply_specialized_helmholtz_analysis(self, operator, grid_values):
+        """Apply specialized analysis with standard RHS shapes."""
+        values = np.asarray(grid_values)
+        data_shape = (2, self.grid.size)
+        output_shape = (2, self.basis.index_length)
+        data_size = int(np.prod(data_shape))
+
+        if values.shape == data_shape:
+            return operator.matvec(values).reshape(output_shape)
+        if values.ndim > 2 and tuple(values.shape[:2]) == data_shape:
+            rhs_shape = values.shape[2:]
+            value_block = values.reshape(data_size, -1)
+        elif values.ndim > 2 and tuple(values.shape[-2:]) == data_shape:
+            rhs_shape = values.shape[:-2]
+            value_block = values.reshape(-1, data_size).T
+        elif values.size % data_size == 0:
+            rhs_count = values.size // data_size
+            rhs_shape = (rhs_count,) if rhs_count > 1 else ()
+            value_block = values.reshape(data_size, rhs_count)
+        else:
+            raise ValueError(f"Shape {values.shape} incompatible with data_shape {data_shape}.")
+
+        result = operator.matmat(value_block)
+        return result.reshape(output_shape + rhs_shape)
 
     def apply_scalar_regularization(self, coeffs):
         """Apply scalar degree regularization to coefficients."""

@@ -85,10 +85,18 @@ def test_u_coeffs_to_E_coeffs_is_linear_map_on_jax():
     response = object.__new__(ElectrodynamicResponse)
     response.geometry = SimpleNamespace(
         horizontal_basis=SimpleNamespace(index_length=n),
-        helmholtz_analysis_matrix=jnp.asarray(helmholtz_analysis),
+        helmholtz_analysis_operator=as_linear_map(
+            jnp.asarray(helmholtz_analysis),
+            input_shape=(2, 4),
+            output_shape=(2, n),
+        ),
         wind_motional_E_tensor=jnp.asarray(bu),
         horizontal_transform=SimpleNamespace(
-            helmholtz_coeffs_to_gridded_vector=jnp.asarray(helmholtz_synthesis)
+            helmholtz_coeffs_to_gridded_vector_operator=as_linear_map(
+                jnp.asarray(helmholtz_synthesis),
+                input_shape=(2, n),
+                output_shape=(2, 4),
+            )
         ),
     )
     response._u_coeffs_to_E_coeffs_cache = None
@@ -130,7 +138,11 @@ def test_Q_eff_coeffs_to_E_coeffs_uses_resistance_tensor_operator():
     response.geometry = SimpleNamespace(
         horizontal_basis=SimpleNamespace(index_length=n),
         model_grid=SimpleNamespace(size=n_grid),
-        helmholtz_analysis_matrix=helmholtz_analysis,
+        helmholtz_analysis_operator=as_linear_map(
+            helmholtz_analysis,
+            input_shape=(2, n_grid),
+            output_shape=(2, n),
+        ),
     )
     response.Q_eff = SimpleNamespace(field_space=SimpleNamespace(representation=q_representation))
     response._Q_eff_synthesis_operator_cache = None

@@ -184,6 +184,19 @@ matrix is genuinely required. The tensor helper module contains only
 contractions and pseudoinverses that still operate on multidimensional arrays;
 do not add parallel wrappers for operations already expressed by
 ``LinearMap``.
+When a rectangular map must become explicit, materialization probes the
+smaller side: input columns for tall maps and adjoint output rows for wide
+maps. This is important for rectangular surface-to-poloidal and PFAC maps,
+whose compact physical output should determine temporary memory use.
+
+Sparse equality-constrained least-squares factorization is a solver-layer
+primitive rather than a cubed-sphere implementation detail. Native NumPy CS
+Helmholtz analysis supplies its sparse synthesis matrix and its two constant
+gauge rows to that primitive, then retains the resulting analysis as a
+``LinearMap``. This avoids a dense ``(2 Ncs_surface)^2`` pseudoinverse while
+preserving the same weighted field fit and fixing both potential gauges
+exactly. Non-native grids, JAX execution, regularized fits, and explicitly
+selected alternate solvers continue through the general transform solver.
 
 ``Grid`` is an immutable coordinate value. Its coordinate signature defines
 grid-value compatibility and remapping identity. Its separate analysis
@@ -388,6 +401,15 @@ steady-state or evolution path first requests model output. When PFAC coupling
 is disabled (or the main field is radial), the optional contribution is
 represented by absence rather than by constructing and multiplying a dense
 zero matrix.
+
+Surface-sized operators should remain structured in CS mode. In particular,
+native Helmholtz analysis, wind and sheet-current closure compositions, and
+ordinary runtime ``m_imp`` responses must not materialize dense surface maps.
+The compact poloidal feedback matrix remains intentionally dense because its
+matrix exponential and steady-state pseudoinverse require an explicit
+poloidal operator. The generic dense ``normal_pinv`` solver is retained for
+reproducibility; large CS imposed-potential solves should select ``lsmr`` (or
+``cgls``) with the ``jacobi`` preconditioner.
 
 The imposed-potential runtime follows the same rule. A single active ``jr`` or
 driving-E field is assembled as one physical least-squares right-hand side and

@@ -11,6 +11,7 @@ import scipy.sparse as sp
 
 from pynamit.math import as_linear_map, identity_linear_map
 from pynamit.math.backend import get_array_module, to_numpy, use_jax
+from pynamit.math.least_squares_solver import sparse_constrained_least_squares_map
 from pynamit.sphere.core import SurfaceOperators
 from pynamit.sphere.cubed_sphere import cs_coordinates, cs_vectors
 from pynamit.sphere.cubed_sphere.cs_differencing import CSFiniteDifferences
@@ -516,10 +517,7 @@ class CSBasis(SurfaceOperators):
         """Return the CS Helmholtz synthesis operator on ``grid``."""
 
         def build():
-            bundle = self._get_derivative_bundle()
-            theta = bundle["theta"]
-            phi = bundle["phi"]
-            matrix = sp.bmat([[-theta, -phi], [-phi, theta]], format="csr")
+            matrix = self._native_helmholtz_synthesis_matrix()
             native_operator = as_linear_map(
                 matrix, input_shape=(2, self.index_length), output_shape=(2, self.index_length)
             )
@@ -528,6 +526,37 @@ class CSBasis(SurfaceOperators):
             return self.tangential_grid_remap_operator(self.native_grid, grid) @ native_operator
 
         return self._cached_surface_operator("helmholtz_synthesis", grid, build)
+
+    def _native_helmholtz_synthesis_matrix(self):
+        """Return the sparse native-grid Helmholtz synthesis matrix."""
+        bundle = self._get_derivative_bundle()
+        theta = bundle["theta"]
+        phi = bundle["phi"]
+        return sp.bmat([[-theta, -phi], [-phi, theta]], format="csr")
+
+    def get_helmholtz_analysis_operator(self, grid, *, sqrt_weights=None):
+        """Return sparse constrained native-grid Helmholtz analysis."""
+        if not self._is_native_grid(grid):
+            return None
+
+        n = self.index_length
+        synthesis = self._native_helmholtz_synthesis_matrix()
+        normalized_mean = np.sqrt(n) * self.scalar_mean_weights
+        gauges = sp.csr_matrix(
+            np.vstack(
+                [
+                    np.concatenate([normalized_mean, np.zeros(n)]),
+                    np.concatenate([np.zeros(n), normalized_mean]),
+                ]
+            )
+        )
+        return sparse_constrained_least_squares_map(
+            synthesis,
+            gauges,
+            sqrt_weights=sqrt_weights,
+            input_shape=(2, n),
+            output_shape=(2, n),
+        )
 
     def _sparse_laplacian_matrix(self, r=1.0):
         """Return the cached sparse discrete scalar Laplacian."""

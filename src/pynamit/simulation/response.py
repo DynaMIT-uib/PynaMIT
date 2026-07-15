@@ -77,11 +77,11 @@ class ElectrodynamicResponse:
 
     def _create_u_to_E_operator(self) -> LinearMap:
         """Operator mapping wind coefficients to E coefficients."""
-        helmholtz_synthesis = xp.asarray(
-            self.geometry.horizontal_transform.helmholtz_coeffs_to_gridded_vector
+        helmholtz_synthesis = (
+            self.geometry.horizontal_transform.helmholtz_coeffs_to_gridded_vector_operator
         )
         return ionospheric_closure.wind_to_E_coeffs_operator(
-            self.geometry.helmholtz_analysis_matrix,
+            self.geometry.helmholtz_analysis_operator,
             self.geometry.wind_motional_E_tensor,
             helmholtz_synthesis,
         )
@@ -110,7 +110,7 @@ class ElectrodynamicResponse:
         q_synthesis = self._Q_eff_synthesis_operator_for_representation(representation)
 
         return ionospheric_closure.tangential_current_to_E_coeffs_operator(
-            xp.asarray(self.geometry.helmholtz_analysis_matrix),
+            self.geometry.helmholtz_analysis_operator,
             xp.asarray(self.resistance_tensor_on_grid),
             q_synthesis,
         )
@@ -137,11 +137,7 @@ class ElectrodynamicResponse:
                 "E_source storage basis cannot evaluate tangential fields on the state/model grid."
             )
         source_synthesis = get_operator(self.geometry.model_grid)
-        grid_to_coeffs = as_linear_map(
-            xp.asarray(self.geometry.helmholtz_analysis_matrix),
-            input_shape=(2, self.geometry.model_grid.size),
-            output_shape=(2, self.geometry.horizontal_basis.index_length),
-        )
+        grid_to_coeffs = self.geometry.helmholtz_analysis_operator
         return grid_to_coeffs @ source_synthesis
 
     @property
@@ -241,7 +237,7 @@ class ElectrodynamicResponse:
     def _sheet_current_source_to_E_coeffs_operator(self, source_to_JS: LinearMap) -> LinearMap:
         """Map a magnetic source through derived sheet current to E."""
         return ionospheric_closure.tangential_current_to_E_coeffs_operator(
-            self.geometry.helmholtz_analysis_matrix,
+            self.geometry.helmholtz_analysis_operator,
             self.resistance_tensor_on_grid,
             source_to_JS,
         )

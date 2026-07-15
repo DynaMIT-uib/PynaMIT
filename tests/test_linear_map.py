@@ -429,6 +429,51 @@ def test_linear_map_to_matrix_materializes_on_requested_backend():
     np.testing.assert_allclose(dense, matrix)
 
 
+def test_wide_matrix_free_map_materializes_through_its_adjoint():
+    """Wide maps probe fewer outputs instead of all input columns."""
+    matrix = np.arange(30.0).reshape(3, 10)
+
+    def fail_matmat(_):
+        raise AssertionError("wide materialization should use the adjoint")
+
+    linear_map = LinearMap(
+        shape=matrix.shape,
+        dtype=matrix.dtype,
+        _matvec=lambda values: matrix @ np.asarray(values),
+        _rmatvec=lambda values: matrix.T @ np.asarray(values),
+        _matmat=fail_matmat,
+        _rmatmat=lambda values: matrix.T @ np.asarray(values),
+    )
+
+    np.testing.assert_allclose(linear_map.to_matrix(backend="numpy"), matrix)
+
+
+def test_wide_composition_materializes_through_composed_adjoint():
+    """Wide compositions do not densify their larger input domain."""
+    left_matrix = np.arange(6.0).reshape(2, 3)
+    right_matrix = np.arange(30.0).reshape(3, 10)
+
+    def matrix_free(matrix):
+        def fail_dense(_xp):
+            raise AssertionError("component map should not materialize")
+
+        return LinearMap(
+            shape=matrix.shape,
+            dtype=matrix.dtype,
+            _matvec=lambda values: matrix @ np.asarray(values),
+            _rmatvec=lambda values: matrix.T @ np.asarray(values),
+            _matmat=lambda values: matrix @ np.asarray(values),
+            _rmatmat=lambda values: matrix.T @ np.asarray(values),
+            _dense_array_func=fail_dense,
+        )
+
+    composed = matrix_free(left_matrix) @ matrix_free(right_matrix)
+
+    np.testing.assert_allclose(
+        composed.to_matrix(backend="numpy"), left_matrix @ right_matrix
+    )
+
+
 def test_linear_map_to_array_returns_shaped_dense_representation():
     """Explicit shaped arrays preserve output/input axis metadata."""
     tensor = np.arange(24.0).reshape(2, 3, 4)

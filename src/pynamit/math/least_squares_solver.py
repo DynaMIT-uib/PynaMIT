@@ -8,7 +8,8 @@ from collections.abc import Callable
 from typing import Any, Final
 
 import numpy as np
-from scipy.sparse.linalg import LinearOperator, cg, lsmr
+import scipy.sparse as sp
+from scipy.sparse.linalg import LinearOperator, cg, lsmr, splu
 
 from pynamit.math.backend import (
     block_after_jax_linalg,
@@ -24,6 +25,109 @@ ITERATION_SAFETY_FACTOR: Final = 10
 LEAST_SQUARES_SOLVER_ENV: Final = "PYNAMIT_LEAST_SQUARES_SOLVER"
 LSMR_TOLERANCE_STOP_CODES: Final = frozenset({0, 1, 2})
 PreconditionerInput = LinearOperator | LinearMap | None
+
+
+def _squared_objective_weights(sqrt_weights, size):
+    """Return validated diagonal weights for normal equations."""
+    if sqrt_weights is None:
+        return np.ones(size)
+    values = np.asarray(sqrt_weights, dtype=float).reshape(-1)
+    if values.size != size:
+        raise ValueError(f"sqrt_weights must contain {size} values; got {values.size}.")
+    if not np.all(np.isfinite(values)) or np.any(values < 0.0):
+        raise ValueError("sqrt_weights must be finite and non-negative.")
+    return values**2
+
+
+def sparse_constrained_least_squares_map(
+    data_matrix,
+    constraint_matrix,
+    *,
+    sqrt_weights=None,
+    input_shape=None,
+    output_shape=None,
+) -> LinearMap:
+    """Factor a sparse equality-constrained least-squares response map.
+
+    The returned operator maps ``b`` to the unique constrained
+    minimizer of ``||W (A x - b)||`` subject to ``C x = 0``. Its
+    adjoint reuses the sparse KKT factorization, so the map remains
+    composable without dense materialization.
+    """
+    data = sp.csr_matrix(data_matrix)
+    constraints = sp.csr_matrix(constraint_matrix)
+    data_size, solution_size = data.shape
+    if constraints.shape[1] != solution_size:
+        raise ValueError(
+            "constraint_matrix must have the same number of columns as data_matrix."
+        )
+
+    objective_weights = _squared_objective_weights(sqrt_weights, data_size)
+
+    weighted_data = sp.diags(np.sqrt(objective_weights)) @ data
+    normal_matrix = weighted_data.T.conjugate() @ weighted_data
+    kkt_matrix = sp.bmat(
+        [
+            [normal_matrix, constraints.T.conjugate()],
+            [constraints, None],
+        ],
+        format="csc",
+    )
+    factor = splu(kkt_matrix)
+    data_adjoint = data.T.conjugate().tocsr()
+    constraint_size = constraints.shape[0]
+    factor_is_complex = np.issubdtype(factor.L.dtype, np.complexfloating)
+
+    def solve_factor(rhs, *, trans="N"):
+        if np.iscomplexobj(rhs) and not factor_is_complex:
+            return factor.solve(rhs.real, trans=trans) + 1j * factor.solve(
+                rhs.imag, trans=trans
+            )
+        return factor.solve(rhs, trans=trans)
+
+    def reshape_columns(values, size):
+        array = np.asarray(values)
+        return array.reshape(size) if array.ndim == 1 else array.reshape(size, -1)
+
+    def append_constraint_zeros(values):
+        shape = (
+            (constraint_size,)
+            if values.ndim == 1
+            else (constraint_size, values.shape[1])
+        )
+        return np.concatenate([values, np.zeros(shape, dtype=values.dtype)], axis=0)
+
+    def solve_coefficients(grid_values):
+        values = reshape_columns(grid_values, data_size)
+        weighted_values = (
+            objective_weights * values
+            if values.ndim == 1
+            else objective_weights.reshape(-1, 1) * values
+        )
+        rhs = append_constraint_zeros(data_adjoint @ weighted_values)
+        return solve_factor(rhs)[:solution_size]
+
+    def solve_adjoint(coefficients):
+        values = reshape_columns(coefficients, solution_size)
+        rhs = append_constraint_zeros(values)
+        normal_solution = solve_factor(rhs, trans="H")[:solution_size]
+        analyzed = data @ normal_solution
+        return (
+            objective_weights * analyzed
+            if values.ndim == 1
+            else objective_weights.reshape(-1, 1) * analyzed
+        )
+
+    return LinearMap(
+        shape=(solution_size, data_size),
+        dtype=np.result_type(data.dtype, objective_weights.dtype),
+        _matvec=lambda values: solve_coefficients(values).reshape(-1),
+        _rmatvec=lambda values: solve_adjoint(values).reshape(-1),
+        _matmat=solve_coefficients,
+        _rmatmat=solve_adjoint,
+        input_shape=input_shape,
+        output_shape=output_shape,
+    )
 
 
 class LeastSquaresSolver:

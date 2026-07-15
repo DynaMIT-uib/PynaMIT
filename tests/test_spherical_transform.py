@@ -154,6 +154,16 @@ def test_spherical_transform_requires_configured_regularization():
         transform.apply_helmholtz_regularization(np.zeros((2, basis.index_length)))
 
 
+def test_regularized_transform_does_not_expose_unregularized_analysis_operator():
+    """A fixed analysis map cannot omit configured regularization."""
+    transform = SphericalTransform(
+        SHBasis(3, 2, mean_free=True), _regular_grid(), reg_lambda=1.0
+    )
+
+    with pytest.raises(RuntimeError, match="only available for unregularized"):
+        _ = transform.helmholtz_analysis_operator
+
+
 def test_spherical_transform_projects_tangential_grid_values():
     """Tangential projection recovers Helmholtz coefficients."""
     basis = SHBasis(3, 2, mean_free=True)
@@ -165,8 +175,11 @@ def test_spherical_transform_projects_tangential_grid_values():
     values = transform.synthesize_helmholtz(expected)
 
     actual = transform.project_helmholtz(values, input_grid=grid, projection_basis=basis)
+    direct = transform.analyze_helmholtz(values)
 
     np.testing.assert_allclose(actual[0], expected.reshape(-1), atol=1e-10)
+    np.testing.assert_allclose(direct, expected, atol=1e-10)
+    assert not hasattr(transform, "_helmholtz_analysis_operator")
 
 
 def test_spherical_transform_batches_direct_projection():
@@ -571,6 +584,60 @@ def test_cs_non_native_helmholtz_analysis_solves_against_remap_operator():
 
     assert actual.shape == (2, basis.index_length)
     np.testing.assert_allclose(transform.synthesize_helmholtz(actual), values, atol=1e-10)
+
+
+@pytest.mark.parametrize("area_weighted", [False, True])
+def test_native_cs_helmholtz_analysis_is_sparse_constrained_least_squares(area_weighted):
+    """Native NumPy CS analysis stays sparse and fixes both gauges."""
+    if use_jax():
+        pytest.skip("The sparse CS analysis is specific to the NumPy backend.")
+
+    basis = CSBasis(4)
+    grid = Grid(theta=basis.arr_theta, phi=basis.arr_phi, area_weights=basis.unit_area)
+    transform = SphericalTransform(basis, grid, area_weighted=area_weighted)
+    reference_transform = SphericalTransform(basis, grid, area_weighted=area_weighted)
+    rng = np.random.default_rng(42)
+    values = rng.normal(size=(2, grid.size))
+
+    operator = transform.helmholtz_analysis_operator
+    actual = operator.matvec(values).reshape(2, basis.index_length)
+    api_actual = transform.analyze_helmholtz(values)
+    expected = reference_transform.analyze_helmholtz(values, solver_type="normal_pinv")
+    expected = basis.project_helmholtz_mean_free(expected)
+
+    assert operator._cached_dense(np) is None
+    assert transform._helmholtz_least_squares_problem is None
+    np.testing.assert_allclose(actual, expected, rtol=2e-11, atol=2e-11)
+    np.testing.assert_allclose(api_actual, actual)
+    np.testing.assert_allclose(basis.scalar_mean(actual), np.zeros(2), atol=2e-14)
+    np.testing.assert_allclose(
+        transform.synthesize_helmholtz(actual),
+        transform.synthesize_helmholtz(expected),
+        rtol=2e-11,
+        atol=2e-11,
+    )
+
+    coefficient_probe = rng.normal(size=operator.shape[0])
+    grid_probe = rng.normal(size=operator.shape[1])
+    np.testing.assert_allclose(
+        np.vdot(coefficient_probe, operator.matvec(grid_probe)),
+        np.vdot(operator.rmatvec(coefficient_probe), grid_probe),
+        rtol=2e-12,
+        atol=2e-12,
+    )
+
+    value_batch = rng.normal(size=(3, 2, grid.size))
+    batch_actual = transform.analyze_helmholtz(value_batch)
+    batch_expected = np.stack(
+        [
+            basis.project_helmholtz_mean_free(
+                reference_transform.analyze_helmholtz(row, solver_type="normal_pinv")
+            )
+            for row in value_batch
+        ],
+        axis=-1,
+    )
+    np.testing.assert_allclose(batch_actual, batch_expected, rtol=2e-11, atol=2e-11)
 
 
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
