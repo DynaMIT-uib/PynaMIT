@@ -383,9 +383,9 @@ def test_surface_to_poloidal_projection_matches_grid_least_squares(tmp_path):
     )
 
     geometry = simulation.geometry
-    expected = (
-        tensor_pinv(geometry.poloidal_transform.scalar_coeffs_to_grid, n_leading_flattened=1)
-        @ geometry.horizontal_transform.scalar_coeffs_to_grid
+    assert not hasattr(geometry.horizontal_transform, "_scalar_coeffs_to_grid")
+    expected = tensor_pinv(
+        geometry.poloidal_transform.scalar_coeffs_to_grid, n_leading_flattened=1
     )
 
     surface_to_poloidal = geometry.surface_to_poloidal_operator.to_matrix(backend="numpy")
@@ -414,13 +414,11 @@ def test_surface_to_poloidal_supports_area_weighted_projection(tmp_path):
     )
 
     geometry = simulation.geometry
-    expected = (
-        weighted_tensor_pinv(
-            geometry.poloidal_transform.scalar_coeffs_to_grid,
-            sqrt_weights=np.sqrt(simulation.run_data.schema.cs_basis.unit_area),
-            n_leading_flattened=1,
-        )
-        @ geometry.horizontal_transform.scalar_coeffs_to_grid
+    assert not hasattr(geometry.horizontal_transform, "_scalar_coeffs_to_grid")
+    expected = weighted_tensor_pinv(
+        geometry.poloidal_transform.scalar_coeffs_to_grid,
+        sqrt_weights=np.sqrt(simulation.run_data.schema.cs_basis.unit_area),
+        n_leading_flattened=1,
     )
 
     np.testing.assert_allclose(

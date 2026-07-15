@@ -9,6 +9,7 @@ from typing import Any, Final
 
 import numpy as np
 import scipy.sparse as sp
+from scipy.linalg import cho_factor, cho_solve
 from scipy.sparse.linalg import LinearOperator, cg, lsmr, splu
 
 from pynamit.math.backend import (
@@ -37,6 +38,76 @@ def _squared_objective_weights(sqrt_weights, size):
     if not np.all(np.isfinite(values)) or np.any(values < 0.0):
         raise ValueError("sqrt_weights must be finite and non-negative.")
     return values**2
+
+
+def _reshape_columns(values, size):
+    """View one vector or a block as columns of a fixed height."""
+    array = np.asarray(values)
+    return array.reshape(size) if array.ndim == 1 else array.reshape(size, -1)
+
+
+def _scale_rows(values, row_weights):
+    """Apply one-dimensional weights to a vector or column block."""
+    return row_weights * values if values.ndim == 1 else row_weights.reshape(-1, 1) * values
+
+
+def dense_full_rank_least_squares_map(
+    data_matrix, *, sqrt_weights=None, input_shape=None, output_shape=None
+) -> LinearMap:
+    """Factor a dense full-column-rank least-squares response map.
+
+    The returned operator maps ``b`` to the unique minimizer of
+    ``||W (A x - b)||``. A Cholesky factorization of ``A* W**2 A`` is
+    retained, while the rectangular analysis matrix remains implicit.
+    """
+    data = np.asarray(data_matrix)
+    if data.ndim != 2:
+        raise ValueError(f"data_matrix must be two-dimensional; got shape {data.shape}.")
+    data_size, solution_size = data.shape
+    if data_size < solution_size:
+        raise ValueError("data_matrix must have at least as many rows as columns.")
+    if not np.all(np.isfinite(data)):
+        raise ValueError("data_matrix must contain only finite values.")
+
+    objective_weights = _squared_objective_weights(sqrt_weights, data_size)
+    data_adjoint = data.T if np.isrealobj(data) else data.T.conjugate()
+    if np.all(objective_weights == 1.0):
+        normal_matrix = data_adjoint @ data
+    else:
+        normal_matrix = data_adjoint @ (objective_weights.reshape(-1, 1) * data)
+    try:
+        factor = cho_factor(normal_matrix, lower=True, check_finite=False)
+    except np.linalg.LinAlgError as exc:
+        raise ValueError("data_matrix must have full column rank.") from exc
+    factor_is_complex = np.issubdtype(factor[0].dtype, np.complexfloating)
+
+    def solve_factor(rhs):
+        if np.iscomplexobj(rhs) and not factor_is_complex:
+            return cho_solve(factor, rhs.real, check_finite=False) + 1j * cho_solve(
+                factor, rhs.imag, check_finite=False
+            )
+        return cho_solve(factor, rhs, check_finite=False)
+
+    def solve_coefficients(grid_values):
+        values = _reshape_columns(grid_values, data_size)
+        weighted_values = _scale_rows(values, objective_weights)
+        return solve_factor(data_adjoint @ weighted_values)
+
+    def solve_adjoint(coefficients):
+        values = _reshape_columns(coefficients, solution_size)
+        analyzed = data @ solve_factor(values)
+        return _scale_rows(analyzed, objective_weights)
+
+    return LinearMap(
+        shape=(solution_size, data_size),
+        dtype=np.result_type(data.dtype, objective_weights.dtype),
+        _matvec=lambda values: solve_coefficients(values).reshape(-1),
+        _rmatvec=lambda values: solve_adjoint(values).reshape(-1),
+        _matmat=solve_coefficients,
+        _rmatmat=solve_adjoint,
+        input_shape=input_shape,
+        output_shape=output_shape,
+    )
 
 
 def sparse_constrained_least_squares_map(
@@ -85,10 +156,6 @@ def sparse_constrained_least_squares_map(
             )
         return factor.solve(rhs, trans=trans)
 
-    def reshape_columns(values, size):
-        array = np.asarray(values)
-        return array.reshape(size) if array.ndim == 1 else array.reshape(size, -1)
-
     def append_constraint_zeros(values):
         shape = (
             (constraint_size,)
@@ -98,25 +165,17 @@ def sparse_constrained_least_squares_map(
         return np.concatenate([values, np.zeros(shape, dtype=values.dtype)], axis=0)
 
     def solve_coefficients(grid_values):
-        values = reshape_columns(grid_values, data_size)
-        weighted_values = (
-            objective_weights * values
-            if values.ndim == 1
-            else objective_weights.reshape(-1, 1) * values
-        )
+        values = _reshape_columns(grid_values, data_size)
+        weighted_values = _scale_rows(values, objective_weights)
         rhs = append_constraint_zeros(data_adjoint @ weighted_values)
         return solve_factor(rhs)[:solution_size]
 
     def solve_adjoint(coefficients):
-        values = reshape_columns(coefficients, solution_size)
+        values = _reshape_columns(coefficients, solution_size)
         rhs = append_constraint_zeros(values)
         normal_solution = solve_factor(rhs, trans="H")[:solution_size]
         analyzed = data @ normal_solution
-        return (
-            objective_weights * analyzed
-            if values.ndim == 1
-            else objective_weights.reshape(-1, 1) * analyzed
-        )
+        return _scale_rows(analyzed, objective_weights)
 
     return LinearMap(
         shape=(solution_size, data_size),

@@ -10,6 +10,7 @@ from pynamit.math import JAX_AVAILABLE, as_linear_map, set_backend, use_jax
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import (
     LeastSquaresSolver,
+    dense_full_rank_least_squares_map,
     sparse_constrained_least_squares_map,
 )
 
@@ -65,6 +66,37 @@ def test_sparse_constrained_least_squares_map_matches_kkt_and_adjoint():
 
     np.testing.assert_allclose(operator.matvec(rhs), expected)
     np.testing.assert_allclose(constraint @ operator.matvec(rhs), np.zeros(1), atol=1e-14)
+    coefficient_probe = np.array([0.5 - 0.25j, 1.0j, -0.75 + 0.1j])
+    np.testing.assert_allclose(
+        np.vdot(coefficient_probe, operator.matvec(rhs)),
+        np.vdot(operator.rmatvec(coefficient_probe), rhs),
+        rtol=1e-13,
+        atol=1e-13,
+    )
+
+
+def test_dense_full_rank_least_squares_map_matches_weighted_lstsq_and_adjoint():
+    """Factorized analysis preserves weighted solutions and adjoints."""
+    data_matrix = np.array(
+        [
+            [1.0, 0.0, 0.5],
+            [0.0, 1.0, -0.25],
+            [1.0, -1.0, 0.0],
+            [0.5, 0.25, 1.0],
+            [-0.5, 0.75, 0.25],
+        ]
+    )
+    sqrt_weights = np.array([1.0, 2.0, 0.5, 1.5, 0.75])
+    operator = dense_full_rank_least_squares_map(
+        data_matrix, sqrt_weights=sqrt_weights, input_shape=(5,), output_shape=(3,)
+    )
+    rhs = np.array([1.0 + 0.5j, -0.25j, 2.0 - 0.75j, -1.0 + 0.25j, 0.5j])
+
+    expected = np.linalg.lstsq(
+        sqrt_weights.reshape(-1, 1) * data_matrix, sqrt_weights * rhs, rcond=None
+    )[0]
+    np.testing.assert_allclose(operator.matvec(rhs), expected, rtol=1e-13, atol=1e-13)
+
     coefficient_probe = np.array([0.5 - 0.25j, 1.0j, -0.75 + 0.1j])
     np.testing.assert_allclose(
         np.vdot(coefficient_probe, operator.matvec(rhs)),

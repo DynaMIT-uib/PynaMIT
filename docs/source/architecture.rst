@@ -405,6 +405,12 @@ zero matrix.
 Surface-sized operators should remain structured in CS mode. In particular,
 native Helmholtz analysis, wind and sheet-current closure compositions, and
 ordinary runtime ``m_imp`` responses must not materialize dense surface maps.
+The surface-to-poloidal bridge likewise composes its compact SH analysis with
+the horizontal synthesis operator; native CS nodal synthesis therefore stays
+an implicit identity rather than allocating a dense grid-sized identity.
+The full-column-rank poloidal-current fit used while constructing PFAC keeps a
+factorized normal system and an implicit adjoint instead of forming an SVD
+pseudoinverse of its tall grid matrix.
 The compact poloidal feedback matrix remains intentionally dense because its
 matrix exponential and steady-state pseudoinverse require an explicit
 poloidal operator. The generic dense ``normal_pinv`` solver is retained for

@@ -130,7 +130,7 @@ def m_imp_to_gridded_JS(
     poloidal_transform=None,
     pfac_coupling_matrix=None,
 ):
-    """Map imposed-potential coefficients to gridded JS."""
+    """Map imposed-potential coefficients to their total gridded JS."""
     return m_imp_to_gridded_JS_operator(
         solid_harmonics,
         horizontal_transform,
@@ -146,21 +146,30 @@ def m_imp_to_gridded_JS_operator(
     poloidal_transform=None,
     pfac_coupling_matrix=None,
 ):
-    """Return the map from imposed-potential coefficients to JS."""
+    """Return the map from imposed-potential coefficients to total JS.
+
+    The direct term is the sheet current represented by ``m_imp`` on
+    the ionosphere. With PFAC coupling, field-aligned current above the
+    ionosphere also creates a poloidal magnetic contribution and an
+    additional sheet current through the magnetic-potential jump.
+    """
     poloidal_transform = (
         horizontal_transform if poloidal_transform is None else poloidal_transform
     )
-    toroidal = (-1.0 / mu0) * horizontal_transform.scalar_coeffs_to_gridded_gradient_operator
+    direct_sheet_current = (
+        -1.0 / mu0
+    ) * horizontal_transform.scalar_coeffs_to_gridded_gradient_operator
     if pfac_coupling_matrix is None:
-        return toroidal
-    coupling = as_linear_map(
+        return direct_sheet_current
+    m_imp_to_poloidal = as_linear_map(
         pfac_coupling_matrix,
         input_shape=(horizontal_transform.basis.index_length,),
         output_shape=(solid_harmonics.basis.index_length,),
     )
-    return toroidal + poloidal_to_gridded_JS_operator(
-        solid_harmonics, poloidal_transform
-    ) @ coupling
+    pfac_sheet_current = (
+        poloidal_to_gridded_JS_operator(solid_harmonics, poloidal_transform) @ m_imp_to_poloidal
+    )
+    return direct_sheet_current + pfac_sheet_current
 
 
 __all__ = [

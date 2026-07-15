@@ -19,6 +19,7 @@ from pynamit.math import (
 )
 from pynamit.math.backend import to_numpy
 from pynamit.math.constants import RE, mu0
+from pynamit.math.least_squares_solver import dense_full_rank_least_squares_map
 from pynamit.math.tensor_operations import weighted_tensor_pinv
 from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.electrodynamics import ionospheric_closure, magnetic_boundary
@@ -233,19 +234,25 @@ class SimulationGeometry:
         The poloidal basis owns the induced state and its radial
         continuation. For the CS surface path this map removes surface
         content that cannot be represented by the configured poloidal
-        harmonics; for the SH path it is the identity.
+        harmonics; for the SH path it is the identity. The projection is
+        composed with the horizontal synthesis operator so a native CS
+        identity remains structured rather than becoming a dense matrix.
         """
         if self.poloidal_basis.coefficients_are_compatible_with(self.horizontal_basis):
             return identity_linear_map((self.horizontal_basis.index_length,))
-        poloidal_to_grid = self.poloidal_transform.scalar_coeffs_to_grid
-        horizontal_to_grid = self.horizontal_transform.scalar_coeffs_to_grid
-        grid_to_poloidal = weighted_tensor_pinv(
-            poloidal_to_grid, sqrt_weights=self.model_grid_sqrt_weights(), n_leading_flattened=1
+        poloidal_to_grid_matrix = self.poloidal_transform.scalar_coeffs_to_grid
+        grid_to_poloidal_matrix = weighted_tensor_pinv(
+            poloidal_to_grid_matrix,
+            sqrt_weights=self.model_grid_sqrt_weights(),
+            n_leading_flattened=1,
         )
-        return as_linear_map(
-            np.asarray(grid_to_poloidal @ horizontal_to_grid),
-            input_shape=(self.horizontal_basis.index_length,),
-            output_shape=(self.solid_harmonics.basis.index_length,),
+        return (
+            as_linear_map(
+                grid_to_poloidal_matrix,
+                input_shape=(self.model_grid.size,),
+                output_shape=(self.poloidal_basis.index_length,),
+            )
+            @ self.horizontal_transform.scalar_coeffs_to_grid_operator
         )
 
     def poloidal_transform_for(self, transform: SphericalTransform) -> SphericalTransform:
@@ -527,17 +534,14 @@ class SimulationGeometry:
         integration_radii = np.asarray(self.fac_integration_radii)
         radial_step_widths = np.diff(integration_radii)
         radial_midpoints = integration_radii[:-1] + 0.5 * radial_step_widths
-        poloidal_to_gridded_JS = magnetic_boundary.poloidal_to_gridded_JS(
+        poloidal_to_gridded_JS_matrix = magnetic_boundary.poloidal_to_gridded_JS(
             self.solid_harmonics, self.poloidal_transform
         )
-        gridded_JS_to_poloidal = weighted_tensor_pinv(
-            poloidal_to_gridded_JS,
+        gridded_JS_to_poloidal_operator = dense_full_rank_least_squares_map(
+            poloidal_to_gridded_JS_matrix.reshape(
+                2 * self.model_grid.size, self.poloidal_basis.index_length
+            ),
             sqrt_weights=self.model_grid_sqrt_weights(vector=True),
-            n_leading_flattened=2,
-            rtol=0,
-        )
-        gridded_JS_to_poloidal_operator = as_linear_map(
-            gridded_JS_to_poloidal,
             input_shape=(2, self.model_grid.size),
             output_shape=(self.poloidal_basis.index_length,),
         )
