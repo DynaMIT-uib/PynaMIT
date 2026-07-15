@@ -164,13 +164,14 @@ class ElectrodynamicResponse:
         self._m_imp_to_E_coeffs_cache: LinearMap | None = None
         self._Br_to_E_coeffs_cache: LinearMap | None = None
         self._Q_eff_to_E_coeffs_cache: LinearMap | None = None
-        self._materialized_m_ind_to_E_coeffs_cache: LinearMap | None = None
-        self._materialized_m_imp_to_E_coeffs_cache: LinearMap | None = None
-        self._materialized_Br_to_E_coeffs_cache: LinearMap | None = None
-        self._materialized_Q_eff_to_E_coeffs_cache: LinearMap | None = None
+        self._runtime_m_ind_to_E_coeffs_cache: LinearMap | None = None
+        self._runtime_m_imp_to_E_coeffs_cache: LinearMap | None = None
+        self._runtime_Br_to_E_coeffs_cache: LinearMap | None = None
+        self._runtime_Q_eff_to_E_coeffs_cache: LinearMap | None = None
         self._interhemispheric_electric_field_constraint_cache: LinearMap | None = None
         self._m_ind_feedback_matrix: np.ndarray | None = None
         self._m_ind_feedback_operator: LinearMap | None = None
+        self._m_ind_to_E_df_operator_cache: LinearMap | None = None
         self._noninductive_E_df_to_steady_m_ind_matrix: np.ndarray | None = None
         self._noninductive_E_df_to_steady_m_ind_operator: LinearMap | None = None
         self._jr_to_m_imp_matrix: np.ndarray | None = None
@@ -180,6 +181,7 @@ class ElectrodynamicResponse:
         self._driving_E_to_total_E_operator: LinearMap | None = None
         self._driving_E_to_E_df_operator: LinearMap | None = None
         self._m_imp_problem_cache: LeastSquaresProblem | None = None
+        self._m_imp_response_solver_cache = None
         self._m_imp_preconditioner_cache: LinearMap | None = None
         self._m_imp_preconditioner_ready = False
 
@@ -236,13 +238,12 @@ class ElectrodynamicResponse:
 
         raise ValueError("Resistance storage basis cannot be evaluated on the state/model grid.")
 
-    def _sheet_current_source_to_E_coeffs_operator(self, source_to_JS: np.ndarray) -> LinearMap:
+    def _sheet_current_source_to_E_coeffs_operator(self, source_to_JS: LinearMap) -> LinearMap:
         """Map a magnetic source through derived sheet current to E."""
-        return ionospheric_closure.sheet_current_source_to_E_coeffs_operator(
+        return ionospheric_closure.tangential_current_to_E_coeffs_operator(
             self.geometry.helmholtz_analysis_matrix,
             self.resistance_tensor_on_grid,
             source_to_JS,
-            self.geometry.horizontal_basis.index_length,
         )
 
     @property
@@ -250,7 +251,7 @@ class ElectrodynamicResponse:
         """Linear map from m_ind coefficients to E coefficients."""
         if self._m_ind_to_E_coeffs_cache is None:
             self._m_ind_to_E_coeffs_cache = self._sheet_current_source_to_E_coeffs_operator(
-                self.geometry.m_ind_to_gridded_JS()
+                self.geometry.m_ind_to_gridded_JS_operator()
             )
         return self._m_ind_to_E_coeffs_cache
 
@@ -259,7 +260,7 @@ class ElectrodynamicResponse:
         """Linear map from m_imp coefficients to E coefficients."""
         if self._m_imp_to_E_coeffs_cache is None:
             self._m_imp_to_E_coeffs_cache = self._sheet_current_source_to_E_coeffs_operator(
-                self.geometry.m_imp_to_gridded_JS()
+                self.geometry.m_imp_to_gridded_JS_operator()
             )
         return self._m_imp_to_E_coeffs_cache
 
@@ -267,54 +268,58 @@ class ElectrodynamicResponse:
     def Br_to_E_coeffs(self) -> LinearMap | None:
         """Linear map from Br coefficients to E coefficients."""
         if self._Br_to_E_coeffs_cache is None:
-            Br_to_JS = self.geometry.Br_to_gridded_JS()
+            Br_to_JS = self.geometry.Br_to_gridded_JS_operator()
             if Br_to_JS is None:
                 return None
             self._Br_to_E_coeffs_cache = self._sheet_current_source_to_E_coeffs_operator(Br_to_JS)
         return self._Br_to_E_coeffs_cache
 
-    def _materialize_E_coeffs_operator(self, op: LinearMap | None) -> LinearMap | None:
-        """Materialize an E-coefficient map for repeated application."""
+    def _optimize_repeated_E_operator(
+        self, op: LinearMap | None, *, compact_input: bool
+    ) -> LinearMap | None:
+        """Prepare an E-coefficient map for repeated runtime use."""
         if op is None:
             return None
-        _ = op.array
+        spaces_coincide = self.geometry.horizontal_basis is self.geometry.poloidal_basis
+        if compact_input or spaces_coincide:
+            _ = op.array
         return op
 
     @property
-    def _materialized_m_ind_to_E_coeffs(self) -> LinearMap:
-        """Materialized map from m_ind to E coefficients."""
-        if self._materialized_m_ind_to_E_coeffs_cache is None:
-            self._materialized_m_ind_to_E_coeffs_cache = self._materialize_E_coeffs_operator(
-                self.m_ind_to_E_coeffs
+    def _runtime_m_ind_to_E_coeffs(self) -> LinearMap:
+        """Runtime map from m_ind to E coefficients."""
+        if self._runtime_m_ind_to_E_coeffs_cache is None:
+            self._runtime_m_ind_to_E_coeffs_cache = self._optimize_repeated_E_operator(
+                self.m_ind_to_E_coeffs, compact_input=True
             )
-        return self._materialized_m_ind_to_E_coeffs_cache
+        return self._runtime_m_ind_to_E_coeffs_cache
 
     @property
-    def _materialized_m_imp_to_E_coeffs(self) -> LinearMap:
-        """Materialized map from m_imp to E coefficients."""
-        if self._materialized_m_imp_to_E_coeffs_cache is None:
-            self._materialized_m_imp_to_E_coeffs_cache = self._materialize_E_coeffs_operator(
-                self.m_imp_to_E_coeffs
+    def _runtime_m_imp_to_E_coeffs(self) -> LinearMap:
+        """Runtime map from m_imp to E coefficients."""
+        if self._runtime_m_imp_to_E_coeffs_cache is None:
+            self._runtime_m_imp_to_E_coeffs_cache = self._optimize_repeated_E_operator(
+                self.m_imp_to_E_coeffs, compact_input=False
             )
-        return self._materialized_m_imp_to_E_coeffs_cache
+        return self._runtime_m_imp_to_E_coeffs_cache
 
     @property
-    def _materialized_Br_to_E_coeffs(self) -> LinearMap | None:
-        """Materialized map from Br coefficients to E coefficients."""
-        if self._materialized_Br_to_E_coeffs_cache is None:
-            self._materialized_Br_to_E_coeffs_cache = self._materialize_E_coeffs_operator(
-                self.Br_to_E_coeffs
+    def _runtime_Br_to_E_coeffs(self) -> LinearMap | None:
+        """Runtime map from Br coefficients to E coefficients."""
+        if self._runtime_Br_to_E_coeffs_cache is None:
+            self._runtime_Br_to_E_coeffs_cache = self._optimize_repeated_E_operator(
+                self.Br_to_E_coeffs, compact_input=True
             )
-        return self._materialized_Br_to_E_coeffs_cache
+        return self._runtime_Br_to_E_coeffs_cache
 
     @property
-    def _materialized_Q_eff_to_E_coeffs(self) -> LinearMap | None:
-        """Materialized map from effective-current coefficients to E."""
-        if self._materialized_Q_eff_to_E_coeffs_cache is None:
-            self._materialized_Q_eff_to_E_coeffs_cache = self._materialize_E_coeffs_operator(
-                self.Q_eff_to_E_coeffs
+    def _runtime_Q_eff_to_E_coeffs(self) -> LinearMap | None:
+        """Runtime map from effective-current coefficients to E."""
+        if self._runtime_Q_eff_to_E_coeffs_cache is None:
+            self._runtime_Q_eff_to_E_coeffs_cache = self._optimize_repeated_E_operator(
+                self.Q_eff_to_E_coeffs, compact_input=False
             )
-        return self._materialized_Q_eff_to_E_coeffs_cache
+        return self._runtime_Q_eff_to_E_coeffs_cache
 
     @property
     def _interhemispheric_electric_field_constraint(self) -> LinearMap | None:
@@ -389,14 +394,18 @@ class ElectrodynamicResponse:
             self._m_imp_preconditioner_ready = True
         return self._m_imp_preconditioner_cache
 
-    def _build_m_imp_response_matrices(self) -> None:
-        """Construct dense response matrices for the m_imp solve."""
-        logger.info("Building dense m_imp response matrices.")
-        n = self.geometry.horizontal_basis.index_length
+    def _solve_m_imp_response(self, rhs_entries):
+        """Solve imposed-potential response right-hand sides."""
+        if self._m_imp_response_solver_cache is None:
+            self._m_imp_response_solver_cache = self._m_imp_solver.build_response_solver(
+                self._m_imp_problem, preconditioner=self._m_imp_preconditioner
+            )
+        return self._m_imp_response_solver_cache(rhs_entries)
+
+    def _build_jr_to_m_imp_matrix(self) -> None:
+        """Construct the explicit radial-current response matrix."""
+        logger.info("Building dense jr-to-m_imp response matrix.")
         problem = self._m_imp_problem
-        solve_response = self._m_imp_solver.build_response_solver(
-            problem, preconditioner=self._m_imp_preconditioner
-        )
 
         radial_current_matrix = self.geometry.radial_current_constraint_operator.to_matrix(
             backend="numpy"
@@ -406,36 +415,60 @@ class ElectrodynamicResponse:
         )
         rhs_entries = [None] * problem.num_data_terms
         rhs_entries[0] = radial_current_rhs
-        jr_to_m_imp = solve_response(rhs_entries)
+        jr_to_m_imp = self._solve_m_imp_response(rhs_entries)
+        self._jr_to_m_imp_matrix = to_jax(jr_to_m_imp) if use_jax() else jr_to_m_imp
 
-        driving_E_to_m_imp = None
+    def _build_driving_E_to_m_imp_matrix(self) -> None:
+        """Construct the explicit interhemispheric E-response matrix."""
+        if (
+            not self.config.enable_interhemispheric_coupling
+            or self._interhemispheric_electric_field_constraint is None
+        ):
+            self._driving_E_to_m_imp_matrix = None
+            return
+
+        logger.info("Building dense driving-E-to-m_imp response matrix.")
+        n = self.geometry.horizontal_basis.index_length
+        problem = self._m_imp_problem
+        electric_field_rhs = (
+            -self.geometry.interhemispheric_electric_field_difference_matrix.reshape(
+                problem.A[1].output_shape + (2 * n,)
+            )
+        )
+        electric_field_rhs *= self.config.interhemispheric_electric_field_weight
+        rhs_entries = [None] * problem.num_data_terms
+        rhs_entries[1] = electric_field_rhs
+        driving_E_to_m_imp = self._solve_m_imp_response(rhs_entries).reshape((n, 2, n))
+        self._driving_E_to_m_imp_matrix = (
+            to_jax(driving_E_to_m_imp) if use_jax() else driving_E_to_m_imp
+        )
+
+    def _m_imp_rhs_entries(
+        self, jr_coeffs: np.ndarray | None, driving_E: np.ndarray
+    ) -> list[np.ndarray | None] | None:
+        """Assemble physical right-hand sides for one m_imp solve."""
+        problem = self._m_imp_problem
+        rhs_entries = [None] * problem.num_data_terms
+        has_rhs = False
+
+        if jr_coeffs is not None:
+            rhs_entries[0] = self.geometry.radial_current_constraint_operator.matvec(jr_coeffs)
+            has_rhs = True
+
         if (
             self.config.enable_interhemispheric_coupling
             and self._interhemispheric_electric_field_constraint is not None
         ):
-            electric_field_rhs = (
-                -self.geometry.interhemispheric_electric_field_difference_matrix.reshape(
-                    problem.A[1].output_shape + (2 * n,)
-                )
+            electric_field_difference = (
+                self.geometry.interhemispheric_electric_field_difference_operator.matvec(driving_E)
             )
-            electric_field_rhs *= self.config.interhemispheric_electric_field_weight
-            rhs_entries = [None] * problem.num_data_terms
-            rhs_entries[1] = electric_field_rhs
-            driving_E_to_m_imp = solve_response(rhs_entries)
-            driving_E_to_m_imp = driving_E_to_m_imp.reshape((n, 2, n))
-
-        self._jr_to_m_imp_matrix = to_jax(jr_to_m_imp) if use_jax() else jr_to_m_imp
-        if driving_E_to_m_imp is not None:
-            self._driving_E_to_m_imp_matrix = (
-                to_jax(driving_E_to_m_imp) if use_jax() else driving_E_to_m_imp
+            rhs_entries[1] = (
+                -self.config.interhemispheric_electric_field_weight
+                * electric_field_difference
             )
-        else:
-            self._driving_E_to_m_imp_matrix = None
+            has_rhs = True
 
-    def _ensure_m_imp_response_matrices(self) -> None:
-        """Build m_imp response matrices when needed."""
-        if self._jr_to_m_imp_matrix is None:
-            self._build_m_imp_response_matrices()
+        return rhs_entries if has_rhs else None
 
     # ----- Response Operators -----
 
@@ -443,7 +476,8 @@ class ElectrodynamicResponse:
     def jr_to_m_imp_operator(self) -> LinearMap:
         """Linear map from radial current to imposed potential."""
         if self._jr_to_m_imp_operator is None:
-            self._ensure_m_imp_response_matrices()
+            if self._jr_to_m_imp_matrix is None:
+                self._build_jr_to_m_imp_matrix()
             self._jr_to_m_imp_operator = as_linear_map(
                 self._jr_to_m_imp_matrix,
                 input_shape=(self.geometry.horizontal_basis.index_length,),
@@ -455,7 +489,8 @@ class ElectrodynamicResponse:
     def driving_E_to_m_imp_operator(self) -> LinearMap | None:
         """Map driving E to imposed potential."""
         if self._driving_E_to_m_imp_operator is None:
-            self._ensure_m_imp_response_matrices()
+            if self._driving_E_to_m_imp_matrix is None:
+                self._build_driving_E_to_m_imp_matrix()
             if self._driving_E_to_m_imp_matrix is None:
                 return None
             self._driving_E_to_m_imp_operator = as_linear_map(
@@ -510,18 +545,52 @@ class ElectrodynamicResponse:
             @ self.driving_E_to_total_E_operator
         )
 
+    def _create_driving_source_to_E_df_operator(self, source_to_driving_E: LinearMap) -> LinearMap:
+        """Complete a driving source through m_imp and extract E_df."""
+        total_E_from_source = source_to_driving_E
+        if (
+            self.config.enable_interhemispheric_coupling
+            and self._interhemispheric_electric_field_constraint is not None
+        ):
+            problem = self._m_imp_problem
+            electric_field_rhs_operator = (
+                -self.config.interhemispheric_electric_field_weight
+                * self.geometry.interhemispheric_electric_field_difference_operator
+                @ source_to_driving_E
+            )
+            electric_field_rhs = electric_field_rhs_operator.to_matrix().reshape(
+                problem.A[1].output_shape + source_to_driving_E.input_shape
+            )
+            rhs_entries = [None] * problem.num_data_terms
+            rhs_entries[1] = electric_field_rhs
+            m_imp_from_source = as_linear_map(
+                self._solve_m_imp_response(rhs_entries),
+                input_shape=source_to_driving_E.input_shape,
+                output_shape=(self.geometry.horizontal_basis.index_length,),
+            )
+            total_E_from_source = (
+                source_to_driving_E + self.m_imp_to_E_coeffs @ m_imp_from_source
+            )
+        return self.geometry.helmholtz_divergence_free_potential_operator @ total_E_from_source
+
+    @property
+    def m_ind_to_E_df_operator(self) -> LinearMap:
+        """Map poloidal state to its full divergence-free E response."""
+        if self._m_ind_to_E_df_operator_cache is None:
+            self._m_ind_to_E_df_operator_cache = self._create_driving_source_to_E_df_operator(
+                self.m_ind_to_E_coeffs
+            )
+        return self._m_ind_to_E_df_operator_cache
+
     def _solve_for_m_imp(self, jr_coeffs: np.ndarray | None, driving_E: np.ndarray) -> np.ndarray:
         """Solve for the imposed potential coefficients `m_imp`."""
-        solution = xp.zeros(self.geometry.horizontal_basis.index_length)
+        jr_coeffs = None if jr_coeffs is None else xp.asarray(jr_coeffs)
+        driving_E = xp.asarray(driving_E)
+        rhs_entries = self._m_imp_rhs_entries(jr_coeffs, driving_E)
+        if rhs_entries is None:
+            return xp.zeros(self.geometry.horizontal_basis.index_length)
 
-        if jr_coeffs is not None:
-            solution += self.jr_to_m_imp_operator.matvec(xp.asarray(jr_coeffs))
-
-        if self.config.enable_interhemispheric_coupling:
-            driving_E_to_m_imp = self.driving_E_to_m_imp_operator
-            if driving_E_to_m_imp is not None:
-                solution += driving_E_to_m_imp.matvec(xp.asarray(driving_E))
-
+        solution = self._solve_m_imp_response(rhs_entries)
         return self.project_surface_scalar_mean_free(solution)
 
     # ----- Active Input Update -----
@@ -582,7 +651,7 @@ class ElectrodynamicResponse:
         driving_E = self.project_helmholtz_mean_free(driving_E)
         m_imp = self._solve_for_m_imp(jr_coeffs, driving_E)
         E_from_m_imp = self._apply_operator(
-            self._materialized_m_imp_to_E_coeffs,
+            self._runtime_m_imp_to_E_coeffs,
             m_imp,
             (2, self.geometry.horizontal_basis.index_length),
         )
@@ -607,11 +676,11 @@ class ElectrodynamicResponse:
             )
         if self.Br is not None:
             driving_E += self._apply_operator(
-                self._materialized_Br_to_E_coeffs, xp.asarray(self.Br.array), E_shape
+                self._runtime_Br_to_E_coeffs, xp.asarray(self.Br.array), E_shape
             )
         if self.Q_eff is not None:
             driving_E += self._apply_operator(
-                self._materialized_Q_eff_to_E_coeffs, xp.asarray(self.Q_eff.array), E_shape
+                self._runtime_Q_eff_to_E_coeffs, xp.asarray(self.Q_eff.array), E_shape
             )
 
         jr_coeffs = None if self.jr is None else xp.asarray(self.jr.array)
@@ -621,7 +690,7 @@ class ElectrodynamicResponse:
         """Return E and imposed-potential responses caused by m_ind."""
         E_shape = (2, self.geometry.horizontal_basis.index_length)
         driving_E = self._apply_operator(
-            self._materialized_m_ind_to_E_coeffs,
+            self._runtime_m_ind_to_E_coeffs,
             xp.asarray(m_ind),
             E_shape,
         )
@@ -631,14 +700,14 @@ class ElectrodynamicResponse:
 
     @property
     def m_ind_feedback_matrix(self) -> np.ndarray:
-        """Return magnetic-state feedback before Faraday scaling."""
+        """Return induced-state feedback before Faraday scaling."""
         if self._m_ind_feedback_matrix is None:
             self._build_m_ind_feedback_matrix()
         return self._m_ind_feedback_matrix
 
     @property
     def m_ind_feedback_operator(self) -> LinearMap:
-        """Map magnetic state to Faraday-driving W in magnetic space."""
+        """Map induced state to Faraday-driving W in poloidal space."""
         if self._m_ind_feedback_operator is None:
             self._m_ind_feedback_operator = self._create_m_ind_feedback_operator()
         return self._m_ind_feedback_operator
@@ -651,10 +720,10 @@ class ElectrodynamicResponse:
             feedback_pinv = block_after_jax_linalg(
                 array_module.linalg.pinv(self.m_ind_feedback_matrix, rtol=1e-15)
             )
-            surface_to_magnetic = array_module.asarray(
-                self.geometry.surface_to_magnetic_operator.to_matrix()
+            surface_to_poloidal = array_module.asarray(
+                self.geometry.surface_to_poloidal_operator.to_matrix()
             )
-            self._noninductive_E_df_to_steady_m_ind_matrix = -feedback_pinv @ surface_to_magnetic
+            self._noninductive_E_df_to_steady_m_ind_matrix = -feedback_pinv @ surface_to_poloidal
         return self._noninductive_E_df_to_steady_m_ind_matrix
 
     @property
@@ -667,16 +736,15 @@ class ElectrodynamicResponse:
         return self._noninductive_E_df_to_steady_m_ind_operator
 
     def _create_m_ind_feedback_operator(self) -> LinearMap:
-        """Construct magnetic-state feedback in magnetic space."""
+        """Construct induced-state feedback in poloidal space."""
         return (
-            self.geometry.surface_to_magnetic_operator
-            @ self.driving_E_to_E_df_operator
-            @ self.m_ind_to_E_coeffs
+            self.geometry.surface_to_poloidal_operator
+            @ self.m_ind_to_E_df_operator
         )
 
     def _build_m_ind_feedback_matrix(self) -> None:
-        """Construct the dense magnetic-state feedback matrix."""
-        logger.info("Building dense magnetic-state feedback matrix...")
+        """Construct the dense induced-state feedback matrix."""
+        logger.info("Building dense induced-state feedback matrix...")
         self._m_ind_feedback_matrix = self.m_ind_feedback_operator.to_matrix()
         logger.info("Dense induction operator built.")
 
@@ -691,7 +759,7 @@ class ElectrodynamicResponse:
                 @ self.m_imp_to_E_coeffs
                 @ self.jr_to_m_imp_operator
             ),
-            "E_df_from_m_ind": self.driving_E_to_E_df_operator @ self.m_ind_to_E_coeffs,
+            "E_df_from_m_ind": self.m_ind_to_E_df_operator,
         }
 
         if include_Br and self.Br_to_E_coeffs is not None:
@@ -710,7 +778,7 @@ class ElectrodynamicResponse:
     ) -> dict[str, LinearMap]:
         """Return named input/state to d(m_ind)/dt operators."""
         faraday = (
-            float(self.geometry.faraday_rate_scale) * self.geometry.surface_to_magnetic_operator
+            float(self.geometry.faraday_rate_scale) * self.geometry.surface_to_poloidal_operator
         )
         return {
             key.replace("E_df_from_", "d_m_ind_dt_from_"): faraday @ operator

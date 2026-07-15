@@ -194,7 +194,7 @@ Mean-freedom is owned by coefficient spaces, not by post-step cleanup. The
 schema's ``sh_basis`` retains the mean/monopole term for quantities such as
 resistance, while ``mean_free_sh_basis`` is used for radial magnetic fields.
 The evolving ``m_ind`` and prescribed boundary ``Br`` therefore live directly
-in the mean-free magnetic SH space. ``m_imp``, ``Phi``, and ``W`` live in the
+in the mean-free poloidal SH space. ``m_imp``, ``Phi``, and ``W`` live in the
 selected horizontal surface space. In CS mode the latter space retains its
 nodal layout and uses an explicit zero-area-mean gauge constraint. Each stored
 representation supplies its own synthesis operator on the model grid, so
@@ -370,13 +370,16 @@ suggesting that it contains only the direct electric-field input or encoding
 the absence of ``m_imp``. The imposed potential then completes the response
 required by the radial-current and optional interhemispheric constraints.
 
-The magnetic and horizontal surface spaces coincide in the default SH mode.
-They are intentionally distinct in CS mode. ``surface_to_magnetic_operator``
+The poloidal and horizontal surface spaces coincide in the default SH mode.
+They are intentionally distinct in CS mode. ``surface_to_poloidal_operator``
 is the only bridge in Faraday's law: it projects the surface ``W`` potential
-onto the configured magnetic harmonics. PFAC coupling has the corresponding
-rectangular shape, mapping surface ``m_imp`` coefficients to magnetic
-poloidal coefficients. This prevents unobservable high-resolution CS modes
-from being carried as part of the evolving magnetic state.
+onto the configured poloidal harmonics. PFAC coupling has the corresponding
+rectangular shape. ``m_imp`` directly describes the imposed sheet-current
+contribution in the surface space; the field-aligned current above the
+ionosphere also produces a poloidal magnetic contribution and a potential
+jump across the sheet, which the PFAC map expresses in poloidal coefficients.
+This prevents unobservable high-resolution CS modes from being carried as
+part of the evolving poloidal state.
 
 Expensive optional geometry follows use rather than construction. The PFAC
 coupling matrix is reused when persisted, but a new one is not built merely to
@@ -385,6 +388,22 @@ steady-state or evolution path first requests model output. When PFAC coupling
 is disabled (or the main field is radial), the optional contribution is
 represented by absence rather than by constructing and multiplying a dense
 zero matrix.
+
+The imposed-potential runtime follows the same rule. A single active ``jr`` or
+driving-E field is assembled as one physical least-squares right-hand side and
+solved directly. The full ``jr_to_m_imp_operator`` and
+``driving_E_to_m_imp_operator`` remain available for matrix diagnostics, but
+normal simulation steps do not construct them. Interhemispheric induction
+solves only the source columns reachable from the poloidal ``m_ind`` state,
+rather than first constructing the response to every possible horizontal-E
+coefficient.
+
+Magnetic-boundary maps also retain structured ``LinearMap`` compositions.
+This matters in CS mode, where the native gradient and Helmholtz synthesis
+operators are sparse. Repeated E-response maps are cached densely for compact
+poloidal inputs and when the horizontal and poloidal SH spaces coincide; large
+CS surface-to-surface maps remain structured until an explicit matrix is
+requested.
 
 The persisted input artifact is named ``resistance`` because its canonical
 variables are the Pedersen and Hall resistance coefficients ``etaP`` and
@@ -401,7 +420,7 @@ curl-free and divergence-free electric-potential coefficients normalized by
 by ``RI`` to display volts. Stored ``m_ind`` and ``m_imp`` follow the normalized
 magnetic-potential convention documented with ``SolidHarmonics``. With these
 definitions, ``m_imp_to_jr = RI / mu0 * surface_laplacian``,
-``m_ind_to_Br = -RI**2 * magnetic_laplacian``, and
+``m_ind_to_Br = -RI**2 * poloidal_laplacian``, and
 ``d(m_ind)/dt = W / RI`` use one sign and radius convention across the code.
 
 The CS imposed-potential system has one physically irrelevant constant gauge.

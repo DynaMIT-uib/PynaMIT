@@ -35,7 +35,7 @@ def current_output_entry(simulation, key=None):
 def evaluate_Br_coefficients(geometry, m_ind, transform):
     """Evaluate radial magnetic perturbation from ``m_ind``."""
     coeffs = geometry.m_ind_to_Br_operator.matvec(m_ind)
-    return geometry.solid_harmonic_transform_for(transform).synthesize_scalar(coeffs)
+    return geometry.poloidal_transform_for(transform).synthesize_scalar(coeffs)
 
 
 def evaluate_Br(simulation, transform, *, key=None):
@@ -63,7 +63,7 @@ def evaluate_equivalent_current_coefficients(geometry, m_ind, transform):
         / mu0
         * geometry.poloidal_to_boundary_potential_jump_factor_operator.matvec(m_ind)
     )
-    return geometry.solid_harmonic_transform_for(transform).synthesize_scalar(coeffs)
+    return geometry.poloidal_transform_for(transform).synthesize_scalar(coeffs)
 
 
 def evaluate_equivalent_current_function(simulation, transform, *, key=None):

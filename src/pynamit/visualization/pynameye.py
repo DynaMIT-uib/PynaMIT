@@ -148,7 +148,7 @@ class PynamEye:
         # Set up global grid and spherical transforms.
         self.transforms = {}
         self.resistance_transforms = {}
-        self.solid_harmonic_transforms = {}
+        self.poloidal_transforms = {}
         lat, lon = np.linspace(-89.9, 89.9, Nlat), np.linspace(-180, 180, Nlon)
         self.lat, self.lon = np.meshgrid(lat, lon)
         self.global_grid = Grid(lat=self.lat, lon=self.lon)
@@ -178,7 +178,7 @@ class PynamEye:
             self._add_transforms("north", self.polar_grid)
             self.transforms["south"] = self.transforms["north"]
             self.resistance_transforms["south"] = self.resistance_transforms["north"]
-            self.solid_harmonic_transforms["south"] = self.solid_harmonic_transforms["north"]
+            self.poloidal_transforms["south"] = self.poloidal_transforms["north"]
 
         self._e_from_b_cache_ready = False
         self._pedersen_geometry_cache = {}
@@ -198,7 +198,7 @@ class PynamEye:
         self.resistance_transforms[region] = SphericalTransform(
             self.resistance_field_space.representation, grid
         )
-        self.solid_harmonic_transforms[region] = self.geometry.solid_harmonic_transform_for(
+        self.poloidal_transforms[region] = self.geometry.poloidal_transform_for(
             self.transforms[region]
         )
 
@@ -206,16 +206,16 @@ class PynamEye:
         """Return lazy sheet-current maps for one region."""
         if region not in self.sheet_current_maps:
             transform = self.transforms[region]
-            solid_transform = self.solid_harmonic_transforms[region]
+            poloidal_transform = self.poloidal_transforms[region]
             self.sheet_current_maps[region] = {
                 "m_ind_to_JS": self.geometry.m_ind_to_gridded_JS(
-                    transform, solid_transform=solid_transform
+                    transform, poloidal_transform=poloidal_transform
                 ),
                 "m_imp_to_JS": self.geometry.m_imp_to_gridded_JS(
-                    transform, solid_transform=solid_transform
+                    transform, poloidal_transform=poloidal_transform
                 ),
                 "Br_to_JS": self.geometry.Br_to_gridded_JS(
-                    transform, solid_transform=solid_transform
+                    transform, poloidal_transform=poloidal_transform
                 ),
             }
         return self.sheet_current_maps[region]
@@ -251,7 +251,7 @@ class PynamEye:
             self.resistance_transforms["num"] = SphericalTransform(
                 self.resistance_field_space.representation, self.state_grid
             )
-            self.solid_harmonic_transforms["num"] = self.geometry.solid_harmonic_transform
+            self.poloidal_transforms["num"] = self.geometry.poloidal_transform
             self._num_pedersen_geometry = self.geometry.pedersen_geometry_tensor
             self._num_hall_geometry = self.geometry.hall_geometry_tensor
             self._num_wind_to_E = self.geometry.wind_motional_E_tensor

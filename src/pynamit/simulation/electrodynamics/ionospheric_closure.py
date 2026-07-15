@@ -128,23 +128,6 @@ def tangential_current_to_E_coeffs_operator(
     return grid_to_coefficients @ current_to_E_grid @ sheet_current_synthesis
 
 
-def sheet_current_source_to_E_coeffs_operator(
-    helmholtz_analysis, resistance_tensor, source_to_JS, coefficient_length
-):
-    """Map source coefficients through derived JS and resistance."""
-    xp = get_array_module(helmholtz_analysis, resistance_tensor, source_to_JS)
-    return einsum_linear_map_from_matvec(
-        component_tensors=[
-            xp.asarray(helmholtz_analysis),
-            xp.asarray(resistance_tensor),
-            xp.asarray(source_to_JS),
-        ],
-        einsum_string_matvec="cmpg,pqg,qgl,l->cm",
-        output_shape=(2, int(coefficient_length)),
-        input_shape=source_to_JS.shape[2:],
-    )
-
-
 def Q_eff_on_grid_from_wind(wind_on_grid, wind_to_E_grid, resistance_tensor):
     """Return the effective sheet current equivalent to neutral wind."""
     E_wind_on_grid = np.einsum(
@@ -177,7 +160,6 @@ __all__ = [
     "resistance_to_conductance",
     "resistance_tensor_on_grid",
     "solve_Q_eff_coefficients",
-    "sheet_current_source_to_E_coeffs_operator",
     "tangential_current_to_E_coeffs_operator",
     "wind_motional_E_tensor",
     "wind_to_E_coeffs_operator",

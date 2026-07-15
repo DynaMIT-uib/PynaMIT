@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from pynamit.math.backend import get_array_module
+from pynamit.math import as_linear_map, diagonal_linear_map
 from pynamit.math.constants import mu0
 
 
@@ -23,13 +23,23 @@ def _coefficient_scale(values):
     return array.copy()
 
 
-def poloidal_to_gridded_JS(solid_harmonics, transform, *, solid_scale=None):
-    """Map poloidal coefficients to gridded JS."""
+def poloidal_to_gridded_JS_operator(solid_harmonics, transform, *, poloidal_scale=None):
+    """Return the map from poloidal coefficients to gridded JS."""
     scale = _coefficient_scale(solid_harmonics.poloidal_to_boundary_potential_jump_factor)
-    if solid_scale is not None:
-        scale = scale * np.asarray(solid_scale)
-    JS = -transform.scalar_coeffs_to_gridded_rhat_cross_gradient * scale.reshape(1, 1, -1) / mu0
-    return JS.copy()
+    if poloidal_scale is not None:
+        scale = scale * np.asarray(poloidal_scale)
+    return (
+        (-1.0 / mu0)
+        * transform.scalar_coeffs_to_gridded_rhat_cross_gradient_operator
+        @ diagonal_linear_map(scale)
+    )
+
+
+def poloidal_to_gridded_JS(solid_harmonics, transform, *, poloidal_scale=None):
+    """Map poloidal coefficients to gridded JS."""
+    return poloidal_to_gridded_JS_operator(
+        solid_harmonics, transform, poloidal_scale=poloidal_scale
+    ).array
 
 
 def shielded_m_ind_poloidal_scale(solid_harmonics, boundary_radius, radius):
@@ -53,10 +63,10 @@ def boundary_Br_to_poloidal_scale(solid_harmonics, boundary_radius, radius):
         solid_harmonics.irregular_reference_shift(radius, boundary_radius)
     )
     denominator = 1.0 - regular_shift * irregular_shift
-    solid_harmonic_m_ind_to_Br = _coefficient_scale(
+    m_ind_to_Br = _coefficient_scale(
         -(radius**2) * solid_harmonics.basis.laplacian(radius)
     )
-    return -regular_shift / denominator / solid_harmonic_m_ind_to_Br
+    return -regular_shift / denominator / m_ind_to_Br
 
 
 def m_ind_to_gridded_JS(
@@ -68,23 +78,48 @@ def m_ind_to_gridded_JS(
     boundary_shielding=False,
 ):
     """Map induced-potential coefficients to gridded JS."""
-    solid_scale = None
-    if boundary_radius is not None and boundary_shielding:
-        solid_scale = shielded_m_ind_poloidal_scale(solid_harmonics, boundary_radius, radius)
-    return poloidal_to_gridded_JS(
+    return m_ind_to_gridded_JS_operator(
         solid_harmonics,
         transform,
-        solid_scale=solid_scale,
+        radius=radius,
+        boundary_radius=boundary_radius,
+        boundary_shielding=boundary_shielding,
+    ).array
+
+
+def m_ind_to_gridded_JS_operator(
+    solid_harmonics,
+    transform,
+    *,
+    radius,
+    boundary_radius=None,
+    boundary_shielding=False,
+):
+    """Return the map from induced-potential coefficients to JS."""
+    poloidal_scale = None
+    if boundary_radius is not None and boundary_shielding:
+        poloidal_scale = shielded_m_ind_poloidal_scale(solid_harmonics, boundary_radius, radius)
+    return poloidal_to_gridded_JS_operator(
+        solid_harmonics,
+        transform,
+        poloidal_scale=poloidal_scale,
     )
 
 
 def Br_to_gridded_JS(solid_harmonics, transform, *, radius, boundary_radius):
     """Map boundary-Br coefficients to gridded JS."""
-    solid_scale = boundary_Br_to_poloidal_scale(solid_harmonics, boundary_radius, radius)
-    return poloidal_to_gridded_JS(
+    return Br_to_gridded_JS_operator(
+        solid_harmonics, transform, radius=radius, boundary_radius=boundary_radius
+    ).array
+
+
+def Br_to_gridded_JS_operator(solid_harmonics, transform, *, radius, boundary_radius):
+    """Return the map from boundary-Br coefficients to gridded JS."""
+    poloidal_scale = boundary_Br_to_poloidal_scale(solid_harmonics, boundary_radius, radius)
+    return poloidal_to_gridded_JS_operator(
         solid_harmonics,
         transform,
-        solid_scale=solid_scale,
+        poloidal_scale=poloidal_scale,
     )
 
 
@@ -92,24 +127,51 @@ def m_imp_to_gridded_JS(
     solid_harmonics,
     horizontal_transform,
     *,
-    solid_transform=None,
+    poloidal_transform=None,
     pfac_coupling_matrix=None,
 ):
     """Map imposed-potential coefficients to gridded JS."""
-    solid_transform = horizontal_transform if solid_transform is None else solid_transform
-    toroidal = -horizontal_transform.scalar_coeffs_to_gridded_gradient / mu0
+    return m_imp_to_gridded_JS_operator(
+        solid_harmonics,
+        horizontal_transform,
+        poloidal_transform=poloidal_transform,
+        pfac_coupling_matrix=pfac_coupling_matrix,
+    ).array
+
+
+def m_imp_to_gridded_JS_operator(
+    solid_harmonics,
+    horizontal_transform,
+    *,
+    poloidal_transform=None,
+    pfac_coupling_matrix=None,
+):
+    """Return the map from imposed-potential coefficients to JS."""
+    poloidal_transform = (
+        horizontal_transform if poloidal_transform is None else poloidal_transform
+    )
+    toroidal = (-1.0 / mu0) * horizontal_transform.scalar_coeffs_to_gridded_gradient_operator
     if pfac_coupling_matrix is None:
         return toroidal
-    poloidal = poloidal_to_gridded_JS(solid_harmonics, solid_transform)
-    xp = get_array_module(toroidal, poloidal, pfac_coupling_matrix)
-    return toroidal + xp.tensordot(poloidal, xp.asarray(pfac_coupling_matrix), axes=([2], [0]))
+    coupling = as_linear_map(
+        pfac_coupling_matrix,
+        input_shape=(horizontal_transform.basis.index_length,),
+        output_shape=(solid_harmonics.basis.index_length,),
+    )
+    return toroidal + poloidal_to_gridded_JS_operator(
+        solid_harmonics, poloidal_transform
+    ) @ coupling
 
 
 __all__ = [
     "Br_to_gridded_JS",
+    "Br_to_gridded_JS_operator",
     "boundary_Br_to_poloidal_scale",
     "m_imp_to_gridded_JS",
+    "m_imp_to_gridded_JS_operator",
     "m_ind_to_gridded_JS",
+    "m_ind_to_gridded_JS_operator",
     "poloidal_to_gridded_JS",
+    "poloidal_to_gridded_JS_operator",
     "shielded_m_ind_poloidal_scale",
 ]

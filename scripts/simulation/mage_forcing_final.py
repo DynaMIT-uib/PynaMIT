@@ -142,7 +142,7 @@ def main(settings: MageForcingSettings = SETTINGS) -> None:
     simulation = pynamit.Simulation(
         run_directory=run_directory, artifact_storage=settings.artifact_storage, **config_kwargs
     )
-    state_size = int(simulation.geometry.magnetic_basis.index_length)
+    state_size = int(simulation.geometry.poloidal_basis.index_length)
     dense_matrix_mib = state_size * state_size * 8.0 / 1024.0**2
     print(
         f"Induction coefficient count: {state_size}; one dense float64 operator "

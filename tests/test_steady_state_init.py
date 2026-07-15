@@ -168,8 +168,12 @@ def test_impose_steady_state_matches_steady_state_initialization(tmp_path, monke
     imposed_entry = imposed.run_data.output_series.get_entry("state", imposed.current_time)
 
     for key in ("m_ind", "m_imp", "Phi", "W"):
+        # Phi and W vanish at exact equilibrium, so independently
+        # composed operator paths need an absolute roundoff floor.
         np.testing.assert_allclose(
-            np.asarray(imposed_entry[key]), np.asarray(initialized_entry[key])
+            np.asarray(imposed_entry[key]),
+            np.asarray(initialized_entry[key]),
+            atol=1e-15,
         )
 
 

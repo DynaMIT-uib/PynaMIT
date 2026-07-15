@@ -64,7 +64,7 @@ def test_run_data_owns_schema_artifacts_and_field_series(tmp_path):
 
     assert reloaded.settings_saved is True
     assert reloaded.pfac_matrix is not None
-    assert reloaded.pfac_matrix.dims == ("magnetic_i", "surface_i")
+    assert reloaded.pfac_matrix.dims == ("poloidal_i", "surface_i")
     assert "jr" in reloaded.input_series.datasets
     assert "state" in reloaded.output_series.datasets
     np.testing.assert_allclose(reloaded.pfac_matrix.values, np.zeros((n_magnetic, n_surface)))

@@ -37,7 +37,7 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
     assert simulation.geometry.solid_harmonics.basis is not simulation.geometry.horizontal_basis
     assert not simulation.run_data.schema.input_field_spaces["resistance"].mean_free
     state_spaces = simulation.run_data.schema.output_field_spaces["state"]
-    assert state_spaces["m_ind"].representation is simulation.geometry.magnetic_basis
+    assert state_spaces["m_ind"].representation is simulation.geometry.poloidal_basis
     assert state_spaces["m_imp"].representation is simulation.geometry.horizontal_basis
 
     geometry = simulation.geometry
@@ -62,7 +62,7 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
     assert geometry.m_ind_to_gridded_JS().shape == (
         2,
         geometry.model_grid.size,
-        simulation.geometry.magnetic_basis.index_length,
+        simulation.geometry.poloidal_basis.index_length,
     )
     assert geometry.m_imp_to_gridded_JS().shape == (
         2,
@@ -72,13 +72,13 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
 
     plot_grid = Grid(theta=geometry.model_grid.theta[:10], phi=geometry.model_grid.phi[:10])
     plot_transform = SphericalTransform(simulation.geometry.horizontal_basis, plot_grid)
-    assert geometry.solid_harmonic_transform_for(
+    assert geometry.poloidal_transform_for(
         plot_transform
-    ) is geometry.solid_harmonic_transform_for(plot_transform)
+    ) is geometry.poloidal_transform_for(plot_transform)
     assert geometry.m_ind_to_gridded_JS(plot_transform).shape == (
         2,
         plot_grid.size,
-        simulation.geometry.magnetic_basis.index_length,
+        simulation.geometry.poloidal_basis.index_length,
     )
 
     state = simulation.run_data.output_series.datasets["state"]
@@ -90,12 +90,12 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
     actual_n_coeffs = coeff_array.shape[0]
 
     assert actual_n_coeffs == (
-        simulation.geometry.magnetic_basis.index_length
+        simulation.geometry.poloidal_basis.index_length
         + simulation.geometry.horizontal_basis.index_length
     )
     assert np.all(np.isfinite(coeff_array))
 
-    assert np.all(simulation.geometry.magnetic_basis.n > 0)
+    assert np.all(simulation.geometry.poloidal_basis.n > 0)
     for name in ("m_imp", "Phi", "W"):
         assert simulation.geometry.horizontal_basis.scalar_mean(
             state[f"CS_{name}"].values[-1]

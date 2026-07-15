@@ -74,7 +74,7 @@ class SimulationGeometry:
             raise NotImplementedError(
                 f"{type(self.horizontal_basis).__name__} requires solid harmonics for JS coupling."
             )
-        self.magnetic_basis = self.solid_harmonics.basis
+        self.poloidal_basis = self.solid_harmonics.basis
         self.main_field = main_field
 
         # Store the configuration values used by geometric construction.
@@ -98,14 +98,14 @@ class SimulationGeometry:
 
         # Restore a persisted PFAC map or build it on first access.
         self._init_pfac_matrix(pfac_matrix)
-        self._solid_transform_cache = {}
+        self._poloidal_transform_cache = {}
 
     def _init_surface_operators(self) -> None:
         """Compile surface and magnetic-boundary coefficient maps."""
         self.surface_laplacian_operator = self.horizontal_basis.get_surface_laplacian_operator(
             self.RI
         )
-        self.magnetic_laplacian_operator = self.magnetic_basis.get_surface_laplacian_operator(
+        self.poloidal_laplacian_operator = self.poloidal_basis.get_surface_laplacian_operator(
             self.RI
         )
         self.helmholtz_curl_free_potential_operator = (
@@ -116,9 +116,9 @@ class SimulationGeometry:
         )
         self.surface_gauge_operator = self._build_surface_gauge_operator()
         self.m_imp_to_jr_operator = self.RI / mu0 * self.surface_laplacian_operator
-        self.m_ind_to_Br_operator = -(self.RI**2) * self.magnetic_laplacian_operator
+        self.m_ind_to_Br_operator = -(self.RI**2) * self.poloidal_laplacian_operator
         self.faraday_rate_scale = 1.0 / self.RI
-        self.surface_to_magnetic_operator = self._build_surface_to_magnetic_operator()
+        self.surface_to_poloidal_operator = self._build_surface_to_poloidal_operator()
         self.poloidal_to_boundary_potential_jump_factor_operator = diagonal_linear_map(
             self.solid_harmonics.poloidal_to_boundary_potential_jump_factor
         )
@@ -128,7 +128,7 @@ class SimulationGeometry:
         self._pfac_matrix = None
         if pfac_matrix is None:
             return
-        expected_shape = (self.magnetic_basis.index_length, self.horizontal_basis.index_length)
+        expected_shape = (self.poloidal_basis.index_length, self.horizontal_basis.index_length)
         matrix = np.asarray(pfac_matrix)
         if matrix.shape != expected_shape:
             raise ValueError(f"pfac_matrix must have shape {expected_shape}; got {matrix.shape}.")
@@ -160,11 +160,11 @@ class SimulationGeometry:
         self.horizontal_transform = SphericalTransform(
             self.horizontal_basis, self.model_grid, area_weighted=self.area_weighted_least_squares
         )
-        if self.magnetic_basis is self.horizontal_basis:
-            self.solid_harmonic_transform = self.horizontal_transform
+        if self.poloidal_basis is self.horizontal_basis:
+            self.poloidal_transform = self.horizontal_transform
         else:
-            self.solid_harmonic_transform = SphericalTransform(
-                self.magnetic_basis,
+            self.poloidal_transform = SphericalTransform(
+                self.poloidal_basis,
                 self.model_grid,
                 area_weighted=self.area_weighted_least_squares,
             )
@@ -223,34 +223,34 @@ class SimulationGeometry:
             output_shape=(1,),
         )
 
-    def _build_surface_to_magnetic_operator(self):
-        """Project surface coefficients into magnetic SH space.
+    def _build_surface_to_poloidal_operator(self):
+        """Project surface coefficients into poloidal SH space.
 
         The horizontal basis owns ionospheric surface operators.
-        The magnetic basis owns the poloidal state and its radial
+        The poloidal basis owns the induced state and its radial
         continuation. For the CS surface path this map removes surface
-        content that cannot be represented by the configured magnetic
+        content that cannot be represented by the configured poloidal
         harmonics; for the SH path it is the identity.
         """
-        if self.magnetic_basis.coefficients_are_compatible_with(self.horizontal_basis):
+        if self.poloidal_basis.coefficients_are_compatible_with(self.horizontal_basis):
             return identity_linear_map((self.horizontal_basis.index_length,))
-        solid_to_grid = self.solid_harmonic_transform.scalar_coeffs_to_grid
+        poloidal_to_grid = self.poloidal_transform.scalar_coeffs_to_grid
         horizontal_to_grid = self.horizontal_transform.scalar_coeffs_to_grid
-        grid_to_solid = weighted_tensor_pinv(
-            solid_to_grid, sqrt_weights=self.model_grid_sqrt_weights(), n_leading_flattened=1
+        grid_to_poloidal = weighted_tensor_pinv(
+            poloidal_to_grid, sqrt_weights=self.model_grid_sqrt_weights(), n_leading_flattened=1
         )
         return as_linear_map(
-            np.asarray(grid_to_solid @ horizontal_to_grid),
+            np.asarray(grid_to_poloidal @ horizontal_to_grid),
             input_shape=(self.horizontal_basis.index_length,),
             output_shape=(self.solid_harmonics.basis.index_length,),
         )
 
-    def solid_harmonic_transform_for(self, transform: SphericalTransform) -> SphericalTransform:
-        """Return a solid transform for ``transform.grid``."""
-        if self.magnetic_basis.coefficients_are_compatible_with(transform.basis):
+    def poloidal_transform_for(self, transform: SphericalTransform) -> SphericalTransform:
+        """Return a poloidal transform for ``transform.grid``."""
+        if self.poloidal_basis.coefficients_are_compatible_with(transform.basis):
             return transform
         cache_key = (
-            getattr(self.magnetic_basis, "signature", id(self.magnetic_basis)),
+            getattr(self.poloidal_basis, "signature", id(self.poloidal_basis)),
             (
                 transform.grid.analysis_signature
                 if self.area_weighted_least_squares
@@ -258,30 +258,41 @@ class SimulationGeometry:
             ),
             self.area_weighted_least_squares,
         )
-        if cache_key not in self._solid_transform_cache:
-            self._solid_transform_cache[cache_key] = SphericalTransform(
-                self.magnetic_basis,
+        if cache_key not in self._poloidal_transform_cache:
+            self._poloidal_transform_cache[cache_key] = SphericalTransform(
+                self.poloidal_basis,
                 transform.grid,
                 area_weighted=self.area_weighted_least_squares,
             )
-        return self._solid_transform_cache[cache_key]
+        return self._poloidal_transform_cache[cache_key]
 
     def m_ind_to_gridded_JS(
         self,
         transform: SphericalTransform | None = None,
         *,
-        solid_transform: SphericalTransform | None = None,
+        poloidal_transform: SphericalTransform | None = None,
     ) -> np.ndarray:
         """Map induced-potential coefficients to JS."""
-        if solid_transform is None:
-            solid_transform = (
-                self.solid_harmonic_transform
+        return self.m_ind_to_gridded_JS_operator(
+            transform, poloidal_transform=poloidal_transform
+        ).array
+
+    def m_ind_to_gridded_JS_operator(
+        self,
+        transform: SphericalTransform | None = None,
+        *,
+        poloidal_transform: SphericalTransform | None = None,
+    ) -> LinearMap:
+        """Return the map from induced-potential coefficients to JS."""
+        if poloidal_transform is None:
+            poloidal_transform = (
+                self.poloidal_transform
                 if transform is None
-                else self.solid_harmonic_transform_for(transform)
+                else self.poloidal_transform_for(transform)
             )
-        return magnetic_boundary.m_ind_to_gridded_JS(
+        return magnetic_boundary.m_ind_to_gridded_JS_operator(
             self.solid_harmonics,
-            solid_transform,
+            poloidal_transform,
             radius=self.RI,
             boundary_radius=self.RM,
             boundary_shielding=self.magnetic_boundary_shielding,
@@ -291,16 +302,27 @@ class SimulationGeometry:
         self,
         transform: SphericalTransform | None = None,
         *,
-        solid_transform: SphericalTransform | None = None,
+        poloidal_transform: SphericalTransform | None = None,
     ) -> np.ndarray:
         """Map imposed-potential coefficients to JS."""
+        return self.m_imp_to_gridded_JS_operator(
+            transform, poloidal_transform=poloidal_transform
+        ).array
+
+    def m_imp_to_gridded_JS_operator(
+        self,
+        transform: SphericalTransform | None = None,
+        *,
+        poloidal_transform: SphericalTransform | None = None,
+    ) -> LinearMap:
+        """Return the map from imposed-potential coefficients to JS."""
         transform = self.horizontal_transform if transform is None else transform
-        if solid_transform is None:
-            solid_transform = self.solid_harmonic_transform_for(transform)
-        return magnetic_boundary.m_imp_to_gridded_JS(
+        if poloidal_transform is None:
+            poloidal_transform = self.poloidal_transform_for(transform)
+        return magnetic_boundary.m_imp_to_gridded_JS_operator(
             self.solid_harmonics,
             transform,
-            solid_transform=solid_transform,
+            poloidal_transform=poloidal_transform,
             pfac_coupling_matrix=(
                 None
                 if self.main_field.kind == "radial" or not self.enable_pfac_coupling
@@ -451,7 +473,7 @@ class SimulationGeometry:
     def _pfac_integrand_at_radius(
         self,
         radius,
-        gridded_JS_to_solid_poloidal,
+        gridded_JS_to_poloidal,
         outer_regular_to_ionosphere,
         boundary_response_factor,
     ):
@@ -481,17 +503,17 @@ class SimulationGeometry:
                 * np.asarray(self.solid_harmonics.irregular_reference_shift(radius, self.RM))
             ).reshape((-1, 1, 1))
 
-        JS_to_solid_poloidal = gridded_JS_to_solid_poloidal * shell_to_ionosphere
+        JS_to_poloidal = gridded_JS_to_poloidal * shell_to_ionosphere
         if np.ndim(boundary_response_factor) == 0:
-            JS_to_solid_poloidal *= boundary_response_factor
+            JS_to_poloidal *= boundary_response_factor
         else:
-            JS_to_solid_poloidal *= np.asarray(boundary_response_factor).reshape((-1, 1, 1))
-        return np.tensordot(JS_to_solid_poloidal, m_imp_to_JS, axes=2)
+            JS_to_poloidal *= np.asarray(boundary_response_factor).reshape((-1, 1, 1))
+        return np.tensordot(JS_to_poloidal, m_imp_to_JS, axes=2)
 
     def _build_pfac_matrix(self) -> None:
         """Construct the PFAC coupling matrix by radial integration."""
         pfac_matrix = np.zeros(
-            (self.magnetic_basis.index_length, self.horizontal_basis.index_length)
+            (self.poloidal_basis.index_length, self.horizontal_basis.index_length)
         )
         if self.main_field.kind == "radial" or not self.enable_pfac_coupling:
             pfac_matrix.flags.writeable = False
@@ -501,11 +523,11 @@ class SimulationGeometry:
         integration_radii = np.asarray(self.fac_integration_radii)
         radial_step_widths = np.diff(integration_radii)
         radial_midpoints = integration_radii[:-1] + 0.5 * radial_step_widths
-        solid_poloidal_to_gridded_JS = magnetic_boundary.poloidal_to_gridded_JS(
-            self.solid_harmonics, self.solid_harmonic_transform
+        poloidal_to_gridded_JS = magnetic_boundary.poloidal_to_gridded_JS(
+            self.solid_harmonics, self.poloidal_transform
         )
-        gridded_JS_to_solid_poloidal = weighted_tensor_pinv(
-            solid_poloidal_to_gridded_JS,
+        gridded_JS_to_poloidal = weighted_tensor_pinv(
+            poloidal_to_gridded_JS,
             sqrt_weights=self.model_grid_sqrt_weights(vector=True),
             n_leading_flattened=2,
             rtol=0,
@@ -521,7 +543,7 @@ class SimulationGeometry:
             )
             pfac_matrix += radial_step_widths[i] * self._pfac_integrand_at_radius(
                 radial_midpoint,
-                gridded_JS_to_solid_poloidal,
+                gridded_JS_to_poloidal,
                 outer_regular_to_ionosphere,
                 boundary_response_factor,
             )
@@ -532,20 +554,32 @@ class SimulationGeometry:
         self,
         transform: SphericalTransform | None = None,
         *,
-        solid_transform: SphericalTransform | None = None,
+        poloidal_transform: SphericalTransform | None = None,
     ) -> np.ndarray | None:
         """Map boundary-Br coefficients to JS."""
+        operator = self.Br_to_gridded_JS_operator(
+            transform, poloidal_transform=poloidal_transform
+        )
+        return None if operator is None else operator.array
+
+    def Br_to_gridded_JS_operator(
+        self,
+        transform: SphericalTransform | None = None,
+        *,
+        poloidal_transform: SphericalTransform | None = None,
+    ) -> LinearMap | None:
+        """Return the map from boundary-Br coefficients to JS."""
         if self.RM is None:
             return None
-        if solid_transform is None:
-            solid_transform = (
-                self.solid_harmonic_transform
+        if poloidal_transform is None:
+            poloidal_transform = (
+                self.poloidal_transform
                 if transform is None
-                else self.solid_harmonic_transform_for(transform)
+                else self.poloidal_transform_for(transform)
             )
-        return magnetic_boundary.Br_to_gridded_JS(
+        return magnetic_boundary.Br_to_gridded_JS_operator(
             self.solid_harmonics,
-            solid_transform,
+            poloidal_transform,
             radius=self.RI,
             boundary_radius=self.RM,
         )

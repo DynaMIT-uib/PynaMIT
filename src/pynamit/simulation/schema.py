@@ -145,7 +145,7 @@ def build_simulation_schema(config: SimulationConfig) -> SimulationSchema:
         input_bases = {
             "jr": cs_basis,
             # Boundary Br participates in radial continuation and is
-            # therefore stored in the magnetic SH space even when its
+            # therefore stored in the poloidal SH space even when its
             # source samples are remapped through the CS grid.
             "Br": mean_free_sh_basis,
             "resistance": cs_basis,
@@ -192,7 +192,7 @@ def build_simulation_schema(config: SimulationConfig) -> SimulationSchema:
     input_field_spaces = field_spaces_from_bases(
         input_bases, INPUT_FIELD_TYPES, mean_free_by_key=input_mean_free
     )
-    magnetic_state_space = FieldSpace.from_representation(
+    poloidal_state_space = FieldSpace.from_representation(
         mean_free_sh_basis, field_type="scalar", mean_free=True
     )
     surface_state_space = FieldSpace.from_representation(
@@ -200,7 +200,7 @@ def build_simulation_schema(config: SimulationConfig) -> SimulationSchema:
     )
     output_field_spaces = {
         key: {
-            "m_ind": magnetic_state_space,
+            "m_ind": poloidal_state_space,
             "m_imp": surface_state_space,
             "Phi": surface_state_space,
             "W": surface_state_space,

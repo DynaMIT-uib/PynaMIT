@@ -29,8 +29,8 @@ def test_default_horizontal_basis_is_sh(tmp_path):
     assert schema.sh_basis.index_length == geometry.horizontal_basis.index_length + 1
     assert geometry.surface_gauge_operator is None
     np.testing.assert_allclose(
-        geometry.surface_to_magnetic_operator.to_matrix(backend="numpy"),
-        np.eye(geometry.magnetic_basis.index_length),
+        geometry.surface_to_poloidal_operator.to_matrix(backend="numpy"),
+        np.eye(geometry.poloidal_basis.index_length),
     )
 
 
@@ -84,6 +84,75 @@ def test_cs_surface_gauge_makes_m_imp_system_unique(tmp_path):
     assert np.linalg.matrix_rank(system) == geometry.horizontal_basis.index_length
 
 
+def test_cs_runtime_m_imp_solve_does_not_build_dense_response_matrix(tmp_path):
+    """A single current input should remain a single m_imp solve."""
+    simulation = Simulation(
+        run_directory=str(tmp_path / "run"),
+        Nmax=2,
+        Mmax=1,
+        Ncs=4,
+        main_field_kind="radial",
+        enable_pfac_coupling=False,
+        horizontal_basis_kind="CS",
+        least_squares_solver="normal_pinv",
+        artifact_storage="netcdf",
+        backend="numpy",
+    )
+    n = simulation.geometry.horizontal_basis.index_length
+    simulation.set_resistance(
+        etaP_coefficients=np.ones(n), etaH_coefficients=np.zeros(n), time=0.0
+    )
+    simulation.set_jr(jr_coefficients=np.linspace(-1.0, 1.0, n), time=0.0)
+    response = simulation.response
+    response.activate_inputs_at_time(simulation.run_data.input_series, 0.0)
+
+    _, direct_m_imp = response.calculate_noninductive_response()
+
+    assert response._jr_to_m_imp_matrix is None
+    assert response._runtime_m_imp_to_E_coeffs._cached_dense(np) is None
+    explicit_m_imp = response.jr_to_m_imp_operator.matvec(response.jr.array)
+    np.testing.assert_allclose(direct_m_imp, explicit_m_imp, atol=1e-12)
+
+
+def test_cs_reduced_induction_response_matches_full_E_response(tmp_path):
+    """Reduced poloidal columns preserve interhemispheric feedback."""
+    simulation = Simulation(
+        run_directory=str(tmp_path / "run"),
+        Nmax=2,
+        Mmax=1,
+        Ncs=4,
+        main_field_kind="dipole",
+        enable_pfac_coupling=True,
+        enable_interhemispheric_coupling=True,
+        horizontal_basis_kind="CS",
+        least_squares_solver="normal_pinv",
+        artifact_storage="netcdf",
+        backend="numpy",
+    )
+    grid = simulation.geometry.model_grid
+    phase = np.linspace(0.0, 2.0 * np.pi, grid.size, endpoint=False)
+    simulation.set_resistance(
+        0.25 + 0.05 * np.cos(phase),
+        0.04 * np.sin(2.0 * phase),
+        lat=grid.lat,
+        lon=grid.lon,
+        time=0.0,
+    )
+    response = simulation.response
+    response.activate_inputs_at_time(simulation.run_data.input_series, 0.0)
+
+    reduced = response.m_ind_to_E_df_operator.to_matrix(backend="numpy")
+    full = (
+        response.driving_E_to_E_df_operator @ response.m_ind_to_E_coeffs
+    ).to_matrix(backend="numpy")
+
+    assert reduced.shape == (
+        simulation.geometry.horizontal_basis.index_length,
+        simulation.geometry.poloidal_basis.index_length,
+    )
+    np.testing.assert_allclose(reduced, full, rtol=1e-11, atol=1e-12)
+
+
 def test_area_weighted_least_squares_option_is_persisted(tmp_path):
     """Area-weighted fits are a persisted global option."""
     simulation = Simulation(
@@ -110,7 +179,7 @@ def test_area_weighted_least_squares_option_is_persisted(tmp_path):
 
 
 def test_cs_horizontal_basis_runs_with_split_state_spaces(tmp_path):
-    """CS surface fields coexist with the SH magnetic state."""
+    """CS surface fields coexist with the poloidal SH state."""
     simulation = run_pynamit(
         final_time=0.0,
         dt=0.1,
@@ -130,7 +199,7 @@ def test_cs_horizontal_basis_runs_with_split_state_spaces(tmp_path):
     state = simulation.run_data.output_series.datasets["state"]
     assert "SH_m_ind" in state
     assert "CS_m_imp" in state
-    assert state["SH_m_ind"].shape[-1] == simulation.geometry.magnetic_basis.index_length
+    assert state["SH_m_ind"].shape[-1] == simulation.geometry.poloidal_basis.index_length
     assert state["CS_m_imp"].shape[-1] == simulation.geometry.horizontal_basis.index_length
     assert simulation.run_data.schema.horizontal_basis is simulation.geometry.horizontal_basis
 
@@ -162,7 +231,7 @@ def test_cs_horizontal_basis_runs_with_pfac(tmp_path):
     assert simulation.run_data.schema.horizontal_basis is simulation.geometry.horizontal_basis
     assert simulation.geometry.solid_harmonics.basis is not simulation.geometry.horizontal_basis
     assert pfac.shape == (
-        simulation.geometry.magnetic_basis.index_length,
+        simulation.geometry.poloidal_basis.index_length,
         simulation.geometry.horizontal_basis.index_length,
     )
     assert np.linalg.norm(pfac) > 0.0
@@ -191,7 +260,7 @@ def test_cs_horizontal_basis_supports_rm_solid_harmonics(tmp_path):
     assert m_ind_to_JS.shape == (
         2,
         geometry.model_grid.size,
-        simulation.geometry.magnetic_basis.index_length,
+        simulation.geometry.poloidal_basis.index_length,
     )
     assert Br_to_JS.shape == m_ind_to_JS.shape
     assert np.all(np.isfinite(m_ind_to_JS))
@@ -288,7 +357,7 @@ def test_cs_horizontal_basis_combines_pfac_rm_and_connected_terms(tmp_path):
     geometry = simulation.geometry
 
     assert geometry.pfac_coupling_matrix.shape == (
-        simulation.geometry.magnetic_basis.index_length,
+        simulation.geometry.poloidal_basis.index_length,
         simulation.geometry.horizontal_basis.index_length,
     )
     assert geometry.Br_to_gridded_JS().shape == (geometry.m_ind_to_gridded_JS().shape)
@@ -301,7 +370,7 @@ def test_cs_horizontal_basis_combines_pfac_rm_and_connected_terms(tmp_path):
     assert np.all(np.isfinite(geometry.Br_to_gridded_JS()))
 
 
-def test_surface_to_magnetic_projection_matches_grid_least_squares(tmp_path):
+def test_surface_to_poloidal_projection_matches_grid_least_squares(tmp_path):
     """The CS-surface to magnetic-SH bridge uses grid least squares."""
     simulation = Simulation(
         run_directory=str(tmp_path / "run"),
@@ -315,23 +384,23 @@ def test_surface_to_magnetic_projection_matches_grid_least_squares(tmp_path):
 
     geometry = simulation.geometry
     expected = (
-        tensor_pinv(geometry.solid_harmonic_transform.scalar_coeffs_to_grid, n_leading_flattened=1)
+        tensor_pinv(geometry.poloidal_transform.scalar_coeffs_to_grid, n_leading_flattened=1)
         @ geometry.horizontal_transform.scalar_coeffs_to_grid
     )
 
-    surface_to_magnetic = geometry.surface_to_magnetic_operator.to_matrix(backend="numpy")
-    np.testing.assert_allclose(surface_to_magnetic, expected)
+    surface_to_poloidal = geometry.surface_to_poloidal_operator.to_matrix(backend="numpy")
+    np.testing.assert_allclose(surface_to_poloidal, expected)
 
     rng = np.random.default_rng(20260520)
     radial_coeffs = rng.standard_normal(simulation.geometry.solid_harmonics.basis.index_length)
-    cs_coeffs = geometry.solid_harmonic_transform.scalar_coeffs_to_grid @ radial_coeffs
+    cs_coeffs = geometry.poloidal_transform.scalar_coeffs_to_grid @ radial_coeffs
 
     np.testing.assert_allclose(
-        surface_to_magnetic @ cs_coeffs, radial_coeffs, atol=1e-10
+        surface_to_poloidal @ cs_coeffs, radial_coeffs, atol=1e-10
     )
 
 
-def test_surface_to_magnetic_supports_area_weighted_projection(tmp_path):
+def test_surface_to_poloidal_supports_area_weighted_projection(tmp_path):
     """The surface-to-magnetic bridge can use CS cell-area weighting."""
     simulation = Simulation(
         run_directory=str(tmp_path / "run"),
@@ -347,7 +416,7 @@ def test_surface_to_magnetic_supports_area_weighted_projection(tmp_path):
     geometry = simulation.geometry
     expected = (
         weighted_tensor_pinv(
-            geometry.solid_harmonic_transform.scalar_coeffs_to_grid,
+            geometry.poloidal_transform.scalar_coeffs_to_grid,
             sqrt_weights=np.sqrt(simulation.run_data.schema.cs_basis.unit_area),
             n_leading_flattened=1,
         )
@@ -355,7 +424,7 @@ def test_surface_to_magnetic_supports_area_weighted_projection(tmp_path):
     )
 
     np.testing.assert_allclose(
-        geometry.surface_to_magnetic_operator.to_matrix(backend="numpy"), expected
+        geometry.surface_to_poloidal_operator.to_matrix(backend="numpy"), expected
     )
 
 

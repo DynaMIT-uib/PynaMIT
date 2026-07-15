@@ -164,8 +164,8 @@ class Simulation:
             Basis requested for horizontal surface potentials and
             operators. ``'SH'`` is the default. ``'CS'`` uses
             cubed-sphere nodal coefficients and finite-difference
-            derivatives. The magnetic state and radial continuation
-            remain in the configured mean-free SH magnetic space.
+            derivatives. The induced state and radial continuation
+            remain in the configured mean-free poloidal SH space.
         area_weighted_least_squares : bool, optional
             Use surface-area weights for least-squares projections when
             no explicit ``sqrt_weights`` are supplied. Cubed-sphere

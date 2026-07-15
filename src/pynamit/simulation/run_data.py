@@ -97,7 +97,7 @@ class RunData:
         if matrix.ndim != 2:
             raise ValueError(f"pfac_matrix must be two-dimensional; got shape {matrix.shape}.")
         dataarray = xr.DataArray(
-            matrix, dims=("magnetic_i", "surface_i"), name="PFAC_matrix"
+            matrix, dims=("poloidal_i", "surface_i"), name="PFAC_matrix"
         )
         self.artifact_store.save_dataarray(dataarray, "PFAC_matrix", print_info=print_info)
         self.pfac_matrix = dataarray

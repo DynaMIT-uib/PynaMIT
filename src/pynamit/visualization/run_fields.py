@@ -84,16 +84,16 @@ def _apply_flat_operator(operator, coeffs):
 def _state_evaluation_context(config, geometry, evaluator):
     """Return geometry and maps for evaluating saved state fields."""
     ri = float(config.RI)
-    solid_evaluator = geometry.solid_harmonic_transform_for(evaluator)
+    poloidal_evaluator = geometry.poloidal_transform_for(evaluator)
     return {
         "RI": ri,
         "m_ind_to_Br": (
-            solid_evaluator.scalar_coeffs_to_grid_operator @ geometry.m_ind_to_Br_operator
+            poloidal_evaluator.scalar_coeffs_to_grid_operator @ geometry.m_ind_to_Br_operator
         ),
         "m_imp_to_jr": evaluator.scalar_coeffs_to_grid_operator @ geometry.m_imp_to_jr_operator,
         "m_ind_to_Jeq": (-ri / mu0)
         * (
-            solid_evaluator.scalar_coeffs_to_grid_operator
+            poloidal_evaluator.scalar_coeffs_to_grid_operator
             @ geometry.poloidal_to_boundary_potential_jump_factor_operator
         ),
     }
@@ -101,11 +101,17 @@ def _state_evaluation_context(config, geometry, evaluator):
 
 def _sheet_current_maps(geometry, evaluator):
     """Return source-to-sheet-current maps on the plotting grid."""
-    solid_evaluator = geometry.solid_harmonic_transform_for(evaluator)
+    poloidal_evaluator = geometry.poloidal_transform_for(evaluator)
     return {
-        "m_ind_to_JS": geometry.m_ind_to_gridded_JS(evaluator, solid_transform=solid_evaluator),
-        "m_imp_to_JS": geometry.m_imp_to_gridded_JS(evaluator, solid_transform=solid_evaluator),
-        "Br_to_JS": geometry.Br_to_gridded_JS(evaluator, solid_transform=solid_evaluator),
+        "m_ind_to_JS": geometry.m_ind_to_gridded_JS(
+            evaluator, poloidal_transform=poloidal_evaluator
+        ),
+        "m_imp_to_JS": geometry.m_imp_to_gridded_JS(
+            evaluator, poloidal_transform=poloidal_evaluator
+        ),
+        "Br_to_JS": geometry.Br_to_gridded_JS(
+            evaluator, poloidal_transform=poloidal_evaluator
+        ),
     }
 
 
