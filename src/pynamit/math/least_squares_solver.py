@@ -40,15 +40,16 @@ def _squared_objective_weights(sqrt_weights, size):
     return values**2
 
 
-def _reshape_columns(values, size):
+def _reshape_columns(values, size, *, array_module=np):
     """View one vector or a block as columns of a fixed height."""
-    array = np.asarray(values)
+    array = array_module.asarray(values)
     return array.reshape(size) if array.ndim == 1 else array.reshape(size, -1)
 
 
-def _scale_rows(values, row_weights):
+def _scale_rows(values, row_weights, *, array_module=np):
     """Apply one-dimensional weights to a vector or column block."""
-    return row_weights * values if values.ndim == 1 else row_weights.reshape(-1, 1) * values
+    weights = array_module.asarray(row_weights)
+    return weights * values if values.ndim == 1 else weights.reshape(-1, 1) * values
 
 
 def dense_full_rank_least_squares_map(
@@ -81,7 +82,17 @@ def dense_full_rank_least_squares_map(
         raise ValueError("data_matrix must have full column rank.") from exc
     factor_is_complex = np.issubdtype(factor[0].dtype, np.complexfloating)
 
-    def solve_factor(rhs):
+    def solve_factor(rhs, array_module):
+        if array_module is not np:
+            from jax.scipy.linalg import solve_triangular
+
+            lower_factor = array_module.asarray(factor[0])
+            intermediate = solve_triangular(lower_factor, rhs, lower=True)
+            return solve_triangular(
+                array_module.swapaxes(array_module.conjugate(lower_factor), -2, -1),
+                intermediate,
+                lower=False,
+            )
         if np.iscomplexobj(rhs) and not factor_is_complex:
             return cho_solve(factor, rhs.real, check_finite=False) + 1j * cho_solve(
                 factor, rhs.imag, check_finite=False
@@ -89,14 +100,19 @@ def dense_full_rank_least_squares_map(
         return cho_solve(factor, rhs, check_finite=False)
 
     def solve_coefficients(grid_values):
-        values = _reshape_columns(grid_values, data_size)
-        weighted_values = _scale_rows(values, objective_weights)
-        return solve_factor(data_adjoint @ weighted_values)
+        array_module = get_array_module(grid_values)
+        values = _reshape_columns(grid_values, data_size, array_module=array_module)
+        weighted_values = _scale_rows(
+            values, objective_weights, array_module=array_module
+        )
+        rhs = array_module.asarray(data_adjoint) @ weighted_values
+        return solve_factor(rhs, array_module)
 
     def solve_adjoint(coefficients):
-        values = _reshape_columns(coefficients, solution_size)
-        analyzed = data @ solve_factor(values)
-        return _scale_rows(analyzed, objective_weights)
+        array_module = get_array_module(coefficients)
+        values = _reshape_columns(coefficients, solution_size, array_module=array_module)
+        analyzed = array_module.asarray(data) @ solve_factor(values, array_module)
+        return _scale_rows(analyzed, objective_weights, array_module=array_module)
 
     return LinearMap(
         shape=(solution_size, data_size),
@@ -146,36 +162,91 @@ def sparse_constrained_least_squares_map(
     )
     factor = splu(kkt_matrix)
     data_adjoint = data.T.conjugate().tocsr()
+    data_coo = data.tocoo()
+    data_coo_parts = (
+        data_coo.data,
+        np.column_stack([data_coo.row, data_coo.col]),
+        data_coo.shape,
+    )
+    data_adjoint_coo = data_adjoint.tocoo()
+    data_adjoint_coo_parts = (
+        data_adjoint_coo.data,
+        np.column_stack([data_adjoint_coo.row, data_adjoint_coo.col]),
+        data_adjoint_coo.shape,
+    )
     constraint_size = constraints.shape[0]
     factor_is_complex = np.issubdtype(factor.L.dtype, np.complexfloating)
 
-    def solve_factor(rhs, *, trans="N"):
-        if np.iscomplexobj(rhs) and not factor_is_complex:
-            return factor.solve(rhs.real, trans=trans) + 1j * factor.solve(
-                rhs.imag, trans=trans
+    def jax_sparse_matmul(matrix_parts, values):
+        from jax.experimental.sparse import BCOO
+
+        array_module = get_array_module(values)
+        matrix_data, matrix_indices, matrix_shape = matrix_parts
+        operator = BCOO(
+            (array_module.asarray(matrix_data), array_module.asarray(matrix_indices)),
+            shape=matrix_shape,
+        )
+        return operator @ values
+
+    def solve_factor_numpy(rhs, *, trans="N"):
+        values = np.asarray(rhs)
+        if np.iscomplexobj(values) and not factor_is_complex:
+            return factor.solve(values.real, trans=trans) + 1j * factor.solve(
+                values.imag, trans=trans
             )
-        return factor.solve(rhs, trans=trans)
+        return factor.solve(values, trans=trans)
+
+    def solve_factor(rhs, *, trans="N"):
+        array_module = get_array_module(rhs)
+        if array_module is np:
+            return solve_factor_numpy(rhs, trans=trans)
+
+        import jax
+
+        result_dtype = np.result_type(kkt_matrix.dtype, np.dtype(rhs.dtype))
+        result_shape = jax.ShapeDtypeStruct(rhs.shape, result_dtype)
+
+        def callback(values):
+            return np.asarray(solve_factor_numpy(values, trans=trans), dtype=result_dtype)
+
+        return jax.pure_callback(callback, result_shape, rhs)
 
     def append_constraint_zeros(values):
+        array_module = get_array_module(values)
         shape = (
             (constraint_size,)
             if values.ndim == 1
             else (constraint_size, values.shape[1])
         )
-        return np.concatenate([values, np.zeros(shape, dtype=values.dtype)], axis=0)
+        return array_module.concatenate(
+            [values, array_module.zeros(shape, dtype=values.dtype)], axis=0
+        )
 
     def solve_coefficients(grid_values):
-        values = _reshape_columns(grid_values, data_size)
-        weighted_values = _scale_rows(values, objective_weights)
-        rhs = append_constraint_zeros(data_adjoint @ weighted_values)
+        array_module = get_array_module(grid_values)
+        values = _reshape_columns(grid_values, data_size, array_module=array_module)
+        weighted_values = _scale_rows(
+            values, objective_weights, array_module=array_module
+        )
+        normal_rhs = (
+            data_adjoint @ weighted_values
+            if array_module is np
+            else jax_sparse_matmul(data_adjoint_coo_parts, weighted_values)
+        )
+        rhs = append_constraint_zeros(normal_rhs)
         return solve_factor(rhs)[:solution_size]
 
     def solve_adjoint(coefficients):
-        values = _reshape_columns(coefficients, solution_size)
+        array_module = get_array_module(coefficients)
+        values = _reshape_columns(coefficients, solution_size, array_module=array_module)
         rhs = append_constraint_zeros(values)
         normal_solution = solve_factor(rhs, trans="H")[:solution_size]
-        analyzed = data @ normal_solution
-        return _scale_rows(analyzed, objective_weights)
+        analyzed = (
+            data @ normal_solution
+            if array_module is np
+            else jax_sparse_matmul(data_coo_parts, normal_solution)
+        )
+        return _scale_rows(analyzed, objective_weights, array_module=array_module)
 
     return LinearMap(
         shape=(solution_size, data_size),

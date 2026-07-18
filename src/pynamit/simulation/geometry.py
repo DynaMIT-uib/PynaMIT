@@ -20,7 +20,6 @@ from pynamit.math import (
 from pynamit.math.backend import to_numpy
 from pynamit.math.constants import RE, mu0
 from pynamit.math.least_squares_solver import dense_full_rank_least_squares_map
-from pynamit.math.tensor_operations import weighted_tensor_pinv
 from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.electrodynamics import ionospheric_closure, magnetic_boundary
 from pynamit.sphere import CSBasis, Grid, SolidHarmonics, SurfaceOperators, is_sh_basis
@@ -241,19 +240,13 @@ class SimulationGeometry:
         if self.poloidal_basis.coefficients_are_compatible_with(self.horizontal_basis):
             return identity_linear_map((self.horizontal_basis.index_length,))
         poloidal_to_grid_matrix = self.poloidal_transform.scalar_coeffs_to_grid
-        grid_to_poloidal_matrix = weighted_tensor_pinv(
+        grid_to_poloidal_operator = dense_full_rank_least_squares_map(
             poloidal_to_grid_matrix,
             sqrt_weights=self.model_grid_sqrt_weights(),
-            n_leading_flattened=1,
+            input_shape=(self.model_grid.size,),
+            output_shape=(self.poloidal_basis.index_length,),
         )
-        return (
-            as_linear_map(
-                grid_to_poloidal_matrix,
-                input_shape=(self.model_grid.size,),
-                output_shape=(self.poloidal_basis.index_length,),
-            )
-            @ self.horizontal_transform.scalar_coeffs_to_grid_operator
-        )
+        return grid_to_poloidal_operator @ self.horizontal_transform.scalar_coeffs_to_grid_operator
 
     def poloidal_transform_for(self, transform: SphericalTransform) -> SphericalTransform:
         """Return a poloidal transform for ``transform.grid``."""

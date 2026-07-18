@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from pynamit.math import JAX_AVAILABLE, einsum_linear_map, set_backend, use_jax
+from pynamit.math import JAX_AVAILABLE, einsum_linear_map, get_array_module, set_backend, use_jax
 from pynamit.math.linear_map import LinearMap, as_linear_map
 from pynamit.simulation.response import ElectrodynamicResponse
 
@@ -242,6 +242,52 @@ def test_steady_state_operator_preserves_jax_matrix():
 
     assert "jax" in type(result).__module__
     np.testing.assert_allclose(np.asarray(result), matrix @ coeffs)
+
+
+def test_steady_state_operator_keeps_cross_space_bridge_structured():
+    """Ordinary steady-state application avoids a dense surface map."""
+    surface_matrix = np.arange(10, dtype=float).reshape(2, 5) / 10.0
+    feedback_matrix = np.array([[2.0, 0.25], [-0.5, 1.5]])
+
+    def apply_surface(values):
+        xp = get_array_module(values)
+        return xp.asarray(surface_matrix) @ xp.asarray(values)
+
+    def apply_surface_adjoint(values):
+        xp = get_array_module(values)
+        return xp.asarray(surface_matrix.T) @ xp.asarray(values)
+
+    surface_operator = LinearMap(
+        shape=surface_matrix.shape,
+        dtype=surface_matrix.dtype,
+        _matvec=apply_surface,
+        _rmatvec=apply_surface_adjoint,
+        _matmat=apply_surface,
+        _rmatmat=apply_surface_adjoint,
+        input_shape=(5,),
+        output_shape=(2,),
+    )
+    response = object.__new__(ElectrodynamicResponse)
+    response.geometry = SimpleNamespace(
+        poloidal_basis=SimpleNamespace(index_length=2),
+        surface_to_poloidal_operator=surface_operator,
+    )
+    response._m_ind_feedback_matrix = feedback_matrix
+    response._noninductive_E_df_to_steady_m_ind_matrix = None
+    response._noninductive_E_df_to_steady_m_ind_operator = None
+
+    probe = np.linspace(-1.0, 1.0, 5)
+    operator = response.noninductive_E_df_to_steady_m_ind_operator
+    actual = operator.matvec(probe)
+    expected = -np.linalg.pinv(feedback_matrix, rtol=1e-15) @ surface_matrix @ probe
+
+    assert response._noninductive_E_df_to_steady_m_ind_matrix is None
+    assert surface_operator._cached_dense(np) is None
+    np.testing.assert_allclose(actual, expected, rtol=1e-13, atol=1e-13)
+
+    explicit = response.noninductive_E_df_to_steady_m_ind_matrix
+    expected_matrix = -np.linalg.pinv(feedback_matrix, rtol=1e-15) @ surface_matrix
+    np.testing.assert_allclose(explicit, expected_matrix, rtol=1e-13, atol=1e-13)
 
 
 def test_m_imp_runtime_solve_uses_one_physical_rhs():

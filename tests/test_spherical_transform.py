@@ -587,11 +587,53 @@ def test_cs_non_native_helmholtz_analysis_solves_against_remap_operator():
 
 
 @pytest.mark.parametrize("area_weighted", [False, True])
-def test_native_cs_helmholtz_analysis_is_sparse_constrained_least_squares(area_weighted):
-    """Native NumPy CS analysis stays sparse and fixes both gauges."""
-    if use_jax():
-        pytest.skip("The sparse CS analysis is specific to the NumPy backend.")
+def test_mean_free_sh_helmholtz_analysis_uses_full_rank_factorization(area_weighted):
+    """Gauge-free SH analysis avoids a tall SVD on either backend."""
+    basis = SHBasis(4, 3, mean_free=True)
+    cs_basis = CSBasis(8)
+    grid = Grid(
+        theta=cs_basis.arr_theta,
+        phi=cs_basis.arr_phi,
+        area_weights=cs_basis.unit_area,
+    )
+    transform = SphericalTransform(basis, grid, area_weighted=area_weighted)
+    reference = SphericalTransform(basis, grid, area_weighted=area_weighted)
+    rng = np.random.default_rng(20260718)
+    values = rng.normal(size=(2, grid.size))
 
+    operator = transform.helmholtz_analysis_operator
+    actual = transform.analyze_helmholtz(values)
+    expected = reference.analyze_helmholtz(values, solver_type="normal_pinv")
+
+    assert operator._cached_dense(np) is None
+    np.testing.assert_allclose(actual, expected, rtol=2e-12, atol=2e-12)
+
+    if use_jax():
+        import jax
+        import jax.numpy as jnp
+
+        assert "jax" in type(actual).__module__
+        compiled = jax.jit(transform.analyze_helmholtz)(jnp.asarray(values))
+        np.testing.assert_allclose(compiled, expected, rtol=2e-12, atol=2e-12)
+
+
+def test_full_mean_sh_helmholtz_analysis_retains_rank_deficient_fallback():
+    """Constant SH gauges continue through pseudoinverse analysis."""
+    basis = SHBasis(3, 2, mean_free=False)
+    cs_basis = CSBasis(6)
+    grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
+    transform = SphericalTransform(basis, grid)
+
+    assert transform._optimized_helmholtz_analysis_operator() is None
+    assert transform.helmholtz_analysis_operator.shape == (
+        2 * basis.index_length,
+        2 * grid.size,
+    )
+
+
+@pytest.mark.parametrize("area_weighted", [False, True])
+def test_native_cs_helmholtz_analysis_is_sparse_constrained_least_squares(area_weighted):
+    """Native CS analysis stays sparse and fixes both gauges."""
     basis = CSBasis(4)
     grid = Grid(theta=basis.arr_theta, phi=basis.arr_phi, area_weights=basis.unit_area)
     transform = SphericalTransform(basis, grid, area_weighted=area_weighted)
@@ -638,6 +680,14 @@ def test_native_cs_helmholtz_analysis_is_sparse_constrained_least_squares(area_w
         axis=-1,
     )
     np.testing.assert_allclose(batch_actual, batch_expected, rtol=2e-11, atol=2e-11)
+
+    if use_jax():
+        import jax
+        import jax.numpy as jnp
+
+        assert "jax" in type(api_actual).__module__
+        compiled = jax.jit(transform.analyze_helmholtz)(jnp.asarray(values))
+        np.testing.assert_allclose(compiled, actual, rtol=2e-11, atol=2e-11)
 
 
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")

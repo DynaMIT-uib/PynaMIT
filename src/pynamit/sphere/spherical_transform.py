@@ -6,9 +6,13 @@ spherical-basis coefficients and grid values.
 
 import numpy as np
 
-from pynamit.math.backend import get_array_module, use_jax
+from pynamit.math.backend import get_array_module
 from pynamit.math.least_squares_problem import LeastSquaresProblem
-from pynamit.math.least_squares_solver import LeastSquaresSolver, get_default_least_squares_solver
+from pynamit.math.least_squares_solver import (
+    LeastSquaresSolver,
+    dense_full_rank_least_squares_map,
+    get_default_least_squares_solver,
+)
 from pynamit.math.linear_map import (
     LinearMap,
     as_linear_map,
@@ -235,7 +239,7 @@ class SphericalTransform:
                 "transforms; use analyze_helmholtz() for a regularized fit."
             )
         if not hasattr(self, "_helmholtz_analysis_operator"):
-            optimized = self._specialized_helmholtz_analysis_operator()
+            optimized = self._optimized_helmholtz_analysis_operator()
             if optimized is not None:
                 self._helmholtz_analysis_operator = optimized
             else:
@@ -251,19 +255,40 @@ class SphericalTransform:
                 )
         return self._helmholtz_analysis_operator
 
-    def _specialized_helmholtz_analysis_operator(self):
-        """Return an available basis-specific analysis operator."""
-        if use_jax():
-            return None
-        if not hasattr(self, "_specialized_helmholtz_analysis_operator_cache"):
+    def _optimized_helmholtz_analysis_operator(self):
+        """Return an available structured or factorized analysis map."""
+        if not hasattr(self, "_optimized_helmholtz_analysis_operator_cache"):
             factory = getattr(self.basis, "get_helmholtz_analysis_operator", None)
             operator = (
                 factory(self.grid, sqrt_weights=self.helmholtz_sqrt_weights)
                 if callable(factory)
                 else None
             )
-            self._specialized_helmholtz_analysis_operator_cache = operator
-        return self._specialized_helmholtz_analysis_operator_cache
+            if operator is None:
+                operator = self._factorized_helmholtz_analysis_operator()
+            self._optimized_helmholtz_analysis_operator_cache = operator
+        return self._optimized_helmholtz_analysis_operator_cache
+
+    def _factorized_helmholtz_analysis_operator(self):
+        """Factor analysis when both potentials omit their gauges."""
+        mean_free = getattr(
+            self.basis, "scalar_fields_are_mean_free_by_construction", None
+        )
+        if not callable(mean_free) or not mean_free():
+            return None
+
+        synthesis = np.asarray(self.helmholtz_coeffs_to_gridded_vector).reshape(
+            2 * self.grid.size, 2 * self.basis.index_length
+        )
+        try:
+            return dense_full_rank_least_squares_map(
+                synthesis,
+                sqrt_weights=self.helmholtz_sqrt_weights,
+                input_shape=(2, self.grid.size),
+                output_shape=(2, self.basis.index_length),
+            )
+        except ValueError:
+            return None
 
     @property
     def G(self):
@@ -388,16 +413,17 @@ class SphericalTransform:
     def analyze_helmholtz(self, grid_values, solver_type=None):
         """Analyze grid values into Helmholtz coefficients."""
         if solver_type is None and self.reg_lambda is None:
-            operator = self._specialized_helmholtz_analysis_operator()
+            operator = self._optimized_helmholtz_analysis_operator()
             if operator is not None:
-                return self._apply_specialized_helmholtz_analysis(operator, grid_values)
+                return self._apply_helmholtz_analysis_operator(operator, grid_values)
         return self._solve_least_squares(
             self.helmholtz_least_squares_problem, grid_values, solver_type
         )
 
-    def _apply_specialized_helmholtz_analysis(self, operator, grid_values):
-        """Apply specialized analysis with standard RHS shapes."""
-        values = np.asarray(grid_values)
+    def _apply_helmholtz_analysis_operator(self, operator, grid_values):
+        """Apply an analysis operator with standard RHS shapes."""
+        xp = get_array_module(grid_values)
+        values = xp.asarray(grid_values)
         data_shape = (2, self.grid.size)
         output_shape = (2, self.basis.index_length)
         data_size = int(np.prod(data_shape))

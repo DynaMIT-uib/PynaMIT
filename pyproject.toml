@@ -19,7 +19,7 @@ dependencies = [
 
 [project.optional-dependencies]
 jax = [
-    "jax>=0.4.1",
+    "jax>=0.4.26",
 ]
 gui = [
     "cartopy",

@@ -190,13 +190,19 @@ maps. This is important for rectangular surface-to-poloidal and PFAC maps,
 whose compact physical output should determine temporary memory use.
 
 Sparse equality-constrained least-squares factorization is a solver-layer
-primitive rather than a cubed-sphere implementation detail. Native NumPy CS
+primitive rather than a cubed-sphere implementation detail. Native CS
 Helmholtz analysis supplies its sparse synthesis matrix and its two constant
 gauge rows to that primitive, then retains the resulting analysis as a
-``LinearMap``. This avoids a dense ``(2 Ncs_surface)^2`` pseudoinverse while
-preserving the same weighted field fit and fixing both potential gauges
-exactly. Non-native grids, JAX execution, regularized fits, and explicitly
-selected alternate solvers continue through the general transform solver.
+``LinearMap`` for both NumPy and JAX arrays. This avoids a dense
+``(2 Ncs_surface)^2`` pseudoinverse while preserving the same weighted field
+fit and fixing both potential gauges exactly. Non-native grids, regularized
+fits, and explicitly selected alternate solvers continue through the general
+transform solver.
+Mean-free SH Helmholtz transforms use the corresponding dense full-rank
+factorization. Their coefficient spaces omit both constant gauges, so a
+cached normal-system factor replaces the tall SVD while retaining a
+structured adjoint. Spaces retaining a mean mode, undersampled grids, and
+otherwise rank-deficient transforms keep the pseudoinverse fallback.
 
 ``Grid`` is an immutable coordinate value. Its coordinate signature defines
 grid-value compatibility and remapping identity. Its separate analysis
@@ -405,15 +411,18 @@ zero matrix.
 Surface-sized operators should remain structured in CS mode. In particular,
 native Helmholtz analysis, wind and sheet-current closure compositions, and
 ordinary runtime ``m_imp`` responses must not materialize dense surface maps.
-The surface-to-poloidal bridge likewise composes its compact SH analysis with
-the horizontal synthesis operator; native CS nodal synthesis therefore stays
-an implicit identity rather than allocating a dense grid-sized identity.
-The full-column-rank poloidal-current fit used while constructing PFAC keeps a
-factorized normal system and an implicit adjoint instead of forming an SVD
-pseudoinverse of its tall grid matrix.
+The surface-to-poloidal bridge composes a factorized full-column-rank SH
+analysis with the horizontal synthesis operator; native CS nodal synthesis
+therefore stays an implicit identity rather than allocating a dense grid-sized
+identity. The analogous poloidal-current fit used while constructing PFAC also
+keeps a factorized normal system and an implicit adjoint instead of forming an
+SVD pseudoinverse of its tall grid matrix.
 The compact poloidal feedback matrix remains intentionally dense because its
 matrix exponential and steady-state pseudoinverse require an explicit
-poloidal operator. The generic dense ``normal_pinv`` solver is retained for
+poloidal operator. The steady-state response composes that compact
+pseudoinverse with the structured surface-to-poloidal bridge; its full
+cross-space matrix is materialized only when explicitly requested for
+diagnostics. The generic dense ``normal_pinv`` solver is retained for
 reproducibility; large CS imposed-potential solves should select ``lsmr`` (or
 ``cgls``) with the ``jacobi`` preconditioner.
 

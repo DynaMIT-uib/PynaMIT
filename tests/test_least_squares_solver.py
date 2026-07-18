@@ -33,7 +33,8 @@ def test_unregularized_problem_skips_normal_diagonal_scaling():
     assert "data_operator" not in zero_weight_problem.__dict__
 
 
-def test_sparse_constrained_least_squares_map_matches_kkt_and_adjoint():
+@pytest.mark.parametrize("complex_data", [False, True])
+def test_sparse_constrained_least_squares_map_matches_kkt_and_adjoint(complex_data):
     """Constrained analysis handles rectangular and complex RHS data."""
     A = np.array(
         [
@@ -43,6 +44,15 @@ def test_sparse_constrained_least_squares_map_matches_kkt_and_adjoint():
             [0.5, 0.25, 1.0],
         ]
     )
+    if complex_data:
+        A = A + 0.1j * np.array(
+            [
+                [0.0, 1.0, -0.5],
+                [0.5, 0.0, 0.25],
+                [-1.0, 0.5, 0.0],
+                [0.25, -0.5, 1.0],
+            ]
+        )
     constraint = np.array([[1.0, 1.0, 1.0]])
     sqrt_weights = np.array([1.0, 2.0, 0.5, 1.5])
     operator = sparse_constrained_least_squares_map(
@@ -57,22 +67,39 @@ def test_sparse_constrained_least_squares_map_matches_kkt_and_adjoint():
     weights = np.diag(sqrt_weights**2)
     kkt = np.block(
         [
-            [A.T @ weights @ A, constraint.T],
+            [A.T.conjugate() @ weights @ A, constraint.T],
             [constraint, np.zeros((1, 1))],
         ]
     )
-    expected_rhs = np.concatenate([A.T @ weights @ rhs, np.zeros(1)])
+    expected_rhs = np.concatenate([A.T.conjugate() @ weights @ rhs, np.zeros(1)])
     expected = np.linalg.solve(kkt, expected_rhs)[: A.shape[1]]
+    analysis_rhs = np.vstack(
+        [A.T.conjugate() @ weights, np.zeros((constraint.shape[0], A.shape[0]))]
+    )
+    analysis_matrix = np.linalg.solve(kkt, analysis_rhs)[: A.shape[1]]
 
     np.testing.assert_allclose(operator.matvec(rhs), expected)
     np.testing.assert_allclose(constraint @ operator.matvec(rhs), np.zeros(1), atol=1e-14)
     coefficient_probe = np.array([0.5 - 0.25j, 1.0j, -0.75 + 0.1j])
+    expected_adjoint = analysis_matrix.T.conjugate() @ coefficient_probe
+    np.testing.assert_allclose(operator.rmatvec(coefficient_probe), expected_adjoint)
     np.testing.assert_allclose(
         np.vdot(coefficient_probe, operator.matvec(rhs)),
         np.vdot(operator.rmatvec(coefficient_probe), rhs),
         rtol=1e-13,
         atol=1e-13,
     )
+
+    if use_jax():
+        import jax
+        import jax.numpy as jnp
+
+        compiled = jax.jit(operator.matvec)(jnp.asarray(rhs))
+        compiled_adjoint = jax.jit(operator.rmatvec)(jnp.asarray(coefficient_probe))
+        np.testing.assert_allclose(compiled, expected, rtol=1e-13, atol=1e-13)
+        np.testing.assert_allclose(
+            compiled_adjoint, expected_adjoint, rtol=1e-13, atol=1e-13
+        )
 
 
 def test_dense_full_rank_least_squares_map_matches_weighted_lstsq_and_adjoint():
@@ -104,6 +131,25 @@ def test_dense_full_rank_least_squares_map_matches_weighted_lstsq_and_adjoint():
         rtol=1e-13,
         atol=1e-13,
     )
+
+
+@pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
+def test_dense_full_rank_least_squares_map_is_jittable_with_jax():
+    """Factorized dense analysis preserves the runtime array backend."""
+    import jax
+    import jax.numpy as jnp
+
+    data_matrix = np.array(
+        [[1.0, 0.0], [0.0, 2.0], [1.0, -1.0], [0.5, 0.25]]
+    )
+    operator = dense_full_rank_least_squares_map(data_matrix)
+    rhs = jnp.array([1.0, -0.5, 2.0, 0.25])
+
+    actual = jax.jit(operator.matvec)(rhs)
+    expected = np.linalg.lstsq(data_matrix, np.asarray(rhs), rcond=None)[0]
+
+    assert "jax" in type(actual).__module__
+    np.testing.assert_allclose(actual, expected, rtol=1e-13, atol=1e-13)
 
 
 @pytest.mark.parametrize("stop_code", [0, 1, 2])

@@ -710,24 +710,35 @@ class ElectrodynamicResponse:
 
     @property
     def noninductive_E_df_to_steady_m_ind_matrix(self) -> np.ndarray:
-        """Dense matrix mapping non-inductive E_df to steady m_ind."""
+        """Return the explicit steady-state response matrix."""
         if self._noninductive_E_df_to_steady_m_ind_matrix is None:
-            array_module = get_array_module(self.m_ind_feedback_matrix)
-            feedback_pinv = block_after_jax_linalg(
-                array_module.linalg.pinv(self.m_ind_feedback_matrix, rtol=1e-15)
+            self._noninductive_E_df_to_steady_m_ind_matrix = (
+                self.noninductive_E_df_to_steady_m_ind_operator.to_matrix()
             )
-            surface_to_poloidal = array_module.asarray(
-                self.geometry.surface_to_poloidal_operator.to_matrix()
-            )
-            self._noninductive_E_df_to_steady_m_ind_matrix = -feedback_pinv @ surface_to_poloidal
         return self._noninductive_E_df_to_steady_m_ind_matrix
 
     @property
     def noninductive_E_df_to_steady_m_ind_operator(self) -> LinearMap:
         """Linear map from non-inductive E_df to steady m_ind."""
         if self._noninductive_E_df_to_steady_m_ind_operator is None:
-            self._noninductive_E_df_to_steady_m_ind_operator = as_linear_map(
-                self.noninductive_E_df_to_steady_m_ind_matrix
+            if self._noninductive_E_df_to_steady_m_ind_matrix is not None:
+                self._noninductive_E_df_to_steady_m_ind_operator = as_linear_map(
+                    self._noninductive_E_df_to_steady_m_ind_matrix
+                )
+                return self._noninductive_E_df_to_steady_m_ind_operator
+
+            array_module = get_array_module(self.m_ind_feedback_matrix)
+            feedback_pinv = block_after_jax_linalg(
+                array_module.linalg.pinv(self.m_ind_feedback_matrix, rtol=1e-15)
+            )
+            poloidal_size = self.geometry.poloidal_basis.index_length
+            steady_poloidal_response = as_linear_map(
+                -feedback_pinv,
+                input_shape=(poloidal_size,),
+                output_shape=(poloidal_size,),
+            )
+            self._noninductive_E_df_to_steady_m_ind_operator = (
+                steady_poloidal_response @ self.geometry.surface_to_poloidal_operator
             )
         return self._noninductive_E_df_to_steady_m_ind_operator
 
