@@ -3,6 +3,7 @@
 import datetime as dt
 from pathlib import Path
 
+import h5py
 import numpy as np
 import pytest
 from scripts.simulation.mage_forcing_final import DEFAULT_MAGE_RUN_ROOT as MAGE_RUN_ROOT
@@ -10,7 +11,9 @@ from scripts.simulation.mage_forcing_final import SETTINGS as MAGE_RUN_SETTINGS
 from scripts.simulation.mage_prepare_forcing import (
     DEFAULT_GAMERA_DIR,
     DEFAULT_OUTPUT_NAME,
+    MagePrepareSettings,
     integrate_tiegcm_step,
+    write_static_datasets,
 )
 from scripts.simulation.mage_project_inputs import (
     DEFAULT_FORCING_CANDIDATES,
@@ -95,6 +98,37 @@ def test_default_prepared_forcing_artifact_name_is_canonical():
 def test_default_gamera_directory_is_cluster_path():
     """Preparation defaults to the intended MAGE machine data path."""
     assert DEFAULT_GAMERA_DIR == Path("/disk/Gamera_Dong")
+
+
+@pytest.mark.parametrize("time_dtype", ["S19", "U19"])
+def test_static_time_dataset_is_written_as_utf8(tmp_path, time_dtype):
+    """Prepared ISO timestamps should be valid HDF5 UTF-8 strings."""
+    time_values = np.array(["2011-10-24T18:00:10", "2011-10-24T18:00:20"], dtype=time_dtype)
+    output_path = tmp_path / "prepared.h5"
+    grid = np.zeros((1, 1))
+
+    with h5py.File(output_path, "w") as output:
+        write_static_datasets(
+            output,
+            time_values,
+            dt.datetime(2011, 10, 24, 18, 0, 10),
+            grid,
+            grid,
+            grid,
+            grid,
+            grid,
+            MagePrepareSettings(gamera_dir=tmp_path),
+            tmp_path,
+            6.3781e6,
+            -29_617.4,
+            tmp_path / "tiegcm.nc",
+        )
+
+    with h5py.File(output_path) as output:
+        assert output["time"].asstr()[:].tolist() == ["2011-10-24T18:00:10", "2011-10-24T18:00:20"]
+        _, relative_seconds = h5_time_vector_seconds(output["time"][:])
+
+    np.testing.assert_array_equal(relative_seconds, [0.0, 10.0])
 
 
 def test_projected_input_default_matches_run_input_directory():

@@ -404,8 +404,9 @@ def write_static_datasets(
     tiegcm_path: Path,
 ) -> None:
     """Write static datasets and metadata."""
+    string_dtype = h5py.string_dtype(encoding="utf-8")
     output.create_dataset(
-        "time", data=np.asarray(time_values, dtype=str), dtype=h5py.string_dtype(encoding="utf-8")
+        "time", data=np.asarray(time_values, dtype=string_dtype), dtype=string_dtype
     )
     output.create_dataset("glat", data=tiegcm_lat)
     output.create_dataset("glon", data=tiegcm_lon)
