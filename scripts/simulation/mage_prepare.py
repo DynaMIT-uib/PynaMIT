@@ -275,35 +275,61 @@ def _tiegcm_times(
     if mtime_variable is None:
         raise RuntimeError("TIEGCM file must provide standard mtime values.")
     raw_mtime = np.asarray(mtime_variable[:], dtype=int)
-    if raw_mtime.ndim != 2 or raw_mtime.shape[1] != 3:
-        raise RuntimeError("TIEGCM mtime must have shape (time, 3): day, hour, minute.")
+    dimensions = tuple(getattr(mtime_variable, "dimensions", ()))
+    if raw_mtime.ndim != 2 or dimensions.count("mtimedim") != 1:
+        raise RuntimeError(
+            "TIEGCM mtime must be two-dimensional with one 'mtimedim' axis; "
+            f"got dimensions {dimensions} and shape {raw_mtime.shape}."
+        )
+    raw_mtime = np.moveaxis(raw_mtime, dimensions.index("mtimedim"), -1)
+    if raw_mtime.shape[1] not in (3, 4):
+        raise RuntimeError(
+            "TIEGCM mtimedim must contain day, hour, minute[, second]; "
+            f"got {raw_mtime.shape[1]} components."
+        )
     if raw_mtime.shape[0] < len(reference_times):
         raise RuntimeError(
             f"TIEGCM provides {raw_mtime.shape[0]} histories but GAMERA requires "
             f"{len(reference_times)}."
         )
 
-    times = []
-    for components, reference in zip(
-        raw_mtime[: len(reference_times)], reference_times, strict=True
-    ):
-        day_of_year, hour, minute = components
-        if (
-            not 1 <= day_of_year <= 365 + calendar_module.isleap(reference.year)
-            or not 0 <= hour < 24
-            or not 0 <= minute < 60
-        ):
-            raise RuntimeError(
-                f"TIEGCM mtime contains an invalid day/hour/minute value: {tuple(components)}."
-            )
-        times.append(
-            dt.datetime(reference.year, 1, 1)
-            + dt.timedelta(days=int(day_of_year) - 1, hours=int(hour), minutes=int(minute))
+    year_variable = dataset.variables.get("year")
+    if year_variable is None:
+        raise RuntimeError("TIEGCM file must provide calendar year values.")
+    years = np.asarray(year_variable[:], dtype=int).reshape(-1)
+    if years.size < len(reference_times):
+        raise RuntimeError(
+            f"TIEGCM provides {years.size} year values but GAMERA requires {len(reference_times)}."
         )
 
-    # TIEGCM mtime has minute precision.
-    # Sub-minute offsets are expected.
-    return times, 60.0
+    times = []
+    for components, year in zip(
+        raw_mtime[: len(reference_times)], years[: len(reference_times)], strict=True
+    ):
+        day_of_year, hour, minute = components[:3]
+        second = 0 if components.size == 3 else components[3]
+        if (
+            not 1 <= year <= 9999
+            or not 1 <= day_of_year <= 365 + calendar_module.isleap(year)
+            or not 0 <= hour < 24
+            or not 0 <= minute < 60
+            or not 0 <= second < 60
+        ):
+            raise RuntimeError(
+                "TIEGCM year/mtime contains an invalid value: "
+                f"year={year}, mtime={tuple(components)}."
+            )
+        times.append(
+            dt.datetime(year, 1, 1)
+            + dt.timedelta(
+                days=int(day_of_year) - 1,
+                hours=int(hour),
+                minutes=int(minute),
+                seconds=int(second),
+            )
+        )
+
+    return times, 1.0 if raw_mtime.shape[1] == 4 else 60.0
 
 
 def _validate_source_times(

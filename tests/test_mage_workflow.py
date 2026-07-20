@@ -447,7 +447,22 @@ def test_tiegcm_uses_mtime_instead_of_model_relative_time():
         time=_FakeVariable(
             [0.0, 10.0], units="seconds since 0000-01-01 00:00:00", calendar="standard"
         ),
-        mtime=[[297, 18, 0], [297, 18, 0]],
+        mtime=_FakeVariable([[297, 18, 0, 10], [297, 18, 0, 20]], dimensions=("time", "mtimedim")),
+        year=_FakeVariable([2011, 2011], dimensions=("time",)),
+    )
+
+    times, tolerance = _tiegcm_times(dataset, reference)
+
+    assert times == reference
+    assert tolerance == 1.0
+
+
+def test_tiegcm_three_component_mtime_uses_minute_precision():
+    """Standard mtime triplets use their documented minute precision."""
+    reference = [dt.datetime(2011, 10, 24, 18, 0, 10), dt.datetime(2011, 10, 24, 18, 0, 20)]
+    dataset = _FakeDataset(
+        mtime=_FakeVariable([[297, 18, 0], [297, 18, 0]], dimensions=("time", "mtimedim")),
+        year=_FakeVariable([2011, 2011], dimensions=("time",)),
     )
 
     times, tolerance = _tiegcm_times(dataset, reference)
@@ -456,22 +471,30 @@ def test_tiegcm_uses_mtime_instead_of_model_relative_time():
     assert tolerance == 60.0
 
 
-def test_tiegcm_three_component_mtime_uses_minute_precision():
-    """Standard mtime triplets use their documented minute precision."""
-    reference = [dt.datetime(2011, 10, 24, 18, 0, 10), dt.datetime(2011, 10, 24, 18, 0, 20)]
-    dataset = _FakeDataset(mtime=[[297, 18, 0], [297, 18, 0]])
+def test_tiegcm_mtime_uses_named_component_axis():
+    """The mtimedim name determines axis order."""
+    reference = [dt.datetime(2011, 10, 24, 18, 0, 10), dt.datetime(2011, 10, 24, 18, 1, 10)]
+    dataset = _FakeDataset(
+        mtime=_FakeVariable(
+            [[297, 297], [18, 18], [0, 1], [10, 10]], dimensions=("mtimedim", "time")
+        ),
+        year=_FakeVariable([2011, 2011], dimensions=("time",)),
+    )
 
     times, tolerance = _tiegcm_times(dataset, reference)
 
-    assert times == [dt.datetime(2011, 10, 24, 18, 0)] * 2
-    assert tolerance == 60.0
+    assert times == reference
+    assert tolerance == 1.0
 
 
 def test_tiegcm_mtime_rejects_day_366_without_a_nearby_leap_year():
     """Do not roll an invalid day 366 into the next year."""
-    dataset = _FakeDataset(mtime=[[366, 0, 0]])
+    dataset = _FakeDataset(
+        mtime=_FakeVariable([[366, 0, 0]], dimensions=("time", "mtimedim")),
+        year=_FakeVariable([2022], dimensions=("time",)),
+    )
 
-    with pytest.raises(RuntimeError, match="invalid day"):
+    with pytest.raises(RuntimeError, match="invalid value"):
         _tiegcm_times(dataset, [dt.datetime(2022, 12, 31)])
 
 
