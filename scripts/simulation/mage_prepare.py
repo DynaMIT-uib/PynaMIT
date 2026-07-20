@@ -264,88 +264,45 @@ def _integrate_tiegcm_step(
     }
 
 
-def _as_datetime(value: Any) -> dt.datetime:
-    """Return a timezone-naive datetime from a netCDF time value."""
-    if isinstance(value, dt.datetime):
-        return value.replace(tzinfo=None)
-    return dt.datetime(
-        int(value.year),
-        int(value.month),
-        int(value.day),
-        int(value.hour),
-        int(value.minute),
-        int(value.second),
-        int(getattr(value, "microsecond", 0)),
-    )
-
-
 def _tiegcm_times(
     dataset: Any, reference_times: list[dt.datetime]
 ) -> tuple[list[dt.datetime], float]:
-    """Return TIEGCM history times and their comparison tolerance."""
-    time_variable = dataset.variables.get("time")
-    time_units = None if time_variable is None else getattr(time_variable, "units", None)
-    if time_variable is not None and time_units:
-        from netCDF4 import num2date
-
-        calendar_name = getattr(time_variable, "calendar", "standard")
-        decoded = num2date(
-            np.asarray(time_variable[:]),
-            units=time_units,
-            calendar=calendar_name,
-            only_use_cftime_datetimes=False,
-        )
-        return [_as_datetime(value) for value in np.asarray(decoded).reshape(-1)], 1.0
+    """Return standard TIEGCM mtime histories as datetimes."""
+    if not reference_times:
+        raise ValueError("At least one GAMERA reference time is required.")
 
     mtime_variable = dataset.variables.get("mtime")
     if mtime_variable is None:
-        raise RuntimeError(
-            "TIEGCM file must provide a CF time coordinate or standard mtime values."
-        )
+        raise RuntimeError("TIEGCM file must provide standard mtime values.")
     raw_mtime = np.asarray(mtime_variable[:], dtype=int)
-    if raw_mtime.ndim != 2:
-        raise RuntimeError("TIEGCM mtime must contain day/hour/minute[/second] rows.")
-    if not reference_times:
-        raise ValueError("At least one GAMERA reference time is required.")
-    orientations = []
-    if raw_mtime.shape[-1] in (3, 4):
-        orientations.append(raw_mtime)
-    if raw_mtime.shape[0] in (3, 4):
-        orientations.append(raw_mtime.T)
-    if not orientations:
-        raise RuntimeError("TIEGCM mtime must contain day/hour/minute[/second] rows.")
-    rows = min(orientations, key=lambda values: abs(values.shape[0] - len(reference_times)))
+    if raw_mtime.ndim != 2 or raw_mtime.shape[1] != 3:
+        raise RuntimeError("TIEGCM mtime must have shape (time, 3): day, hour, minute.")
+    if raw_mtime.shape[0] < len(reference_times):
+        raise RuntimeError(
+            f"TIEGCM provides {raw_mtime.shape[0]} histories but GAMERA requires "
+            f"{len(reference_times)}."
+        )
 
     times = []
-    for index, components in enumerate(rows):
-        day_of_year, hour, minute = components[:3]
-        second = 0 if components.size == 3 else components[3]
-        reference = reference_times[min(index, len(reference_times) - 1)]
-        if day_of_year < 1 or not 0 <= hour < 24 or not 0 <= minute < 60 or not 0 <= second < 60:
+    for components, reference in zip(
+        raw_mtime[: len(reference_times)], reference_times, strict=True
+    ):
+        day_of_year, hour, minute = components
+        if (
+            not 1 <= day_of_year <= 365 + calendar_module.isleap(reference.year)
+            or not 0 <= hour < 24
+            or not 0 <= minute < 60
+        ):
             raise RuntimeError(
-                "TIEGCM mtime contains an invalid day/hour/minute[/second] value: "
-                f"{tuple(components)}."
+                f"TIEGCM mtime contains an invalid day/hour/minute value: {tuple(components)}."
             )
-        candidates = [
-            dt.datetime(year, 1, 1)
-            + dt.timedelta(
-                days=int(day_of_year) - 1,
-                hours=int(hour),
-                minutes=int(minute),
-                seconds=int(second),
-            )
-            for year in (reference.year - 1, reference.year, reference.year + 1)
-            if day_of_year <= 365 + calendar_module.isleap(year)
-        ]
-        if not candidates:
-            raise RuntimeError(
-                f"TIEGCM mtime day {day_of_year} is invalid near year {reference.year}."
-            )
-        times.append(min(candidates, key=lambda value: abs(value - reference)))
-    if rows.shape[1] == 4:
-        return times, 1.0
-    # Legacy three-component ``mtime`` has minute precision, so
-    # sub-minute offsets are expected for corresponding histories.
+        times.append(
+            dt.datetime(reference.year, 1, 1)
+            + dt.timedelta(days=int(day_of_year) - 1, hours=int(hour), minutes=int(minute))
+        )
+
+    # TIEGCM mtime has minute precision.
+    # Sub-minute offsets are expected.
     return times, 60.0
 
 

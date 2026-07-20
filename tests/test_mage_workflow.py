@@ -440,23 +440,24 @@ def test_mage_preparation_rejects_misaligned_source_times():
         _validate_source_times(gamera_times, tiegcm_times, tolerance_seconds=1.0)
 
 
-def test_tiegcm_cf_time_coordinate_preserves_subminute_cadence():
-    """CF time coordinates should retain coupled-history precision."""
+def test_tiegcm_uses_mtime_instead_of_model_relative_time():
+    """Canonical mtime defines TIEGCM history timestamps."""
     reference = [dt.datetime(2011, 10, 24, 18, 0, 10), dt.datetime(2011, 10, 24, 18, 0, 20)]
     dataset = _FakeDataset(
         time=_FakeVariable(
-            [0.0, 10.0], units="seconds since 2011-10-24 18:00:10", calendar="standard"
-        )
+            [0.0, 10.0], units="seconds since 0000-01-01 00:00:00", calendar="standard"
+        ),
+        mtime=[[297, 18, 0], [297, 18, 0]],
     )
 
     times, tolerance = _tiegcm_times(dataset, reference)
 
-    assert times == reference
-    assert tolerance == 1.0
+    assert times == [dt.datetime(2011, 10, 24, 18, 0)] * 2
+    assert tolerance == 60.0
 
 
-def test_tiegcm_mtime_fallback_uses_documented_minute_precision():
-    """Standard mtime triplets remain usable when CF time is absent."""
+def test_tiegcm_three_component_mtime_uses_minute_precision():
+    """Standard mtime triplets use their documented minute precision."""
     reference = [dt.datetime(2011, 10, 24, 18, 0, 10), dt.datetime(2011, 10, 24, 18, 0, 20)]
     dataset = _FakeDataset(mtime=[[297, 18, 0], [297, 18, 0]])
 
@@ -466,33 +467,11 @@ def test_tiegcm_mtime_fallback_uses_documented_minute_precision():
     assert tolerance == 60.0
 
 
-def test_tiegcm_high_cadence_mtime_preserves_seconds():
-    """Four-component mtime should retain high-cadence timestamps."""
-    reference = [dt.datetime(2011, 10, 24, 18, 0, 10), dt.datetime(2011, 10, 24, 18, 0, 20)]
-    dataset = _FakeDataset(mtime=[[297, 18, 0, 10], [297, 18, 0, 20]])
-
-    times, tolerance = _tiegcm_times(dataset, reference)
-
-    assert times == reference
-    assert tolerance == 1.0
-
-
-def test_tiegcm_high_cadence_mtime_accepts_component_first_layout():
-    """Accept component-first four-component mtime."""
-    reference = [dt.datetime(2011, 10, 24, 18, 0, 10), dt.datetime(2011, 10, 24, 18, 0, 20)]
-    dataset = _FakeDataset(mtime=np.array([[297, 18, 0, 10], [297, 18, 0, 20]]).T)
-
-    times, tolerance = _tiegcm_times(dataset, reference)
-
-    assert times == reference
-    assert tolerance == 1.0
-
-
 def test_tiegcm_mtime_rejects_day_366_without_a_nearby_leap_year():
     """Do not roll an invalid day 366 into the next year."""
     dataset = _FakeDataset(mtime=[[366, 0, 0]])
 
-    with pytest.raises(RuntimeError, match="day 366"):
+    with pytest.raises(RuntimeError, match="invalid day"):
         _tiegcm_times(dataset, [dt.datetime(2022, 12, 31)])
 
 
