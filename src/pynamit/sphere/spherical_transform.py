@@ -4,6 +4,9 @@ This module contains the SphericalTransform class for converting between
 spherical-basis coefficients and grid values.
 """
 
+import hashlib
+from collections import OrderedDict
+
 import numpy as np
 
 from pynamit.math.backend import get_array_module
@@ -56,6 +59,27 @@ def _representation_signature(representation):
     return getattr(representation, "coefficient_space_signature", id(representation))
 
 
+def _array_fingerprint(values):
+    """Return compact content identity for a concrete numeric array."""
+    try:
+        array = np.asarray(values)
+    except (TypeError, ValueError):
+        return None
+    if array.dtype.hasobject:
+        return None
+
+    canonical = np.ascontiguousarray(array)
+    digest = hashlib.blake2b(canonical.tobytes(), digest_size=16).hexdigest()
+    return canonical.shape, canonical.dtype.str, digest
+
+
+def _owned_explicit_weights(values):
+    """Own weights so cached analysis cannot be mutated externally."""
+    owned = np.array(values, copy=True, order="C")
+    owned.setflags(write=False)
+    return owned
+
+
 class SphericalTransform:
     """Two-way transform between a spherical basis and a grid.
 
@@ -64,6 +88,8 @@ class SphericalTransform:
     Helmholtz fields. It also handles batched projection from external
     input grids when a grid-remap basis is supplied.
     """
+
+    _input_transform_cache_size = 16
 
     def __init__(
         self,
@@ -98,7 +124,7 @@ class SphericalTransform:
 
         self._scalar_least_squares_problem = None
         self._helmholtz_least_squares_problem = None
-        self._input_transforms = {}
+        self._input_transforms = OrderedDict()
 
     def _evaluate_basis_on_grid(self, derivative=None):
         """Evaluate the basis on the transform grid."""
@@ -271,9 +297,7 @@ class SphericalTransform:
 
     def _factorized_helmholtz_analysis_operator(self):
         """Factor analysis when both potentials omit their gauges."""
-        mean_free = getattr(
-            self.basis, "scalar_fields_are_mean_free_by_construction", None
-        )
+        mean_free = getattr(self.basis, "scalar_fields_are_mean_free_by_construction", None)
         if not callable(mean_free) or not mean_free():
             return None
 
@@ -680,31 +704,47 @@ class SphericalTransform:
     ):
         """Return transform for direct input-grid projection."""
         if sqrt_weights is not None:
-            return SphericalTransform(
-                projection_basis,
-                input_grid,
-                sqrt_weights=sqrt_weights,
-                reg_lambda=reg_lambda,
-                pinv_rtol=pinv_rtol,
-                area_weighted=self.area_weighted,
+            weight_signature = _array_fingerprint(sqrt_weights)
+            if weight_signature is None:
+                return SphericalTransform(
+                    projection_basis,
+                    input_grid,
+                    sqrt_weights=sqrt_weights,
+                    reg_lambda=reg_lambda,
+                    pinv_rtol=pinv_rtol,
+                    area_weighted=self.area_weighted,
+                )
+            grid_signature = input_grid.signature
+        else:
+            weight_signature = None
+            grid_signature = (
+                input_grid.analysis_signature if self.area_weighted else input_grid.signature
             )
 
         cache_key = (
             _representation_signature(projection_basis),
-            input_grid.analysis_signature if self.area_weighted else input_grid.signature,
+            grid_signature,
+            weight_signature,
             reg_lambda,
             pinv_rtol,
             self.area_weighted,
         )
-        if cache_key not in self._input_transforms:
-            self._input_transforms[cache_key] = SphericalTransform(
-                projection_basis,
-                input_grid,
-                reg_lambda=reg_lambda,
-                pinv_rtol=pinv_rtol,
-                area_weighted=self.area_weighted,
-            )
-        return self._input_transforms[cache_key]
+        if cache_key in self._input_transforms:
+            self._input_transforms.move_to_end(cache_key)
+            return self._input_transforms[cache_key]
+
+        transform = SphericalTransform(
+            projection_basis,
+            input_grid,
+            sqrt_weights=(None if sqrt_weights is None else _owned_explicit_weights(sqrt_weights)),
+            reg_lambda=reg_lambda,
+            pinv_rtol=pinv_rtol,
+            area_weighted=self.area_weighted,
+        )
+        self._input_transforms[cache_key] = transform
+        if len(self._input_transforms) > self._input_transform_cache_size:
+            self._input_transforms.popitem(last=False)
+        return transform
 
     def _grid_remap_operator(self, method_name, input_grid, *, input_shape, output_shape):
         """Return the required grid-remap operator."""

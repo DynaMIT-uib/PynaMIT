@@ -233,6 +233,15 @@ def project_mage_inputs(settings: MageInputProjectionSettings = SETTINGS) -> Pat
 
         magnetosphere_lat_raw = np.asarray(file["Blat"][:], dtype=float)
         magnetosphere_lon_raw = np.asarray(file["Blon"][:], dtype=float)
+        magnetosphere_lon = main_field.local_time_longitude_to_model_longitude(
+            magnetosphere_lon_raw,
+            coordinate_time,
+            local_noon_longitude=MAGE_BR_LOCAL_NOON_LONGITUDE,
+        )
+        magnetosphere_grid = pynamit.Grid(lat=magnetosphere_lat_raw, lon=magnetosphere_lon)
+        magnetosphere_sqrt_weights = area_sqrt_weights(magnetosphere_grid.lat)
+        ionosphere_sqrt_weights = area_sqrt_weights(ionosphere_grid.lat)
+        ionosphere_tangential_sqrt_weights = tangential_sqrt_weights(ionosphere_grid.lat)
 
         print(f"Using forcing file: {h5_path}", flush=True)
         print(f"Writing projected input package: {input_directory}", flush=True)
@@ -303,18 +312,12 @@ def project_mage_inputs(settings: MageInputProjectionSettings = SETTINGS) -> Pat
             if np.any(~np.isfinite(delta_Br)):
                 raise ValueError("Br input contains non-finite values.")
             print_field_stats("  Delta Br [T]", delta_Br)
-            magnetosphere_lon = main_field.local_time_longitude_to_model_longitude(
-                magnetosphere_lon_raw,
-                coordinate_time,
-                local_noon_longitude=MAGE_BR_LOCAL_NOON_LONGITUDE,
-            )
-            magnetosphere_grid = pynamit.Grid(lat=magnetosphere_lat_raw, lon=magnetosphere_lon)
             simulation.set_Br(
                 delta_Br,
                 lat=magnetosphere_grid.lat,
                 lon=magnetosphere_grid.lon,
                 time=input_time,
-                sqrt_weights=area_sqrt_weights(magnetosphere_grid.lat),
+                sqrt_weights=magnetosphere_sqrt_weights,
                 reg_lambda=settings.br_lambda,
             )
 
@@ -332,7 +335,7 @@ def project_mage_inputs(settings: MageInputProjectionSettings = SETTINGS) -> Pat
                 lat=ionosphere_grid.lat,
                 lon=ionosphere_grid.lon,
                 time=input_time,
-                sqrt_weights=area_sqrt_weights(ionosphere_grid.lat),
+                sqrt_weights=ionosphere_sqrt_weights,
                 reg_lambda=settings.jr_lambda,
             )
 
@@ -352,7 +355,7 @@ def project_mage_inputs(settings: MageInputProjectionSettings = SETTINGS) -> Pat
                 lat=ionosphere_grid.lat,
                 lon=ionosphere_grid.lon,
                 time=input_time,
-                sqrt_weights=area_sqrt_weights(ionosphere_grid.lat),
+                sqrt_weights=ionosphere_sqrt_weights,
                 reg_lambda=settings.conductance_lambda,
             )
 
@@ -400,7 +403,7 @@ def project_mage_inputs(settings: MageInputProjectionSettings = SETTINGS) -> Pat
                 lat=ionosphere_grid.lat,
                 lon=ionosphere_grid.lon,
                 time=input_time,
-                sqrt_weights=tangential_sqrt_weights(ionosphere_grid.lat),
+                sqrt_weights=ionosphere_tangential_sqrt_weights,
                 reg_lambda=settings.e_source_lambda,
             )
 

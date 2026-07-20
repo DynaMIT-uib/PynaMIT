@@ -64,7 +64,7 @@ def test_spherical_transform_caches_direct_input_transforms_by_grid():
     transform.project_scalar(np.zeros(grid.size), input_grid=grid, projection_basis=basis)
 
     assert len(transform._input_transforms) == 2
-    assert tuple(transform._input_transforms.values())[0] is first_cached[0]
+    assert tuple(transform._input_transforms.values())[-1] is first_cached[0]
 
 
 def test_weighted_projection_cache_distinguishes_grid_measures():
@@ -79,6 +79,49 @@ def test_weighted_projection_cache_distinguishes_grid_measures():
     assert first.same_as(second)
     transform.project_scalar(values, input_grid=first, projection_basis=basis)
     transform.project_scalar(values, input_grid=second, projection_basis=basis)
+
+    assert len(transform._input_transforms) == 2
+
+
+def test_direct_projection_cache_fingerprints_explicit_weights():
+    """Equal explicit weights reuse one immutable analysis transform."""
+    basis = SHBasis(3, 2, mean_free=True)
+    grid = _regular_grid()
+    transform = SphericalTransform(basis, grid)
+    baseline_weights = np.linspace(0.5, 1.0, grid.size)
+    supplied_weights = baseline_weights.copy()
+    values = np.zeros(grid.size)
+
+    transform.project_scalar(
+        values,
+        input_grid=grid,
+        projection_basis=basis,
+        sqrt_weights=supplied_weights,
+        reg_lambda=0.1,
+    )
+    cached_transform = tuple(transform._input_transforms.values())[0]
+    supplied_weights[0] = 2.0
+
+    transform.project_scalar(
+        values,
+        input_grid=grid,
+        projection_basis=basis,
+        sqrt_weights=baseline_weights.copy(),
+        reg_lambda=0.1,
+    )
+
+    assert len(transform._input_transforms) == 1
+    assert tuple(transform._input_transforms.values())[0] is cached_transform
+    assert not cached_transform.sqrt_weights.flags.writeable
+    np.testing.assert_array_equal(cached_transform.sqrt_weights, baseline_weights)
+
+    transform.project_scalar(
+        values,
+        input_grid=grid,
+        projection_basis=basis,
+        sqrt_weights=supplied_weights,
+        reg_lambda=0.1,
+    )
 
     assert len(transform._input_transforms) == 2
 
@@ -156,9 +199,7 @@ def test_spherical_transform_requires_configured_regularization():
 
 def test_regularized_transform_does_not_expose_unregularized_analysis_operator():
     """A fixed analysis map cannot omit configured regularization."""
-    transform = SphericalTransform(
-        SHBasis(3, 2, mean_free=True), _regular_grid(), reg_lambda=1.0
-    )
+    transform = SphericalTransform(SHBasis(3, 2, mean_free=True), _regular_grid(), reg_lambda=1.0)
 
     with pytest.raises(RuntimeError, match="only available for unregularized"):
         _ = transform.helmholtz_analysis_operator
@@ -591,11 +632,7 @@ def test_mean_free_sh_helmholtz_analysis_uses_full_rank_factorization(area_weigh
     """Gauge-free SH analysis avoids a tall SVD on either backend."""
     basis = SHBasis(4, 3, mean_free=True)
     cs_basis = CSBasis(8)
-    grid = Grid(
-        theta=cs_basis.arr_theta,
-        phi=cs_basis.arr_phi,
-        area_weights=cs_basis.unit_area,
-    )
+    grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi, area_weights=cs_basis.unit_area)
     transform = SphericalTransform(basis, grid, area_weighted=area_weighted)
     reference = SphericalTransform(basis, grid, area_weighted=area_weighted)
     rng = np.random.default_rng(20260718)
@@ -625,10 +662,7 @@ def test_full_mean_sh_helmholtz_analysis_retains_rank_deficient_fallback():
     transform = SphericalTransform(basis, grid)
 
     assert transform._optimized_helmholtz_analysis_operator() is None
-    assert transform.helmholtz_analysis_operator.shape == (
-        2 * basis.index_length,
-        2 * grid.size,
-    )
+    assert transform.helmholtz_analysis_operator.shape == (2 * basis.index_length, 2 * grid.size)
 
 
 @pytest.mark.parametrize("area_weighted", [False, True])
