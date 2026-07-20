@@ -41,8 +41,8 @@ class RunSettings:
     saving_sample_interval: int = 1
     integrator: str = "exponential"
     m_imp_regularization_lambda: float = 0.0
-    steady_state_initialization: bool = False
-    run_steady_state: bool = False
+    steady_state_initialization: bool = True
+    run_steady_state: bool = True
     artifact_storage: str = "auto"
 
 

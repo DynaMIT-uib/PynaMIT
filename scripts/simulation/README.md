@@ -19,6 +19,8 @@ The active MAGE workflow has three stages:
    alternatives such as integrators, shielding choices, and regularization in
    separate directories. A run directory may be resumed or extended only with
    the same projected-input manifest, input selection, and evolution policy.
+   By default, the inductive state starts from the initial steady state and a
+   steady-state comparison is saved throughout the run.
 
 The default layout is:
 

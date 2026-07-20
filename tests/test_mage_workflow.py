@@ -265,6 +265,12 @@ def test_projected_input_default_matches_run_input_directory():
     assert MAGE_RUN_SETTINGS.projection_directory == DEFAULT_PROJECTION_DIRECTORY
 
 
+def test_mage_run_defaults_to_steady_state_initialization_and_output():
+    """MAGE starts from and records the steady-state response."""
+    assert MAGE_RUN_SETTINGS.steady_state_initialization is True
+    assert MAGE_RUN_SETTINGS.run_steady_state is True
+
+
 def test_mage_projection_uses_kaiju_dipole_by_default():
     """MAGE projection should use the Kaiju/Geopack SM dipole."""
     assert MAGE_PROJECT_SETTINGS.main_field_kind == "kaiju_dipole"
