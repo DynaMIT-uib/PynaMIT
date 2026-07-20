@@ -304,17 +304,37 @@ field.
 Prepared external inputs
 ------------------------
 
-``pynamit.simulation.workflows.standard``, ``prepared_inputs``, and ``mage``
-contain reusable, script-independent orchestration for standard runs, prepared
-forcing, and MAGE/GAMERA inputs.  Scripts under ``scripts/simulation`` should
-be workflow entry points: they may parse paths and settings, but they should
-delegate coordinate conversion, metadata validation, cadence summaries,
-source-current construction, and projection-directory naming to package
-modules.
+``pynamit.simulation.workflows.standard``, ``prepared_inputs``, and
+``mage_projection`` contain reusable, script-independent orchestration for
+standard runs, prepared forcing, and MAGE/GAMERA projection. Scripts under
+``scripts/simulation`` are workflow entry points: they own editable experiment
+settings, paths, and directory naming while delegating reusable validation and
+numerical work to package modules.
 
-The reusable MAGE workflow also owns signed GAMERA dipole-axis semantics and
-the model-alignment metadata written into prepared forcing. The preparation
-script owns optional Kaiju, NetCDF, and HDF5 access plus the stepwise ETL loop.
+The MAGE workflow has three stages with different reuse boundaries.
+``mage_prepare.py`` owns optional Kaiju, NetCDF, and HDF5 access, signed GAMERA
+dipole-axis interpretation, and the stepwise external-data ETL loop. Its output
+is a minimal, versioned forcing contract independent of PynaMIT spectral
+resolution. Preparation validates GAMERA/TIEGCM time correspondence and
+atomically publishes the HDF5 file only after every source step succeeds. The
+contract fixes REMIX FAC to its upward-positive convention and records the
+GAMERA SM dipole orientation rather than exposing either as a projection knob.
+``mage_projection`` owns forcing-schema validation, coordinate conversion,
+projection geometry, least-squares weighting, and construction of a reusable
+coefficient-space input package. Internally, one private projector owns the
+grids and numerical operators that are invariant across forcing times; the
+public ``project_inputs`` function owns the HDF5 and manifest workflow. It
+builds in a temporary sibling directory and replaces the published artifacts
+only after every projected time and the package manifest succeed.
+Finally, ``mage_run.py`` creates any number of named runs from one projected
+package. These boundaries prevent external-reader concerns, numerical
+projection, and simulation experiments from sharing mutable state.
+
+The run manifest snapshots the prepared-input manifest and selected streams.
+An existing trajectory can be resumed or extended only when that identity and
+its evolution policy still match; a different projection or experiment uses a
+new run directory. This prevents newly copied inputs from being paired with
+state outputs computed from an older forcing package.
 
 This boundary matters because prepared-input logic is both user-facing and
 testable.  If a script needs behavior that should remain correct over time,
@@ -327,7 +347,9 @@ those datasets into the run directory, and reloads them through the run's own
 arrays therefore do not leave a live run dependent on the preparation
 directory. PFAC integration samples are re-derived from the consuming run's
 radial domain unless that run supplies them explicitly; they are not part of
-the prepared coefficient contract.
+the prepared coefficient contract. The MAGE run uses
+``dipole_fac_integration_radii`` with an editable point count, so this PFAC
+discretization remains a run choice rather than a projection side effect.
 
 Prepared-input coordinates name physical positions, not just array axes.
 Geographic wind positions and tangent-vector components are rotated into the

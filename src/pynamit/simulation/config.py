@@ -110,6 +110,30 @@ def default_fac_integration_radii(RI=RE + 110.0e3, RM=None):
     return np.logspace(np.log10(RI), np.log10(outer_radius), 11)
 
 
+def dipole_fac_integration_radii(inner_radius, outer_radius, n_points):
+    """Return FAC radii uniform in the legacy dipole latitude parameter.
+
+    This preserves the established secant-squared spacing policy. The
+    parameter controls radial-shell quadrature density; it is not the
+    latitude trace of one physical field line.
+    """
+    inner_radius = float(inner_radius)
+    outer_radius = float(outer_radius)
+    if not np.isfinite(inner_radius) or not np.isfinite(outer_radius):
+        raise ValueError("Dipole sampling radii must be finite.")
+    if inner_radius <= 0.0 or outer_radius <= inner_radius:
+        raise ValueError("Dipole sampling requires 0 < inner_radius < outer_radius.")
+    try:
+        point_count = float(n_points)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Dipole sampling requires an integer point count.") from exc
+    if not np.isfinite(point_count) or not point_count.is_integer() or point_count < 2:
+        raise ValueError("Dipole sampling requires at least two integer points.")
+    max_latitude = np.arccos(np.sqrt(inner_radius / outer_radius))
+    magnetic_latitude = np.linspace(0.0, max_latitude, int(point_count))
+    return inner_radius / np.cos(magnetic_latitude) ** 2
+
+
 def _plain_setting_value(value: Any) -> Any:
     """Return plain scalar values from xarray or NumPy wrappers."""
     values = getattr(value, "values", value)

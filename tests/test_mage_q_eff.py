@@ -4,10 +4,8 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from pynamit.simulation.workflows.mage import (
-    cross_spherical,
-    direct_E_source_for_pynamit,
-    weighted_wind_current_source,
+from pynamit.simulation.electrodynamics.ionospheric_closure import (
+    electric_field_from_weighted_winds,
 )
 
 
@@ -38,6 +36,39 @@ def _pynamit_resistance_values(sigma_p, sigma_h):
     return sigma_p / denominator, sigma_h / denominator
 
 
+def _cross_spherical(a_r, a_theta, a_phi, b_r, b_theta, b_phi):
+    """Test-side spherical-basis cross product."""
+    return (
+        a_theta * b_phi - a_phi * b_theta,
+        a_phi * b_r - a_r * b_phi,
+        a_r * b_theta - a_theta * b_r,
+    )
+
+
+def _weighted_wind_current_source(
+    *, sigma_p, sigma_h, u_p_theta, u_p_phi, u_h_theta, u_h_phi, field
+):
+    """Return an independent reference for the 3D current source."""
+    zero = np.zeros_like(u_p_theta)
+    pedersen = np.asarray(
+        _cross_spherical(zero, u_p_theta, u_p_phi, field.Br, field.Btheta, field.Bphi)
+    )
+    hall_wind = np.asarray(
+        _cross_spherical(zero, u_h_theta, u_h_phi, field.Br, field.Btheta, field.Bphi)
+    )
+    hall = np.asarray(
+        _cross_spherical(
+            field.unit_br,
+            field.unit_btheta,
+            field.unit_bphi,
+            hall_wind[0],
+            hall_wind[1],
+            hall_wind[2],
+        )
+    )
+    return tuple(sigma_p * pedersen[index] + sigma_h * hall[index] for index in range(3))
+
+
 def _q_eff_reference_for_pynamit(
     *,
     sigma_p,
@@ -56,7 +87,7 @@ def _q_eff_reference_for_pynamit(
     b_phi = np.asarray(field.unit_bphi, dtype=float).reshape(-1)
     sigma_p = np.asarray(sigma_p, dtype=float).reshape(-1)
     sigma_h = np.asarray(sigma_h, dtype=float).reshape(-1)
-    q_r, q_theta, q_phi = weighted_wind_current_source(
+    q_r, q_theta, q_phi = _weighted_wind_current_source(
         sigma_p=sigma_p,
         sigma_h=sigma_h,
         u_p_theta=u_p_theta,
@@ -114,11 +145,13 @@ def test_q_eff_reference_matches_appendix_a8_projection_with_pynamit_sign():
     )
 
     zero = np.zeros_like(u_p_theta)
-    q_p = np.asarray(cross_spherical(zero, u_p_theta, u_p_phi, field.Br, field.Btheta, field.Bphi))
-    q_h_wind = np.asarray(
-        cross_spherical(zero, u_h_theta, u_h_phi, field.Br, field.Btheta, field.Bphi)
+    q_p = np.asarray(
+        _cross_spherical(zero, u_p_theta, u_p_phi, field.Br, field.Btheta, field.Bphi)
     )
-    q_h = np.asarray(cross_spherical(br, btheta, bphi, q_h_wind[0], q_h_wind[1], q_h_wind[2]))
+    q_h_wind = np.asarray(
+        _cross_spherical(zero, u_h_theta, u_h_phi, field.Br, field.Btheta, field.Bphi)
+    )
+    q_h = np.asarray(_cross_spherical(br, btheta, bphi, q_h_wind[0], q_h_wind[1], q_h_wind[2]))
     q = sigma_p * q_p + sigma_h * q_h
 
     denominator = sigma_p * (btheta**2 + bphi**2) + sigma_parallel * br**2
@@ -160,7 +193,9 @@ def test_q_eff_reduces_to_direct_neutral_wind_for_height_independent_wind():
     )
 
     wind_cross_b = np.asarray(
-        cross_spherical(np.zeros_like(u_theta), u_theta, u_phi, field.Br, field.Btheta, field.Bphi)
+        _cross_spherical(
+            np.zeros_like(u_theta), u_theta, u_phi, field.Br, field.Btheta, field.Bphi
+        )
     )
     q_eff_input = np.stack([q_eff_theta, q_eff_phi])
     for i in range(q_eff_input.shape[1]):
@@ -184,7 +219,7 @@ def test_direct_E_reduces_to_set_u_for_height_independent_wind():
     u_phi = np.array([-35.0, 20.0, 95.0])
     eta_p, eta_h = _pynamit_resistance_values(sigma_p, sigma_h)
 
-    e_direct_theta, e_direct_phi = direct_E_source_for_pynamit(
+    e_direct_theta, e_direct_phi = electric_field_from_weighted_winds(
         sigma_p=sigma_p,
         sigma_h=sigma_h,
         u_p_theta=u_theta,
@@ -196,7 +231,9 @@ def test_direct_E_reduces_to_set_u_for_height_independent_wind():
         eta_h=eta_h,
     )
     wind_cross_b = np.asarray(
-        cross_spherical(np.zeros_like(u_theta), u_theta, u_phi, field.Br, field.Btheta, field.Bphi)
+        _cross_spherical(
+            np.zeros_like(u_theta), u_theta, u_phi, field.Br, field.Btheta, field.Bphi
+        )
     )
 
     np.testing.assert_allclose(e_direct_theta, -wind_cross_b[1], rtol=1e-12, atol=1e-18)
@@ -220,7 +257,7 @@ def test_direct_E_matches_q_eff_electric_field_away_from_equator():
     u_h_phi = np.array([100.0, -30.0, 15.0])
     eta_p, eta_h = _pynamit_resistance_values(sigma_p, sigma_h)
 
-    e_direct_theta, e_direct_phi = direct_E_source_for_pynamit(
+    e_direct_theta, e_direct_phi = electric_field_from_weighted_winds(
         sigma_p=sigma_p,
         sigma_h=sigma_h,
         u_p_theta=u_p_theta,

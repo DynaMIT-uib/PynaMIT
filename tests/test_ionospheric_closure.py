@@ -1,6 +1,7 @@
 """Tests for height-integrated ionospheric closure equations."""
 
 import numpy as np
+import pytest
 
 from pynamit.math.linear_map import as_linear_map
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
@@ -111,3 +112,15 @@ def test_Q_eff_coefficient_solve_recovers_exact_response():
     coefficients = solve_Q_eff_coefficients(operator, matrix @ expected)
 
     np.testing.assert_allclose(coefficients, expected)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [({"reg_lambda": -1.0}, "reg_lambda"), ({"pinv_rtol": np.nan}, "pinv_rtol")],
+)
+def test_Q_eff_coefficient_solve_rejects_invalid_controls(kwargs, message):
+    """Invalid solver controls must not silently change behavior."""
+    operator = as_linear_map(np.eye(2))
+
+    with pytest.raises(ValueError, match=message):
+        solve_Q_eff_coefficients(operator, np.ones(2), **kwargs)

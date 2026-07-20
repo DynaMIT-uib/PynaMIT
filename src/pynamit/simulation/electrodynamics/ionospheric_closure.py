@@ -86,6 +86,80 @@ def electric_field_on_grid(sheet_current, resistance_tensor, *, wind=None, wind_
     return electric_field
 
 
+def _cross_spherical(a_r, a_theta, a_phi, b_r, b_theta, b_phi):
+    """Return a cross product in the local spherical basis."""
+    return (
+        a_theta * b_phi - a_phi * b_theta,
+        a_phi * b_r - a_r * b_phi,
+        a_r * b_theta - a_theta * b_r,
+    )
+
+
+def _current_from_weighted_winds(
+    *, sigma_p, sigma_h, u_p_theta, u_p_phi, u_h_theta, u_h_phi, field
+):
+    """Return the 3D current driven by conductivity-weighted winds."""
+    sigma_p = np.asarray(sigma_p, dtype=float).reshape(-1)
+    sigma_h = np.asarray(sigma_h, dtype=float).reshape(-1)
+    u_p_theta = np.asarray(u_p_theta, dtype=float).reshape(-1)
+    u_p_phi = np.asarray(u_p_phi, dtype=float).reshape(-1)
+    u_h_theta = np.asarray(u_h_theta, dtype=float).reshape(-1)
+    u_h_phi = np.asarray(u_h_phi, dtype=float).reshape(-1)
+
+    b_r = np.asarray(field.unit_br, dtype=float).reshape(-1)
+    b_theta = np.asarray(field.unit_btheta, dtype=float).reshape(-1)
+    b_phi = np.asarray(field.unit_bphi, dtype=float).reshape(-1)
+    B_r = np.asarray(field.Br, dtype=float).reshape(-1)
+    B_theta = np.asarray(field.Btheta, dtype=float).reshape(-1)
+    B_phi = np.asarray(field.Bphi, dtype=float).reshape(-1)
+
+    zero = np.zeros_like(u_p_theta)
+    u_p_cross_B = _cross_spherical(zero, u_p_theta, u_p_phi, B_r, B_theta, B_phi)
+    u_h_cross_B = _cross_spherical(zero, u_h_theta, u_h_phi, B_r, B_theta, B_phi)
+    hall_current = _cross_spherical(b_r, b_theta, b_phi, *u_h_cross_B)
+    return (
+        sigma_p * u_p_cross_B[0] + sigma_h * hall_current[0],
+        sigma_p * u_p_cross_B[1] + sigma_h * hall_current[1],
+        sigma_p * u_p_cross_B[2] + sigma_h * hall_current[2],
+    )
+
+
+def electric_field_from_weighted_winds(
+    *, sigma_p, sigma_h, u_p_theta, u_p_phi, u_h_theta, u_h_phi, field, eta_p, eta_h
+):
+    """Return the field from Pedersen/Hall-weighted winds.
+
+    ``u_p`` and ``u_h`` are winds averaged separately with Pedersen and
+    Hall conductivity. The resulting three-dimensional wind-current
+    source is projected perpendicular to the main field and passed
+    through the sheet-resistance closure. Returned components follow
+    PynaMIT's ``E_source`` convention.
+    """
+    q_r, q_theta, q_phi = _current_from_weighted_winds(
+        sigma_p=sigma_p,
+        sigma_h=sigma_h,
+        u_p_theta=u_p_theta,
+        u_p_phi=u_p_phi,
+        u_h_theta=u_h_theta,
+        u_h_phi=u_h_phi,
+        field=field,
+    )
+    eta_p = np.asarray(eta_p, dtype=float).reshape(-1)
+    eta_h = np.asarray(eta_h, dtype=float).reshape(-1)
+    b_r = np.asarray(field.unit_br, dtype=float).reshape(-1)
+    b_theta = np.asarray(field.unit_btheta, dtype=float).reshape(-1)
+    b_phi = np.asarray(field.unit_bphi, dtype=float).reshape(-1)
+
+    q_dot_b = q_r * b_r + q_theta * b_theta + q_phi * b_phi
+    q_perp_theta = q_theta - q_dot_b * b_theta
+    q_perp_phi = q_phi - q_dot_b * b_phi
+    q_cross_b = _cross_spherical(q_r, q_theta, q_phi, b_r, b_theta, b_phi)
+    return (
+        -(eta_p * q_perp_theta + eta_h * q_cross_b[1]),
+        -(eta_p * q_perp_phi + eta_h * q_cross_b[2]),
+    )
+
+
 def joule_heating_from_current(sheet_current, etaP, pedersen_geometry):
     """Return collisional Joule heating ``etaP * J.T @ P @ J``."""
     xp = get_array_module(sheet_current, etaP, pedersen_geometry)
@@ -106,9 +180,7 @@ def wind_to_E_coeffs_operator(helmholtz_analysis, wind_to_E_grid, wind_synthesis
         else helmholtz_analysis.shape[1]
     )
     grid_to_coefficients = as_linear_map(
-        helmholtz_analysis,
-        input_shape=(2, n_grid),
-        output_shape=(2, n_coefficients),
+        helmholtz_analysis, input_shape=(2, n_grid), output_shape=(2, n_coefficients)
     )
     n_wind_coefficients = int(
         wind_synthesis.input_shape[1]
@@ -116,15 +188,9 @@ def wind_to_E_coeffs_operator(helmholtz_analysis, wind_to_E_grid, wind_synthesis
         else wind_synthesis.shape[-1]
     )
     wind_to_grid = as_linear_map(
-        wind_synthesis,
-        input_shape=(2, n_wind_coefficients),
-        output_shape=(2, n_grid),
+        wind_synthesis, input_shape=(2, n_wind_coefficients), output_shape=(2, n_grid)
     )
-    return (
-        grid_to_coefficients
-        @ pointwise_matrix_linear_map(wind_to_E_grid)
-        @ wind_to_grid
-    )
+    return grid_to_coefficients @ pointwise_matrix_linear_map(wind_to_E_grid) @ wind_to_grid
 
 
 def tangential_current_to_E_coeffs_operator(
@@ -158,18 +224,24 @@ def solve_Q_eff_coefficients(Q_eff_to_E, E_wind_coeffs, *, reg_lambda=None, pinv
     """Solve for Q_eff coefficients matching wind-driven E."""
     matrix = np.asarray(Q_eff_to_E.to_matrix(backend="numpy"))
     rhs = np.asarray(E_wind_coeffs).reshape(-1)
-    if reg_lambda is not None and float(reg_lambda) > 0.0:
-        weight = float(reg_lambda)
+    tolerance = float(pinv_rtol)
+    if not np.isfinite(tolerance) or tolerance < 0.0:
+        raise ValueError("pinv_rtol must be finite and non-negative.")
+    weight = 0.0 if reg_lambda is None else float(reg_lambda)
+    if not np.isfinite(weight) or weight < 0.0:
+        raise ValueError("reg_lambda must be finite and non-negative.")
+    if weight > 0.0:
         regularization = weight * np.eye(matrix.shape[1], dtype=matrix.dtype)
         matrix = np.vstack([matrix, regularization])
         rhs = np.concatenate([rhs, np.zeros(matrix.shape[1], dtype=rhs.dtype)])
-    coefficients, *_ = np.linalg.lstsq(matrix, rhs, rcond=pinv_rtol)
+    coefficients, *_ = np.linalg.lstsq(matrix, rhs, rcond=tolerance)
     return coefficients
 
 
 __all__ = [
     "Q_eff_on_grid_from_wind",
     "conductance_to_resistance",
+    "electric_field_from_weighted_winds",
     "electric_field_on_grid",
     "hall_geometry_tensor",
     "joule_heating_from_current",

@@ -6,7 +6,7 @@ import xarray as xr
 
 from pynamit.math.constants import RE
 from pynamit.simulation import Simulation
-from pynamit.simulation.config import SimulationConfig, setting_value
+from pynamit.simulation.config import SimulationConfig, dipole_fac_integration_radii, setting_value
 
 
 def test_simulation_constructs_from_normalized_config(tmp_path):
@@ -197,6 +197,25 @@ def test_simulation_config_defaults_fac_grid_to_outer_boundary():
 
     assert config.fac_integration_radii[0] == pytest.approx(config.RI)
     assert config.fac_integration_radii[-1] == pytest.approx(config.RM)
+
+
+def test_dipole_fac_integration_radii_use_uniform_magnetic_latitude():
+    """Dipole sampling should include both radial endpoints."""
+    inner_radius = 7.0e6
+    outer_radius = 9.0e6
+
+    radii = dipole_fac_integration_radii(inner_radius, outer_radius, n_points=5)
+
+    np.testing.assert_allclose(radii[[0, -1]], [inner_radius, outer_radius])
+    magnetic_latitude = np.arccos(np.sqrt(inner_radius / radii))
+    np.testing.assert_allclose(np.diff(magnetic_latitude), np.diff(magnetic_latitude)[0])
+
+
+@pytest.mark.parametrize("n_points", [1, 2.5, np.nan])
+def test_dipole_fac_integration_radii_require_an_integer_point_count(n_points):
+    """FAC integration requires an integral number of points."""
+    with pytest.raises(ValueError, match="integer points"):
+        dipole_fac_integration_radii(7.0e6, 9.0e6, n_points)
 
 
 def test_simulation_config_derives_missing_fac_grid_from_loaded_radii():

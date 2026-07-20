@@ -7,14 +7,15 @@ not the active workflow.
 
 Use the modern scripts one directory up for new work:
 
-- `mage_prepare_forcing.py`
-- `mage_project_inputs.py`
-- `mage_forcing_final.py`
+- `mage_prepare.py`
+- `mage_project.py`
+- `mage_run.py`
 - `pynamit_paper_simulation.py`
 
 The active pattern is:
 
-1. Prepare/project inputs into a reusable input package.
-2. Run PynaMIT from that package with run-only settings such as the main
-   field model, PFAC handling, hemisphere coupling, shielding, and
-   integrator.
+1. Prepare resolution-independent forcing.
+2. Project one reusable input package for each desired resolution and main
+   field model.
+3. Create one or more runs from a projected package with settings such
+   as PFAC handling, hemisphere coupling, shielding, and integrator.

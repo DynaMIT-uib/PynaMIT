@@ -1,5 +1,7 @@
 """Tests for prepared input package helpers."""
 
+import json
+
 import numpy as np
 import pytest
 
@@ -270,6 +272,7 @@ def test_prepare_and_run_from_inputs_smoke(tmp_path):
     """A tiny prepared package can drive a self-contained run."""
     input_directory = tmp_path / "inputs"
     run_directory = tmp_path / "run"
+    selected_run_directory = tmp_path / "selected_run"
 
     prepared = prepare_pynamit_inputs(
         input_directory, final_time=0.0, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf"
@@ -288,6 +291,7 @@ def test_prepare_and_run_from_inputs_smoke(tmp_path):
         final_time=0.0,
         dt=0.01,
         RM=2 * RE,
+        sampling_step_interval=2,
         saving_sample_interval=1,
         artifact_storage="netcdf",
     )
@@ -298,10 +302,14 @@ def test_prepare_and_run_from_inputs_smoke(tmp_path):
     assert "resistance" in run.run_data.input_series.datasets
     assert (run_directory / "resistance.ncdf").exists()
     assert (run_directory / RUN_MANIFEST_FILENAME).exists()
+    run_manifest = json.loads((run_directory / RUN_MANIFEST_FILENAME).read_text(encoding="utf-8"))
+    assert run_manifest["version"] == 2
+    assert run_manifest["input_manifest"] == manifest
+    assert run_manifest["time_evolution"]["sampling_step_interval"] == 2
 
     selected_run = run_pynamit_from_inputs(
         input_directory,
-        run_directory=run_directory,
+        run_directory=selected_run_directory,
         enabled_inputs=("resistance",),
         final_time=0.0,
         dt=0.01,
@@ -311,7 +319,51 @@ def test_prepare_and_run_from_inputs_smoke(tmp_path):
     )
 
     assert set(selected_run.run_data.input_series.datasets) == {"resistance"}
-    assert not (run_directory / "jr.ncdf").exists()
+    assert not (selected_run_directory / "jr.ncdf").exists()
+
+
+def test_run_from_inputs_rejects_changed_input_identity(tmp_path):
+    """A trajectory cannot silently change its input selection."""
+    input_directory = tmp_path / "inputs"
+    run_directory = tmp_path / "run"
+    prepare_pynamit_inputs(
+        input_directory, final_time=0.0, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf"
+    )
+    run_pynamit_from_inputs(
+        input_directory,
+        run_directory=run_directory,
+        final_time=0.0,
+        RM=2 * RE,
+        artifact_storage="netcdf",
+    )
+
+    with pytest.raises(ValueError, match="different trajectory identity"):
+        run_pynamit_from_inputs(
+            input_directory,
+            run_directory=run_directory,
+            enabled_inputs=("resistance",),
+            final_time=0.0,
+            RM=2 * RE,
+            artifact_storage="netcdf",
+        )
+
+    assert (run_directory / "jr.ncdf").exists()
+
+
+def test_run_from_inputs_requires_a_separate_run_directory(tmp_path):
+    """A run must not overwrite its reusable prepared-input package."""
+    input_directory = tmp_path / "inputs"
+    prepare_pynamit_inputs(
+        input_directory, final_time=0.0, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf"
+    )
+
+    with pytest.raises(ValueError, match="must differ from input_directory"):
+        run_pynamit_from_inputs(
+            input_directory,
+            run_directory=input_directory,
+            final_time=0.0,
+            artifact_storage="netcdf",
+        )
 
 
 def test_loading_prepared_inputs_transfers_run_ownership(tmp_path):
@@ -375,3 +427,5 @@ def test_run_from_inputs_errors_on_requested_missing_dataset(tmp_path):
             saving_sample_interval=1,
             artifact_storage="netcdf",
         )
+
+    assert not (run_directory / "settings.ncdf").exists()

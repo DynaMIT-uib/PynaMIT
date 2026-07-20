@@ -27,9 +27,11 @@ import numpy as np
 import pynamit
 from pynamit.geomagnetism.main_field import decimal_year
 from pynamit.math.constants import RE
+from pynamit.simulation.config import dipole_fac_integration_radii
 from pynamit.simulation.schema import INPUT_DATASET_KEYS
 from pynamit.simulation.workflows.prepared_inputs import (
     RUN_MANIFEST_FILENAME,
+    clear_prepared_input_package,
     load_prepared_inputs_into_simulation,
     run_pynamit_from_inputs,
     write_input_manifest,
@@ -86,11 +88,6 @@ def _prepared_input_datasets(simulation: pynamit.Simulation) -> list[str]:
     return [key for key in INPUT_DATASET_KEYS if key in artifacts]
 
 
-def _dipole_radial_sampling(settings: PaperSimulationSettings) -> np.ndarray:
-    """Return the field-line sampling used for PFAC integration."""
-    return RI / np.cos(np.deg2rad(np.r_[0:70:1])) ** 2
-
-
 def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
     """Project the paper-simulation inputs into a reusable package."""
     import apexpy
@@ -101,6 +98,8 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
 
     input_directory = Path(settings.input_directory).expanduser()
     input_directory.mkdir(parents=True, exist_ok=True)
+    clear_prepared_input_package(input_directory, artifact_storage=settings.artifact_storage)
+    (input_directory / "paper_input_metadata.json").unlink(missing_ok=True)
 
     print(f"Writing paper input package: {input_directory}", flush=True)
     simulation = pynamit.Simulation(
@@ -176,17 +175,15 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
             "The run script loads conductance/wind first, imposes steady state, "
             "then enables jr for the second phase.",
         ],
-    )
-    metadata = {
-        "kind": "pynamit_paper_input_metadata",
-        "date": settings.date,
-        "kp": settings.kp,
-        "simulation_time": settings.simulation_time,
-        "interhemispheric_coupling_latitude": settings.interhemispheric_coupling_latitude,
-    }
-    (input_directory / "paper_input_metadata.json").write_text(
-        json.dumps(metadata, indent=2, sort_keys=True, default=_json_value) + "\n",
-        encoding="utf-8",
+        metadata={
+            "date": settings.date.isoformat(),
+            "kp": settings.kp,
+            "projection_regularization": {
+                "conductance_lambda": settings.conductance_lambda,
+                "wind_lambda": settings.wind_lambda,
+                "jr_lambda": settings.jr_lambda,
+            },
+        },
     )
     return input_directory
 
@@ -206,7 +203,9 @@ def run_paper_simulation(settings: PaperSimulationSettings = SETTINGS) -> pynami
         dt=settings.dt,
         saving_sample_interval=settings.saving_sample_interval,
         main_field_kind="igrf",
-        fac_integration_radii=_dipole_radial_sampling(settings),
+        fac_integration_radii=dipole_fac_integration_radii(
+            RI, RI / np.cos(np.deg2rad(69.0)) ** 2, n_points=70
+        ),
         enable_pfac_coupling=True,
         enable_interhemispheric_coupling=True,
         interhemispheric_coupling_latitude=settings.interhemispheric_coupling_latitude,

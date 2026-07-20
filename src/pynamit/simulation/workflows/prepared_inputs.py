@@ -392,14 +392,13 @@ def validate_prepared_input_compatibility(
         raise ValueError(prefix + "do not match the run input contract: " + details)
 
 
-def load_prepared_inputs_into_simulation(
-    simulation: Simulation,
+def _validate_and_select_prepared_inputs(
     input_directory: str | Path,
     *,
-    artifact_storage: str = "auto",
-    enabled_inputs: tuple[str, ...] | list[str] | None = None,
-) -> list[str]:
-    """Copy prepared inputs into an existing ``Simulation`` run."""
+    artifact_storage: str,
+    enabled_inputs: tuple[str, ...] | list[str] | None,
+) -> tuple[str, ArtifactStore, Any, list[str], dict[str, Any]]:
+    """Validate a package and return its selected input streams."""
     input_directory = ArtifactStore.require_artifact_directory(input_directory, ("settings",))
     input_store = ArtifactStore(input_directory, preferred_dataset_storage=artifact_storage)
     input_settings = input_store.load_dataset("settings")
@@ -416,26 +415,36 @@ def load_prepared_inputs_into_simulation(
                 f"Requested prepared input dataset(s) are not available in {input_directory!r}: "
                 f"{missing_requested}."
             )
-    validate_input_manifest(
+    manifest = validate_input_manifest(
         input_directory,
         input_settings,
         available_inputs=available_inputs,
         allow_unlisted=allowed is not None,
         require=True,
     )
+    if manifest is None:
+        raise RuntimeError("Prepared-input validation returned no manifest.")
     selected_inputs = (
         available_inputs
         if allowed is None
         else [key for key in available_inputs if key in allowed]
     )
+    if not selected_inputs:
+        raise ValueError(f"No prepared input datasets found in {input_directory!r}.")
+    active_wind_forcings = sorted(set(selected_inputs) & {"u", "Q_eff"})
+    if len(active_wind_forcings) > 1:
+        raise ValueError(
+            "Prepared input selection contains mutually exclusive wind-forcing "
+            f"representations {active_wind_forcings}; enable only one of 'u' or "
+            "'Q_eff' for a run."
+        )
+    return input_directory, input_store, input_settings, selected_inputs, manifest
 
-    validate_prepared_input_compatibility(
-        input_settings,
-        simulation.run_data.config,
-        input_datasets=selected_inputs,
-        input_directory=input_directory,
-    )
 
+def _copy_prepared_inputs(
+    simulation: Simulation, input_store: ArtifactStore, selected_inputs: list[str]
+) -> list[str]:
+    """Copy validated input streams into a simulation-owned store."""
     series = FieldTimeSeries(
         simulation.run_data.schema.input_field_spaces, simulation.run_data.schema.input_variables
     )
@@ -443,16 +452,6 @@ def load_prepared_inputs_into_simulation(
         series.load(key, input_store)
 
     loaded = [key for key in INPUT_DATASET_KEYS if key in series.datasets]
-    if not loaded:
-        raise ValueError(f"No prepared input datasets found in {input_directory!r}.")
-    active_wind_forcings = sorted(set(loaded) & {"u", "Q_eff"})
-    if len(active_wind_forcings) > 1:
-        raise ValueError(
-            "Prepared input selection contains mutually exclusive wind-forcing "
-            f"representations {active_wind_forcings}; enable only one of 'u' or "
-            "'Q_eff' for a run."
-        )
-
     for key in INPUT_DATASET_KEYS:
         if key not in loaded:
             simulation.run_data.artifact_store.remove_artifact(key)
@@ -468,6 +467,69 @@ def load_prepared_inputs_into_simulation(
     run_series.load_all(simulation.run_data.artifact_store)
     simulation.run_data.input_series = run_series
     return loaded
+
+
+def _validate_run_identity(
+    run_directory: str | Path,
+    *,
+    input_directory: str,
+    selected_inputs: list[str],
+    input_manifest: dict[str, Any],
+    evolution_policy: dict[str, Any],
+) -> None:
+    """Require a trajectory to keep one identity."""
+    existing = _read_json(Path(run_directory) / RUN_MANIFEST_FILENAME)
+    if existing is None:
+        return
+    if (
+        not isinstance(existing, dict)
+        or existing.get("kind") not in {"pynamit_run", "pynamit_paper_run"}
+        or existing.get("version") != 2
+    ):
+        raise ValueError(
+            f"Existing {RUN_MANIFEST_FILENAME} in {run_directory!s} does not describe "
+            "a compatible resumable run. Use a new run directory."
+        )
+
+    existing_evolution = dict(existing.get("time_evolution", {}))
+    existing_evolution.pop("final_time", None)
+    expected = {
+        "input_directory": str(Path(input_directory).resolve()),
+        "enabled_inputs": selected_inputs,
+        "input_manifest": input_manifest,
+        "time_evolution": evolution_policy,
+    }
+    actual = {**existing, "time_evolution": existing_evolution}
+    mismatches = [name for name, value in expected.items() if actual.get(name) != value]
+    if mismatches:
+        raise ValueError(
+            f"Existing run in {run_directory!s} has a different trajectory identity "
+            f"({', '.join(mismatches)}). Use a new run directory for a different "
+            "input package, selection, or evolution policy."
+        )
+
+
+def load_prepared_inputs_into_simulation(
+    simulation: Simulation,
+    input_directory: str | Path,
+    *,
+    artifact_storage: str = "auto",
+    enabled_inputs: tuple[str, ...] | list[str] | None = None,
+) -> list[str]:
+    """Validate and copy inputs into an existing simulation run."""
+    input_directory, input_store, input_settings, selected_inputs, _ = (
+        _validate_and_select_prepared_inputs(
+            input_directory, artifact_storage=artifact_storage, enabled_inputs=enabled_inputs
+        )
+    )
+
+    validate_prepared_input_compatibility(
+        input_settings,
+        simulation.run_data.config,
+        input_datasets=selected_inputs,
+        input_directory=input_directory,
+    )
+    return _copy_prepared_inputs(simulation, input_store, selected_inputs)
 
 
 def prepare_pynamit_inputs(
@@ -609,7 +671,16 @@ def prepare_pynamit_inputs(
         input_datasets=_available_input_datasets(input_store),
         source="pynamit.default_external_inputs",
         notes=notes,
-        metadata={"external_input_source": get_input_source(), "multi_data": bool(multi_data)},
+        metadata={
+            "external_input_source": get_input_source(),
+            "multi_data": bool(multi_data),
+            "projection_regularization": {
+                "jr_lambda": jr_lambda,
+                "conductance_lambda": conductance_lambda,
+                "u_lambda": u_lambda,
+                "Q_eff_lambda": Q_eff_lambda,
+            },
+        },
     )
     return simulation
 
@@ -620,6 +691,7 @@ def run_pynamit_from_inputs(
     run_directory=None,
     enabled_inputs=None,
     final_time=100,
+    sampling_step_interval=1,
     saving_sample_interval=200,
     dt=5e-4,
     RM=None,
@@ -641,9 +713,11 @@ def run_pynamit_from_inputs(
     magnetic_boundary_shielding=False,
 ):
     """Run simulation from a prepared input package."""
-    input_directory = ArtifactStore.require_artifact_directory(input_directory, ("settings",))
-    input_store = ArtifactStore(input_directory, preferred_dataset_storage=artifact_storage)
-    input_settings = input_store.load_dataset("settings")
+    input_directory, input_store, input_settings, selected_inputs, input_manifest = (
+        _validate_and_select_prepared_inputs(
+            input_directory, artifact_storage=artifact_storage, enabled_inputs=enabled_inputs
+        )
+    )
 
     config_kwargs = SimulationConfig.from_settings(input_settings).to_kwargs()
     config_kwargs.update(
@@ -672,44 +746,60 @@ def run_pynamit_from_inputs(
         config_kwargs["interhemispheric_electric_field_weight"] = (
             interhemispheric_electric_field_weight
         )
-    run_directory = _run_directory(run_directory)
     config = SimulationConfig(**config_kwargs)
+    validate_prepared_input_compatibility(
+        input_settings, config, input_datasets=selected_inputs, input_directory=input_directory
+    )
+    time_evolution = {
+        "final_time": final_time,
+        "dt": dt,
+        "sampling_step_interval": sampling_step_interval,
+        "saving_sample_interval": saving_sample_interval,
+        "steady_state_initialization": steady_state_initialization,
+        "run_inductive": run_inductive,
+        "run_steady_state": run_steady_state,
+    }
+    evolution_policy = {
+        name: value for name, value in time_evolution.items() if name != "final_time"
+    }
+    run_directory = _run_directory(run_directory)
+    if Path(run_directory) == Path(input_directory):
+        raise ValueError(
+            "run_directory must differ from input_directory so the reusable "
+            "prepared-input package remains immutable."
+        )
+    _validate_run_identity(
+        run_directory,
+        input_directory=input_directory,
+        selected_inputs=selected_inputs,
+        input_manifest=input_manifest,
+        evolution_policy=evolution_policy,
+    )
     simulation = Simulation.from_config(
         config, run_directory=run_directory, artifact_storage=artifact_storage
     )
-    loaded_inputs = load_prepared_inputs_into_simulation(
-        simulation,
-        input_directory,
-        artifact_storage=artifact_storage,
-        enabled_inputs=enabled_inputs,
-    )
+    loaded_inputs = _copy_prepared_inputs(simulation, input_store, selected_inputs)
 
     _write_json(
         Path(run_directory) / RUN_MANIFEST_FILENAME,
         {
             "kind": "pynamit_run",
-            "version": 1,
+            "version": 2,
             "input_directory": str(Path(input_directory).resolve()),
             "enabled_inputs": loaded_inputs,
+            "input_manifest": input_manifest,
             "run_settings": {
                 name: _plain_json_value(getattr(simulation.config, name))
                 for name in _RUN_SETTING_KEYS
             },
-            "time_evolution": {
-                "final_time": final_time,
-                "dt": dt,
-                "saving_sample_interval": saving_sample_interval,
-                "steady_state_initialization": steady_state_initialization,
-                "run_inductive": run_inductive,
-                "run_steady_state": run_steady_state,
-            },
+            "time_evolution": time_evolution,
         },
     )
 
     simulation.evolve_to_time(
         t=final_time,
         dt=dt,
-        sampling_step_interval=1,
+        sampling_step_interval=sampling_step_interval,
         saving_sample_interval=saving_sample_interval,
         steady_state_initialization=steady_state_initialization,
         run_inductive=run_inductive,

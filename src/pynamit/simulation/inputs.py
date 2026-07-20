@@ -150,9 +150,9 @@ class InputPipeline:
     @staticmethod
     def tangential_input_data(key: str, theta_component, phi_component) -> dict[str, Any]:
         """Return tangential input data with time before component."""
-        data = {key: np.array([np.atleast_2d(theta_component), np.atleast_2d(phi_component)])}
-        data[key] = np.moveaxis(data[key], [0, 1], [1, 0])
-        return data
+        theta_rows = np.atleast_2d(theta_component)
+        phi_rows = np.atleast_2d(phi_component)
+        return {key: np.stack((theta_rows, phi_rows), axis=1)}
 
     def set_scalar_input(
         self,
