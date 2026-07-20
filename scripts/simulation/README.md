@@ -25,7 +25,7 @@ The default layout is:
 ```text
 mage_prepared/
   mage_prepared_forcing.h5
-mage_runs/<case>/
+mage_cases/<case>/
   projections/N<nmax>_M<mmax>_Ncs<ncs>/
   runs/N<nmax>_M<mmax>_Ncs<ncs>/<run_name>/
 ```

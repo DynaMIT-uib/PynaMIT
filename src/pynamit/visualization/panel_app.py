@@ -52,8 +52,8 @@ def _default_run_directory():
     candidates = [cwd]
     candidates.extend(sorted(cwd.glob("results/*")))
     candidates.extend(sorted(cwd.glob("projections/*")))
-    candidates.extend(sorted(cwd.glob("mage_runs/*/results/*")))
-    candidates.extend(sorted(cwd.glob("mage_runs/*/projections/*")))
+    candidates.extend(sorted(cwd.glob("mage_cases/*/runs/*/*")))
+    candidates.extend(sorted(cwd.glob("mage_cases/*/projections/*")))
     candidates.extend([Path("sim_dir"), Path("notebooks/sim_dir")])
     for candidate in candidates:
         if _has_pynamit_settings(candidate):

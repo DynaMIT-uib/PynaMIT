@@ -14,7 +14,7 @@ from pynamit.simulation.workflows.mage_projection import project_inputs
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_FORCING_PATH = SCRIPT_DIR / "mage_prepared" / "mage_prepared_forcing.h5"
-CASE_DIRECTORY = SCRIPT_DIR / "mage_runs" / "mage_2011_kaiju_direct_e"
+CASE_DIRECTORY = SCRIPT_DIR / "mage_cases" / "mage_2011_kaiju"
 
 
 @dataclass(frozen=True)

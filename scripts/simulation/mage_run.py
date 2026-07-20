@@ -20,7 +20,7 @@ from pynamit.simulation.workflows.prepared_inputs import run_pynamit_from_inputs
 from pynamit.storage import ArtifactStore
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-CASE_DIRECTORY = SCRIPT_DIR / "mage_runs" / "mage_2011_kaiju_direct_e"
+CASE_DIRECTORY = SCRIPT_DIR / "mage_cases" / "mage_2011_kaiju"
 DEFAULT_PROJECTION_DIRECTORY = CASE_DIRECTORY / "projections" / "N50_M50_Ncs50"
 
 

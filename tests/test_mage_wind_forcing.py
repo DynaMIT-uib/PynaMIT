@@ -168,8 +168,8 @@ def test_q_eff_reference_matches_appendix_a8_projection_with_pynamit_sign():
     np.testing.assert_allclose(q_eff_phi, -expected_physical_phi)
 
 
-def test_q_eff_reduces_to_direct_neutral_wind_for_height_independent_wind():
-    """Height-independent Q_eff equals direct wind forcing."""
+def test_q_eff_matches_height_independent_wind_forcing():
+    """Height-independent Q_eff equals wind forcing."""
     sigma_p = np.array([8.0, 4.0, 6.0])
     sigma_h = np.array([3.0, 1.5, 2.0])
     br = np.array([-0.91, -0.62, 0.73])
@@ -204,8 +204,8 @@ def test_q_eff_reduces_to_direct_neutral_wind_for_height_independent_wind():
         np.testing.assert_allclose(E_from_q_eff, -wind_cross_b[1:, i], rtol=1e-12, atol=1e-18)
 
 
-def test_direct_E_reduces_to_set_u_for_height_independent_wind():
-    """Direct E weighted winds should reduce to ordinary u forcing."""
+def test_weighted_wind_E_source_reduces_to_set_u_for_height_independent_wind():
+    """Weighted-wind E_source should reduce to ordinary u forcing."""
     sigma_p = np.array([8.0, 4.0, 6.0])
     sigma_h = np.array([3.0, 1.5, 2.0])
     br = np.array([-0.91, -0.62, 0.73])
@@ -219,7 +219,7 @@ def test_direct_E_reduces_to_set_u_for_height_independent_wind():
     u_phi = np.array([-35.0, 20.0, 95.0])
     eta_p, eta_h = _pynamit_resistance_values(sigma_p, sigma_h)
 
-    e_direct_theta, e_direct_phi = electric_field_from_weighted_winds(
+    e_source_theta, e_source_phi = electric_field_from_weighted_winds(
         sigma_p=sigma_p,
         sigma_h=sigma_h,
         u_p_theta=u_theta,
@@ -236,12 +236,12 @@ def test_direct_E_reduces_to_set_u_for_height_independent_wind():
         )
     )
 
-    np.testing.assert_allclose(e_direct_theta, -wind_cross_b[1], rtol=1e-12, atol=1e-18)
-    np.testing.assert_allclose(e_direct_phi, -wind_cross_b[2], rtol=1e-12, atol=1e-18)
+    np.testing.assert_allclose(e_source_theta, -wind_cross_b[1], rtol=1e-12, atol=1e-18)
+    np.testing.assert_allclose(e_source_phi, -wind_cross_b[2], rtol=1e-12, atol=1e-18)
 
 
-def test_direct_E_matches_q_eff_electric_field_away_from_equator():
-    """Direct E and A8 Q_eff should match away from the equator."""
+def test_weighted_wind_E_source_matches_q_eff_away_from_equator():
+    """Weighted-wind E_source and A8 Q_eff should agree off-equator."""
     sigma_p = np.array([8.0, 4.0, 6.0])
     sigma_h = np.array([3.0, 1.5, 2.0])
     br = np.array([-0.91, -0.62, 0.73])
@@ -257,7 +257,7 @@ def test_direct_E_matches_q_eff_electric_field_away_from_equator():
     u_h_phi = np.array([100.0, -30.0, 15.0])
     eta_p, eta_h = _pynamit_resistance_values(sigma_p, sigma_h)
 
-    e_direct_theta, e_direct_phi = electric_field_from_weighted_winds(
+    e_source_theta, e_source_phi = electric_field_from_weighted_winds(
         sigma_p=sigma_p,
         sigma_h=sigma_h,
         u_p_theta=u_p_theta,
@@ -285,5 +285,5 @@ def test_direct_E_matches_q_eff_electric_field_away_from_equator():
         resistance = _pynamit_resistance_tensor(sigma_p[i], sigma_h[i], br[i], btheta[i], bphi[i])
         E_from_q_eff = resistance @ q_eff_input[:, i]
         np.testing.assert_allclose(
-            E_from_q_eff, np.array([e_direct_theta[i], e_direct_phi[i]]), rtol=1e-12, atol=1e-18
+            E_from_q_eff, np.array([e_source_theta[i], e_source_phi[i]]), rtol=1e-12, atol=1e-18
         )

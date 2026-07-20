@@ -464,7 +464,7 @@ class _MageInputProjector:
         input_series = self._simulation.run_data.input_series
         resistance_entry = input_series.get_entry("resistance", input_time)
         if resistance_entry is None:
-            raise RuntimeError("Conductance must be set before computing direct wind E_source.")
+            raise RuntimeError("Conductance must be set before computing the wind E_source.")
         return (
             np.asarray(self._resistance_evaluator.matvec(resistance_entry["etaP"])).reshape(-1),
             np.asarray(self._resistance_evaluator.matvec(resistance_entry["etaH"])).reshape(-1),
@@ -502,7 +502,7 @@ class _MageInputProjector:
             eta_p=eta_p,
             eta_h=eta_h,
         )
-        _print_field_stats("  Direct wind E_source [V/m]", np.hypot(e_source_theta, e_source_phi))
+        _print_field_stats("  Wind E_source [V/m]", np.hypot(e_source_theta, e_source_phi))
         self._simulation.set_E_source(
             E_source_theta=e_source_theta,
             E_source_phi=e_source_phi,
@@ -601,7 +601,7 @@ def project_inputs(
             print(f"GAMERA signed MagM0: {gamera_dipole['mag_m0_nT']:.6g} nT", flush=True)
             print("GAMERA coordinates: SM; longitude 0 = local noon", flush=True)
             print(f"RM: {boundary_radius:.6g} m", flush=True)
-            print("Wind forcing: direct E_source from Pedersen/Hall weighted winds", flush=True)
+            print("Wind forcing: E_source from Pedersen/Hall weighted winds", flush=True)
             print("FAC convention: upward positive", flush=True)
 
             simulation = pynamit.Simulation(
@@ -672,7 +672,7 @@ def project_inputs(
                 input_datasets=projected_datasets,
                 source="pynamit.simulation.workflows.mage_projection",
                 notes=(
-                    "MAGE direct E_source was computed from Pedersen/Hall weighted winds "
+                    "MAGE E_source was computed from Pedersen/Hall weighted winds "
                     "using the sheet-radius main field and projected sheet resistance.",
                     "All input fits used explicit square-root surface-area weights.",
                 ),

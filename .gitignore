@@ -182,7 +182,7 @@ scripts/visualization/figures
 /notebooks/movie_*.mp4
 /notebooks/full_*_report*.csv
 /scripts/simulation/mage_prepared/
-/scripts/simulation/mage_runs/
+/scripts/simulation/mage_cases/
 
 # Generated documentation outputs
 /docs/source/*.aux
