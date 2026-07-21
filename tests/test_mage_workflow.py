@@ -22,12 +22,13 @@ from scripts.simulation.mage_prepare import (
     _gamera_internal_dipole_axes,
     _geographic_grid_in_sm,
     _integrate_tiegcm_step,
-    _interpolate_periodic_latlon_field,
+    _interpolate_periodic_scattered_field,
     _naive_utc_datetime,
-    _PeriodicLatLonInterpolator,
+    _PeriodicScatteredLatLonInterpolator,
     _pynamit_dipole_B0_T,
     _read_tiegcm_step,
     _remix_upward_fac_source,
+    _RemixGridInterpolator,
     _resolve_tiegcm_path,
     _tiegcm_step_in_geographic_coordinates,
     _tiegcm_times,
@@ -143,6 +144,10 @@ def _write_projection_forcing(path: Path, *, hall_conductance=5.0) -> None:
         output.attrs["longitude_convention"] = "east_positive_degrees"
         output.attrs["fac_convention"] = "upward"
         output.attrs["radial_current_convention"] = "outward"
+        output.attrs["remix_fac_interpolation"] = "kaiju_native_periodic"
+        output.attrs["gamera_boundary_interpolation"] = (
+            "periodic_scattered_linear_with_nearest_completion"
+        )
         output.attrs["kind"] = MAGE_FORCING_KIND
         output.attrs["version"] = MAGE_FORCING_VERSION
         output.attrs["complete"] = True
@@ -253,6 +258,11 @@ def test_static_time_dataset_is_written_as_utf8(tmp_path, time_dtype):
         ]
         assert output.attrs["kind"] == MAGE_FORCING_KIND
         assert output.attrs["version"] == MAGE_FORCING_VERSION
+        assert output.attrs["remix_fac_interpolation"] == "kaiju_native_periodic"
+        assert (
+            output.attrs["gamera_boundary_interpolation"]
+            == "periodic_scattered_linear_with_nearest_completion"
+        )
         assert not output.attrs["complete"]
         _, relative_seconds = _h5_time_vector_seconds(output["time"][:])
 
@@ -719,15 +729,15 @@ def test_tiegcm_reading_normalizes_masked_and_signed_fill_values():
     assert np.isnan(normalized[1:]).all()
 
 
-def test_remix_interpolation_is_periodic_across_longitude_seam():
-    """Equivalent longitudes should receive the same interpolation."""
+def test_scattered_interpolation_is_periodic_across_longitude_seam():
+    """Interpolate scattered values periodically in longitude."""
     source_lat = np.array([[60.0, 60.0], [80.0, 80.0]])
     source_lon = np.array([[-170.0, 170.0], [-170.0, 170.0]])
     values = np.array([[1.0, 1.0], [3.0, 3.0]])
     target_lon = np.array([[-179.0, 181.0, 359.0]])
     target_lat = np.full_like(target_lon, 70.0)
 
-    interpolated = _interpolate_periodic_latlon_field(
+    interpolated = _interpolate_periodic_scattered_field(
         source_lat, source_lon, values, target_lon, target_lat
     )
 
@@ -744,29 +754,29 @@ def test_remix_hemispheres_leave_zero_current_outside_source_coverage():
     )
 
 
-def test_periodic_grid_interpolator_reuses_geometry_without_changing_values():
+def test_periodic_scattered_interpolator_reuses_geometry_without_changing_values():
     """Cached boundary interpolation preserves linear interpolation."""
     source_lat, source_lon = np.meshgrid(
         np.linspace(-80.0, 80.0, 9), np.linspace(-180.0, 150.0, 12), indexing="ij"
     )
     values = np.cos(np.deg2rad(source_lat)) * np.cos(np.deg2rad(source_lon))
     target_lon = source_lon + 7.5
-    interpolator = _PeriodicLatLonInterpolator(source_lat, source_lon)
+    interpolator = _PeriodicScatteredLatLonInterpolator(source_lat, source_lon)
 
     observed = interpolator.interpolate(values, target_lon, source_lat, require_complete=True)
-    expected = _interpolate_periodic_latlon_field(
+    expected = _interpolate_periodic_scattered_field(
         source_lat, source_lon, values, target_lon, source_lat, require_complete=True
     )
 
     np.testing.assert_allclose(observed, expected, atol=1e-12)
 
 
-def test_periodic_latlon_interpolator_uses_spherical_nearest_fallback_lazily():
+def test_periodic_scattered_interpolator_uses_spherical_nearest_fallback_lazily():
     """Build the polar great-circle fallback only when needed."""
     source_lat = np.array([88.0, 80.0, 80.0, 80.0])
     source_lon = np.array([180.0, 0.0, 120.0, -120.0])
     values = np.array([1.0, 2.0, 3.0, 4.0])
-    interpolator = _PeriodicLatLonInterpolator(source_lat, source_lon)
+    interpolator = _PeriodicScatteredLatLonInterpolator(source_lat, source_lon)
 
     interpolator.interpolate(values, np.array([0.0]), np.array([85.0]))
     assert interpolator._nearest_tree is None
@@ -777,6 +787,63 @@ def test_periodic_latlon_interpolator_uses_spherical_nearest_fallback_lazily():
 
     assert interpolator._nearest_tree is not None
     np.testing.assert_array_equal(observed, [1.0])
+
+
+def test_remix_grid_interpolator_is_periodic_and_bilinear():
+    """ReMIX interpolation follows its native four-point tensor grid."""
+    latitude = np.array([60.0, 80.0])
+    longitude = np.array([0.0, 90.0, 180.0, 270.0])
+    source_lat, source_lon = np.meshgrid(latitude, longitude, indexing="ij")
+    values = np.array([[0.0, 10.0, 20.0, 30.0], [100.0, 110.0, 120.0, 130.0]])
+    interpolator = _RemixGridInterpolator(source_lat, source_lon)
+
+    observed = interpolator.interpolate(
+        values,
+        target_lon=np.array([45.0, 405.0, 315.0]),
+        target_lat=np.array([70.0, 70.0, 70.0]),
+    )
+
+    np.testing.assert_allclose(observed, [55.0, 55.0, 65.0])
+
+
+def test_remix_grid_interpolator_handles_pole_and_coverage():
+    """Apply Kaiju's polar triangle and equatorward coverage."""
+    latitude = np.broadcast_to(np.array([[60.0], [80.0]]), (2, 4))
+    longitude = np.broadcast_to(np.array([[0.0, 90.0, 180.0, 270.0]]), (2, 4))
+    values = np.array([[1.0, 3.0, 5.0, 7.0], [10.0, 14.0, 22.0, 30.0]])
+    interpolator = _RemixGridInterpolator(latitude, longitude)
+
+    observed = interpolator.interpolate(
+        values, target_lon=np.array([20.0, 110.0, 0.0]), target_lat=np.array([89.0, 90.0, 50.0])
+    )
+
+    pole_value = np.mean(values[-1])
+    np.testing.assert_allclose(
+        observed[:2],
+        [(pole_value + 10.0 + 14.0) / 3.0, (pole_value + 14.0 + 22.0) / 3.0],
+    )
+    assert np.isnan(observed[2])
+
+
+def test_remix_grid_interpolator_accepts_southern_orientation():
+    """Preserve values on Kaiju's reversed southern coordinates."""
+    latitude = np.array([[-80.0, -80.0, -80.0], [-60.0, -60.0, -60.0]])
+    longitude = np.array([[0.0, -120.0, -240.0], [0.0, -120.0, -240.0]])
+    values = np.array([[8.0, 4.0, 6.0], [18.0, 14.0, 16.0]])
+    interpolator = _RemixGridInterpolator(latitude, longitude)
+
+    np.testing.assert_allclose(
+        interpolator.interpolate(values, target_lon=120.0, target_lat=-70.0), 11.0
+    )
+
+
+def test_remix_grid_interpolator_rejects_nonrectilinear_coordinates():
+    """Reject malformed coordinates instead of using tensor weights."""
+    latitude = np.array([[60.0, 61.0], [80.0, 80.0]])
+    longitude = np.array([[0.0, 180.0], [0.0, 180.0]])
+
+    with pytest.raises(ValueError, match="rectilinear"):
+        _RemixGridInterpolator(latitude, longitude)
 
 
 def test_tiegcm_history_stays_on_its_native_geographic_grid():

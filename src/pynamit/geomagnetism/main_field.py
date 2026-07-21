@@ -1,6 +1,6 @@
 """Background main-field models and magnetic coordinates."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from functools import partial
 
 import apexpy
@@ -8,8 +8,8 @@ import dipole
 import numpy as np
 import ppigrf
 
+from pynamit.coordinates import decimal_year_to_datetime, wrap_longitude_180
 from pynamit.coordinates import local_noon_longitude as geographic_noon_longitude
-from pynamit.coordinates import wrap_longitude_180
 from pynamit.geomagnetism.kaiju_geopack import (
     kaiju_geopack_alignment,
     kaiju_geopack_dipole,
@@ -33,16 +33,6 @@ def normalize_main_field_kind(kind: str) -> str:
 def is_dipole_kind(kind):
     """Return whether a kind uses centered-dipole geometry."""
     return str(kind).lower() in _DIPOLE_KINDS
-
-
-def _datetime_from_decimal_year(epoch):
-    """Convert a decimal year to a datetime."""
-    epoch = float(epoch)
-    year = int(np.floor(epoch))
-    year_start = datetime(year, 1, 1, 0, 0)
-    next_year_start = datetime(year + 1, 1, 1, 0, 0)
-    year_seconds = (next_year_start - year_start).total_seconds()
-    return year_start + timedelta(seconds=(epoch - year) * year_seconds)
 
 
 def decimal_year(epoch):
@@ -69,7 +59,7 @@ def _dipole_for_epoch(epoch, B0=None):
 
 def _kaiju_dipole_for_epoch(epoch, B0=None):
     """Return a Kaiju/Geopack-aligned dipole."""
-    return kaiju_geopack_dipole(_datetime_from_decimal_year(epoch), B0=B0)
+    return kaiju_geopack_dipole(decimal_year_to_datetime(epoch), B0=B0)
 
 
 def _east_north_up_to_spherical(vector):
@@ -164,14 +154,14 @@ class MainField:
         if is_dipole_kind(self.kind):
             if self.kind == "kaiju_dipole":
                 self.dipole = _kaiju_dipole_for_epoch(self.epoch, B0=B0)
-                self._mag_transform = kaiju_geopack_mag(_datetime_from_decimal_year(self.epoch))
+                self._mag_transform = kaiju_geopack_mag(decimal_year_to_datetime(self.epoch))
             else:
                 self.dipole = _dipole_for_epoch(self.epoch, B0=B0)
             self._evaluate_components = partial(_dipole_field_components, self.dipole)
 
         elif self.kind == "igrf":
             self.apex = apexpy.Apex(self.epoch, refh=self.ionosphere_height_km)
-            epoch_datetime = _datetime_from_decimal_year(self.epoch)
+            epoch_datetime = decimal_year_to_datetime(self.epoch)
             self._evaluate_components = partial(_igrf_field_components, epoch_datetime)
 
         elif self.kind == "radial":
@@ -359,11 +349,11 @@ class MainField:
             }
         if self.kind == "kaiju_dipole":
             alignment_time = (
-                _datetime_from_decimal_year(self.epoch) if event_time is None else event_time
+                decimal_year_to_datetime(self.epoch) if event_time is None else event_time
             )
             dipole_model = self.dipole
             alignment = kaiju_geopack_alignment(
-                alignment_time, magnetic_epoch=_datetime_from_decimal_year(self.epoch)
+                alignment_time, magnetic_epoch=decimal_year_to_datetime(self.epoch)
             )
             noon_longitude = self.local_noon_longitude(alignment_time)
             alignment["magnetic_noon_longitude_deg"] = self.magnetic_noon_longitude(alignment_time)

@@ -75,7 +75,7 @@ class MapCoordinateContext:
 
     @classmethod
     def geographic(cls, reference_time):
-        """Create a geographic solar-local-time context."""
+        """Create a geographic mean-solar-local-time context."""
         return cls(
             noon_longitude=local_noon_longitude(reference_time),
             longitude_kind="geographic",
@@ -118,7 +118,7 @@ class MapCoordinateContext:
         return self.noon_longitude
 
     def projection(self):
-        """Return a PlateCarree projection centered on local noon."""
+        """Return PlateCarree centered on this context's noon."""
         import cartopy.crs as ccrs
 
         return ccrs.PlateCarree(central_longitude=self.central_longitude)

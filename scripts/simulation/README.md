@@ -18,6 +18,9 @@ The active MAGE workflow has three stages:
    three-dimensional cell centers, and its fit uses solid-angle weights from
    the actual GAMERA cell vertices. The fixed prepared grids let all spectral
    projection matrices be built once and reused for every forcing time.
+   ReMIX FAC follows Kaiju's native periodic grid interpolation, including its
+   polar-cell rule; the curvilinear GAMERA boundary uses a separate cached
+   scattered-grid interpolator because it does not form a tensor grid.
    ReMIX's parallel-positive FAC is converted explicitly to a common
    upward-positive convention using Kaiju's northern and southern grid
    orientations, then to PynaMIT's outward radial current with the local
@@ -74,8 +77,8 @@ SM-to-GEO preparation transform and plot centering, not by rotating the
 simulation state or background field.
 
 Global maps are evaluated and drawn in GEO. Their timestamp-dependent map
-projection places geographic noon/12 solar LT at the center while the data
-and coastlines retain ordinary GEO coordinates. Hemisphere maps use the same
+projection places 12 mean-solar LT at the center while the data and coastlines
+retain ordinary GEO coordinates. Hemisphere maps use the same
 model samples but express their positions in MAG (or apex coordinates for an
 IGRF main field) and center magnetic noon/12 MLT at the top.
 

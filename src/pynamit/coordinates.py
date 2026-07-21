@@ -34,8 +34,28 @@ def datetime_to_utc_hours(time_value):
     )
 
 
+def decimal_year_to_datetime(epoch):
+    """Convert decimal year while preserving day boundaries."""
+    epoch = float(epoch)
+    year = int(np.floor(epoch))
+    year_start = dt.datetime(year, 1, 1)
+    next_year_start = dt.datetime(year + 1, 1, 1)
+    year_seconds = (next_year_start - year_start).total_seconds()
+    elapsed_seconds = (epoch - year) * year_seconds
+
+    # At decimal-year magnitudes, a datetime round trip can lose a few
+    # microseconds. Preserve exact day boundaries when the discrepancy
+    # is only floating-point roundoff.
+    day_seconds = 86400.0
+    nearest_day = round(elapsed_seconds / day_seconds) * day_seconds
+    roundoff_tolerance = max(1e-6, 4.0 * abs(np.spacing(epoch)) * year_seconds)
+    if abs(elapsed_seconds - nearest_day) <= roundoff_tolerance:
+        elapsed_seconds = nearest_day
+    return year_start + dt.timedelta(seconds=elapsed_seconds)
+
+
 def local_noon_longitude(reference_time):
-    """Return geographic longitude where local noon occurs."""
+    """Return the mean-solar local-noon geographic longitude."""
     utc_hours = datetime_to_utc_hours(reference_time)
     return wrap_longitude_180((12.0 - utc_hours) * 15.0)
 
@@ -92,6 +112,7 @@ def local_time_longitude_to_geographic(lon, *, noon_longitude, local_noon_longit
 
 __all__ = [
     "DEFAULT_LOCAL_TIME_GRID_HOURS",
+    "decimal_year_to_datetime",
     "datetime_to_utc_hours",
     "local_noon_longitude",
     "local_time_hours_to_longitude",

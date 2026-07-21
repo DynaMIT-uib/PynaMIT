@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from math import floor
+from datetime import datetime, timezone
 from typing import Any
 
 import dipole
 import numpy as np
 
-from pynamit.coordinates import wrap_longitude_180
+from pynamit.coordinates import decimal_year_to_datetime, wrap_longitude_180
 
 
 @dataclass(frozen=True)
@@ -130,23 +129,13 @@ def _validated_rotation_matrix(matrix, *, name: str) -> np.ndarray:
     return matrix
 
 
-def _datetime_from_decimal_year(epoch: float) -> datetime:
-    """Convert a decimal year to a UTC-like datetime."""
-    year = int(floor(float(epoch)))
-    year_start = datetime(year, 1, 1)
-    next_year_start = datetime(year + 1, 1, 1)
-    return year_start + timedelta(
-        seconds=(float(epoch) - year) * (next_year_start - year_start).total_seconds()
-    )
-
-
 def _as_datetime(epoch: float | datetime) -> datetime:
     """Return ``epoch`` as a naive UTC datetime."""
     if isinstance(epoch, datetime):
         if epoch.tzinfo is not None:
             epoch = epoch.astimezone(timezone.utc).replace(tzinfo=None)
         return epoch
-    return _datetime_from_decimal_year(float(epoch))
+    return decimal_year_to_datetime(float(epoch))
 
 
 def _geopack_epoch_value(epoch: float | datetime) -> float:

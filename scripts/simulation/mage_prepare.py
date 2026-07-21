@@ -566,7 +566,7 @@ def _radial_component(
     return bx * sin_theta * cos_phi + by * sin_theta * sin_phi + bz * cos_theta
 
 
-def _interpolate_periodic_latlon_field(
+def _interpolate_periodic_scattered_field(
     source_lat: np.ndarray,
     source_lon: np.ndarray,
     values: np.ndarray,
@@ -575,7 +575,7 @@ def _interpolate_periodic_latlon_field(
     *,
     require_complete: bool = False,
 ) -> np.ndarray:
-    """Interpolate linearly in periodic lat/lon coordinates."""
+    """Interpolate scattered samples in periodic lat/lon coordinates."""
     source_lat = np.asarray(source_lat, dtype=float).reshape(-1)
     source_lon = wrap_longitude_180(source_lon).reshape(-1)
     values = np.asarray(values, dtype=float).reshape(-1)
@@ -626,8 +626,8 @@ def _unit_sphere_positions(latitude: np.ndarray, longitude: np.ndarray) -> np.nd
     )
 
 
-class _PeriodicLatLonInterpolator:
-    """Reuse periodic latitude/longitude geometry across histories."""
+class _PeriodicScatteredLatLonInterpolator:
+    """Reuse scattered periodic lat/lon geometry across histories."""
 
     def __init__(self, source_lat: np.ndarray, source_lon: np.ndarray) -> None:
         source_lat, source_lon = np.broadcast_arrays(
@@ -686,7 +686,7 @@ class _PeriodicLatLonInterpolator:
         if require_complete and np.any(~np.isfinite(periodic_values)):
             raise ValueError("Complete periodic interpolation requires finite source values.")
         if np.any(~np.isfinite(periodic_values)):
-            return _interpolate_periodic_latlon_field(
+            return _interpolate_periodic_scattered_field(
                 self._source_lat,
                 self._source_lon,
                 values,
@@ -727,6 +727,175 @@ class _PeriodicLatLonInterpolator:
             nearest_indices = self._nearest_tree.query(target_positions)[1]
             finite_source_values = values.reshape(-1)[self._finite_source_indices]
             result[missing] = finite_source_values[nearest_indices]
+        return result.reshape(target_shape)
+
+
+class _RemixGridInterpolator:
+    """Interpolate one saved ReMIX hemisphere on its native tensor grid.
+
+    Kaiju's ReMIX coupling uses a four-point interpolant in colatitude
+    and longitude, with a three-vertex rule in the cell touching the
+    pole. ReMIX writes fields without that degenerate pole and stores a
+    staggered X/Y grid whose cell centers locate the remaining field
+    nodes. This class reconstructs the pole and applies the same mapping
+    geometry.
+    """
+
+    def __init__(self, source_lat: np.ndarray, source_lon: np.ndarray) -> None:
+        source_lat, source_lon = np.broadcast_arrays(
+            np.asarray(source_lat, dtype=float), np.asarray(source_lon, dtype=float)
+        )
+        if source_lat.ndim != 2 or min(source_lat.shape) < 2:
+            raise ValueError(
+                "A ReMIX grid must be two-dimensional with at least two cells per axis."
+            )
+        if np.any(~np.isfinite(source_lat)) or np.any(~np.isfinite(source_lon)):
+            raise ValueError("ReMIX grid coordinates must be finite.")
+
+        latitude = source_lat[:, 0]
+        longitude = np.mod(source_lon[0], 360.0)
+        longitude_residual = wrap_longitude_180(source_lon - source_lon[[0]])
+        if not np.allclose(source_lat, latitude[:, None], rtol=0.0, atol=1e-12) or not np.allclose(
+            longitude_residual, 0.0, rtol=0.0, atol=1e-12
+        ):
+            raise ValueError(
+                "Saved ReMIX coordinates must form a rectilinear latitude/longitude grid."
+            )
+        if not (np.all(latitude > 0.0) or np.all(latitude < 0.0)):
+            raise ValueError("A saved ReMIX grid must contain exactly one magnetic hemisphere.")
+
+        self._source_shape = source_lat.shape
+        self._source_lat = np.array(source_lat, copy=True)
+        self._source_lon = wrap_longitude_180(source_lon).copy()
+        self._latitude_order = np.argsort(latitude)
+        self._longitude_order = np.argsort(longitude)
+        self._latitude = latitude[self._latitude_order]
+        self._longitude = longitude[self._longitude_order]
+        if np.any(np.diff(self._latitude) <= 0.0) or np.any(np.diff(self._longitude) <= 0.0):
+            raise ValueError("ReMIX latitude and longitude coordinates must be unique.")
+
+    def matches(self, source_lat: np.ndarray, source_lon: np.ndarray) -> bool:
+        """Return whether coordinates match this saved ReMIX grid."""
+        source_lat, source_lon = np.broadcast_arrays(
+            np.asarray(source_lat, dtype=float), np.asarray(source_lon, dtype=float)
+        )
+        return (
+            source_lat.shape == self._source_shape
+            and np.allclose(source_lat, self._source_lat, rtol=0.0, atol=1e-12)
+            and np.allclose(
+                wrap_longitude_180(source_lon - self._source_lon), 0.0, rtol=0.0, atol=1e-12
+            )
+        )
+
+    def interpolate(
+        self, values: np.ndarray, target_lon: np.ndarray, target_lat: np.ndarray
+    ) -> np.ndarray:
+        """Interpolate periodically within the source hemisphere."""
+        values = np.asarray(values, dtype=float)
+        if values.shape != self._source_shape:
+            raise ValueError(
+                f"ReMIX field shape {values.shape} does not match {self._source_shape}."
+            )
+        if np.any(~np.isfinite(values)):
+            raise ValueError("ReMIX interpolation requires finite source values.")
+        values = values[np.ix_(self._latitude_order, self._longitude_order)]
+
+        # ReMIX omits the degenerate pole when writing fields and
+        # restores it as the mean of the poleward ring when reading.
+        latitude = self._latitude
+        if latitude[0] > 0.0:
+            poleward_ring = values[-1]
+            latitude = np.concatenate((latitude, [90.0]))
+            pole_value = np.mean(poleward_ring)
+            values = np.vstack((values, np.full((1, values.shape[1]), pole_value)))
+            north = True
+        else:
+            poleward_ring = values[0]
+            latitude = np.concatenate(([-90.0], latitude))
+            pole_value = np.mean(poleward_ring)
+            values = np.vstack((np.full((1, values.shape[1]), pole_value), values))
+            north = False
+
+        target_lon, target_lat = np.broadcast_arrays(
+            np.asarray(target_lon, dtype=float), np.asarray(target_lat, dtype=float)
+        )
+        target_shape = target_lat.shape
+        query_latitude = target_lat.reshape(-1)
+        query_longitude = (
+            np.mod(target_lon.reshape(-1) - self._longitude[0], 360.0) + self._longitude[0]
+        )
+        finite = np.isfinite(query_latitude) & np.isfinite(query_longitude)
+        latitude_tolerance = max(
+            1e-12, 16.0 * np.finfo(float).eps * float(np.max(np.abs(latitude)))
+        )
+        covered = (
+            finite
+            & (query_latitude >= latitude[0] - latitude_tolerance)
+            & (query_latitude <= latitude[-1] + latitude_tolerance)
+        )
+        result = np.full(query_latitude.size, np.nan)
+        if not np.any(covered):
+            return result.reshape(target_shape)
+
+        covered_indices = np.flatnonzero(covered)
+        query_latitude = np.clip(query_latitude[covered], latitude[0], latitude[-1])
+        query_latitude = np.where(
+            np.abs(query_latitude - self._latitude[0]) <= latitude_tolerance,
+            self._latitude[0],
+            query_latitude,
+        )
+        query_latitude = np.where(
+            np.abs(query_latitude - self._latitude[-1]) <= latitude_tolerance,
+            self._latitude[-1],
+            query_latitude,
+        )
+        query_longitude = query_longitude[covered]
+        latitude_index = np.searchsorted(latitude, query_latitude, side="right") - 1
+        latitude_index = np.clip(latitude_index, 0, latitude.size - 2)
+
+        periodic_longitude = np.concatenate(
+            (self._longitude, [self._longitude[0] + 360.0])
+        )
+        longitude_index = np.searchsorted(
+            periodic_longitude, query_longitude, side="right"
+        ) - 1
+        longitude_index = np.clip(longitude_index, 0, self._longitude.size - 1)
+        next_longitude_index = (longitude_index + 1) % self._longitude.size
+
+        latitude_fraction = (query_latitude - latitude[latitude_index]) / (
+            latitude[latitude_index + 1] - latitude[latitude_index]
+        )
+        next_longitude = periodic_longitude[longitude_index + 1]
+        longitude_fraction = (query_longitude - periodic_longitude[longitude_index]) / (
+            next_longitude - periodic_longitude[longitude_index]
+        )
+
+        lower_left = values[latitude_index, longitude_index]
+        lower_right = values[latitude_index, next_longitude_index]
+        upper_left = values[latitude_index + 1, longitude_index]
+        upper_right = values[latitude_index + 1, next_longitude_index]
+        result[covered_indices] = (
+            (1.0 - latitude_fraction)
+            * ((1.0 - longitude_fraction) * lower_left + longitude_fraction * lower_right)
+            + latitude_fraction
+            * ((1.0 - longitude_fraction) * upper_left + longitude_fraction * upper_right)
+        )
+
+        # Kaiju treats the polar quadrilateral as a triangle because all
+        # longitude vertices at the pole are one physical point. Its map
+        # therefore averages the reconstructed pole and the two adjacent
+        # values on the poleward ring, independently of polar distance.
+        polar_cap = (
+            query_latitude > self._latitude[-1]
+            if north
+            else query_latitude < self._latitude[0]
+        )
+        if np.any(polar_cap):
+            result[covered_indices[polar_cap]] = (
+                pole_value
+                + poleward_ring[longitude_index[polar_cap]]
+                + poleward_ring[next_longitude_index[polar_cap]]
+            ) / 3.0
         return result.reshape(target_shape)
 
 
@@ -823,7 +992,7 @@ class _RemixRadialCurrentReader:
             ) from exc
         self._remix = remix
         self._remix_file = Path(remix_file)
-        self._interpolators: dict[str, _PeriodicLatLonInterpolator] = {}
+        self._interpolators: dict[str, _RemixGridInterpolator] = {}
 
     def _hemisphere(
         self,
@@ -840,7 +1009,7 @@ class _RemixRadialCurrentReader:
         )
         interpolator = self._interpolators.get(hemisphere)
         if interpolator is None:
-            interpolator = _PeriodicLatLonInterpolator(source_lat, source_lon)
+            interpolator = _RemixGridInterpolator(source_lat, source_lon)
             self._interpolators[hemisphere] = interpolator
         elif not interpolator.matches(source_lat, source_lon):
             raise RuntimeError("REMIX grid coordinates changed between forcing histories.")
@@ -978,6 +1147,10 @@ def _write_static_datasets(
     )
     output.attrs["radial_current_convention"] = "outward"
     output.attrs["fac_to_radial_current"] = "jr = FAC_upward * abs(source unit_br)"
+    output.attrs["remix_fac_interpolation"] = "kaiju_native_periodic"
+    output.attrs["gamera_boundary_interpolation"] = (
+        "periodic_scattered_linear_with_nearest_completion"
+    )
     output.attrs["gamera_inner_index"] = int(settings.inner_index)
     output.attrs["gamera_length_scale_m"] = float(length_scale_m)
     output.attrs["gamera_B_output"] = (
@@ -1107,7 +1280,7 @@ def prepare_forcing(settings: PreparationSettings = SETTINGS) -> Path:
         boundary_lat, boundary_lon = kaiju_geopack_sm(gamera_times[0]).sm2geo(
             inner_sm_lat, inner_sm_lon
         )
-        boundary_interpolator = _PeriodicLatLonInterpolator(inner_sm_lat, inner_sm_lon)
+        boundary_interpolator = _PeriodicScatteredLatLonInterpolator(inner_sm_lat, inner_sm_lon)
         # Kaiju gioH5 writes Bx/By/Bz as total field when
         # Model%doBackground is true, and root Bx0/By0/Bz0 as Gr%B0.
         # PynaMIT needs the perturbation.

@@ -525,7 +525,7 @@ class SavedCoefficientFieldView:
         return evaluation.state_evaluator
 
     def geographic_map_context(self, reference_time=None):
-        """Return a geographic map centered on solar local noon."""
+        """Return a geographic map centered on mean-solar local noon."""
         if reference_time is None:
             reference_time = self.run_view.config.t0
         return MapCoordinateContext.geographic(pd.Timestamp(reference_time).to_pydatetime())
