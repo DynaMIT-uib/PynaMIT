@@ -2,7 +2,9 @@
 
 import importlib
 
+import cartopy.crs as ccrs
 import numpy as np
+import pandas as pd
 import pytest
 import xarray as xr
 
@@ -312,6 +314,305 @@ def test_saved_field_view_inspects_direct_e_source_input(tmp_path):
     assert fields["E_source_theta"].shape == view.wind_lat.shape
     assert fields["E_source_phi"].shape == view.wind_lat.shape
     assert np.any(np.isfinite(fields["E_source_theta"]))
+
+
+def test_saved_field_view_keeps_model_and_geographic_evaluation_grids_separate(tmp_path):
+    """Geographic maps must not replace the magnetic hemisphere grid."""
+    run_fields = importlib.import_module("pynamit.visualization.run_fields")
+
+    simulation = pynamit.Simulation(
+        run_directory=tmp_path,
+        Nmax=2,
+        Mmax=1,
+        Ncs=8,
+        main_field_kind="dipole",
+        enable_pfac_coupling=False,
+        artifact_storage="netcdf",
+    )
+    resistance_shape = simulation.run_data.schema.input_field_spaces[
+        "resistance"
+    ].coefficient_shape
+    simulation.set_resistance(
+        etaP_coefficients=np.ones(resistance_shape),
+        etaH_coefficients=np.zeros(resistance_shape),
+        time=0.0,
+    )
+    jr_shape = simulation.run_data.schema.input_field_spaces["jr"].coefficient_shape
+    simulation.set_jr(jr_coefficients=np.zeros(jr_shape), time=0.0)
+    simulation.impose_steady_state(time=0.0, save=True, quiet=True)
+
+    view = run_fields.SavedCoefficientFieldView.from_directory(tmp_path, nlat=6, nlon=8)
+    geographic = view._get_geographic_evaluation()
+    geographic_state_evaluator = view._geographic_state_evaluator(geographic)
+    expected_lat, expected_lon = view.run_view.main_field.geo_to_model_coordinates(
+        view.lat, view.lon, event_time=view._fallback_start_time()
+    )
+
+    np.testing.assert_allclose(view.state_evaluator.grid.lat, view.lat.reshape(-1))
+    np.testing.assert_allclose(view.state_evaluator.grid.lon, view.lon.reshape(-1))
+    np.testing.assert_allclose(geographic_state_evaluator.grid.lat, expected_lat.reshape(-1))
+    np.testing.assert_allclose(geographic_state_evaluator.grid.lon, expected_lon.reshape(-1))
+    assert geographic_state_evaluator.grid != view.state_evaluator.grid
+    assert view._get_geographic_evaluation() is geographic
+    assert view.geographic_map_context() == run_fields.MapCoordinateContext.geographic(
+        pd.Timestamp(view._fallback_start_time()).to_pydatetime()
+    )
+
+
+def test_saved_field_view_reuses_earth_fixed_geographic_mapping(tmp_path):
+    """Kaiju model and display geometry stay fixed in GEO."""
+    run_fields = importlib.import_module("pynamit.visualization.run_fields")
+    simulation = pynamit.Simulation(
+        run_directory=tmp_path,
+        Nmax=2,
+        Mmax=1,
+        Ncs=8,
+        main_field_kind="kaiju_dipole",
+        main_field_epoch=2011.8,
+        t0="2011-10-24T18:00:10",
+        enable_pfac_coupling=False,
+        artifact_storage="netcdf",
+    )
+    jr_shape = simulation.run_data.schema.input_field_spaces["jr"].coefficient_shape
+    simulation.set_jr(jr_coefficients=np.zeros((2, *jr_shape)), time=np.array([0.0, 3600.0]))
+
+    view = run_fields.SavedCoefficientFieldView.from_directory(tmp_path, nlat=6, nlon=8)
+    first_time = view.timestamp_at_index(0)
+    last_time = view.timestamp_at_index(1)
+    first = view._get_geographic_evaluation(first_time)
+    last = view._get_geographic_evaluation(last_time)
+
+    assert first is last
+    np.testing.assert_allclose(first.scalar_grid.lat, last.scalar_grid.lat)
+    np.testing.assert_allclose(first.scalar_grid.lon, last.scalar_grid.lon)
+    assert view._get_geographic_evaluation(last_time) is last
+    assert (
+        view.model_map_context(first_time).noon_longitude
+        != view.model_map_context(last_time).noon_longitude
+    )
+
+
+def test_kaiju_hemisphere_plot_coordinates_are_magnetic(tmp_path):
+    """Kaiju polar plots rotate GEO samples into MAG and use MLT."""
+    run_fields = importlib.import_module("pynamit.visualization.run_fields")
+    simulation = pynamit.Simulation(
+        run_directory=tmp_path,
+        Nmax=2,
+        Mmax=1,
+        Ncs=8,
+        main_field_kind="kaiju_dipole",
+        main_field_epoch=2011.8,
+        t0="2011-10-24T18:00:10",
+        enable_pfac_coupling=False,
+        artifact_storage="netcdf",
+    )
+    jr_shape = simulation.run_data.schema.input_field_spaces["jr"].coefficient_shape
+    simulation.set_jr(jr_coefficients=np.zeros(jr_shape), time=0.0)
+
+    view = run_fields.SavedCoefficientFieldView.from_directory(tmp_path, nlat=6, nlon=8)
+    magnetic_latitude, magnetic_longitude = view.magnetic_plot_coordinates()
+    expected = view.run_view.main_field.geographic_to_magnetic_coordinates(view.lat, view.lon)
+    timestamp = view.timestamp_at_index(0)
+    context = view.magnetic_map_context(timestamp)
+
+    np.testing.assert_allclose(magnetic_latitude, expected[0])
+    np.testing.assert_allclose(magnetic_longitude, expected[1])
+    assert not np.allclose(magnetic_latitude, view.lat)
+    assert context.longitude_kind == "magnetic"
+    assert context.local_time_kind == "magnetic"
+    assert context.noon_longitude == pytest.approx(
+        view.run_view.main_field.magnetic_noon_longitude(pd.Timestamp(timestamp).to_pydatetime())
+    )
+
+
+def test_geographic_input_vectors_are_rotated_to_geographic_components(tmp_path):
+    """Global quivers use geographic tangent-vector components."""
+    run_fields = importlib.import_module("pynamit.visualization.run_fields")
+
+    simulation = pynamit.Simulation(
+        run_directory=tmp_path,
+        Nmax=2,
+        Mmax=1,
+        Ncs=8,
+        main_field_kind="dipole",
+        enable_pfac_coupling=False,
+        artifact_storage="netcdf",
+    )
+    wind_shape = simulation.run_data.schema.input_field_spaces["u"].coefficient_shape
+    u_cf = np.linspace(0.0, 1.0, wind_shape[1])
+    u_df = np.linspace(1.0, 0.0, wind_shape[1])
+    simulation.set_neutral_wind(u_cf=u_cf, u_df=u_df, time=0.0)
+
+    view = run_fields.SavedCoefficientFieldView.from_directory(tmp_path, wind_nlat=5, wind_nlon=7)
+    fields = view.input_grid_fields(0, coordinate_system="geographic")
+    evaluation = view._get_geographic_evaluation()
+    coefficients = view.dataset_values("u", "u")[0]
+    model_theta, model_phi = evaluation.input_evaluators["u"].synthesize_helmholtz(coefficients)
+    _, _, expected_east, expected_north = view.run_view.main_field.model_to_geo_coordinates(
+        evaluation.vector_grid.lat.reshape(view.wind_lat.shape),
+        evaluation.vector_grid.lon.reshape(view.wind_lon.shape),
+        model_phi.reshape(view.wind_lat.shape),
+        -model_theta.reshape(view.wind_lat.shape),
+    )
+
+    np.testing.assert_allclose(fields["wind_phi"], expected_east.reshape(view.wind_lat.shape))
+    np.testing.assert_allclose(fields["wind_theta"], -expected_north.reshape(view.wind_lat.shape))
+
+
+def test_saved_field_view_rejects_unknown_display_coordinate_system(tmp_path):
+    """Display-coordinate selection should fail explicitly on typos."""
+    run_fields = importlib.import_module("pynamit.visualization.run_fields")
+
+    simulation = pynamit.Simulation(
+        run_directory=tmp_path,
+        Nmax=2,
+        Mmax=1,
+        Ncs=8,
+        enable_pfac_coupling=False,
+        artifact_storage="netcdf",
+    )
+    jr_shape = simulation.run_data.schema.input_field_spaces["jr"].coefficient_shape
+    simulation.set_jr(jr_coefficients=np.zeros(jr_shape), time=0.0)
+    view = run_fields.SavedCoefficientFieldView.from_directory(tmp_path)
+
+    with pytest.raises(ValueError, match="coordinate_system"):
+        view.input_grid_fields(0, coordinate_system="geomagnetic-ish")
+
+
+@pytest.mark.parametrize(
+    ("plot_type", "expected_coordinate_system"),
+    [("global", "geographic"), ("hemispheres", "model")],
+)
+def test_field_renderer_selects_coordinates_for_map_type(
+    monkeypatch, plot_type, expected_coordinate_system
+):
+    """Global maps are geographic while hemispheres stay magnetic."""
+    import matplotlib.pyplot as plt
+
+    figures = importlib.import_module("pynamit.visualization.field_comparison_figures")
+    figure_specs = importlib.import_module("pynamit.visualization.figure_specs")
+    map_coordinates = importlib.import_module("pynamit.visualization.map_coordinates")
+
+    class CapturingView:
+        lat, lon = np.meshgrid(np.linspace(-80.0, 80.0, 4), np.linspace(-180.0, 180.0, 5))
+        run_view = type("RunView", (), {"datasets": {"state": object()}})()
+        coordinate_system = None
+
+        def state_comparison_grid_fields(self, index, *, field_names, coordinate_system):
+            del index, field_names
+            self.coordinate_system = coordinate_system
+            return {"Br_state": np.zeros(self.lat.shape)}
+
+        @staticmethod
+        def timestamp_at_index(index):
+            return np.datetime64("2020-01-01") + np.timedelta64(index, "s")
+
+        @staticmethod
+        def geographic_map_context(reference_time=None):
+            return map_coordinates.MapCoordinateContext.from_noon_longitude(
+                30.0,
+                longitude_kind="geographic",
+                local_time_kind="solar",
+                reference_time=reference_time,
+            )
+
+        @classmethod
+        def magnetic_plot_coordinates(cls):
+            return cls.lat, cls.lon
+
+        magnetic_map_context = geographic_map_context
+        model_map_context = geographic_map_context
+
+    monkeypatch.setattr(
+        figures, "_draw_field_comparison_artists", lambda *args, **kwargs: ([], None, None)
+    )
+    view = CapturingView()
+    spec = figure_specs.PynamitFigureSpec(
+        plot_type=plot_type, show_inductive=True, show_noninductive=False, show_difference=False
+    )
+
+    figure = figures.FieldComparisonRenderer(spec, view=view).render()
+    try:
+        assert view.coordinate_system == expected_coordinate_system
+        if plot_type == "global":
+            geo_axes = [axis for axis in figure.axes if hasattr(axis, "projection")]
+            assert len(geo_axes) == 1
+            assert geo_axes[0].projection.equals(ccrs.PlateCarree(central_longitude=30.0))
+    finally:
+        plt.close(figure)
+
+
+def test_input_summary_keeps_polar_jr_model_aligned(monkeypatch):
+    """Mixed input figures request both model and geographic fields."""
+    import matplotlib.pyplot as plt
+
+    figures = importlib.import_module("pynamit.visualization.input_driver_figures")
+    figure_specs = importlib.import_module("pynamit.visualization.figure_specs")
+    map_coordinates = importlib.import_module("pynamit.visualization.map_coordinates")
+
+    class CapturingView:
+        lat, lon = np.meshgrid(np.linspace(-80.0, 80.0, 4), np.linspace(-180.0, 180.0, 5))
+        wind_lat, wind_lon = lat, lon
+
+        def __init__(self):
+            self.coordinate_systems = []
+
+        def input_grid_fields(self, index, *, coordinate_system):
+            del index
+            self.coordinate_systems.append(coordinate_system)
+            shape = self.lat.shape
+            return {
+                "jr": np.zeros(shape),
+                "Br": np.zeros(shape),
+                "sigmaP": np.ones(shape),
+                "sigmaH": np.ones(shape),
+                "wind_theta": np.zeros(shape),
+                "wind_phi": np.zeros(shape),
+                "Q_eff_theta": np.full(shape, np.nan),
+                "Q_eff_phi": np.full(shape, np.nan),
+                "E_source_theta": np.full(shape, np.nan),
+                "E_source_phi": np.full(shape, np.nan),
+            }
+
+        @staticmethod
+        def timestamp_at_index(index):
+            return np.datetime64("2020-01-01") + np.timedelta64(index, "s")
+
+        @staticmethod
+        def geographic_map_context(reference_time=None):
+            return map_coordinates.MapCoordinateContext.from_noon_longitude(
+                30.0,
+                longitude_kind="geographic",
+                local_time_kind="solar",
+                reference_time=reference_time,
+            )
+
+        @classmethod
+        def magnetic_plot_coordinates(cls):
+            return cls.lat, cls.lon
+
+        magnetic_map_context = geographic_map_context
+        model_map_context = geographic_map_context
+
+    monkeypatch.setattr(figures.InputDriverRenderer, "_draw_jr_hemispheres", lambda *args: None)
+    monkeypatch.setattr(
+        figures.InputDriverRenderer, "_draw_global_scalars", lambda *args: (None, None)
+    )
+    monkeypatch.setattr(figures.InputDriverRenderer, "_draw_tangential_source", lambda *args: None)
+    monkeypatch.setattr(figures.InputDriverRenderer, "_draw_colorbars", lambda *args: None)
+    view = CapturingView()
+    spec = figure_specs.PynamitFigureSpec(plot_type="input_summary")
+
+    figure = figures.InputDriverRenderer(spec, view=view).render()
+    try:
+        assert view.coordinate_systems == ["model", "geographic"]
+        geo_axes = [axis for axis in figure.axes if hasattr(axis, "projection")]
+        assert len(geo_axes) == 4
+        assert all(
+            axis.projection.equals(ccrs.PlateCarree(central_longitude=30.0)) for axis in geo_axes
+        )
+    finally:
+        plt.close(figure)
 
 
 def test_publication_script_export_is_jupyter_friendly():

@@ -88,11 +88,59 @@ def test_pynameye_uses_saved_run_view(tmp_path):
     assert eye.main_field is eye.run_view.main_field
     assert eye.m_ind_to_Br_operator is eye.geometry.m_ind_to_Br_operator
     assert eye.m_imp_to_jr_operator is eye.geometry.m_imp_to_jr_operator
+    expected_model_lat, expected_model_lon = eye.main_field.geo_to_model_coordinates(
+        eye.lat, eye.lon, event_time=eye.t0
+    )
+    np.testing.assert_allclose(eye.global_grid.lat, expected_model_lat.reshape(-1))
+    np.testing.assert_allclose(eye.global_grid.lon, expected_model_lon.reshape(-1))
+    np.testing.assert_allclose(eye.polar_grid.lat, eye.mlat.reshape(-1))
+    np.testing.assert_allclose(eye.polar_grid.lon, eye.mlon.reshape(-1))
     np.testing.assert_allclose(eye.m_Phi, eye.Phi_coeffs * eye.RI)
     np.testing.assert_allclose(eye.m_W, eye.W_coeffs * eye.RI)
     np.testing.assert_allclose(eye.m_u_cf, u_cf)
     np.testing.assert_allclose(eye.m_u_df, u_df)
     np.testing.assert_allclose(eye.u.array, np.stack([u_cf, u_df]))
+
+
+def test_pynameye_reuses_earth_fixed_geographic_mapping(tmp_path):
+    """PynamEye does not rebuild fixed GEO display geometry."""
+    simulation = pynamit.Simulation(
+        run_directory=tmp_path,
+        Nmax=2,
+        Mmax=1,
+        Ncs=8,
+        main_field_kind="kaiju_dipole",
+        main_field_epoch=2011.8,
+        t0="2011-10-24T18:00:10",
+        enable_pfac_coupling=False,
+        artifact_storage="netcdf",
+    )
+    resistance_shape = simulation.run_data.schema.input_field_spaces[
+        "resistance"
+    ].coefficient_shape
+    times = np.array([0.0, 3600.0])
+    simulation.set_resistance(
+        etaP_coefficients=np.ones((2, *resistance_shape)),
+        etaH_coefficients=np.zeros((2, *resistance_shape)),
+        time=times,
+    )
+    jr_shape = simulation.run_data.schema.input_field_spaces["jr"].coefficient_shape
+    simulation.set_jr(jr_coefficients=np.zeros((2, *jr_shape)), time=times)
+    simulation.impose_steady_state(time=0.0, save=True, quiet=True)
+    simulation.impose_steady_state(time=3600.0, save=True, quiet=True)
+    eye = PynamEye(tmp_path, Nlat=6, Nlon=8, NCS_plot=4)
+    initial_lon = eye.global_grid.lon.copy()
+    initial_vector_lon = np.asarray(eye.global_vector_lon).copy()
+
+    eye.set_time(3600.0)
+
+    np.testing.assert_allclose(eye.global_grid.lon, initial_lon)
+    np.testing.assert_allclose(eye.global_vector_lon, initial_vector_lon)
+    expected_lat, expected_lon = eye.main_field.geo_to_model_coordinates(
+        eye.lat, eye.lon, event_time=eye.time
+    )
+    np.testing.assert_allclose(eye.global_grid.lat, expected_lat.reshape(-1))
+    np.testing.assert_allclose(eye.global_grid.lon, expected_lon.reshape(-1))
 
 
 def test_pynameye_joule_uses_total_boundary_driven_current(tmp_path):

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from math import floor
 from typing import Any
 
@@ -35,6 +35,36 @@ class GeopackDipoleCoefficients:
 
 
 @dataclass(frozen=True)
+class KaijuGeopackMAG:
+    """Earth-fixed Kaiju/Geopack centered-dipole coordinates."""
+
+    epoch: datetime
+    coefficients: GeopackDipoleCoefficients
+    geo_to_mag_matrix: np.ndarray
+
+    def __post_init__(self) -> None:
+        """Own and validate the GEO-to-MAG rotation matrix."""
+        object.__setattr__(
+            self,
+            "geo_to_mag_matrix",
+            _validated_rotation_matrix(self.geo_to_mag_matrix, name="geo_to_mag_matrix"),
+        )
+
+    @property
+    def mag_to_geo_matrix(self) -> np.ndarray:
+        """Return the inverse MAG-to-GEO rotation matrix."""
+        return self.geo_to_mag_matrix.T
+
+    def geo2mag(self, lat, lon, east=None, north=None):
+        """Convert GEO coordinates and optional vectors to MAG."""
+        return _rotate_spherical(self.geo_to_mag_matrix, lat, lon, east=east, north=north)
+
+    def mag2geo(self, lat, lon, east=None, north=None):
+        """Convert MAG coordinates and optional vectors to GEO."""
+        return _rotate_spherical(self.mag_to_geo_matrix, lat, lon, east=east, north=north)
+
+
+@dataclass(frozen=True)
 class KaijuGeopackSM:
     """Kaiju/Geopack GEO-SM rotation for one epoch."""
 
@@ -44,17 +74,11 @@ class KaijuGeopackSM:
 
     def __post_init__(self) -> None:
         """Own and validate the GEO-to-SM rotation matrix."""
-        matrix = np.array(self.geo_to_sm_matrix, dtype=float, copy=True)
-        if matrix.shape != (3, 3):
-            raise ValueError("geo_to_sm_matrix must have shape (3, 3).")
-        if not np.all(np.isfinite(matrix)):
-            raise ValueError("geo_to_sm_matrix must contain only finite values.")
-        if not np.allclose(matrix @ matrix.T, np.eye(3), atol=1e-10, rtol=1e-10):
-            raise ValueError("geo_to_sm_matrix must be orthogonal.")
-        if not np.isclose(np.linalg.det(matrix), 1.0, atol=1e-10, rtol=1e-10):
-            raise ValueError("geo_to_sm_matrix must be a proper rotation matrix.")
-        matrix.setflags(write=False)
-        object.__setattr__(self, "geo_to_sm_matrix", matrix)
+        object.__setattr__(
+            self,
+            "geo_to_sm_matrix",
+            _validated_rotation_matrix(self.geo_to_sm_matrix, name="geo_to_sm_matrix"),
+        )
 
     @property
     def sm_to_geo_matrix(self) -> np.ndarray:
@@ -91,6 +115,21 @@ GEOPACK_DIPOLE_COEFFICIENTS: dict[int, tuple[float, float, float]] = {
 GEOPACK_2020_SECULAR_VARIATION = (5.7, 7.4, -25.9)
 
 
+def _validated_rotation_matrix(matrix, *, name: str) -> np.ndarray:
+    """Return an immutable proper rotation matrix."""
+    matrix = np.array(matrix, dtype=float, copy=True)
+    if matrix.shape != (3, 3):
+        raise ValueError(f"{name} must have shape (3, 3).")
+    if not np.all(np.isfinite(matrix)):
+        raise ValueError(f"{name} must contain only finite values.")
+    if not np.allclose(matrix @ matrix.T, np.eye(3), atol=1e-10, rtol=1e-10):
+        raise ValueError(f"{name} must be orthogonal.")
+    if not np.isclose(np.linalg.det(matrix), 1.0, atol=1e-10, rtol=1e-10):
+        raise ValueError(f"{name} must be a proper rotation matrix.")
+    matrix.setflags(write=False)
+    return matrix
+
+
 def _datetime_from_decimal_year(epoch: float) -> datetime:
     """Convert a decimal year to a UTC-like datetime."""
     year = int(floor(float(epoch)))
@@ -102,8 +141,10 @@ def _datetime_from_decimal_year(epoch: float) -> datetime:
 
 
 def _as_datetime(epoch: float | datetime) -> datetime:
-    """Return ``epoch`` as a datetime."""
+    """Return ``epoch`` as a naive UTC datetime."""
     if isinstance(epoch, datetime):
+        if epoch.tzinfo is not None:
+            epoch = epoch.astimezone(timezone.utc).replace(tzinfo=None)
         return epoch
     return _datetime_from_decimal_year(float(epoch))
 
@@ -111,6 +152,7 @@ def _as_datetime(epoch: float | datetime) -> datetime:
 def _geopack_epoch_value(epoch: float | datetime) -> float:
     """Return the year used by Kaiju Geopack interpolation."""
     if isinstance(epoch, datetime):
+        epoch = _as_datetime(epoch)
         return epoch.year + (epoch.timetuple().tm_yday - 1) / 365.25
     return float(epoch)
 
@@ -295,6 +337,15 @@ def _kaiju_geo_to_sm_matrix(epoch: datetime, coefficients: GeopackDipoleCoeffici
     return gsw_to_sm @ a
 
 
+def _kaiju_geo_to_mag_matrix(coefficients: GeopackDipoleCoefficients) -> np.ndarray:
+    """Return Kaiju's Earth-fixed GEO-to-MAG rotation matrix."""
+    z_mag = coefficients.axis
+    y_mag = np.cross(np.array([0.0, 0.0, 1.0]), z_mag)
+    y_mag /= np.linalg.norm(y_mag)
+    x_mag = np.cross(y_mag, z_mag)
+    return np.vstack((x_mag, y_mag, z_mag))
+
+
 def kaiju_geopack_coefficients(epoch: float | datetime) -> GeopackDipoleCoefficients:
     """Return Kaiju/Geopack degree-1 dipole coefficients for an epoch.
 
@@ -320,14 +371,16 @@ def kaiju_geopack_coefficients(epoch: float | datetime) -> GeopackDipoleCoeffici
         return _linear_coefficients(epoch_value, 2010, 2015)
     if epoch_value < 2020.0:
         return _linear_coefficients(epoch_value, 2015, 2020)
-    if epoch_value <= 2025.0:
+    # Kaiju accepts every day in calendar year 2025. Decimal-year
+    # values therefore remain valid up to, but not including, 2026.
+    if epoch_value < 2026.0:
         dt = epoch_value - 2020.0
         base = np.array(GEOPACK_DIPOLE_COEFFICIENTS[2020], dtype=float)
         secular = np.array(GEOPACK_2020_SECULAR_VARIATION, dtype=float)
         g10, g11, h11 = base + dt * secular
         return GeopackDipoleCoefficients(epoch_value, float(g10), float(g11), float(h11))
     raise ValueError(
-        "Kaiju Geopack clamps years above 2025; pass an epoch <= 2025 for "
+        "Kaiju Geopack clamps years above 2025; pass an epoch before 2026 for "
         "an explicit Kaiju-compatible centered dipole."
     )
 
@@ -353,10 +406,21 @@ def kaiju_geopack_dipole(epoch: float | datetime, *, B0: float | None = None) ->
     return dpl
 
 
+def kaiju_geopack_mag(epoch: float | datetime) -> KaijuGeopackMAG:
+    """Return the Earth-fixed Kaiju/Geopack GEO-MAG transform."""
+    epoch_datetime = _as_datetime(epoch)
+    coefficients = kaiju_geopack_coefficients(epoch)
+    return KaijuGeopackMAG(
+        epoch=epoch_datetime,
+        coefficients=coefficients,
+        geo_to_mag_matrix=_kaiju_geo_to_mag_matrix(coefficients),
+    )
+
+
 def kaiju_geopack_sm(epoch: float | datetime) -> KaijuGeopackSM:
     """Return the Kaiju/Geopack GEO-SM transform for one epoch."""
     epoch_datetime = _as_datetime(epoch)
-    coefficients = kaiju_geopack_coefficients(epoch_datetime)
+    coefficients = kaiju_geopack_coefficients(epoch)
     return KaijuGeopackSM(
         epoch=epoch_datetime,
         coefficients=coefficients,
@@ -364,15 +428,26 @@ def kaiju_geopack_sm(epoch: float | datetime) -> KaijuGeopackSM:
     )
 
 
-def kaiju_geopack_alignment(epoch: float | datetime) -> dict[str, Any]:
-    """Return serializable Kaiju/Geopack alignment metadata."""
-    dpl = kaiju_geopack_dipole(epoch)
+def kaiju_geopack_alignment(
+    epoch: float | datetime, *, magnetic_epoch: float | datetime | None = None
+) -> dict[str, Any]:
+    """Return internal-MAG and timestamped-SM alignment metadata.
+
+    ``epoch`` is the physical time of the Sun-aligned SM transform.
+    ``magnetic_epoch`` optionally fixes the internal Earth-attached MAG
+    frame and centered-dipole coefficients at a separate simulation
+    epoch.
+    """
+    magnetic_epoch = epoch if magnetic_epoch is None else magnetic_epoch
+    dpl = kaiju_geopack_dipole(magnetic_epoch)
+    mag = kaiju_geopack_mag(magnetic_epoch)
     sm = kaiju_geopack_sm(epoch)
     coefficients = dpl.kaiju_geopack_coefficients
     epoch_value = coefficients.epoch_value
     return {
         "dipole_alignment_model": "kaiju_geopack_centered_dipole",
         "dipole_alignment_epoch": epoch_value,
+        "dipole_sm_transform_time": sm.epoch.isoformat(),
         "dipole_axis_geo_cartesian": np.asarray(dpl.axis, dtype=float),
         "dipole_north_pole_geo_lat_lon": np.asarray(dpl.north_pole, dtype=float),
         "dipole_south_pole_geo_lat_lon": np.asarray(dpl.south_pole, dtype=float),
@@ -380,6 +455,9 @@ def kaiju_geopack_alignment(epoch: float | datetime) -> dict[str, Any]:
         "dipole_geopack_g11_nT": coefficients.g11,
         "dipole_geopack_h11_nT": coefficients.h11,
         "dipole_geopack_B0_nT": coefficients.B0_nT,
+        "dipole_mag_x_axis_geo_cartesian": mag.mag_to_geo_matrix[:, 0],
+        "dipole_mag_y_axis_geo_cartesian": mag.mag_to_geo_matrix[:, 1],
+        "dipole_mag_z_axis_geo_cartesian": mag.mag_to_geo_matrix[:, 2],
         "dipole_sm_x_axis_geo_cartesian": sm.sm_to_geo_matrix[:, 0],
         "dipole_sm_y_axis_geo_cartesian": sm.sm_to_geo_matrix[:, 1],
         "dipole_sm_z_axis_geo_cartesian": sm.sm_to_geo_matrix[:, 2],
@@ -390,10 +468,12 @@ __all__ = [
     "GEOPACK_DIPOLE_COEFFICIENTS",
     "GEOPACK_2020_SECULAR_VARIATION",
     "GeopackDipoleCoefficients",
+    "KaijuGeopackMAG",
     "KaijuGeopackSM",
     "axis_lat_lon",
     "kaiju_geopack_alignment",
     "kaiju_geopack_coefficients",
     "kaiju_geopack_dipole",
+    "kaiju_geopack_mag",
     "kaiju_geopack_sm",
 ]

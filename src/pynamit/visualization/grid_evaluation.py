@@ -20,6 +20,12 @@ def build_evaluator(basis, grid, **kwargs):
     return SphericalTransform(basis, grid, **kwargs)
 
 
+def model_grid_for_geographic_display(main_field, lat, lon, *, event_time=None):
+    """Return the model-coordinate grid underlying a geographic map."""
+    model_lat, model_lon = main_field.geo_to_model_coordinates(lat, lon, event_time=event_time)
+    return Grid(lat=model_lat, lon=model_lon)
+
+
 def transform_for_basis(basis, transform):
     """Return ``transform`` or an equivalent one for ``basis``."""
     if transform.basis.coefficients_are_compatible_with(basis):
@@ -69,4 +75,10 @@ def build_JS_operators(settings, sh_basis, transform, pfac_coupling_matrix=None)
     return {"m_ind_to_JS": m_ind_to_JS, "m_imp_to_JS": m_imp_to_JS, "Br_to_JS": Br_to_JS}
 
 
-__all__ = ["build_evaluator", "build_plot_grid", "build_JS_operators", "transform_for_basis"]
+__all__ = [
+    "build_evaluator",
+    "build_plot_grid",
+    "build_JS_operators",
+    "model_grid_for_geographic_display",
+    "transform_for_basis",
+]

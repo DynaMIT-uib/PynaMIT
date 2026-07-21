@@ -42,16 +42,11 @@ def _is_polarplot_axis(axis):
     return axis.__class__.__name__ == "Polarplot"
 
 
-def _polar_comparison_coordinates(lat, lon, current_time, dipole_obj, minimum_latitude):
+def _polar_comparison_coordinates(lat, lon, coordinate_context, minimum_latitude):
     """Return polar coordinates and hemisphere masks."""
-    if dipole_obj:
-        polar_lat, magnetic_lon = dipole_obj.geo2mag(lat, lon)
-        polar_time = dipole_obj.mlon2mlt(magnetic_lon, current_time)
-    else:
-        polar_lat = lat
-        polar_time = (lon + 180.0) % 360.0 / 15.0
-    north_mask, south_mask = hemisphere_masks_for_latitude(polar_lat, minimum_latitude)
-    return polar_lat, polar_time, north_mask, south_mask
+    polar_time = coordinate_context.longitude_to_local_time(lon)
+    north_mask, south_mask = hemisphere_masks_for_latitude(lat, minimum_latitude)
+    return lat, polar_time, north_mask, south_mask
 
 
 def _field_panel_spec(field_key, fields_dict, plot_kwargs, diff_kwargs, panel_keys):
@@ -83,11 +78,10 @@ def _draw_field_comparison_artists(
     fields_dict,
     lat,
     lon,
-    current_time,
+    coordinate_context,
     *,
     plot_kwargs,
     diff_kwargs,
-    dipole_obj=None,
     hemisphere_min_abs_latitude=50.0,
     panel_keys=("state", "steady", "diff"),
 ):
@@ -97,7 +91,7 @@ def _draw_field_comparison_artists(
     overlay_keys = list(overlay_keys)
     panel_keys = list(panel_keys)
     polar_x, polar_y, polar_north_mask, polar_south_mask = _polar_comparison_coordinates(
-        lat, lon, current_time, dipole_obj, hemisphere_min_abs_latitude
+        lat, lon, coordinate_context, hemisphere_min_abs_latitude
     )
 
     if filled_key is not None:
@@ -177,10 +171,19 @@ class FieldComparisonRenderer:
         field_names = set(map_line_keys(self.spec.lines))
         if self.spec.fill != "none":
             field_names.add(self.spec.fill)
+        display_coordinate_system = "geographic" if self.spec.plot_type == "global" else "model"
         fields = self.view.state_comparison_grid_fields(
-            self.spec.time_index, field_names=field_names
+            self.spec.time_index,
+            field_names=field_names,
+            coordinate_system=display_coordinate_system,
         )
         timestamp = self.view.timestamp_at_index(self.spec.time_index)
+        if self.spec.plot_type == "global":
+            display_latitude, display_longitude = self.view.lat, self.view.lon
+            display_coordinate_context = self.view.geographic_map_context(timestamp)
+        else:
+            display_latitude, display_longitude = self.view.magnetic_plot_coordinates()
+            display_coordinate_context = self.view.magnetic_map_context(timestamp)
         plot_kwargs = {key: dict(value) for key, value in FIELD_PLOT_KWARGS.items()}
         diff_kwargs = {key: dict(value) for key, value in FIELD_DIFF_KWARGS.items()}
         filled_key = None if str(self.spec.fill) == "none" else str(self.spec.fill)
@@ -206,18 +209,17 @@ class FieldComparisonRenderer:
                 )
 
         panel_specs = self._panel_specs()
-        fig, axes_groups, colorbar_axes = self._create_axes(panel_specs)
+        fig, axes_groups, colorbar_axes = self._create_axes(panel_specs, timestamp)
         _, main_mappable, diff_mappable = _draw_field_comparison_artists(
             axes_groups,
             self.spec.fill,
             map_line_keys(self.spec.lines),
             fields,
-            self.view.lat,
-            self.view.lon,
-            timestamp,
+            display_latitude,
+            display_longitude,
+            display_coordinate_context,
             plot_kwargs=plot_kwargs,
             diff_kwargs=diff_kwargs,
-            dipole_obj=None,
             hemisphere_min_abs_latitude=self.spec.hemisphere_min_abs_latitude,
             panel_keys=[key for key, _ in panel_specs],
         )
@@ -246,11 +248,11 @@ class FieldComparisonRenderer:
             panels.append(("diff", "Difference"))
         return panels or [("empty", "No data selected")]
 
-    def _create_axes(self, panel_specs):
+    def _create_axes(self, panel_specs, timestamp):
         n_panels = max(1, len(panel_specs))
         if self.spec.plot_type == "hemispheres":
             return self._create_hemisphere_axes(panel_specs, n_panels)
-        return self._create_global_axes(panel_specs, n_panels)
+        return self._create_global_axes(panel_specs, n_panels, timestamp)
 
     def _create_hemisphere_axes(self, panel_specs, n_panels):
         rows = []
@@ -296,7 +298,8 @@ class FieldComparisonRenderer:
         ]
         return fig, axes_groups, colorbar_axes
 
-    def _create_global_axes(self, panel_specs, n_panels):
+    def _create_global_axes(self, panel_specs, n_panels, timestamp):
+        coordinate_context = self.view.geographic_map_context(timestamp)
         fig = plt.figure(figsize=(13, 6), constrained_layout=True)
         grid = gridspec.GridSpec(
             1,
@@ -306,12 +309,18 @@ class FieldComparisonRenderer:
             wspace=0.1,
         )
         axes = [
-            fig.add_subplot(grid[0, col], projection=ccrs.PlateCarree()) for col in range(n_panels)
+            fig.add_subplot(grid[0, col], projection=coordinate_context.projection())
+            for col in range(n_panels)
         ]
         for axis, (_, title) in zip(axes, panel_specs, strict=True):
             axis.set_title(title, fontsize=14)
         for index, axis in enumerate(axes):
-            style_global_comparison_axis(axis, left_labels=(index == 0), bottom_labels=True)
+            style_global_comparison_axis(
+                axis,
+                coordinate_context=coordinate_context,
+                left_labels=(index == 0),
+                bottom_labels=True,
+            )
         colorbar_axes = [
             fig.add_subplot(grid[0, n_panels]),
             fig.add_subplot(grid[0, n_panels + 1]),

@@ -34,9 +34,14 @@ class InputDriverRenderer:
 
     def render(self):
         """Render projected input drivers."""
-        fields = self.view.input_grid_fields(self.spec.time_index)
+        model_fields = self.view.input_grid_fields(self.spec.time_index, coordinate_system="model")
+        geographic_fields = self.view.input_grid_fields(
+            self.spec.time_index, coordinate_system="geographic"
+        )
         timestamp = self.view.timestamp_at_index(self.spec.time_index)
-        input_kwargs = self._plot_kwargs(fields)
+        magnetic_latitude, magnetic_longitude = self.view.magnetic_plot_coordinates()
+        magnetic_coordinate_context = self.view.magnetic_map_context(timestamp)
+        input_kwargs = self._plot_kwargs({**geographic_fields, "jr": model_fields["jr"]})
 
         fig = plt.figure(figsize=(14, 7.875))
         layout = self._layout()
@@ -47,17 +52,26 @@ class InputDriverRenderer:
         pax_jr_s = make_hemisphere_polarplot(
             fig.add_axes(layout["jr_s"]), min_abs_latitude=self.spec.hemisphere_min_abs_latitude
         )
-        global_projection = ccrs.PlateCarree()
+        coordinate_context = self.view.geographic_map_context(timestamp)
+        global_projection = coordinate_context.projection()
         ax_br = fig.add_axes(layout["Br"], projection=global_projection)
         ax_source = fig.add_axes(layout["source"], projection=global_projection)
         ax_sigma_p = fig.add_axes(layout["sigmaP"], projection=global_projection)
         ax_sigma_h = fig.add_axes(layout["sigmaH"], projection=global_projection)
 
-        jr_n = self._draw_jr_hemispheres(fields, input_kwargs["jr"], pax_jr_n, pax_jr_s)
-        br_mappable, conductance_mappable = self._draw_global_scalars(
-            fields, input_kwargs, ax_br, ax_sigma_p, ax_sigma_h
+        jr_n = self._draw_jr_hemispheres(
+            model_fields,
+            input_kwargs["jr"],
+            pax_jr_n,
+            pax_jr_s,
+            magnetic_latitude,
+            magnetic_longitude,
+            magnetic_coordinate_context,
         )
-        self._draw_tangential_source(fields, ax_source)
+        br_mappable, conductance_mappable = self._draw_global_scalars(
+            geographic_fields, input_kwargs, ax_br, ax_sigma_p, ax_sigma_h, coordinate_context
+        )
+        self._draw_tangential_source(geographic_fields, ax_source, coordinate_context)
 
         for label, axis in zip(
             ["a", "b", "c", "d", "e", "f"],
@@ -169,10 +183,19 @@ class InputDriverRenderer:
         ]
         return layout
 
-    def _draw_jr_hemispheres(self, fields, jr_kwargs, pax_jr_n, pax_jr_s):
-        mlt = (self.view.lon + 180.0) % 360.0 / 15.0
+    def _draw_jr_hemispheres(
+        self,
+        fields,
+        jr_kwargs,
+        pax_jr_n,
+        pax_jr_s,
+        magnetic_latitude,
+        magnetic_longitude,
+        coordinate_context,
+    ):
+        mlt = coordinate_context.longitude_to_local_time(magnetic_longitude)
         north_mask, south_mask = hemisphere_masks_for_latitude(
-            self.view.lat, self.spec.hemisphere_min_abs_latitude
+            magnetic_latitude, self.spec.hemisphere_min_abs_latitude
         )
         jr_display = fields["jr"] * jr_kwargs.get("scale", 1.0)
         if not self._has_finite(jr_display):
@@ -183,10 +206,16 @@ class InputDriverRenderer:
             return None
         jr_plot_kwargs = contour_kwargs_for_display(jr_kwargs)
         jr_n = pax_jr_n.contourf(
-            self.view.lat[north_mask], mlt[north_mask], jr_display[north_mask], **jr_plot_kwargs
+            magnetic_latitude[north_mask],
+            mlt[north_mask],
+            jr_display[north_mask],
+            **jr_plot_kwargs,
         )
         jr_s = pax_jr_s.contourf(
-            self.view.lat[south_mask], mlt[south_mask], jr_display[south_mask], **jr_plot_kwargs
+            magnetic_latitude[south_mask],
+            mlt[south_mask],
+            jr_display[south_mask],
+            **jr_plot_kwargs,
         )
         set_contour_edges_to_face(jr_n)
         set_contour_edges_to_face(jr_s)
@@ -201,7 +230,9 @@ class InputDriverRenderer:
             pass
         return jr_n
 
-    def _draw_global_scalars(self, fields, input_kwargs, ax_br, ax_sigma_p, ax_sigma_h):
+    def _draw_global_scalars(
+        self, fields, input_kwargs, ax_br, ax_sigma_p, ax_sigma_h, coordinate_context
+    ):
         br_mappable = None
         conductance_mappable = None
         for axis, title, missing_message, field_key, kwargs_key, left_labels, bottom_labels in [
@@ -225,7 +256,12 @@ class InputDriverRenderer:
                 True,
             ),
         ]:
-            style_global_input_axis(axis, left_labels=left_labels, bottom_labels=bottom_labels)
+            style_global_input_axis(
+                axis,
+                coordinate_context=coordinate_context,
+                left_labels=left_labels,
+                bottom_labels=bottom_labels,
+            )
             plot_kwargs = input_kwargs[kwargs_key]
             if not self._has_finite(fields[field_key]):
                 self._mark_missing(axis, missing_message)
@@ -246,8 +282,10 @@ class InputDriverRenderer:
                 conductance_mappable = contour
         return br_mappable, conductance_mappable
 
-    def _draw_tangential_source(self, fields, axis):
-        style_global_input_axis(axis, left_labels=True, bottom_labels=True)
+    def _draw_tangential_source(self, fields, axis, coordinate_context):
+        style_global_input_axis(
+            axis, coordinate_context=coordinate_context, left_labels=True, bottom_labels=True
+        )
         source_options = [
             {
                 "theta": fields["E_source_theta"],

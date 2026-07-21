@@ -346,11 +346,14 @@ class Simulation:
 
         Projects FAC onto the radial direction with the background-field
         direction cosine, then stores that radial current density.
+        Positive FAC follows the background magnetic-field vector; it is
+        not defined as upward in both hemispheres.
 
         Parameters
         ----------
         FAC : array-like
-            Field-aligned current density in A/m².
+            Signed field-parallel current density in A/m². Positive
+            values follow the background magnetic-field vector.
         lat, lon : array-like, optional
             Latitude/longitude coordinates in degrees.
         theta, phi : array-like, optional

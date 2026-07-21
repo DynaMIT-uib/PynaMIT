@@ -40,7 +40,7 @@ def test_geographic_wind_is_rotated_into_model_coordinates():
 
     theta_model, phi_model, model_lat, model_lon = (
         prepared_inputs_module._wind_to_model_coordinates(
-            main_field, event_time, u_theta, u_phi, lat, lon
+            main_field, u_theta, u_phi, lat, lon
         )
     )
     expected_lat, expected_lon = main_field.geo_to_model_coordinates(
@@ -148,13 +148,13 @@ def test_input_manifest_records_projection_settings(tmp_path):
     loaded = read_input_manifest(tmp_path)
     assert loaded == manifest
     assert loaded["kind"] == "pynamit_prepared_inputs"
-    assert loaded["version"] == 2
+    assert loaded["version"] == 3
     assert "input_datasets" not in loaded
     assert "input_projection_settings" not in loaded
     assert "t0" not in loaded["input_contract"]["coefficient_space"]
     assert loaded["input_contract"]["coefficient_space"] == input_projection_settings(config)
     assert loaded["input_contract"]["geometry"] == input_geometry_settings(config)
-    assert loaded["input_contract"]["geometry"]["main_field_coordinate_time"] == config.t0
+    assert loaded["input_contract"]["geometry"]["input_time_origin"] == config.t0
     assert loaded["input_contract"]["input_datasets"] == ["resistance", "jr"]
     assert loaded["input_contract"]["dataset_requirements"] == {}
     assert (
@@ -242,8 +242,8 @@ def test_prepared_inputs_require_matching_main_field():
         validate_prepared_input_compatibility(input_config.to_dataset(), run_config.to_dataset())
 
 
-def test_prepared_inputs_require_matching_main_field_coordinate_time():
-    """Kaiju/SM projected packages are tied to coordinate time."""
+def test_prepared_inputs_require_matching_input_time_origin():
+    """Projected packages retain their physical input time origin."""
     input_config = SimulationConfig(
         Nmax=4, Mmax=3, Ncs=8, main_field_kind="kaiju_dipole", t0="2011-10-24 18:00:10"
     )
@@ -251,7 +251,7 @@ def test_prepared_inputs_require_matching_main_field_coordinate_time():
         Nmax=4, Mmax=3, Ncs=8, main_field_kind="kaiju_dipole", t0="2011-10-24 18:10:10"
     )
 
-    with pytest.raises(ValueError, match="main_field_coordinate_time"):
+    with pytest.raises(ValueError, match="input_time_origin"):
         validate_prepared_input_compatibility(input_config.to_dataset(), run_config.to_dataset())
 
 

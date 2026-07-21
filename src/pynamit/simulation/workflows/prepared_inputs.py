@@ -2,10 +2,10 @@
 
 The input package boundary is intentionally narrower than a full run
 directory.  It stores projected input coefficients on a chosen grid,
-basis, and main-field coordinate system.  For Kaiju/Geopack SM inputs
-the coordinate time is the event time used for GEO-SM rotations.  Most
-evolution choices belong to the consuming run, but boundary ``Br`` also
-declares the magnetospheric radius it requires.
+basis, and Earth-fixed main-field coordinate system. The time origin
+locates those coefficients in physical time; it is not part of the
+spatial frame. Most evolution choices belong to the consuming run, but
+boundary ``Br`` also declares the magnetospheric radius it requires.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from pynamit.storage import ArtifactStore, FieldTimeSeries
 
 INPUT_MANIFEST_FILENAME = "pynamit_input_manifest.json"
 RUN_MANIFEST_FILENAME = "pynamit_run_manifest.json"
-_INPUT_MANIFEST_VERSION = 2
+_INPUT_MANIFEST_VERSION = 3
 
 _INPUT_PROJECTION_SETTING_KEYS = (
     "Nmax",
@@ -74,7 +74,7 @@ _INPUT_DATASET_REQUIREMENT_KEYS = {"Br": ("RM",)}
 _DEFAULT_INPUT_TIME = _datetime.datetime(2001, 5, 12, 21, 45)
 
 
-def _wind_to_model_coordinates(main_field, event_time, u_theta, u_phi, lat, lon):
+def _wind_to_model_coordinates(main_field, u_theta, u_phi, lat, lon):
     """Rotate geographic wind samples into model coordinates."""
     u_theta, u_phi = np.broadcast_arrays(np.asarray(u_theta), np.asarray(u_phi))
     lat = np.asarray(lat).reshape(-1)
@@ -82,11 +82,11 @@ def _wind_to_model_coordinates(main_field, event_time, u_theta, u_phi, lat, lon)
     if lat.size != lon.size or u_theta.shape[-1] != lat.size:
         raise ValueError("Wind coordinates must match the final wind-sample dimension.")
 
-    model_lat, model_lon = main_field.geo_to_model_coordinates(lat, lon, event_time=event_time)
+    model_lat, model_lon = main_field.geo_to_model_coordinates(lat, lon)
     vector_lat = np.broadcast_to(lat, u_theta.shape)
     vector_lon = np.broadcast_to(lon, u_theta.shape)
     _, _, model_east, model_north = main_field.geo_to_model_coordinates(
-        vector_lat, vector_lon, east=u_phi, north=-u_theta, event_time=event_time
+        vector_lat, vector_lon, east=u_phi, north=-u_theta
     )
     return -model_north, model_east, model_lat, model_lon
 
@@ -96,12 +96,10 @@ def _empirical_dipole_coordinates_for_model_grid(main_field, event_time, model_l
 
     The native Hardy and AMPS inputs are evaluated in centered-dipole
     magnetic coordinates tied to the event epoch. The simulation grid
-    may instead use IGRF/GEO, SM, or a centered dipole from another
-    epoch, so positions must pass through GEO before model evaluation.
+    may instead use IGRF/GEO or a centered dipole from another epoch,
+    so positions must pass through GEO before model evaluation.
     """
-    geo_lat, geo_lon = main_field.model_to_geo_coordinates(
-        model_lat, model_lon, event_time=event_time
-    )
+    geo_lat, geo_lon = main_field.model_to_geo_coordinates(model_lat, model_lon)
     empirical_dipole = MainField(
         kind="dipole",
         epoch=decimal_year(event_time),
@@ -128,7 +126,7 @@ def input_geometry_settings(config_or_settings: Any) -> dict[str, Any]:
         else SimulationConfig.from_settings(config_or_settings)
     )
     geometry = {name: getattr(config, name) for name in _INPUT_GEOMETRY_SETTING_KEYS}
-    geometry["main_field_coordinate_time"] = config.t0
+    geometry["input_time_origin"] = config.t0
     return geometry
 
 
@@ -353,7 +351,7 @@ def validate_prepared_input_compatibility(
     """Raise if prepared input coefficients cannot be used by a run.
 
     The baseline check covers the coefficient/grid space, main-field
-    definition, and main-field coordinate time.  Boundary ``Br`` also
+    definition, and physical input time origin. Boundary ``Br`` also
     needs the same ``RM``.  PFAC treatment, hemisphere coupling,
     low-latitude boundary, shielding, and integrator remain run choices.
     """
@@ -371,7 +369,7 @@ def validate_prepared_input_compatibility(
         if not _settings_equal(input_value, run_value):
             mismatches[name] = (input_value, run_value)
     if not _settings_equal(input_config.t0, run_config.t0):
-        mismatches["main_field_coordinate_time"] = (input_config.t0, run_config.t0)
+        mismatches["input_time_origin"] = (input_config.t0, run_config.t0)
 
     if input_datasets is not None:
         required = {
@@ -634,7 +632,7 @@ def prepare_pynamit_inputs(
     if wind_inputs is not None:
         u_theta, u_phi, u_lat, u_lon, weights = wind_inputs
         u_theta, u_phi, u_lat, u_lon = _wind_to_model_coordinates(
-            simulation.geometry.main_field, event_time, u_theta, u_phi, u_lat, u_lon
+            simulation.geometry.main_field, u_theta, u_phi, u_lat, u_lon
         )
         if use_Q_eff:
             simulation.set_Q_eff_from_neutral_wind(

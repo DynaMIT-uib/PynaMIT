@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
@@ -14,12 +14,28 @@ from pynamit.simulation.electrodynamics.ionospheric_closure import (
     pedersen_geometry_tensor,
 )
 from pynamit.visualization.field_maps import evaluate_conductance_values, evaluate_JS_from_maps
-from pynamit.visualization.grid_evaluation import build_evaluator, build_plot_grid
+from pynamit.visualization.grid_evaluation import (
+    build_evaluator,
+    build_plot_grid,
+    model_grid_for_geographic_display,
+)
+from pynamit.visualization.map_coordinates import MapCoordinateContext
 from pynamit.visualization.saved_run import SavedRunView
 
 INPUT_ARTIFACT_KEYS = ("Br", "jr", "resistance", "u", "Q_eff", "E_source")
 TANGENTIAL_INPUT_KEYS = ("u", "Q_eff", "E_source")
 STATE_FIELD_NAMES = frozenset({"Br", "jr", "Jeq", "Phi", "W", "joule"})
+_DISPLAY_COORDINATE_SYSTEMS = frozenset({"model", "geographic"})
+
+
+def _normalize_display_coordinate_system(coordinate_system):
+    """Return a supported map-display coordinate system."""
+    normalized = str(coordinate_system).strip().lower()
+    if normalized not in _DISPLAY_COORDINATE_SYSTEMS:
+        raise ValueError(
+            f"coordinate_system must be either 'model' or 'geographic'; got {coordinate_system!r}."
+        )
+    return normalized
 
 
 def _normalize_state_field_names(field_names):
@@ -46,6 +62,40 @@ def _time_datasets(datasets):
 
 def _nan_field(shape):
     return np.full(shape, np.nan, dtype=float)
+
+
+def _build_input_evaluators(
+    schema, datasets, scalar_grid, vector_grid, evaluator_cache=None, *, keys=INPUT_ARTIFACT_KEYS
+):
+    """Build input evaluators for the requested display grids."""
+    evaluator_cache = {} if evaluator_cache is None else evaluator_cache
+    evaluators = {}
+    for key in keys:
+        if key not in datasets:
+            evaluators[key] = None
+            continue
+        target_grid = vector_grid if key in TANGENTIAL_INPUT_KEYS else scalar_grid
+        representation = schema.input_field_spaces[key].representation
+        cache_key = (
+            getattr(representation, "signature", id(representation)),
+            target_grid.signature,
+        )
+        if cache_key not in evaluator_cache:
+            evaluator_cache[cache_key] = build_evaluator(representation, target_grid)
+        evaluators[key] = evaluator_cache[cache_key]
+    return evaluators
+
+
+@dataclass
+class _GeographicEvaluation:
+    """Cached operators behind the fixed geographic display grid."""
+
+    scalar_grid: object
+    vector_grid: object
+    state_evaluator: object | None
+    input_evaluators: dict[str, object | None] = field(default_factory=dict)
+    state_evaluation_context: dict[str, object] | None = None
+    sheet_current_maps: dict[str, object] | None = None
 
 
 def _dataset_var_name(dataset, variable_name):
@@ -109,9 +159,7 @@ def _sheet_current_maps(geometry, evaluator):
         "m_imp_to_JS": geometry.m_imp_to_gridded_JS(
             evaluator, poloidal_transform=poloidal_evaluator
         ),
-        "Br_to_JS": geometry.Br_to_gridded_JS(
-            evaluator, poloidal_transform=poloidal_evaluator
-        ),
+        "Br_to_JS": geometry.Br_to_gridded_JS(evaluator, poloidal_transform=poloidal_evaluator),
     }
 
 
@@ -391,6 +439,9 @@ class SavedCoefficientFieldView:
     input_evaluators: dict[str, object | None]
     state_evaluation_context: dict[str, object] | None
     sheet_current_maps: dict[str, object] | None
+    _geographic_evaluation: _GeographicEvaluation | None = field(
+        default=None, init=False, repr=False
+    )
 
     @classmethod
     def from_directory(
@@ -413,20 +464,9 @@ class SavedCoefficientFieldView:
             evaluator_cache[
                 (getattr(output_basis, "signature", id(output_basis)), grid.signature)
             ] = state_evaluator
-        input_evaluators = {}
-        for key in INPUT_ARTIFACT_KEYS:
-            if key not in run_view.datasets:
-                input_evaluators[key] = None
-                continue
-            target_grid = wind_grid if key in TANGENTIAL_INPUT_KEYS else grid
-            representation = schema.input_field_spaces[key].representation
-            cache_key = (
-                getattr(representation, "signature", id(representation)),
-                target_grid.signature,
-            )
-            if cache_key not in evaluator_cache:
-                evaluator_cache[cache_key] = build_evaluator(representation, target_grid)
-            input_evaluators[key] = evaluator_cache[cache_key]
+        input_evaluators = _build_input_evaluators(
+            schema, run_view.datasets, grid, wind_grid, evaluator_cache
+        )
 
         time_datasets = _time_datasets(run_view.datasets)
         if not time_datasets:
@@ -453,6 +493,96 @@ class SavedCoefficientFieldView:
         if not self.has_output_state:
             raise ValueError("Saved-run geometry requires state or steady_state output.")
         return self.run_view.require_geometry()
+
+    def _get_geographic_evaluation(self, event_time=None):
+        """Return evaluators sampled on the geographic display grid.
+
+        Saved coefficients live in the simulation's horizontal
+        coordinate system. The model frame is Earth-fixed, so this
+        model-to-geographic sampling geometry is immutable.
+        """
+        del event_time
+        if self._geographic_evaluation is not None:
+            return self._geographic_evaluation
+
+        main_field = self.run_view.main_field
+        scalar_grid = model_grid_for_geographic_display(main_field, self.lat, self.lon)
+        vector_grid = model_grid_for_geographic_display(main_field, self.wind_lat, self.wind_lon)
+
+        evaluation = _GeographicEvaluation(
+            scalar_grid=scalar_grid, vector_grid=vector_grid, state_evaluator=None
+        )
+        self._geographic_evaluation = evaluation
+        return evaluation
+
+    def _geographic_state_evaluator(self, evaluation):
+        """Return the lazy state evaluator for a geographic map."""
+        if evaluation.state_evaluator is None:
+            output_basis = self.run_view.schema.output_field_spaces["state"][
+                "m_imp"
+            ].representation
+            evaluation.state_evaluator = build_evaluator(output_basis, evaluation.scalar_grid)
+        return evaluation.state_evaluator
+
+    def geographic_map_context(self, reference_time=None):
+        """Return a geographic map centered on solar local noon."""
+        if reference_time is None:
+            reference_time = self.run_view.config.t0
+        return MapCoordinateContext.geographic(pd.Timestamp(reference_time).to_pydatetime())
+
+    def magnetic_map_context(self, reference_time=None):
+        """Return a magnetic map centered on magnetic local noon."""
+        if reference_time is None:
+            reference_time = self.run_view.config.t0
+        reference_time = pd.Timestamp(reference_time).to_pydatetime()
+        return MapCoordinateContext.from_noon_longitude(
+            self.run_view.main_field.magnetic_noon_longitude(reference_time),
+            longitude_kind="magnetic",
+            local_time_kind="magnetic",
+            label="MLT",
+            reference_time=reference_time,
+        )
+
+    def magnetic_plot_coordinates(self):
+        """Return MAG coordinates of the regular model plotting grid."""
+        main_field = self.run_view.main_field
+        geographic_latitude, geographic_longitude = main_field.model_to_geo_coordinates(
+            self.lat, self.lon
+        )
+        return main_field.geographic_to_magnetic_coordinates(
+            geographic_latitude, geographic_longitude
+        )
+
+    def model_map_context(self, reference_time=None):
+        """Return the model-coordinate local-time context."""
+        if reference_time is None:
+            reference_time = self.run_view.config.t0
+        reference_time = pd.Timestamp(reference_time).to_pydatetime()
+        main_field = self.run_view.main_field
+        if main_field.horizontal_coordinate_system == "geographic":
+            return MapCoordinateContext.geographic(reference_time)
+        return MapCoordinateContext.from_noon_longitude(
+            main_field.local_noon_longitude(reference_time),
+            longitude_kind="magnetic",
+            local_time_kind="magnetic",
+            label="MLT",
+            reference_time=reference_time,
+        )
+
+    def _geographic_input_evaluators(self, evaluation, *, keys=INPUT_ARTIFACT_KEYS):
+        """Return input evaluators on the geographic map grid."""
+        missing = tuple(key for key in keys if key not in evaluation.input_evaluators)
+        if missing:
+            evaluation.input_evaluators.update(
+                _build_input_evaluators(
+                    self.run_view.schema,
+                    self.run_view.datasets,
+                    evaluation.scalar_grid,
+                    evaluation.vector_grid,
+                    keys=missing,
+                )
+            )
+        return evaluation.input_evaluators
 
     @property
     def n_time(self):
@@ -510,68 +640,128 @@ class SavedCoefficientFieldView:
         """Return the configured start time for numeric saved times."""
         return self.run_view.config.t0
 
-    def state_comparison_fields(self, index, *, field_names=None):
-        """Return flattened state/steady fields for one time index."""
+    def state_comparison_fields(self, index, *, field_names=None, coordinate_system="model"):
+        """Return flat fields in model or geographic coordinates."""
         field_names = _normalize_state_field_names(field_names)
+        coordinate_system = _normalize_display_coordinate_system(coordinate_system)
+        index = int(max(0, min(int(index), self.n_time - 1)))
+        timestamp = self.timestamp_at_index(index)
         if not self.has_output_state:
             raise ValueError(
                 "This directory contains projected inputs but no saved output state. "
                 "Choose 'Input drivers' or run a simulation first."
             )
-        if self.state_evaluator is None:
+        if coordinate_system == "geographic":
+            evaluation = self._get_geographic_evaluation(timestamp)
+            evaluator = self._geographic_state_evaluator(evaluation)
+            state_evaluation_context = evaluation.state_evaluation_context
+            sheet_current_maps = evaluation.sheet_current_maps
+        else:
+            evaluation = None
+            evaluator = self.state_evaluator
+            state_evaluation_context = self.state_evaluation_context
+            sheet_current_maps = self.sheet_current_maps
+
+        if evaluator is None:
             raise RuntimeError("Saved state evaluation context is unavailable.")
         geometry = self.require_geometry()
-        if self.state_evaluation_context is None:
-            self.state_evaluation_context = _state_evaluation_context(
-                self.run_view.config, geometry, self.state_evaluator
+        if state_evaluation_context is None:
+            state_evaluation_context = _state_evaluation_context(
+                self.run_view.config, geometry, evaluator
             )
         needs_joule = "joule" in field_names
-        if needs_joule and self.sheet_current_maps is None:
-            self.sheet_current_maps = _sheet_current_maps(geometry, self.state_evaluator)
-        if needs_joule and "pedersen_geometry" not in self.state_evaluation_context:
+        if needs_joule and sheet_current_maps is None:
+            sheet_current_maps = _sheet_current_maps(geometry, evaluator)
+        if needs_joule and "pedersen_geometry" not in state_evaluation_context:
             field = MagneticFieldEvaluation(
-                geometry.main_field, self.state_evaluator.grid, self.run_view.config.RI
+                geometry.main_field, evaluator.grid, self.run_view.config.RI
             )
-            self.state_evaluation_context["pedersen_geometry"] = pedersen_geometry_tensor(
+            state_evaluation_context["pedersen_geometry"] = pedersen_geometry_tensor(
                 field.unit_btheta, field.unit_bphi, field.unit_br
             )
-        index = int(max(0, min(int(index), self.n_time - 1)))
-        timestamp = self.timestamp_at_index(index)
+        if evaluation is None:
+            self.state_evaluation_context = state_evaluation_context
+            self.sheet_current_maps = sheet_current_maps
+        else:
+            evaluation.state_evaluation_context = state_evaluation_context
+            evaluation.sheet_current_maps = sheet_current_maps
+        resistance_evaluator = self.input_evaluators["resistance"]
+        if evaluation is not None:
+            resistance_evaluator = (
+                self._geographic_input_evaluators(evaluation, keys=("resistance",))["resistance"]
+                if needs_joule
+                else None
+            )
         return compute_state_comparison_fields_at_index(
             index,
             self.run_view.datasets,
-            self.state_evaluator,
-            self.input_evaluators["resistance"],
-            self.state_evaluation_context,
-            self.sheet_current_maps,
+            evaluator,
+            resistance_evaluator,
+            state_evaluation_context,
+            sheet_current_maps,
             target_time=timestamp,
             fallback_start_time=self._fallback_start_time(),
             field_names=field_names,
         )
 
-    def state_comparison_grid_fields(self, index, *, field_names=None):
-        """Return gridded state/steady fields for one time index."""
-        fields = self.state_comparison_fields(index, field_names=field_names)
+    def state_comparison_grid_fields(self, index, *, field_names=None, coordinate_system="model"):
+        """Return gridded fields in model or geographic coordinates."""
+        fields = self.state_comparison_fields(
+            index, field_names=field_names, coordinate_system=coordinate_system
+        )
         return {
             f"{name}_{state_key}": values.reshape(self.lat.shape)
             for state_key, state_fields in fields.items()
             for name, values in state_fields.items()
         }
 
-    def input_grid_fields(self, index):
-        """Return projected input-driver fields."""
-        return self.input_grid_fields_at_time(self.timestamp_at_index(index))
+    def input_grid_fields(self, index, *, coordinate_system="model"):
+        """Return input-driver fields in the requested coordinates."""
+        return self.input_grid_fields_at_time(
+            self.timestamp_at_index(index), coordinate_system=coordinate_system
+        )
 
-    def input_grid_fields_at_time(self, timestamp):
-        """Return input-driver fields selected by physical time."""
-        return compute_input_fields_at_time(
+    def input_grid_fields_at_time(self, timestamp, *, coordinate_system="model"):
+        """Return time-selected inputs in the requested coordinates."""
+        coordinate_system = _normalize_display_coordinate_system(coordinate_system)
+        evaluation = (
+            self._get_geographic_evaluation(timestamp)
+            if coordinate_system == "geographic"
+            else None
+        )
+        input_evaluators = (
+            self._geographic_input_evaluators(evaluation)
+            if evaluation is not None
+            else self.input_evaluators
+        )
+        fields = compute_input_fields_at_time(
             timestamp,
             self.run_view.datasets,
-            self.input_evaluators,
+            input_evaluators,
             self.lat.shape,
             self.wind_lat.shape,
             fallback_start_time=self._fallback_start_time(),
         )
+        if evaluation is None:
+            return fields
+
+        main_field = self.run_view.main_field
+        for key in TANGENTIAL_INPUT_KEYS:
+            theta_key = f"{key if key != 'u' else 'wind'}_theta"
+            phi_key = f"{key if key != 'u' else 'wind'}_phi"
+            theta = fields[theta_key]
+            phi = fields[phi_key]
+            if not np.any(np.isfinite(theta) & np.isfinite(phi)):
+                continue
+            _, _, east, north = main_field.model_to_geo_coordinates(
+                evaluation.vector_grid.lat.reshape(self.wind_lat.shape),
+                evaluation.vector_grid.lon.reshape(self.wind_lon.shape),
+                phi,
+                -theta,
+            )
+            fields[theta_key] = -np.asarray(north).reshape(self.wind_lat.shape)
+            fields[phi_key] = np.asarray(east).reshape(self.wind_lat.shape)
+        return fields
 
 
 __all__ = [

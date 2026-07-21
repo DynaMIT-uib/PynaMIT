@@ -4,6 +4,8 @@ This module contains plotting functions for global field maps and
 current-state diagnostics.
 """
 
+import datetime as dt
+
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,6 +13,7 @@ import numpy as np
 from pynamit.geomagnetism import MagneticFieldEvaluation
 from pynamit.sphere import Grid
 from pynamit.sphere.spherical_transform import SphericalTransform
+from pynamit.visualization.grid_evaluation import model_grid_for_geographic_display
 from pynamit.visualization.hemisphere import (
     DEFAULT_HEMISPHERE_MIN_ABS_LATITUDE,
     hemisphere_masks_for_latitude,
@@ -114,7 +117,7 @@ def plot_state_diagnostics(
     simulation,
     title=None,
     filename=None,
-    noon_longitude=0,
+    noon_longitude=None,
     coordinate_context=None,
     hemisphere_min_abs_latitude=DEFAULT_HEMISPHERE_MIN_ABS_LATITUDE,
 ):
@@ -132,7 +135,7 @@ def plot_state_diagnostics(
     filename : str, optional
         If provided, save plot to this file.
     noon_longitude : float, optional
-        Longitude of local noon meridian.
+        Override for the model-coordinate local-noon meridian.
     coordinate_context : MapCoordinateContext, optional
         Map coordinate context for projection and local-time axes.
 
@@ -153,10 +156,26 @@ def plot_state_diagnostics(
         "levels": np.linspace(-0.95, 0.95, 22) / 2 * 1e-6,
         "extend": "both",
     }
-    if coordinate_context is None:
-        coordinate_context = MapCoordinateContext.from_noon_longitude(noon_longitude)
-
-    global_projection = coordinate_context.projection()
+    coordinate_reference_time = dt.datetime.fromisoformat(simulation.config.t0)
+    plot_time = coordinate_reference_time + dt.timedelta(seconds=float(simulation.current_time))
+    main_field = simulation.geometry.main_field
+    magnetic_coordinates_available = main_field.kind != "radial"
+    model_context = coordinate_context
+    if model_context is None:
+        if noon_longitude is None:
+            noon_longitude = (
+                main_field.magnetic_noon_longitude(plot_time)
+                if magnetic_coordinates_available
+                else main_field.local_noon_longitude(plot_time)
+            )
+        model_context = MapCoordinateContext.from_noon_longitude(
+            noon_longitude,
+            longitude_kind="magnetic" if magnetic_coordinates_available else "geographic",
+            local_time_kind="magnetic" if magnetic_coordinates_available else "solar",
+            reference_time=plot_time,
+        )
+    global_context = MapCoordinateContext.geographic(plot_time)
+    global_projection = global_context.projection()
 
     fig = plt.figure(figsize=(15, 10))
 
@@ -179,79 +198,106 @@ def plot_state_diagnostics(
     )
 
     for ax in [global_br_axis, global_current_axis, global_equivalent_current_axis]:
-        style_global_axis(ax, coordinate_context=coordinate_context, coastline_color="grey")
+        style_global_axis(ax, coordinate_context=global_context, coastline_color="grey")
 
-    # Set up plotting grid and evaluators.
+    # Display global maps in GEO; evaluate them in model coordinates.
     NLA, NLO = 50, 90
-    lat, lon = np.linspace(-89.9, 89.9, NLA), np.linspace(-180, 180, NLO)
-    lat, lon = map(np.ravel, np.meshgrid(lat, lon))
-    plt_grid = Grid(lat=lat, lon=lon)
-    state_transform = SphericalTransform(simulation.geometry.horizontal_basis, plt_grid)
-    main_field_evaluation = MagneticFieldEvaluation(
-        simulation.geometry.main_field, plt_grid, simulation.config.RI
+    latitude = np.linspace(-89.9, 89.9, NLA)
+    longitude = np.linspace(-180.0, 180.0, NLO)
+    geographic_lat, geographic_lon = map(np.ravel, np.meshgrid(latitude, longitude))
+    global_grid = model_grid_for_geographic_display(
+        simulation.geometry.main_field, geographic_lat, geographic_lon, event_time=plot_time
+    )
+    global_transform = SphericalTransform(simulation.geometry.horizontal_basis, global_grid)
+    global_field_evaluation = MagneticFieldEvaluation(
+        simulation.geometry.main_field, global_grid, simulation.config.RI
     )
 
-    # Calculate values to plot.
-    br_values = evaluate_Br(simulation, state_transform)
-    fac_values = evaluate_jr(simulation, state_transform) / main_field_evaluation.unit_br
-    eq_current_function = evaluate_equivalent_current_function(simulation, state_transform)
+    global_br = evaluate_Br(simulation, global_transform)
+    global_fac = evaluate_jr(simulation, global_transform) / global_field_evaluation.unit_br
+    global_eq_current = evaluate_equivalent_current_function(simulation, global_transform)
+
+    # Evaluate hemisphere fields on the model grid, then express the
+    # sample positions in magnetic coordinates for polar display.
+    model_lat, model_lon = map(np.ravel, np.meshgrid(latitude, longitude))
+    model_grid = Grid(lat=model_lat, lon=model_lon)
+    model_transform = SphericalTransform(simulation.geometry.horizontal_basis, model_grid)
+    model_field_evaluation = MagneticFieldEvaluation(
+        simulation.geometry.main_field, model_grid, simulation.config.RI
+    )
+    model_br = evaluate_Br(simulation, model_transform)
+    model_fac = evaluate_jr(simulation, model_transform) / model_field_evaluation.unit_br
+    model_eq_current = evaluate_equivalent_current_function(simulation, model_transform)
+    if magnetic_coordinates_available:
+        geographic_model_lat, geographic_model_lon = main_field.model_to_geo_coordinates(
+            model_lat, model_lon
+        )
+        polar_lat, polar_lon = main_field.geographic_to_magnetic_coordinates(
+            geographic_model_lat, geographic_model_lon
+        )
+    else:
+        polar_lat, polar_lon = model_lat, model_lon
 
     # Make global plots.
     global_br_axis.contourf(
-        lon.reshape((NLO, NLA)),
-        lat.reshape((NLO, NLA)),
-        br_values.reshape((NLO, NLA)),
+        geographic_lon.reshape((NLO, NLA)),
+        geographic_lat.reshape((NLO, NLA)),
+        global_br.reshape((NLO, NLA)),
         transform=ccrs.PlateCarree(),
         **br_kwargs,
     )
     global_current_axis.contour(
-        lon.reshape((NLO, NLA)),
-        lat.reshape((NLO, NLA)),
-        eq_current_function.reshape((NLO, NLA)),
+        geographic_lon.reshape((NLO, NLA)),
+        geographic_lat.reshape((NLO, NLA)),
+        global_eq_current.reshape((NLO, NLA)),
         transform=ccrs.PlateCarree(),
         **equivalent_current_kwargs,
     )
     global_current_axis.contourf(
-        lon.reshape((NLO, NLA)),
-        lat.reshape((NLO, NLA)),
-        fac_values.reshape((NLO, NLA)),
+        geographic_lon.reshape((NLO, NLA)),
+        geographic_lat.reshape((NLO, NLA)),
+        global_fac.reshape((NLO, NLA)),
         transform=ccrs.PlateCarree(),
         **fac_kwargs,
     )
     global_equivalent_current_axis.contour(
-        lon.reshape((NLO, NLA)),
-        lat.reshape((NLO, NLA)),
-        eq_current_function.reshape((NLO, NLA)),
+        geographic_lon.reshape((NLO, NLA)),
+        geographic_lat.reshape((NLO, NLA)),
+        global_eq_current.reshape((NLO, NLA)),
         transform=ccrs.PlateCarree(),
         **equivalent_current_kwargs,
     )
 
     # Make polar plots.
-    mlt = coordinate_context.longitude_to_local_time(lon, wrap=False)
+    mlt = model_context.longitude_to_local_time(polar_lon, wrap=False)
 
     north_mask, south_mask = hemisphere_masks_for_latitude(
-        lat, min_abs_latitude=hemisphere_min_abs_latitude
+        polar_lat, min_abs_latitude=hemisphere_min_abs_latitude
     )
-    north_br_axis.contourf(lat[north_mask], mlt[north_mask], br_values[north_mask], **br_kwargs)
+    north_br_axis.contourf(
+        polar_lat[north_mask], mlt[north_mask], model_br[north_mask], **br_kwargs
+    )
     north_current_axis.contour(
-        lat[north_mask],
+        polar_lat[north_mask],
         mlt[north_mask],
-        eq_current_function[north_mask],
+        model_eq_current[north_mask],
         **equivalent_current_kwargs,
     )
     north_current_axis.contourf(
-        lat[north_mask], mlt[north_mask], fac_values[north_mask], **fac_kwargs
+        polar_lat[north_mask], mlt[north_mask], model_fac[north_mask], **fac_kwargs
     )
 
-    south_br_axis.contourf(lat[south_mask], mlt[south_mask], br_values[south_mask], **br_kwargs)
+    south_br_axis.contourf(
+        polar_lat[south_mask], mlt[south_mask], model_br[south_mask], **br_kwargs
+    )
     south_current_axis.contour(
-        lat[south_mask],
+        polar_lat[south_mask],
         mlt[south_mask],
-        eq_current_function[south_mask],
+        model_eq_current[south_mask],
         **equivalent_current_kwargs,
     )
     south_current_axis.contourf(
-        lat[south_mask], mlt[south_mask], fac_values[south_mask], **fac_kwargs
+        polar_lat[south_mask], mlt[south_mask], model_fac[south_mask], **fac_kwargs
     )
 
     if title is not None:

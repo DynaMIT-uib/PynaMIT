@@ -2,6 +2,7 @@
 
 import datetime as dt
 
+import cartopy.crs as ccrs
 import numpy as np
 
 from pynamit.coordinates import (
@@ -27,6 +28,7 @@ from pynamit.visualization.hemisphere import (
     hemisphere_masks_for_latitude,
 )
 from pynamit.visualization.local_time import local_time_grid_longitudes
+from pynamit.visualization.map_coordinates import MapCoordinateContext
 from pynamit.visualization.map_curves import (
     build_even_global_sites,
     build_timeseries_curve_layers,
@@ -306,6 +308,75 @@ def test_style_global_axis_centralizes_map_setup():
     assert gridliner.bottom_labels is False
     assert gridliner.top_labels is False
     assert gridliner.right_labels is False
+
+
+def test_style_global_axis_does_not_mix_coastlines_with_magnetic_coordinates():
+    """Omit geographic coastlines from magnetic-coordinate axes."""
+
+    class FakeGridliner:
+        pass
+
+    class FakeAxis:
+        def __init__(self):
+            self.coastline_kwargs = None
+
+        def set_global(self):
+            pass
+
+        def coastlines(self, **kwargs):
+            self.coastline_kwargs = kwargs
+
+        @staticmethod
+        def gridlines(**kwargs):
+            del kwargs
+            return FakeGridliner()
+
+    context = MapCoordinateContext.from_noon_longitude(
+        0.0, longitude_kind="magnetic", local_time_kind="magnetic"
+    )
+    axis = FakeAxis()
+
+    style_global_axis(axis, coordinate_context=context)
+
+    assert axis.coastline_kwargs is None
+
+
+def test_style_global_axis_keeps_coastlines_and_gridlines_geographic():
+    """Noon-centered GEO axes retain geographic decorations."""
+
+    class FakeGridliner:
+        pass
+
+    class FakeAxis:
+        def __init__(self):
+            self.coastline_kwargs = None
+            self.gridline_kwargs = None
+
+        def set_global(self):
+            pass
+
+        def coastlines(self, **kwargs):
+            self.coastline_kwargs = kwargs
+
+        def gridlines(self, **kwargs):
+            self.gridline_kwargs = kwargs
+            return FakeGridliner()
+
+    reference_time = dt.datetime(2011, 10, 24, 18, 30)
+    context = MapCoordinateContext.geographic(reference_time)
+    axis = FakeAxis()
+
+    style_global_axis(axis, coordinate_context=context)
+
+    assert axis.coastline_kwargs is not None
+    assert axis.gridline_kwargs["crs"].equals(ccrs.PlateCarree())
+    np.testing.assert_allclose(
+        axis.gridline_kwargs["crs"].transform_points(
+            ccrs.PlateCarree(), np.array([context.noon_longitude]), np.array([0.0])
+        )[:, :2],
+        [[context.noon_longitude, 0.0]],
+        atol=1e-10,
+    )
 
 
 def test_grid_helpers_are_importable_from_visualization():

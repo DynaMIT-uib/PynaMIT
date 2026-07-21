@@ -15,6 +15,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
+
 from pynamit.simulation.config import SimulationConfig, dipole_fac_integration_radii
 from pynamit.simulation.workflows.prepared_inputs import run_pynamit_from_inputs
 from pynamit.storage import ArtifactStore
@@ -36,7 +38,7 @@ class RunSettings:
     interhemispheric_coupling_latitude: float = 35.0
     interhemispheric_electric_field_weight: float = 1e-5
     dt: float = 10.0
-    final_time: float = 3600.0
+    final_time: float | None = None
     sampling_step_interval: int = 1
     saving_sample_interval: int = 1
     integrator: str = "exponential"
@@ -47,6 +49,16 @@ class RunSettings:
 
 
 SETTINGS = RunSettings()
+
+
+def _last_projected_input_time(input_store: ArtifactStore) -> float:
+    """Return the final time covered by the projected MAGE inputs."""
+    time = np.asarray(input_store.load_dataset("Br").time.values, dtype=float)
+    if time.ndim != 1 or time.size == 0 or np.any(~np.isfinite(time)):
+        raise RuntimeError("Projected MAGE Br input must have a finite one-dimensional time axis.")
+    if time[0] < 0.0 or np.any(np.diff(time) <= 0.0):
+        raise RuntimeError("Projected MAGE Br input times must be non-negative and increasing.")
+    return float(time[-1])
 
 
 def main(settings: RunSettings = SETTINGS) -> None:
@@ -66,6 +78,11 @@ def main(settings: RunSettings = SETTINGS) -> None:
     fac_integration_radii = dipole_fac_integration_radii(
         input_config.RI, input_config.RM, settings.fac_integration_points
     )
+    final_time = (
+        _last_projected_input_time(input_store)
+        if settings.final_time is None
+        else float(settings.final_time)
+    )
 
     resolution = f"N{input_config.Nmax}_M{input_config.Mmax}_Ncs{input_config.Ncs}"
     if settings.run_directory is None:
@@ -78,6 +95,12 @@ def main(settings: RunSettings = SETTINGS) -> None:
 
     print(f"Using projected input package: {projection_directory}", flush=True)
     print(f"Writing run directory: {run_directory}", flush=True)
+    print(f"Running through projected time t={final_time:g} s", flush=True)
+    print(
+        "Magnetic-boundary shielding of m_ind: "
+        f"{'enabled' if settings.magnetic_boundary_shielding else 'disabled'}",
+        flush=True,
+    )
     if settings.integrator == "exponential":
         print(
             "Warning: the exponential integrator builds a dense matrix exponential at "
@@ -88,7 +111,7 @@ def main(settings: RunSettings = SETTINGS) -> None:
     run_pynamit_from_inputs(
         projection_directory,
         run_directory=run_directory,
-        final_time=settings.final_time,
+        final_time=final_time,
         dt=settings.dt,
         sampling_step_interval=settings.sampling_step_interval,
         saving_sample_interval=settings.saving_sample_interval,

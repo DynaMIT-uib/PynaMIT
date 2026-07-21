@@ -23,7 +23,6 @@ class ProjectionSettings:
 
     forcing_path: Path = DEFAULT_FORCING_PATH
     projection_directory: Path | None = None
-    main_field_kind: str = "kaiju_dipole"
     dipole_B0: float | None = None
     boundary_radius: float | None = None
     nmax: int = 50
@@ -49,7 +48,6 @@ def main(settings: ProjectionSettings = SETTINGS) -> None:
     project_inputs(
         forcing_path=settings.forcing_path,
         projection_directory=projection_directory,
-        main_field_kind=settings.main_field_kind,
         dipole_B0_override=settings.dipole_B0,
         boundary_radius_override=settings.boundary_radius,
         nmax=settings.nmax,

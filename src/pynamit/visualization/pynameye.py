@@ -31,7 +31,10 @@ from pynamit.visualization.field_maps import (
     evaluate_JS_from_maps,
     evaluate_wind_coefficients,
 )
-from pynamit.visualization.grid_evaluation import transform_for_basis
+from pynamit.visualization.grid_evaluation import (
+    model_grid_for_geographic_display,
+    transform_for_basis,
+)
 from pynamit.visualization.map_coordinates import MapCoordinateContext
 from pynamit.visualization.plot_helpers import style_global_axis as style_cartopy_global_axis
 from pynamit.visualization.plot_helpers import suppress_empty_contour_warnings
@@ -112,6 +115,11 @@ class PynamEye:
         self.config = self.run_view.config
         self.RI = float(self.config.RI)
         self.main_field = self.run_view.main_field
+        self.t0 = datetime.datetime.fromisoformat(self.config.t0)
+        self.t = t
+        self.time = self.t0 + datetime.timedelta(seconds=t)
+        self.main_field_epoch = float(self._config_value("main_field_epoch", self.t0.year))
+        self.dp = Dipole(self.main_field_epoch)
 
         # Set up cubed sphere grid for vector plotting.
         self.vector_cs_basis = CSBasis(NCS_plot)
@@ -123,11 +131,9 @@ class PynamEye:
             arr_xi, arr_eta, k[:, :-1, :-1].reshape(-1), deg=True
         )
         self.global_vector_grid = Grid(theta=arr_theta, lon=arr_phi)
-
-        # Define t0 and set up the configured dipole object.
-        self.t0 = datetime.datetime.fromisoformat(self.config.t0)
-        self.main_field_epoch = float(self._config_value("main_field_epoch", self.t0.year))
-        self.dp = Dipole(self.main_field_epoch)
+        self.global_vector_lat, self.global_vector_lon = self.main_field.model_to_geo_coordinates(
+            self.global_vector_grid.lat, self.global_vector_grid.lon, event_time=self.time
+        )
 
         self.schema = self.run_view.schema
         self.cs_basis = self.schema.cs_basis
@@ -151,7 +157,9 @@ class PynamEye:
         self.poloidal_transforms = {}
         lat, lon = np.linspace(-89.9, 89.9, Nlat), np.linspace(-180, 180, Nlon)
         self.lat, self.lon = np.meshgrid(lat, lon)
-        self.global_grid = Grid(lat=self.lat, lon=self.lon)
+        self.global_grid = model_grid_for_geographic_display(
+            self.main_field, self.lat, self.lon, event_time=self.time
+        )
         self._add_transforms("global", self.global_grid)
         self._add_transforms("global_vector", self.global_vector_grid)
 
@@ -172,8 +180,19 @@ class PynamEye:
             self.polar_grid_s = Grid(lat=self.lat_s, lon=self.lon_s)
             self._add_transforms("north", self.polar_grid_n)
             self._add_transforms("south", self.polar_grid_s)
+        elif self.config.main_field_kind.lower() == "kaiju_dipole":
+            self.lat_n, self.lon_n = self.main_field.magnetic_to_geographic_coordinates(
+                self.mlat, self.mlon
+            )
+            self.lat_s, self.lon_s = self.main_field.magnetic_to_geographic_coordinates(
+                -self.mlat, self.mlon
+            )
+            self.polar_grid_n = Grid(lat=self.lat_n, lon=self.lon_n)
+            self.polar_grid_s = Grid(lat=self.lat_s, lon=self.lon_s)
+            self._add_transforms("north", self.polar_grid_n)
+            self._add_transforms("south", self.polar_grid_s)
         else:
-            # Assume simulations are done in magnetic coordinates.
+            # The generic dipole model uses magnetic coordinates.
             self.polar_grid = Grid(lat=self.mlat, lon=self.mlon)
             self._add_transforms("north", self.polar_grid)
             self.transforms["south"] = self.transforms["north"]
@@ -407,15 +426,15 @@ class PynamEye:
 
     def get_magnetic_coordinate_context(self):
         """Return the magnetic local-time context."""
-        if str(self._config_value("main_field_kind", "dipole")).lower() == "kaiju_dipole":
+        if self._config_value("main_field_kind", "dipole").lower() != "radial":
             return MapCoordinateContext.from_noon_longitude(
-                0.0,
+                self.main_field.magnetic_noon_longitude(self.time),
                 longitude_kind="magnetic",
                 local_time_kind="magnetic",
                 label="MLT",
                 reference_time=self.time,
             )
-        return MapCoordinateContext.magnetic(self.time, self.dp)
+        raise ValueError("Magnetic polar coordinates are not defined for a radial field model.")
 
     def _config_value(self, name, default=None):
         """Return a config value, falling back to raw settings."""
@@ -426,9 +445,7 @@ class PynamEye:
 
     def get_global_coordinate_context(self):
         """Return the coordinate context for global map plots."""
-        if str(self._config_value("main_field_kind", "dipole")).lower() == "igrf":
-            return MapCoordinateContext.magnetic(self.time, self.dp, apex=self.apx)
-        return self.get_magnetic_coordinate_context()
+        return MapCoordinateContext.geographic(self.time)
 
     def get_global_projection(self):
         """Get the global projection for plotting.
@@ -466,24 +483,45 @@ class PynamEye:
             coastline_color="grey",
         )
 
-        ll = np.linspace(-180, 180, 200)
-        dip_lat = 90 - self.main_field.magnetic_colatitude_at_longitude(ll)
-
         interhemispheric_coupling_latitude = self._config_value(
             "interhemispheric_coupling_latitude", 50
         )
-        lbn = 90 - self.main_field.magnetic_colatitude_at_longitude(
-            ll, magnetic_colatitude=90 - interhemispheric_coupling_latitude
+        magnetic_longitude = np.linspace(-180.0, 180.0, 721)
+        curve_kwargs = {"magnetic_longitude": magnetic_longitude}
+        dip_lat, dip_lon = self.main_field.magnetic_latitude_trace_to_geographic(
+            0.0, **curve_kwargs
         )
-        lbs = 90 - self.main_field.magnetic_colatitude_at_longitude(
-            ll, magnetic_colatitude=90 + interhemispheric_coupling_latitude
+        lbn_lat, lbn_lon = self.main_field.magnetic_latitude_trace_to_geographic(
+            interhemispheric_coupling_latitude, **curve_kwargs
+        )
+        lbs_lat, lbs_lon = self.main_field.magnetic_latitude_trace_to_geographic(
+            -interhemispheric_coupling_latitude, **curve_kwargs
         )
 
         ax.plot(
-            ll, dip_lat, color="blue", linestyle="--", linewidth=1, transform=ccrs.PlateCarree()
+            dip_lon,
+            dip_lat,
+            color="blue",
+            linestyle="--",
+            linewidth=1,
+            transform=ccrs.PlateCarree(),
         )
-        ax.plot(ll, lbn, color="blue", linestyle="--", linewidth=0.5, transform=ccrs.PlateCarree())
-        ax.plot(ll, lbs, color="blue", linestyle="--", linewidth=0.5, transform=ccrs.PlateCarree())
+        ax.plot(
+            lbn_lon,
+            lbn_lat,
+            color="blue",
+            linestyle="--",
+            linewidth=0.5,
+            transform=ccrs.PlateCarree(),
+        )
+        ax.plot(
+            lbs_lon,
+            lbs_lat,
+            color="blue",
+            linestyle="--",
+            linewidth=0.5,
+            transform=ccrs.PlateCarree(),
+        )
 
     @staticmethod
     def _validate_region(region):
@@ -570,8 +608,21 @@ class PynamEye:
         if axis_projection is None or not axis_projection.equals(self.get_global_projection()):
             raise ValueError("Global plots require the PynamEye global projection.")
         with suppress_empty_contour_warnings():
-            lon, lat = (self.global_vector_grid.lon, self.global_vector_grid.lat)
-            return ax.quiver(lon, lat, east, north, transform=ccrs.PlateCarree(), **kwargs)
+            _, _, geographic_east, geographic_north = self.main_field.model_to_geo_coordinates(
+                self.global_vector_grid.lat,
+                self.global_vector_grid.lon,
+                east,
+                north,
+                event_time=self.time,
+            )
+            return ax.quiver(
+                self.global_vector_lon,
+                self.global_vector_lat,
+                geographic_east,
+                geographic_north,
+                transform=ccrs.PlateCarree(),
+                **kwargs,
+            )
 
     def plot_joule(self, ax, region="global", **kwargs):
         """Plot Joule heating.

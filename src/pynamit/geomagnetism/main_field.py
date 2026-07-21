@@ -1,6 +1,6 @@
 """Background main-field models and magnetic coordinates."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from functools import partial
 
 import apexpy
@@ -8,10 +8,12 @@ import dipole
 import numpy as np
 import ppigrf
 
+from pynamit.coordinates import local_noon_longitude as geographic_noon_longitude
 from pynamit.coordinates import wrap_longitude_180
 from pynamit.geomagnetism.kaiju_geopack import (
     kaiju_geopack_alignment,
     kaiju_geopack_dipole,
+    kaiju_geopack_mag,
     kaiju_geopack_sm,
 )
 from pynamit.math.constants import RE
@@ -47,6 +49,8 @@ def decimal_year(epoch):
     """Convert a datetime-like epoch to decimal year."""
     if not isinstance(epoch, datetime):
         return float(epoch)
+    if epoch.tzinfo is not None:
+        epoch = epoch.astimezone(timezone.utc).replace(tzinfo=None)
     year_start = datetime(epoch.year, 1, 1, 0, 0)
     next_year_start = datetime(epoch.year + 1, 1, 1, 0, 0)
     return (
@@ -116,20 +120,21 @@ class MainField:
     - dipole: Centered dipole magnetic field using IGRF coefficients for
       alignment. The moment can be overridden with ``B0``.
     - kaiju_dipole: Centered dipole aligned with the degree-1 IGRF
-      coefficients embedded in Kaiju's Geopack implementation.
-      Coordinates are SM, so geographic conversion requires an
-      event time. The moment can be overridden with ``B0``.
+      coefficients embedded in Kaiju's Geopack implementation. Public
+      coordinates are geographic; MAG is used only inside the magnetic
+      model. The moment can be overridden with ``B0``.
     - igrf: International Geomagnetic Reference Field in geocentric
       coordinates (with geodetic conversion ignored).
     - radial: Radial field lines with configurable magnitude.
 
     Notes
     -----
-    The models use different horizontal coordinate systems: ``dipole``
-    uses centered-dipole magnetic coordinates, ``kaiju_dipole`` uses
-    Kaiju/Geopack SM coordinates, and ``igrf``/``radial`` use
-    geocentric geographic coordinates. For IGRF, geodetic height is
-    approximated as ``h = r - RE``.
+    ``kaiju_dipole``, ``igrf``, and ``radial`` use geocentric geographic
+    coordinates. The generic ``dipole`` model retains centered-dipole
+    magnetic coordinates. SM and MAG are physical working frames owned
+    by the Kaiju field/source adapters, not simulation-state coordinate
+    systems. For IGRF, geodetic height is approximated as
+    ``h = r - RE``.
     """
 
     def __init__(self, kind="dipole", epoch=2020, ionosphere_height_km=0.0, B0=None):
@@ -159,6 +164,7 @@ class MainField:
         if is_dipole_kind(self.kind):
             if self.kind == "kaiju_dipole":
                 self.dipole = _kaiju_dipole_for_epoch(self.epoch, B0=B0)
+                self._mag_transform = kaiju_geopack_mag(_datetime_from_decimal_year(self.epoch))
             else:
                 self.dipole = _dipole_for_epoch(self.epoch, B0=B0)
             self._evaluate_components = partial(_dipole_field_components, self.dipole)
@@ -179,25 +185,9 @@ class MainField:
     @property
     def horizontal_coordinate_system(self):
         """Return this model's horizontal coordinate system."""
-        if self.kind == "kaiju_dipole":
-            return "SM"
         if self.kind == "dipole":
             return "centered_dipole_magnetic"
         return "geographic"
-
-    @property
-    def geographic_transform_requires_event_time(self):
-        """Return whether GEO/model conversion needs a time."""
-        return self.kind == "kaiju_dipole"
-
-    def _require_event_time(self, event_time):
-        """Return an event time, raising if required."""
-        if event_time is None and self.geographic_transform_requires_event_time:
-            raise ValueError(
-                "kaiju_dipole geographic conversion requires event_time because "
-                "SM longitude is Sun-aligned."
-            )
-        return event_time
 
     @staticmethod
     def _has_tangent_vector(east, north):
@@ -216,8 +206,8 @@ class MainField:
         east, north : array-like, optional
             Tangential vector components in geographic east/north basis.
         event_time : datetime, optional
-            Required for ``kaiju_dipole`` because SM longitude depends
-            on the Sun-Earth geometry at the event time.
+            Accepted for a uniform coordinate API. Earth-fixed
+            main-field transformations do not use it.
 
         Returns
         -------
@@ -226,12 +216,9 @@ class MainField:
             :attr:`horizontal_coordinate_system`. Longitudes are
             wrapped to [-180, 180).
         """
-        self._require_event_time(event_time)
         has_vector = self._has_tangent_vector(east, north)
 
-        if self.kind == "kaiju_dipole":
-            result = kaiju_geopack_sm(event_time).geo2sm(lat, lon, east, north)
-        elif self.kind == "dipole":
+        if self.kind == "dipole":
             if not has_vector:
                 result = self.dipole.geo2mag(lat, lon)
             else:
@@ -247,12 +234,9 @@ class MainField:
 
     def model_to_geo_coordinates(self, lat, lon, east=None, north=None, *, event_time=None):
         """Convert model coordinates to geographic coordinates."""
-        self._require_event_time(event_time)
         has_vector = self._has_tangent_vector(east, north)
 
-        if self.kind == "kaiju_dipole":
-            result = kaiju_geopack_sm(event_time).sm2geo(lat, lon, east, north)
-        elif self.kind == "dipole":
+        if self.kind == "dipole":
             if not has_vector:
                 result = self.dipole.mag2geo(lat, lon)
             else:
@@ -271,56 +255,100 @@ class MainField:
         r, theta, phi = np.broadcast_arrays(r, theta, phi)
         if self.kind == "radial":
             return np.full(r.shape, np.nan, dtype=float)
-        if is_dipole_kind(self.kind):
+        if self.kind == "kaiju_dipole":
+            magnetic_latitude, _ = self._mag_transform.geo2mag(90.0 - theta, phi)
+            return np.asarray(magnetic_latitude)
+        if self.kind == "dipole":
             return 90.0 - theta
         latitude, _ = self.apex.geo2apex(90.0 - theta, phi, (r - RE) * 1e-3)
         return np.asarray(latitude)
 
     def magnetic_latitude_trace_to_geographic(
-        self, magnetic_latitude, magnetic_longitude=None, *, event_time=None, n_points=721
+        self, magnetic_latitude, magnetic_longitude=None, *, n_points=721
     ):
         """Return a magnetic-latitude trace in GEO coordinates.
 
-        For centered dipoles, magnetic latitude means the model latitude
-        returned by :meth:`geo_to_model_coordinates`. For IGRF, it means
-        apex latitude at this main-field reference height.
+        For centered dipoles these are conventional MAG coordinates.
+        For IGRF they are apex coordinates at this field's reference
+        height.
         """
         if magnetic_longitude is None:
             magnetic_longitude = np.linspace(-180.0, 180.0, int(n_points))
-        mlon = np.asarray(magnetic_longitude, dtype=float)
-        mlat = np.full_like(mlon, float(magnetic_latitude), dtype=float)
+        mlat, mlon = np.broadcast_arrays(
+            np.asarray(magnetic_latitude, dtype=float), np.asarray(magnetic_longitude, dtype=float)
+        )
+
+        return self.magnetic_to_geographic_coordinates(mlat, mlon)
+
+    def magnetic_to_geographic_coordinates(self, latitude, longitude):
+        """Convert this field model's magnetic coordinates to GEO."""
+        latitude, longitude = np.broadcast_arrays(
+            np.asarray(latitude, dtype=float), np.asarray(longitude, dtype=float)
+        )
 
         if self.kind == "radial":
             return (
-                np.full_like(mlon, np.nan, dtype=float),
-                np.full_like(mlon, np.nan, dtype=float),
+                np.full_like(latitude, np.nan, dtype=float),
+                np.full_like(longitude, np.nan, dtype=float),
             )
         if self.kind == "igrf":
-            geo_lat, geo_lon, _ = self.apex.apex2geo(mlat, mlon, self.apex.refh)
+            geo_lat, geo_lon, _ = self.apex.apex2geo(latitude, longitude, self.apex.refh)
             return np.asarray(geo_lat, dtype=float), wrap_longitude_180(geo_lon)
-
-        geo_lat, geo_lon = self.model_to_geo_coordinates(mlat, mlon, event_time=event_time)
+        if self.kind == "kaiju_dipole":
+            geo_lat, geo_lon = self._mag_transform.mag2geo(latitude, longitude)
+        else:
+            geo_lat, geo_lon = self.model_to_geo_coordinates(latitude, longitude)
         return np.asarray(geo_lat, dtype=float), wrap_longitude_180(geo_lon)
 
-    def local_time_longitude_to_model_longitude(
-        self, local_time_lon, event_time, *, local_noon_longitude=0.0
-    ):
-        """Convert local-time longitude to model longitude.
+    def geographic_to_magnetic_coordinates(self, latitude, longitude):
+        """Convert GEO to this field model's magnetic coordinates."""
+        latitude, longitude = np.broadcast_arrays(
+            np.asarray(latitude, dtype=float), np.asarray(longitude, dtype=float)
+        )
 
-        REMIX polar grids place noon at raw longitude zero. In
-        ``kaiju_dipole`` this is already the SM longitude origin. In
-        legacy ``dipole`` mode it is converted through the dipole
-        package's MLT convention.
-        """
-        if not is_dipole_kind(self.kind):
-            raise ValueError(
-                "local-time longitude conversion is only defined for centered-dipole models."
+        if self.kind == "radial":
+            return (
+                np.full_like(latitude, np.nan, dtype=float),
+                np.full_like(longitude, np.nan, dtype=float),
             )
-        local_time_lon = np.asarray(local_time_lon, dtype=float)
+        if self.kind == "igrf":
+            magnetic_latitude, magnetic_longitude = self.apex.geo2apex(
+                latitude, longitude, self.apex.refh
+            )
+        elif self.kind == "kaiju_dipole":
+            magnetic_latitude, magnetic_longitude = self._mag_transform.geo2mag(
+                latitude, longitude
+            )
+        else:
+            magnetic_latitude, magnetic_longitude = self.geo_to_model_coordinates(
+                latitude, longitude
+            )
+        return np.asarray(magnetic_latitude, dtype=float), wrap_longitude_180(magnetic_longitude)
+
+    def magnetic_noon_longitude(self, event_time):
+        """Return the local-noon meridian in magnetic coordinates."""
+        if self.kind == "radial":
+            raise ValueError("magnetic noon is not defined for a radial field model.")
+        if self.kind == "igrf":
+            if event_time is None:
+                raise ValueError("IGRF magnetic noon requires event_time.")
+            return float(np.asarray(wrap_longitude_180(self.apex.mlt2mlon(12.0, event_time))))
         if self.kind == "kaiju_dipole":
-            return wrap_longitude_180(local_time_lon - local_noon_longitude)
-        mlt = ((local_time_lon - local_noon_longitude) / 15.0 + 12.0) % 24.0
-        return wrap_longitude_180(self.dipole.mlt2mlon(mlt, event_time))
+            if event_time is None:
+                raise ValueError(
+                    "kaiju_dipole magnetic noon requires event_time because SM follows the Sun."
+                )
+            sm = kaiju_geopack_sm(event_time)
+            geo_lat, geo_lon = sm.sm2geo(0.0, 0.0)
+            _, magnetic_lon = self._mag_transform.geo2mag(geo_lat, geo_lon)
+            return float(np.asarray(wrap_longitude_180(magnetic_lon)))
+        return float(np.asarray(wrap_longitude_180(self.dipole.mlt2mlon(12.0, event_time))))
+
+    def local_noon_longitude(self, event_time):
+        """Return the local-noon longitude in model coordinates."""
+        if self.horizontal_coordinate_system == "geographic":
+            return geographic_noon_longitude(event_time)
+        return self.magnetic_noon_longitude(event_time)
 
     def alignment_metadata(self, event_time=None):
         """Return centered-field alignment metadata."""
@@ -329,17 +357,19 @@ class MainField:
                 "main_field_kind": self.kind,
                 "main_field_horizontal_coordinate_system": self.horizontal_coordinate_system,
             }
-        event_time = self._require_event_time(event_time)
         if self.kind == "kaiju_dipole":
-            dipole_model = kaiju_geopack_dipole(event_time)
-            alignment = kaiju_geopack_alignment(event_time)
-            noon_mlon = 0.0
-            alignment["dipole_mag_noon_mlon_deg"] = float(
-                np.asarray(wrap_longitude_180(dipole_model.mlt2mlon(12.0, event_time)))
+            alignment_time = (
+                _datetime_from_decimal_year(self.epoch) if event_time is None else event_time
             )
+            dipole_model = self.dipole
+            alignment = kaiju_geopack_alignment(
+                alignment_time, magnetic_epoch=_datetime_from_decimal_year(self.epoch)
+            )
+            noon_longitude = self.local_noon_longitude(alignment_time)
+            alignment["magnetic_noon_longitude_deg"] = self.magnetic_noon_longitude(alignment_time)
         else:
             dipole_model = self.dipole
-            noon_mlon = dipole_model.mlt2mlon(12.0, event_time)
+            noon_longitude = dipole_model.mlt2mlon(12.0, event_time)
             alignment = {
                 "dipole_alignment_model": "klaundal_dipole_igrf_centered_dipole",
                 "dipole_alignment_epoch": self.epoch,
@@ -353,7 +383,7 @@ class MainField:
             "axis_geo_cartesian": np.asarray(dipole_model.axis, dtype=float),
             "north_pole_geo_lat_lon": np.asarray(dipole_model.north_pole, dtype=float),
             "south_pole_geo_lat_lon": np.asarray(dipole_model.south_pole, dtype=float),
-            "noon_mlon_deg": float(np.asarray(wrap_longitude_180(noon_mlon))),
+            "noon_model_longitude_deg": float(np.asarray(wrap_longitude_180(noon_longitude))),
             **alignment,
         }
 
@@ -384,7 +414,17 @@ class MainField:
         spherical coordinate basis.
         """
         r, theta, phi = np.broadcast_arrays(r, theta, phi)
-        components = self._evaluate_components(r, theta, phi)
+        if self.kind == "kaiju_dipole":
+            magnetic_latitude, magnetic_longitude = self._mag_transform.geo2mag(90.0 - theta, phi)
+            Br, Btheta_magnetic, Bphi_magnetic = self._evaluate_components(
+                r, 90.0 - magnetic_latitude, magnetic_longitude
+            )
+            _, _, Bphi, north = self._mag_transform.mag2geo(
+                magnetic_latitude, magnetic_longitude, east=Bphi_magnetic, north=-Btheta_magnetic
+            )
+            components = (Br, -north, Bphi)
+        else:
+            components = self._evaluate_components(r, theta, phi)
         shaped_components = []
         for component in components:
             values = np.asarray(component)
@@ -461,7 +501,18 @@ class MainField:
             # Angular coordinates are kept the same.
             theta_out = theta
             phi_out = phi
-        elif is_dipole_kind(self.kind):
+        elif self.kind == "kaiju_dipole":
+            magnetic_latitude, magnetic_longitude = self._mag_transform.geo2mag(90.0 - theta, phi)
+            hemisphere = np.sign(magnetic_latitude)
+            unsigned_magnetic_latitude = 90.0 - np.rad2deg(
+                np.arcsin(np.cos(np.deg2rad(magnetic_latitude)) * np.sqrt(r_dest / r))
+            )
+            mapped_magnetic_latitude = hemisphere * unsigned_magnetic_latitude
+            latitude_out, phi_out = self._mag_transform.mag2geo(
+                mapped_magnetic_latitude, magnetic_longitude
+            )
+            theta_out = 90.0 - latitude_out
+        elif self.kind == "dipole":
             # Map from r to r_dest for dipole field.
             hemisphere = np.sign(90 - theta)
             unsigned_magnetic_latitude = 90 - np.rad2deg(
@@ -518,7 +569,13 @@ class MainField:
         if self.kind == "radial":
             raise ValueError("Conjugate coordinates do not exist with radial field lines")
 
-        if is_dipole_kind(self.kind):
+        if self.kind == "kaiju_dipole":
+            magnetic_latitude, magnetic_longitude = self._mag_transform.geo2mag(90.0 - theta, phi)
+            latitude_conj, phi_conj = self._mag_transform.mag2geo(
+                -magnetic_latitude, magnetic_longitude
+            )
+            theta_conj = 90.0 - latitude_conj
+        elif self.kind == "dipole":
             theta_conj, phi_conj = (180 - theta, phi)
         elif self.kind == "igrf":
             h = (r - RE) * 1e-3
@@ -572,7 +629,19 @@ class MainField:
             )
             return (east, north * field_sign, upward * field_sign) * 2
 
-        if is_dipole_kind(self.kind):
+        if self.kind == "kaiju_dipole":
+            magnetic_latitude, magnetic_longitude = self._mag_transform.geo2mag(90.0 - theta, phi)
+            vectors = self.dipole.get_apex_base_vectors(magnetic_latitude, r * 1e-3, R=RE * 1e-3)
+
+            def magnetic_vector_to_geographic(vector):
+                _, _, east, north = self._mag_transform.mag2geo(
+                    magnetic_latitude, magnetic_longitude, east=vector[0], north=vector[1]
+                )
+                return np.stack((vector[2], -north, east))
+
+            return tuple(magnetic_vector_to_geographic(vector) for vector in vectors)
+
+        if self.kind == "dipole":
             vectors = self.dipole.get_apex_base_vectors(90 - theta, r * 1e-3, R=RE * 1e-3)
         else:
             vectors = self.apex.basevectors_apex(90 - theta, phi, (r - RE) * 1e-3, coords="geo")[
@@ -580,34 +649,3 @@ class MainField:
             ]
 
         return tuple(_east_north_up_to_spherical(vector) for vector in vectors)
-
-    def magnetic_colatitude_at_longitude(self, longitude, magnetic_colatitude=90):
-        """Return a magnetic-colatitude trace sampled by longitude.
-
-        Parameters
-        ----------
-        longitude : array-like
-            Longitudes in degrees.
-        magnetic_colatitude : float, optional
-            Magnetic colatitude of the trace in degrees.
-
-        Returns
-        -------
-        array
-            Geographic/model colatitude at each requested longitude.
-        """
-        longitude = np.asarray(longitude, dtype=float) % 360
-
-        if self.kind == "radial":
-            return np.full_like(longitude, np.nan, dtype=float)
-
-        if is_dipole_kind(self.kind):
-            return np.zeros_like(longitude) + magnetic_colatitude
-
-        if self.kind == "igrf":
-            mlon = np.linspace(0, 360, 360)
-            # Calculate latitude of evenly spaced points.
-            lat, lon, _ = self.apex.apex2geo(90 - magnetic_colatitude, mlon, self.apex.refh)
-            return np.interp(longitude.reshape(-1), lon % 360, 90 - lat, period=360).reshape(
-                longitude.shape
-            )

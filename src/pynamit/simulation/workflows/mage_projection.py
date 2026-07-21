@@ -18,6 +18,7 @@ import numpy as np
 import pynamit
 from pynamit.coordinates import wrap_longitude_180
 from pynamit.geomagnetism import MagneticFieldEvaluation, MainField, decimal_year
+from pynamit.math.constants import RE
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     electric_field_from_weighted_winds,
 )
@@ -28,35 +29,56 @@ from pynamit.simulation.workflows.prepared_inputs import (
 from pynamit.sphere.spherical_transform import grid_sqrt_area_weights
 
 IONOSPHERE_RADIUS_M = 6.5e6
-SM_NOON_LONGITUDE_DEG = 0.0
-CENTERED_DIPOLE_MODELS = ("kaiju_dipole", "dipole")
+MAGE_MAIN_FIELD_KIND = "kaiju_dipole"
 MAGE_FORCING_KIND = "pynamit_mage_forcing"
-MAGE_FORCING_VERSION = 1
+MAGE_FORCING_VERSION = 5
 
-_MAGE_IONOSPHERE_DATASETS = ("FAC", "SH", "SP", "We", "Wn", "WeH", "WnH")
-_MAGE_BOUNDARY_DATASETS = ("Bu",)
-_MAGE_STATIC_DATASETS = ("time", "glat", "glon", "Blat", "Blon", "r")
+_MAGE_IONOSPHERE_DATASETS = (
+    "jr",
+    "SH",
+    "SP",
+    "u_p_theta",
+    "u_p_phi",
+    "u_h_theta",
+    "u_h_phi",
+)
+_MAGE_BOUNDARY_DATASETS = ("delta_Br",)
+_MAGE_STATIC_DATASETS = (
+    "time",
+    "ionosphere_lat",
+    "ionosphere_lon",
+    "boundary_lat",
+    "boundary_lon",
+    "boundary_radius",
+    "boundary_solid_angle",
+)
 _MAGE_REQUIRED_ATTRIBUTES = (
     "fac_convention",
-    "gamera_coordinate_system",
+    "radial_current_convention",
+    "gamera_source_coordinate_system",
+    "coordinate_system",
+    "longitude_convention",
     "gamera_mag_m0_nT",
+    "main_field_B0_T",
+    "main_field_B0_reference_radius_m",
     "gamera_internal_dipole_moment_axis",
     "gamera_internal_magnetic_north_axis",
 )
 _MAGE_DATASET_UNITS = {
-    "FAC": "uA m-2",
+    "jr": "uA m-2",
     "SH": "S",
     "SP": "S",
-    "We": "m s-1",
-    "Wn": "m s-1",
-    "WeH": "m s-1",
-    "WnH": "m s-1",
-    "Bu": "nT",
-    "glat": "degree",
-    "glon": "degree",
-    "Blat": "degree",
-    "Blon": "degree",
-    "r": "m",
+    "u_p_theta": "m s-1",
+    "u_p_phi": "m s-1",
+    "u_h_theta": "m s-1",
+    "u_h_phi": "m s-1",
+    "delta_Br": "nT",
+    "ionosphere_lat": "degree",
+    "ionosphere_lon": "degree",
+    "boundary_lat": "degree",
+    "boundary_lon": "degree",
+    "boundary_radius": "m",
+    "boundary_solid_angle": "sr",
 }
 
 
@@ -114,10 +136,23 @@ def _validate_prepared_forcing(h5_file: Any) -> None:
         if missing_attributes:
             details.append(f"attributes {missing_attributes}")
         raise RuntimeError("Prepared forcing is missing required " + " and ".join(details) + ".")
-    if h5_file.attrs["gamera_coordinate_system"] != "SM":
-        raise RuntimeError("MAGE projection requires prepared GAMERA coordinates in SM.")
+    if h5_file.attrs["gamera_source_coordinate_system"] != "SM":
+        raise RuntimeError("MAGE preparation requires GAMERA source coordinates in SM.")
+    if h5_file.attrs["coordinate_system"] != "GEO":
+        raise RuntimeError("MAGE projection requires Earth-fixed geographic coordinates.")
+    if h5_file.attrs["longitude_convention"] != "east_positive_degrees":
+        raise RuntimeError("MAGE projection requires east-positive geographic longitudes.")
     if h5_file.attrs["fac_convention"] != "upward":
-        raise RuntimeError("MAGE projection requires upward-positive prepared FAC.")
+        raise RuntimeError("MAGE projection requires an upward-positive REMIX FAC source.")
+    if h5_file.attrs["radial_current_convention"] != "outward":
+        raise RuntimeError("MAGE projection requires outward-positive prepared radial current.")
+    reference_radius = float(h5_file.attrs["main_field_B0_reference_radius_m"])
+    if not np.isfinite(reference_radius) or not np.isclose(
+        reference_radius, RE, rtol=0.0, atol=1e-6
+    ):
+        raise RuntimeError(
+            "Prepared MAGE main_field_B0_T must use PynaMIT's dipole reference radius."
+        )
     invalid_units = {
         name: h5_file[name].attrs.get("units")
         for name, expected in _MAGE_DATASET_UNITS.items()
@@ -134,8 +169,14 @@ def _validate_prepared_forcing(h5_file: Any) -> None:
     if len(time_shape) != 1 or time_shape[0] == 0:
         raise RuntimeError("Prepared forcing time must be a non-empty one-dimensional dataset.")
     n_steps = time_shape[0]
-    ionosphere_shape = _matching_grid_shape(h5_file, ("glat", "glon"), "ionosphere")
-    boundary_shape = _matching_grid_shape(h5_file, ("Blat", "Blon", "r"), "boundary")
+    ionosphere_shape = _matching_grid_shape(
+        h5_file, ("ionosphere_lat", "ionosphere_lon"), "ionosphere"
+    )
+    boundary_shape = _matching_grid_shape(
+        h5_file,
+        ("boundary_lat", "boundary_lon", "boundary_radius", "boundary_solid_angle"),
+        "boundary",
+    )
     _validate_time_series_shapes(h5_file, _MAGE_IONOSPHERE_DATASETS, n_steps, ionosphere_shape)
     _validate_time_series_shapes(h5_file, _MAGE_BOUNDARY_DATASETS, n_steps, boundary_shape)
 
@@ -185,17 +226,17 @@ def _boundary_radius(h5_file: Any, explicit_radius: float | None) -> float:
         if not np.isfinite(mean_radius) or mean_radius <= 0.0:
             raise ValueError("The explicit boundary radius must be finite and positive.")
         return mean_radius
-    if "r" not in h5_file:
+    if "boundary_radius" not in h5_file:
         raise RuntimeError(
-            "Prepared MAGE forcing is missing the inner-boundary radius dataset 'r'. "
+            "Prepared MAGE forcing is missing the 'boundary_radius' dataset. "
             "Regenerate it with scripts/simulation/mage_prepare.py or set "
             "SETTINGS.boundary_radius explicitly in mage_project.py."
         )
-    radius = np.asarray(h5_file["r"][:], dtype=float)
+    radius = np.asarray(h5_file["boundary_radius"][:], dtype=float)
     if np.any(~np.isfinite(radius)):
         raise RuntimeError(
-            "Prepared MAGE forcing dataset 'r' contains non-finite values. Regenerate "
-            "the forcing or set SETTINGS.boundary_radius explicitly."
+            "Prepared MAGE forcing dataset 'boundary_radius' contains non-finite values. "
+            "Regenerate the forcing or set SETTINGS.boundary_radius explicitly."
         )
     mean_radius = float(np.mean(radius))
     if mean_radius <= 0.0 or np.any(radius <= 0.0):
@@ -214,14 +255,12 @@ def _dipole_B0(h5_file: Any, explicit_B0: float | None) -> float:
     """Return the centered-dipole equatorial field in tesla."""
     if explicit_B0 is not None:
         field_strength = float(explicit_B0)
-    elif "gamera_dipole_B0_T" in h5_file.attrs:
-        field_strength = float(h5_file.attrs["gamera_dipole_B0_T"])
-    elif "gamera_mag_m0_nT" in h5_file.attrs:
-        field_strength = abs(float(h5_file.attrs["gamera_mag_m0_nT"])) * 1e-9
+    elif "main_field_B0_T" in h5_file.attrs:
+        field_strength = float(h5_file.attrs["main_field_B0_T"])
     else:
         raise RuntimeError(
             "Prepared MAGE forcing is missing dipole strength metadata "
-            "'gamera_dipole_B0_T'/'gamera_mag_m0_nT'. Regenerate it with "
+            "'main_field_B0_T'. Regenerate it with "
             "scripts/simulation/mage_prepare.py or set SETTINGS.dipole_B0 "
             "explicitly in mage_project.py."
         )
@@ -275,8 +314,8 @@ def _gamera_dipole_metadata(h5_file: Any) -> dict[str, np.ndarray | float]:
 def _load_weighted_winds(
     h5_file: Any, step: int
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Load Pedersen- and Hall-weighted winds for one forcing step."""
-    required = ("We", "Wn", "WeH", "WnH")
+    """Load model-basis weighted winds for one forcing step."""
+    required = ("u_p_theta", "u_p_phi", "u_h_theta", "u_h_phi")
     missing = [name for name in required if name not in h5_file]
     if missing:
         raise RuntimeError(
@@ -340,7 +379,7 @@ def _staged_input_package(directory: Path, artifact_storage: str):
 
 
 class _MageInputProjector:
-    """Project MAGE fields through one fixed numerical geometry.
+    """Project MAGE fields through one fixed Earth-attached geometry.
 
     Geometry, field evaluation, and least-squares weights do not vary
     with forcing time. Keeping them together makes their lifecycle clear
@@ -354,9 +393,6 @@ class _MageInputProjector:
         simulation: pynamit.Simulation,
         ionosphere_grid: pynamit.Grid,
         magnetosphere_grid: pynamit.Grid,
-        ionosphere_lat_geo: np.ndarray,
-        ionosphere_lon_geo: np.ndarray,
-        event_time: dt.datetime,
         br_lambda: float,
         conductance_lambda: float,
         jr_lambda: float,
@@ -370,9 +406,8 @@ class _MageInputProjector:
         self._jr_lambda = jr_lambda
         self._e_source_lambda = e_source_lambda
 
-        main_field = simulation.geometry.main_field
         self._ionosphere_field = MagneticFieldEvaluation(
-            main_field, ionosphere_grid, IONOSPHERE_RADIUS_M
+            simulation.geometry.main_field, ionosphere_grid, IONOSPHERE_RADIUS_M
         )
         self._magnetosphere_sqrt_weights = grid_sqrt_area_weights(magnetosphere_grid)
         self._ionosphere_sqrt_weights = grid_sqrt_area_weights(ionosphere_grid)
@@ -382,29 +417,16 @@ class _MageInputProjector:
             resistance_space.representation.get_scalar_evaluation_operator(ionosphere_grid)
         )
 
-        unit_east = np.ones_like(ionosphere_lat_geo)
-        unit_north = np.zeros_like(ionosphere_lat_geo)
-        _, _, model_east, model_north = main_field.geo_to_model_coordinates(
-            ionosphere_lat_geo, ionosphere_lon_geo, unit_east, unit_north, event_time=event_time
-        )
-        self._east_to_model_east = np.asarray(model_east, dtype=float).reshape(-1)
-        self._east_to_model_north = np.asarray(model_north, dtype=float).reshape(-1)
-        _, _, model_east, model_north = main_field.geo_to_model_coordinates(
-            ionosphere_lat_geo, ionosphere_lon_geo, unit_north, unit_east, event_time=event_time
-        )
-        self._north_to_model_east = np.asarray(model_east, dtype=float).reshape(-1)
-        self._north_to_model_north = np.asarray(model_north, dtype=float).reshape(-1)
-
     def project_step(self, h5_file: Any, step: int, input_time: float) -> None:
         """Project every forcing field for one source time step."""
         self._project_boundary_br(h5_file, step, input_time)
-        self._project_fac(h5_file, step, input_time)
+        self._project_radial_current(h5_file, step, input_time)
         sigma_p, sigma_h = self._project_conductance(h5_file, step, input_time)
         self._project_wind_source(h5_file, step, input_time, sigma_p, sigma_h)
 
     def _project_boundary_br(self, h5_file: Any, step: int, input_time: float) -> None:
         """Project magnetospheric inner-boundary radial field."""
-        delta_br = np.asarray(h5_file["Bu"][step], dtype=float).reshape(-1) * 1e-9
+        delta_br = np.asarray(h5_file["delta_Br"][step], dtype=float).reshape(-1) * 1e-9
         if np.any(~np.isfinite(delta_br)):
             raise ValueError("Br input contains non-finite values.")
         _print_field_stats("  Delta Br [T]", delta_br)
@@ -417,13 +439,11 @@ class _MageInputProjector:
             reg_lambda=self._br_lambda,
         )
 
-    def _project_fac(self, h5_file: Any, step: int, input_time: float) -> None:
-        """Project upward-positive FAC as radial current density."""
-        fac = np.asarray(h5_file["FAC"][step], dtype=float) * 1e-6
-        if np.any(~np.isfinite(fac)):
-            print("  FAC contains non-finite values; setting them to 0.", flush=True)
-            fac[~np.isfinite(fac)] = 0.0
-        jr = fac.reshape(-1)
+    def _project_radial_current(self, h5_file: Any, step: int, input_time: float) -> None:
+        """Project prepared outward radial current density."""
+        jr = np.asarray(h5_file["jr"][step], dtype=float).reshape(-1) * 1e-6
+        if np.any(~np.isfinite(jr)):
+            raise ValueError("Prepared radial current contains non-finite values.")
         _print_field_stats("  jr [A/m^2]", jr)
         self._simulation.set_jr(
             jr,
@@ -464,34 +484,26 @@ class _MageInputProjector:
         input_series = self._simulation.run_data.input_series
         resistance_entry = input_series.get_entry("resistance", input_time)
         if resistance_entry is None:
-            raise RuntimeError("Conductance must be set before computing the wind E_source.")
+            raise RuntimeError("Conductance must be set before computing wind-driven E.")
         return (
             np.asarray(self._resistance_evaluator.matvec(resistance_entry["etaP"])).reshape(-1),
             np.asarray(self._resistance_evaluator.matvec(resistance_entry["etaH"])).reshape(-1),
         )
 
-    def _to_model_tangent_components(
-        self, east: np.ndarray, north: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """Rotate geographic east/north vectors to model theta/phi."""
-        east = np.asarray(east, dtype=float).reshape(-1)
-        north = np.asarray(north, dtype=float).reshape(-1)
-        phi = self._east_to_model_east * east + self._north_to_model_east * north
-        theta = -(self._east_to_model_north * east + self._north_to_model_north * north)
-        return theta, phi
-
     def _project_wind_source(
         self, h5_file: Any, step: int, input_time: float, sigma_p: np.ndarray, sigma_h: np.ndarray
     ) -> None:
-        """Project the electric source from weighted winds."""
-        u_p_east, u_p_north, u_h_east, u_h_north = _load_weighted_winds(h5_file, step)
-        u_p_theta, u_p_phi = self._to_model_tangent_components(u_p_east, u_p_north)
+        """Project the direct wind-driven electric field."""
+        u_p_theta, u_p_phi, u_h_theta, u_h_phi = _load_weighted_winds(h5_file, step)
+        u_p_theta = np.asarray(u_p_theta, dtype=float).reshape(-1)
+        u_p_phi = np.asarray(u_p_phi, dtype=float).reshape(-1)
         _print_field_stats("  Pedersen-weighted wind speed [m/s]", np.hypot(u_p_theta, u_p_phi))
-        u_h_theta, u_h_phi = self._to_model_tangent_components(u_h_east, u_h_north)
+        u_h_theta = np.asarray(u_h_theta, dtype=float).reshape(-1)
+        u_h_phi = np.asarray(u_h_phi, dtype=float).reshape(-1)
         _print_field_stats("  Hall-weighted wind speed [m/s]", np.hypot(u_h_theta, u_h_phi))
 
         eta_p, eta_h = self._projected_resistance(input_time)
-        e_source_theta, e_source_phi = electric_field_from_weighted_winds(
+        wind_driven_e_theta, wind_driven_e_phi = electric_field_from_weighted_winds(
             sigma_p=sigma_p,
             sigma_h=sigma_h,
             u_p_theta=u_p_theta,
@@ -502,10 +514,12 @@ class _MageInputProjector:
             eta_p=eta_p,
             eta_h=eta_h,
         )
-        _print_field_stats("  Wind E_source [V/m]", np.hypot(e_source_theta, e_source_phi))
+        _print_field_stats(
+            "  Wind-driven E [V/m]", np.hypot(wind_driven_e_theta, wind_driven_e_phi)
+        )
         self._simulation.set_E_source(
-            E_source_theta=e_source_theta,
-            E_source_phi=e_source_phi,
+            E_source_theta=wind_driven_e_theta,
+            E_source_phi=wind_driven_e_phi,
             lat=self._ionosphere_grid.lat,
             lon=self._ionosphere_grid.lon,
             time=input_time,
@@ -518,7 +532,6 @@ def project_inputs(
     *,
     forcing_path: str | Path,
     projection_directory: str | Path,
-    main_field_kind: str,
     dipole_B0_override: float | None,
     boundary_radius_override: float | None,
     nmax: int,
@@ -532,11 +545,6 @@ def project_inputs(
     artifact_storage: str,
 ) -> Path:
     """Project one prepared MAGE forcing file into PynaMIT inputs."""
-    if main_field_kind not in CENTERED_DIPOLE_MODELS:
-        raise ValueError(
-            f"Unsupported main_field_kind {main_field_kind!r}; "
-            f"expected one of {CENTERED_DIPOLE_MODELS}."
-        )
     if max_steps is not None:
         if isinstance(max_steps, (bool, np.bool_)):
             raise ValueError("max_steps must be a positive integer.")
@@ -566,24 +574,27 @@ def project_inputs(
             dipole_epoch = decimal_year(event_time)
             boundary_radius = _boundary_radius(file, boundary_radius_override)
             dipole_B0 = _dipole_B0(file, dipole_B0_override)
-            main_field = MainField(kind=main_field_kind, epoch=dipole_epoch, B0=dipole_B0)
+            main_field = MainField(kind=MAGE_MAIN_FIELD_KIND, epoch=dipole_epoch, B0=dipole_B0)
             gamera_dipole = _gamera_dipole_metadata(file)
             alignment = main_field.alignment_metadata(event_time)
-            ionosphere_lat_geo = np.asarray(file["glat"][:], dtype=float)
-            ionosphere_lon_geo = wrap_longitude_180(file["glon"][:])
-            ionosphere_lat, ionosphere_lon = main_field.geo_to_model_coordinates(
-                ionosphere_lat_geo, ionosphere_lon_geo, event_time=event_time
-            )
+            ionosphere_lat = np.asarray(file["ionosphere_lat"][:], dtype=float)
+            ionosphere_lon = wrap_longitude_180(file["ionosphere_lon"][:])
             ionosphere_grid = pynamit.Grid(lat=ionosphere_lat, lon=ionosphere_lon)
 
-            magnetosphere_lat = np.asarray(file["Blat"][:], dtype=float)
-            magnetosphere_local_time_lon = np.asarray(file["Blon"][:], dtype=float)
-            magnetosphere_lon = main_field.local_time_longitude_to_model_longitude(
-                magnetosphere_local_time_lon,
-                event_time,
-                local_noon_longitude=SM_NOON_LONGITUDE_DEG,
+            magnetosphere_lat = np.asarray(file["boundary_lat"][:], dtype=float)
+            magnetosphere_lon = wrap_longitude_180(file["boundary_lon"][:])
+            boundary_solid_angle = np.asarray(file["boundary_solid_angle"][:], dtype=float)
+            if np.any(~np.isfinite(boundary_solid_angle)) or np.any(
+                boundary_solid_angle <= 0.0
+            ):
+                raise RuntimeError(
+                    "Prepared MAGE boundary solid angles must be finite and positive."
+                )
+            magnetosphere_grid = pynamit.Grid(
+                lat=magnetosphere_lat,
+                lon=magnetosphere_lon,
+                area_weights=boundary_solid_angle,
             )
-            magnetosphere_grid = pynamit.Grid(lat=magnetosphere_lat, lon=magnetosphere_lon)
 
             print(f"Using forcing file: {forcing_path}", flush=True)
             print(f"Writing projected input package: {projection_directory}", flush=True)
@@ -594,15 +605,29 @@ def project_inputs(
                 f"({len(forcing_times)} step(s))",
                 flush=True,
             )
-            print(f"Main field used for projection: {main_field_kind}", flush=True)
+            print(f"Main field used for projection: {MAGE_MAIN_FIELD_KIND}", flush=True)
             print(f"Dipole alignment model: {alignment['dipole_alignment_model']}", flush=True)
-            print(f"Dipole epoch: {dipole_epoch:.9f}", flush=True)
-            print(f"Dipole B0: {dipole_B0:.6g} T ({dipole_B0 * 1e9:.6g} nT)", flush=True)
+            print(f"Main-field epoch: {dipole_epoch:.9f}", flush=True)
+            print(
+                "Geopack coefficient epoch: "
+                f"{alignment['dipole_alignment_epoch']:.9f} "
+                "(Kaiju day-of-year interpolation)",
+                flush=True,
+            )
+            print(
+                "PynaMIT-reference dipole B0: "
+                f"{dipole_B0:.6g} T ({dipole_B0 * 1e9:.6g} nT)",
+                flush=True,
+            )
             print(f"GAMERA signed MagM0: {gamera_dipole['mag_m0_nT']:.6g} nT", flush=True)
-            print("GAMERA coordinates: SM; longitude 0 = local noon", flush=True)
+            print("GAMERA source coordinates: timestamped SM", flush=True)
+            print("PynaMIT model and prepared forcing coordinates: Earth-fixed GEO", flush=True)
             print(f"RM: {boundary_radius:.6g} m", flush=True)
-            print("Wind forcing: E_source from Pedersen/Hall weighted winds", flush=True)
-            print("FAC convention: upward positive", flush=True)
+            print(
+                "Wind forcing: direct driving E from Pedersen/Hall weighted winds", flush=True
+            )
+            print("REMIX FAC source convention: upward positive", flush=True)
+            print("Prepared jr convention: outward positive", flush=True)
 
             simulation = pynamit.Simulation(
                 run_directory=staged_directory,
@@ -611,7 +636,7 @@ def project_inputs(
                 Ncs=ncs,
                 RI=IONOSPHERE_RADIUS_M,
                 RM=boundary_radius,
-                main_field_kind=main_field_kind,
+                main_field_kind=MAGE_MAIN_FIELD_KIND,
                 main_field_epoch=dipole_epoch,
                 main_field_B0=dipole_B0,
                 enable_pfac_coupling=False,
@@ -622,9 +647,6 @@ def project_inputs(
                 simulation=simulation,
                 ionosphere_grid=ionosphere_grid,
                 magnetosphere_grid=magnetosphere_grid,
-                ionosphere_lat_geo=ionosphere_lat_geo,
-                ionosphere_lon_geo=ionosphere_lon_geo,
-                event_time=event_time,
                 br_lambda=br_lambda,
                 conductance_lambda=conductance_lambda,
                 jr_lambda=jr_lambda,
@@ -672,14 +694,21 @@ def project_inputs(
                 input_datasets=projected_datasets,
                 source="pynamit.simulation.workflows.mage_projection",
                 notes=(
-                    "MAGE E_source was computed from Pedersen/Hall weighted winds "
-                    "using the sheet-radius main field and projected sheet resistance.",
+                    "The stored E_source input is only the direct wind-driven electric field, "
+                    "computed from Pedersen/Hall weighted winds using the sheet-radius main "
+                    "field and projected sheet resistance; it is not total model E.",
                     "All input fits used explicit square-root surface-area weights.",
                 ),
                 metadata={
                     "input_kind": "mage_gamera_tiegcm",
                     "event_time": event_time.isoformat(),
+                    "coordinate_system": "GEO",
+                    "source_coordinate_systems": {
+                        "GAMERA_and_REMIX": "SM",
+                        "TIEGCM": "geographic",
+                    },
                     "fac_convention": "upward",
+                    "fac_to_radial_current": "jr = FAC_upward * abs(source unit_br)",
                     "least_squares_weighting": "surface_area",
                     "projection_regularization": {
                         "Br_lambda": br_lambda,
@@ -699,4 +728,9 @@ def project_inputs(
     return projection_directory
 
 
-__all__ = ["MAGE_FORCING_KIND", "MAGE_FORCING_VERSION", "project_inputs"]
+__all__ = [
+    "MAGE_FORCING_KIND",
+    "MAGE_FORCING_VERSION",
+    "MAGE_MAIN_FIELD_KIND",
+    "project_inputs",
+]

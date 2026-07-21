@@ -1,18 +1,17 @@
 """Compare raw driver inputs with their projected reconstruction."""
 
+import datetime as dt
+
 import cartopy.crs as ccrs
 import h5py as h5
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
 
-from pynamit.coordinates import (
-    local_time_longitude_to_geographic as _local_time_longitude_to_geographic,
-)
-from pynamit.geomagnetism import MagneticFieldEvaluation
 from pynamit.sphere import Grid
 from pynamit.sphere.spherical_transform import SphericalTransform
 from pynamit.visualization.input_projection import evaluate_projected_input
+from pynamit.visualization.map_coordinates import MapCoordinateContext
 from pynamit.visualization.plot_helpers import (
     build_percentile_color_scale,
     style_global_input_axis,
@@ -44,13 +43,13 @@ _INPUT_DATA_DETAILS = {
         "label": r"$\Delta B_r$ [T]",
         "strictly_positive": False,
         "grid_type": "magnetosphere",
-        "h5_key_primary": "Bu",
+        "h5_key_primary": "delta_Br",
     },
     "jr": {
         "label": r"$j_r$ [A/m$^2$]",
         "strictly_positive": False,
         "grid_type": "ionosphere",
-        "h5_key_primary": "FAC",
+        "h5_key_primary": "jr",
     },
     "SH": {
         "label": r"$\Sigma_H$ [S]",
@@ -68,41 +67,41 @@ _INPUT_DATA_DETAILS = {
         "label": r"$|u|$ [m/s]",
         "strictly_positive": True,
         "grid_type": "ionosphere",
-        "h5_key_primary": "We",
-        "h5_key_secondary": "Wn",
+        "h5_key_primary": "u_p_theta",
+        "h5_key_secondary": "u_p_phi",
     },
     "u_theta": {
         "label": r"$u_\theta$ (South) [m/s]",
         "strictly_positive": False,
         "grid_type": "ionosphere",
-        "h5_key_primary": "We",
-        "h5_key_secondary": "Wn",
+        "h5_key_primary": "u_p_theta",
+        "h5_key_secondary": "u_p_phi",
     },
     "u_phi": {
         "label": r"$u_\phi$ (East) [m/s]",
         "strictly_positive": False,
         "grid_type": "ionosphere",
-        "h5_key_primary": "We",
-        "h5_key_secondary": "Wn",
+        "h5_key_primary": "u_p_theta",
+        "h5_key_secondary": "u_p_phi",
     },
 }
 
 
-def _read_raw_input_field(h5file, data_type, details, timestep, ionosphere_br_2d, shape):
+def _read_raw_input_field(h5file, data_type, details, timestep, shape):
     if data_type == "Br":
         return h5file[details["h5_key_primary"]][timestep, :, :] * 1e-9
     if data_type == "jr":
-        return h5file[details["h5_key_primary"]][timestep, :, :] * 1e-6 * ionosphere_br_2d
+        return h5file[details["h5_key_primary"]][timestep, :, :] * 1e-6
     if data_type in {"SH", "SP"}:
         return h5file[details["h5_key_primary"]][timestep, :, :]
     if data_type in {"u_mag", "u_theta", "u_phi"}:
-        u_e_h5 = h5file[details["h5_key_primary"]][timestep, :, :]
-        u_n_h5 = h5file[details["h5_key_secondary"]][timestep, :, :]
+        u_theta_h5 = h5file[details["h5_key_primary"]][timestep, :, :]
+        u_phi_h5 = h5file[details["h5_key_secondary"]][timestep, :, :]
         if data_type == "u_mag":
-            return np.sqrt(u_n_h5**2 + u_e_h5**2)
+            return np.hypot(u_theta_h5, u_phi_h5)
         if data_type == "u_theta":
-            return -u_n_h5
-        return u_e_h5
+            return u_theta_h5
+        return u_phi_h5
     return np.full(shape, np.nan)
 
 
@@ -169,39 +168,16 @@ def _validate_comparison_request(h5file, timesteps, data_types, positive_scale_t
     return True
 
 
-def _comparison_grids(
-    h5file,
-    main_field,
-    ionosphere_radius,
-    noon_longitude,
-    magnetosphere_local_noon_longitude,
-    coordinate_context,
-):
-    """Return comparison grids, longitude origin, and ionospheric Br."""
-    ionosphere_lat, ionosphere_lon = h5file["glat"][:], h5file["glon"][:]
-    magnetosphere_lat, magnetosphere_lon = h5file["Blat"][:], h5file["Blon"][:]
-    if coordinate_context is not None:
-        noon_longitude = coordinate_context.noon_longitude
-    if magnetosphere_local_noon_longitude is not None:
-        if coordinate_context is None:
-            magnetosphere_lon = _local_time_longitude_to_geographic(
-                magnetosphere_lon,
-                noon_longitude=noon_longitude,
-                local_noon_longitude=magnetosphere_local_noon_longitude,
-            )
-        else:
-            magnetosphere_lon = coordinate_context.local_time_longitude_to_coordinate(
-                magnetosphere_lon, local_noon_longitude=magnetosphere_local_noon_longitude
-            )
-
-    grids = {
+def _comparison_grids(h5file):
+    """Return the prepared fixed-GEO comparison grids."""
+    ionosphere_lat = h5file["ionosphere_lat"][:]
+    ionosphere_lon = h5file["ionosphere_lon"][:]
+    magnetosphere_lat = h5file["boundary_lat"][:]
+    magnetosphere_lon = h5file["boundary_lon"][:]
+    return {
         "ionosphere": (ionosphere_lon, ionosphere_lat),
         "magnetosphere": (magnetosphere_lon, magnetosphere_lat),
     }
-    ionosphere_grid = Grid(lat=ionosphere_lat, lon=ionosphere_lon)
-    ionosphere_field = MagneticFieldEvaluation(main_field, ionosphere_grid, ionosphere_radius)
-    ionosphere_br = ionosphere_field.unit_br.reshape(ionosphere_lat.shape)
-    return grids, noon_longitude, ionosphere_br
 
 
 def _target_grid(grids, grid_type):
@@ -210,9 +186,7 @@ def _target_grid(grids, grid_type):
     return longitude, latitude, latitude.shape
 
 
-def _collect_comparison_data(
-    h5file, input_series, timesteps, input_dt, data_types, grids, ionosphere_br
-):
+def _collect_comparison_data(h5file, input_series, timesteps, input_dt, data_types, grids):
     """Evaluate raw and reconstructed input fields for all panels."""
     scale_data = {key: [] for key in data_types}
     cached_data = {}
@@ -224,7 +198,7 @@ def _collect_comparison_data(
             series_key = _INPUT_TIMESERIES_KEY[data_type]
             target_lon, target_lat, target_shape = _target_grid(grids, details["grid_type"])
             raw = _read_raw_input_field(
-                h5file, data_type, details, timestep, ionosphere_br, target_shape
+                h5file, data_type, details, timestep, target_shape
             )
 
             projected = np.full(target_shape, np.nan)
@@ -298,7 +272,7 @@ def _comparison_figure_size(n_fields, n_times, time_fraction, label_fraction):
 
 
 def _create_comparison_layout(
-    data_types, timesteps, input_dt, noon_longitude, time_fraction, label_fraction
+    data_types, timesteps, input_dt, coordinate_contexts, time_fraction, label_fraction
 ):
     """Create the projection-comparison axes and label column."""
     n_fields = len(data_types)
@@ -327,14 +301,13 @@ def _create_comparison_layout(
         axis.text(0.5, 0.5, f"{timestep * input_dt}s", ha="center", va="center", fontsize=9)
         axis.axis("off")
 
-    map_axes = plot_subfigure.subplots(
-        n_rows,
-        n_columns,
-        sharex=True,
-        sharey=True,
-        subplot_kw={"projection": ccrs.PlateCarree(central_longitude=noon_longitude)},
-    )
-    map_axes = np.asarray(map_axes, dtype=object).reshape(n_rows, n_columns)
+    map_grid = plot_subfigure.add_gridspec(n_rows, n_columns, hspace=0.05, wspace=0.03)
+    map_axes = np.empty((n_rows, n_columns), dtype=object)
+    for row_index in range(n_rows):
+        for column_index, context in enumerate(coordinate_contexts):
+            map_axes[row_index, column_index] = plot_subfigure.add_subplot(
+                map_grid[row_index, column_index], projection=context.projection()
+            )
     label_grid = gridspec.GridSpec(
         n_fields,
         3,
@@ -372,11 +345,10 @@ def _draw_comparison_panels(
     grids,
     cached_data,
     color_scales,
-    coordinate_context,
+    coordinate_contexts,
 ):
     """Draw all raw/projected map pairs and their colorbars."""
     n_rows = 2 * len(data_types)
-    labels_enabled = coordinate_context is not None
     for field_index, data_type in enumerate(data_types):
         details = _INPUT_DATA_DETAILS[data_type]
         scale = color_scales[data_type]
@@ -386,6 +358,7 @@ def _draw_comparison_panels(
         longitude, latitude, _ = _target_grid(grids, details["grid_type"])
         first_mappable = None
         for time_index, timestep in enumerate(timesteps):
+            coordinate_context = coordinate_contexts[time_index]
             cache_key = (timestep, data_type)
             try:
                 fields = cached_data[cache_key]
@@ -407,9 +380,9 @@ def _draw_comparison_panels(
                     title="",
                     cmap=scale["cmap"],
                     norm=scale["norm"],
-                    coordinate_context=coordinate_context if labels_enabled else None,
-                    left_labels=labels_enabled and time_index == 0,
-                    bottom_labels=labels_enabled and row_index == n_rows - 1,
+                    coordinate_context=coordinate_context,
+                    left_labels=time_index == 0,
+                    bottom_labels=row_index == n_rows - 1,
                 )
                 if first_mappable is None and not np.all(np.isnan(values)):
                     first_mappable = mappable
@@ -436,17 +409,14 @@ def _render_input_projection_comparison(
     timesteps_to_plot,
     input_dt,
     data_types_to_plot,
-    noon_longitude=0,
     output_filename=None,
     vmin_percentile=0.2,
     vmax_percentile=99.8,
     strictly_positive_scale_type="linear",
     time_row_h_frac_user=0.015,
     cbars_labels_col_w_frac_user=0.11,
-    magnetosphere_local_noon_longitude=None,
-    coordinate_context=None,
 ):
-    """Compare raw HDF5 inputs with projected reconstruction."""
+    """Compare raw and projected inputs on their fixed GEO grid."""
     if not _validate_comparison_request(
         h5file, timesteps_to_plot, data_types_to_plot, strictly_positive_scale_type
     ):
@@ -454,18 +424,18 @@ def _render_input_projection_comparison(
 
     run_view = SavedRunView.from_directory(projected_run_directory)
     input_series = run_view.load_input_series()
-    grids, noon_longitude, ionosphere_br = _comparison_grids(
-        h5file,
-        run_view.main_field,
-        float(run_view.config.RI),
-        noon_longitude,
-        magnetosphere_local_noon_longitude,
-        coordinate_context,
-    )
+    grids = _comparison_grids(h5file)
+    coordinate_contexts = []
+    for timestep in timesteps_to_plot:
+        timestamp = h5file["time"][timestep]
+        if isinstance(timestamp, bytes):
+            timestamp = timestamp.decode("ascii")
+        event_time = dt.datetime.fromisoformat(str(timestamp))
+        coordinate_contexts.append(MapCoordinateContext.geographic(event_time))
 
     print("Collecting raw and projected input fields for global color scales...")
     cached_plot_data, scale_data = _collect_comparison_data(
-        h5file, input_series, timesteps_to_plot, input_dt, data_types_to_plot, grids, ionosphere_br
+        h5file, input_series, timesteps_to_plot, input_dt, data_types_to_plot, grids
     )
 
     print("Calculating projection-comparison color scales from percentiles...")
@@ -481,7 +451,7 @@ def _render_input_projection_comparison(
         data_types_to_plot,
         timesteps_to_plot,
         input_dt,
-        noon_longitude,
+        coordinate_contexts,
         time_row_h_frac_user,
         cbars_labels_col_w_frac_user,
     )
@@ -495,7 +465,7 @@ def _render_input_projection_comparison(
         grids,
         cached_plot_data,
         global_plot_scales,
-        coordinate_context,
+        coordinate_contexts,
     )
 
     if output_filename:
@@ -511,17 +481,14 @@ def plot_input_projection_comparison(
     timesteps_to_plot,
     input_dt,
     data_types_to_plot,
-    noon_longitude=0,
     output_filename=None,
     vmin_percentile=0.2,
     vmax_percentile=99.8,
     strictly_positive_scale_type="linear",
     time_row_h_frac_user=0.015,
     cbars_labels_col_w_frac_user=0.11,
-    magnetosphere_local_noon_longitude=None,
-    coordinate_context=None,
 ):
-    """Compare raw HDF5 inputs with projected reconstruction."""
+    """Compare raw and projected inputs on their fixed GEO grid."""
     try:
         h5file = h5.File(h5_filepath, "r")
     except Exception as exc:
@@ -534,15 +501,12 @@ def plot_input_projection_comparison(
             timesteps_to_plot,
             input_dt,
             data_types_to_plot,
-            noon_longitude=noon_longitude,
             output_filename=output_filename,
             vmin_percentile=vmin_percentile,
             vmax_percentile=vmax_percentile,
             strictly_positive_scale_type=strictly_positive_scale_type,
             time_row_h_frac_user=time_row_h_frac_user,
             cbars_labels_col_w_frac_user=cbars_labels_col_w_frac_user,
-            magnetosphere_local_noon_longitude=magnetosphere_local_noon_longitude,
-            coordinate_context=coordinate_context,
         )
 
 

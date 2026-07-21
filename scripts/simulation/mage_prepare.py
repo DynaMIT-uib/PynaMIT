@@ -1,12 +1,15 @@
 """Prepare reusable MAGE/GAMERA/TIEGCM forcing.
 
-The expensive TIEGCM height integration is done here once.  The output
-HDF5 contains the fields used by the projection step:
+The expensive height integration and source-coordinate transformations
+are done here once. The output HDF5 contains the fields used by the
+projection step on fixed, Earth-attached geographic grids:
 
 - ``SP`` and ``SH``: Pedersen and Hall conductance in S.
-- ``We``/``Wn``: Pedersen-weighted eastward/northward wind in m/s.
-- ``WeH``/``WnH``: Hall-weighted eastward/northward neutral wind in m/s.
-- REMIX FAC and GAMERA inner-boundary radial magnetic perturbation.
+- ``u_p_theta``/``u_p_phi``: Pedersen-weighted model-basis wind in m/s.
+- ``u_h_theta``/``u_h_phi``: Hall-weighted model-basis wind in m/s.
+- radial current derived from REMIX FAC and the GAMERA inner-boundary
+  radial magnetic perturbation,
+  remapped from their timestamped SM source coordinates.
 
 The wind integration intentionally stores conductivity-weighted winds,
 not a height-resolved ``u x B`` source. The projection step uses
@@ -41,9 +44,12 @@ from typing import Any
 import h5py
 import numpy as np
 from scipy.interpolate import griddata
+from scipy.spatial import Delaunay, cKDTree
 
 from pynamit.coordinates import wrap_longitude_180
 from pynamit.geomagnetism import MainField, decimal_year
+from pynamit.geomagnetism.kaiju_geopack import kaiju_geopack_sm
+from pynamit.math.constants import RE
 from pynamit.simulation.workflows.mage_projection import MAGE_FORCING_KIND, MAGE_FORCING_VERSION
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -74,6 +80,13 @@ class PreparationSettings:
 SETTINGS = PreparationSettings()
 
 
+def _naive_utc_datetime(value: dt.datetime) -> dt.datetime:
+    """Normalize a source time to the naive-UTC convention."""
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(dt.timezone.utc).replace(tzinfo=None)
+
+
 def _gamera_internal_dipole_axes(mag_m0_nT: float) -> dict[str, np.ndarray]:
     """Return GAMERA dipole-moment and magnetic-pole axes."""
     if not np.isfinite(mag_m0_nT) or mag_m0_nT == 0.0:
@@ -86,13 +99,22 @@ def _gamera_internal_dipole_axes(mag_m0_nT: float) -> dict[str, np.ndarray]:
     return {"moment_axis": moment_axis, "north_axis": north_axis}
 
 
+def _pynamit_dipole_B0_T(mag_m0_nT: float, length_scale_m: float) -> float:
+    """Convert GAMERA MagM0 to PynaMIT's reference-radius B0."""
+    if not np.isfinite(mag_m0_nT) or mag_m0_nT == 0.0:
+        raise ValueError("GAMERA MagM0 must be finite and nonzero.")
+    if not np.isfinite(length_scale_m) or length_scale_m <= 0.0:
+        raise ValueError("GAMERA length scale must be finite and positive.")
+    return abs(float(mag_m0_nT)) * 1e-9 * (float(length_scale_m) / RE) ** 3
+
+
 def _centered_dipole_alignment_attrs(event_time: dt.datetime, mag_m0_nT: float) -> dict[str, Any]:
     """Return coordinate alignment for prepared GAMERA forcing."""
     main_field = MainField(kind="kaiju_dipole", epoch=decimal_year(event_time))
     alignment = main_field.alignment_metadata(event_time)
     internal = _gamera_internal_dipole_axes(mag_m0_nT)
     return {
-        "gamera_coordinate_system": "SM",
+        "gamera_source_coordinate_system": "SM",
         "gamera_internal_magnetic_north_axis": internal["north_axis"],
         "gamera_internal_dipole_moment_axis": internal["moment_axis"],
         **alignment,
@@ -382,28 +404,153 @@ def _validate_tiegcm_variables(dataset: Any, n_steps: int, conductance_source: s
 def _gamera_inner_boundary_geometry(
     gsph: Any, inner_index: int, length_scale_m: float
 ) -> tuple[np.ndarray, ...]:
-    """Return centered inner-boundary grid and helper arrays."""
-    x = gsph.X[inner_index]
-    y = gsph.Y[inner_index]
-    z = gsph.Z[inner_index]
+    """Return Kaiju cell centers corresponding to ``B[inner_index]``.
 
-    x = 0.25 * (x[:-1, :-1] + x[1:, :-1] + x[:-1, 1:] + x[1:, 1:])
-    y = 0.25 * (y[:-1, :-1] + y[1:, :-1] + y[:-1, 1:] + y[1:, 1:])
-    z = 0.25 * (z[:-1, :-1] + z[1:, :-1] + z[:-1, 1:] + z[1:, 1:])
+    GAMERA stores ``X/Y/Z`` at cell vertices and magnetic fields at cell
+    centers. The selected magnetic shell therefore lies between vertex
+    shells ``inner_index`` and ``inner_index + 1``. Kaiju defines the
+    location as the volume barycenter of the trilinear cell.
+    """
+    vertices = _gamera_inner_boundary_vertices(gsph, inner_index)
+    x, y, z = np.moveaxis(_trilinear_hexahedron_volume_centers(vertices), -1, 0)
 
     r_re = np.sqrt(x**2 + y**2 + z**2)
     theta = np.arccos(z / r_re)
     phi = np.arctan2(y, x)
 
-    glat = 90.0 - np.degrees(theta)
-    glon = np.degrees(phi)
+    latitude = 90.0 - np.degrees(theta)
+    longitude = np.degrees(phi)
     r_m = r_re * length_scale_m
 
     sin_theta = np.sin(theta)
     cos_theta = np.cos(theta)
     sin_phi = np.sin(phi)
     cos_phi = np.cos(phi)
-    return glat, glon, r_m, sin_theta, cos_theta, sin_phi, cos_phi
+    return latitude, longitude, r_m, sin_theta, cos_theta, sin_phi, cos_phi
+
+
+def _gamera_inner_boundary_vertices(gsph: Any, inner_index: int) -> np.ndarray:
+    """Return boundary hexahedron vertices in Kaiju's corner order."""
+    x, y, z = (
+        np.asarray(coordinate[inner_index : inner_index + 2], dtype=float)
+        for coordinate in (gsph.X, gsph.Y, gsph.Z)
+    )
+    positions = np.stack((x, y, z), axis=-1)
+    vertices = np.stack(
+        (
+            positions[0, :-1, :-1],
+            positions[1, :-1, :-1],
+            positions[1, 1:, :-1],
+            positions[0, 1:, :-1],
+            positions[0, :-1, 1:],
+            positions[1, :-1, 1:],
+            positions[1, 1:, 1:],
+            positions[0, 1:, 1:],
+        ),
+        axis=-2,
+    )
+    if np.any(~np.isfinite(vertices)):
+        raise RuntimeError("GAMERA inner-boundary vertices must be finite.")
+    return vertices
+
+
+def _trilinear_hexahedron_volume_centers(vertices: np.ndarray) -> np.ndarray:
+    """Return volume barycenters using Kaiju's Gaussian quadrature."""
+    vertices = np.asarray(vertices, dtype=float)
+    if vertices.shape[-2:] != (8, 3):
+        raise ValueError("Hexahedron vertices must have final shape (8, 3).")
+    corner_signs = np.array(
+        [
+            [-1.0, -1.0, -1.0],
+            [1.0, -1.0, -1.0],
+            [1.0, 1.0, -1.0],
+            [-1.0, 1.0, -1.0],
+            [-1.0, -1.0, 1.0],
+            [1.0, -1.0, 1.0],
+            [1.0, 1.0, 1.0],
+            [-1.0, 1.0, 1.0],
+        ]
+    )
+    points, weights = np.polynomial.legendre.leggauss(12)
+    volume = np.zeros(vertices.shape[:-2], dtype=float)
+    first_moment = np.zeros(vertices.shape[:-2] + (3,), dtype=float)
+    for i, xi in enumerate(points):
+        for j, eta in enumerate(points):
+            for k, zeta in enumerate(points):
+                factors = (
+                    (1.0 + corner_signs[:, 0] * xi)
+                    * (1.0 + corner_signs[:, 1] * eta)
+                    * (1.0 + corner_signs[:, 2] * zeta)
+                    / 8.0
+                )
+                position = np.einsum("...vc,v->...c", vertices, factors, optimize=True)
+                derivatives = (
+                    np.stack(
+                        (
+                            corner_signs[:, 0]
+                            * (1.0 + corner_signs[:, 1] * eta)
+                            * (1.0 + corner_signs[:, 2] * zeta),
+                            (1.0 + corner_signs[:, 0] * xi)
+                            * corner_signs[:, 1]
+                            * (1.0 + corner_signs[:, 2] * zeta),
+                            (1.0 + corner_signs[:, 0] * xi)
+                            * (1.0 + corner_signs[:, 1] * eta)
+                            * corner_signs[:, 2],
+                        ),
+                        axis=-1,
+                    )
+                    / 8.0
+                )
+                jacobian = np.einsum(
+                    "...vc,vq->...cq", vertices, derivatives, optimize=True
+                )
+                weighted_volume = (
+                    weights[i] * weights[j] * weights[k] * np.abs(np.linalg.det(jacobian))
+                )
+                volume += weighted_volume
+                first_moment += weighted_volume[..., None] * position
+    if np.any(~np.isfinite(volume)) or np.any(volume <= 0.0):
+        raise RuntimeError("GAMERA inner-boundary cells must have finite positive volumes.")
+    return first_moment / volume[..., None]
+
+
+def _spherical_triangle_solid_angle(
+    first: np.ndarray, second: np.ndarray, third: np.ndarray
+) -> np.ndarray:
+    """Return the unsigned solid angle of unit-vector triangles."""
+    numerator = np.abs(np.einsum("...i,...i->...", first, np.cross(second, third)))
+    denominator = (
+        1.0
+        + np.einsum("...i,...i->...", first, second)
+        + np.einsum("...i,...i->...", second, third)
+        + np.einsum("...i,...i->...", third, first)
+    )
+    return 2.0 * np.arctan2(numerator, denominator)
+
+
+def _gamera_inner_boundary_solid_angle(gsph: Any, inner_index: int) -> np.ndarray:
+    """Return each GAMERA boundary cell's solid angle in steradians."""
+    vertices = _gamera_inner_boundary_vertices(gsph, inner_index)
+    mid_shell = np.stack(
+        (
+            0.5 * (vertices[..., 0, :] + vertices[..., 1, :]),
+            0.5 * (vertices[..., 3, :] + vertices[..., 2, :]),
+            0.5 * (vertices[..., 7, :] + vertices[..., 6, :]),
+            0.5 * (vertices[..., 4, :] + vertices[..., 5, :]),
+        ),
+        axis=-2,
+    )
+    norms = np.linalg.norm(mid_shell, axis=-1, keepdims=True)
+    if np.any(~np.isfinite(norms)) or np.any(norms <= 0.0):
+        raise RuntimeError("GAMERA inner-boundary vertices must have finite nonzero radii.")
+    unit = mid_shell / norms
+    lower_left, upper_left, upper_right, lower_right = np.moveaxis(unit, -2, 0)
+    solid_angle = _spherical_triangle_solid_angle(
+        lower_left, upper_left, upper_right
+    ) + _spherical_triangle_solid_angle(lower_left, upper_right, lower_right)
+    if np.any(~np.isfinite(solid_angle)) or np.any(solid_angle <= 0.0):
+        raise RuntimeError("GAMERA inner-boundary cells must have finite positive solid angles.")
+    return solid_angle
 
 
 def _radial_component(
@@ -419,22 +566,24 @@ def _radial_component(
     return bx * sin_theta * cos_phi + by * sin_theta * sin_phi + bz * cos_theta
 
 
-def _interpolate_to_tiegcm_grid(
+def _interpolate_periodic_latlon_field(
     source_lat: np.ndarray,
     source_lon: np.ndarray,
     values: np.ndarray,
     target_lon: np.ndarray,
     target_lat: np.ndarray,
+    *,
+    require_complete: bool = False,
 ) -> np.ndarray:
-    """Interpolate a periodic REMIX field onto the TIEGCM grid."""
+    """Interpolate linearly in periodic lat/lon coordinates."""
     source_lat = np.asarray(source_lat, dtype=float).reshape(-1)
     source_lon = wrap_longitude_180(source_lon).reshape(-1)
     values = np.asarray(values, dtype=float).reshape(-1)
     if source_lat.size != source_lon.size or source_lat.size != values.size:
-        raise ValueError("REMIX coordinates and values must have matching sizes.")
+        raise ValueError("Source coordinates and values must have matching sizes.")
     valid = np.isfinite(source_lat) & np.isfinite(source_lon) & np.isfinite(values)
     if np.count_nonzero(valid) < 3:
-        raise ValueError("REMIX interpolation requires at least three finite samples.")
+        raise ValueError("Periodic interpolation requires at least three finite samples.")
     source_lat = source_lat[valid]
     source_lon = source_lon[valid]
     values = values[valid]
@@ -444,75 +593,278 @@ def _interpolate_to_tiegcm_grid(
     periodic_lon = np.concatenate((source_lon - 360.0, source_lon, source_lon + 360.0))
     periodic_lat = np.tile(source_lat, 3)
     periodic_values = np.tile(values, 3)
-    return griddata(
-        (periodic_lon, periodic_lat),
-        periodic_values,
-        (wrap_longitude_180(target_lon), target_lat),
-        method="linear",
+    target_points = (wrap_longitude_180(target_lon), target_lat)
+    result = griddata(
+        (periodic_lon, periodic_lat), periodic_values, target_points, method="linear"
     )
+    if require_complete and np.any(~np.isfinite(result)):
+        missing = ~np.isfinite(result)
+        nearest_tree = cKDTree(_unit_sphere_positions(source_lat, source_lon))
+        target_lon, target_lat = np.broadcast_arrays(
+            np.asarray(target_lon, dtype=float), np.asarray(target_lat, dtype=float)
+        )
+        target_positions = _unit_sphere_positions(target_lat[missing], target_lon[missing])
+        nearest_indices = nearest_tree.query(target_positions)[1]
+        result[missing] = values[nearest_indices]
+    return result
+
+
+def _unit_sphere_positions(latitude: np.ndarray, longitude: np.ndarray) -> np.ndarray:
+    """Return Cartesian unit vectors for spherical positions."""
+    latitude, longitude = np.broadcast_arrays(
+        np.asarray(latitude, dtype=float), np.asarray(longitude, dtype=float)
+    )
+    latitude_radians = np.deg2rad(latitude.reshape(-1))
+    longitude_radians = np.deg2rad(longitude.reshape(-1))
+    cos_latitude = np.cos(latitude_radians)
+    return np.column_stack(
+        (
+            cos_latitude * np.cos(longitude_radians),
+            cos_latitude * np.sin(longitude_radians),
+            np.sin(latitude_radians),
+        )
+    )
+
+
+class _PeriodicLatLonInterpolator:
+    """Reuse periodic latitude/longitude geometry across histories."""
+
+    def __init__(self, source_lat: np.ndarray, source_lon: np.ndarray) -> None:
+        source_lat, source_lon = np.broadcast_arrays(
+            np.asarray(source_lat, dtype=float), np.asarray(source_lon, dtype=float)
+        )
+        self._source_shape = source_lat.shape
+        self._source_lat = np.array(source_lat, copy=True)
+        self._source_lon = wrap_longitude_180(source_lon).copy()
+        source_lat = source_lat.reshape(-1)
+        source_lon = wrap_longitude_180(source_lon).reshape(-1)
+        finite = np.isfinite(source_lat) & np.isfinite(source_lon)
+        if np.count_nonzero(finite) < 3:
+            raise ValueError("Periodic interpolation requires at least three finite positions.")
+        source_indices = np.flatnonzero(finite)
+        source_lat = source_lat[finite]
+        source_lon = source_lon[finite]
+        self._finite_source_lat = source_lat
+        self._finite_source_lon = source_lon
+        self._finite_source_indices = source_indices
+        periodic_points = np.column_stack(
+            (
+                np.concatenate((source_lon - 360.0, source_lon, source_lon + 360.0)),
+                np.tile(source_lat, 3),
+            )
+        )
+        self._periodic_source_indices = np.tile(source_indices, 3)
+        self._triangulation = Delaunay(periodic_points)
+        self._nearest_tree = None
+
+    def matches(self, source_lat: np.ndarray, source_lon: np.ndarray) -> bool:
+        """Return whether coordinates match the cached source grid."""
+        source_lat, source_lon = np.broadcast_arrays(
+            np.asarray(source_lat, dtype=float), np.asarray(source_lon, dtype=float)
+        )
+        return (
+            source_lat.shape == self._source_shape
+            and np.allclose(source_lat, self._source_lat, rtol=0.0, atol=1e-12)
+            and np.allclose(wrap_longitude_180(source_lon), self._source_lon, rtol=0.0, atol=1e-12)
+        )
+
+    def interpolate(
+        self,
+        values: np.ndarray,
+        target_lon: np.ndarray,
+        target_lat: np.ndarray,
+        *,
+        require_complete: bool = False,
+    ) -> np.ndarray:
+        """Interpolate one field without rebuilding source geometry."""
+        values = np.asarray(values, dtype=float)
+        if values.shape != self._source_shape:
+            raise ValueError(
+                f"Periodic field shape {values.shape} does not match {self._source_shape}."
+            )
+        periodic_values = values.reshape(-1)[self._periodic_source_indices]
+        if require_complete and np.any(~np.isfinite(periodic_values)):
+            raise ValueError("Complete periodic interpolation requires finite source values.")
+        if np.any(~np.isfinite(periodic_values)):
+            return _interpolate_periodic_latlon_field(
+                self._source_lat,
+                self._source_lon,
+                values,
+                target_lon,
+                target_lat,
+                require_complete=require_complete,
+            )
+
+        target_lon, target_lat = np.broadcast_arrays(
+            np.asarray(target_lon, dtype=float), np.asarray(target_lat, dtype=float)
+        )
+        target_shape = target_lon.shape
+        target_points = np.column_stack(
+            (wrap_longitude_180(target_lon).reshape(-1), target_lat.reshape(-1))
+        )
+        simplex = self._triangulation.find_simplex(target_points)
+        valid = simplex >= 0
+        result = np.full(target_points.shape[0], np.nan)
+        if np.any(valid):
+            valid_simplex = simplex[valid]
+            delta = target_points[valid] - self._triangulation.transform[valid_simplex, 2]
+            leading_weights = np.einsum(
+                "nij,nj->ni", self._triangulation.transform[valid_simplex, :2], delta
+            )
+            weights = np.column_stack((leading_weights, 1.0 - np.sum(leading_weights, axis=1)))
+            vertices = self._triangulation.simplices[valid_simplex]
+            result[valid] = np.sum(periodic_values[vertices] * weights, axis=1)
+
+        if require_complete and np.any(~np.isfinite(result)):
+            missing = ~np.isfinite(result)
+            if self._nearest_tree is None:
+                self._nearest_tree = cKDTree(
+                    _unit_sphere_positions(self._finite_source_lat, self._finite_source_lon)
+                )
+            target_positions = _unit_sphere_positions(
+                target_lat.reshape(-1)[missing], target_lon.reshape(-1)[missing]
+            )
+            nearest_indices = self._nearest_tree.query(target_positions)[1]
+            finite_source_values = values.reshape(-1)[self._finite_source_indices]
+            result[missing] = finite_source_values[nearest_indices]
+        return result.reshape(target_shape)
+
+
+def _geographic_grid_in_sm(
+    latitude: np.ndarray, longitude: np.ndarray, event_time: dt.datetime
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return timestamped Kaiju SM coordinates of a fixed GEO grid."""
+    return kaiju_geopack_sm(event_time).geo2sm(latitude, longitude)
+
+
+def _tiegcm_step_in_geographic_coordinates(
+    integrated: dict[str, np.ndarray],
+) -> dict[str, np.ndarray]:
+    """Express one native GEO TIEGCM history in spherical components."""
+    return {
+        "SP": integrated["SP"].astype(np.float32),
+        "SH": integrated["SH"].astype(np.float32),
+        "u_p_theta": (-integrated["Wn"]).astype(np.float32),
+        "u_p_phi": integrated["We"].astype(np.float32),
+        "u_h_theta": (-integrated["WnH"]).astype(np.float32),
+        "u_h_phi": integrated["WeH"].astype(np.float32),
+    }
 
 
 def _combine_remix_hemispheres(south: np.ndarray, north: np.ndarray) -> np.ndarray:
-    """Fill NaNs in southern interpolation with northern values."""
+    """Merge hemispheres and set the uncovered low latitudes to zero."""
     output = np.array(south, copy=True)
     mask = np.isnan(output)
     output[mask] = north[mask]
+    output[np.isnan(output)] = 0.0
+    if np.any(~np.isfinite(output)):
+        raise ValueError("REMIX FAC interpolation produced non-finite values.")
     return output
 
 
-def _remix_fac_for_hemisphere(
-    ion: Any,
-    hemisphere: str,
-    coordinate_field: MainField,
-    mlat: np.ndarray,
-    sm_lon: np.ndarray,
-    tiegcm_lon: np.ndarray,
-    tiegcm_lat: np.ndarray,
-    event_time: dt.datetime,
+def _dipole_radial_direction_cosine(magnetic_latitude: np.ndarray) -> np.ndarray:
+    """Return a centered dipole's absolute radial direction cosine."""
+    sin_latitude = np.sin(np.deg2rad(np.asarray(magnetic_latitude, dtype=float)))
+    return np.abs(2.0 * sin_latitude / np.sqrt(1.0 + 3.0 * sin_latitude**2))
+
+
+def _upward_fac_to_radial_current(
+    upward_fac: np.ndarray, magnetic_latitude: np.ndarray
 ) -> np.ndarray:
-    """Return one REMIX FAC hemisphere on the TIEGCM grid."""
-    ion.init_vars(hemisphere)
-    sign = -1.0 if hemisphere == "SOUTH" else 1.0
-    lat_mag = sign * mlat
+    """Convert upward-positive dipole FAC to outward current."""
+    return np.asarray(upward_fac, dtype=float) * _dipole_radial_direction_cosine(magnetic_latitude)
 
-    fac = ion.variables["current"]["data"]
 
-    scalar_lat, scalar_lon = coordinate_field.model_to_geo_coordinates(
-        lat_mag, sm_lon, event_time=event_time
+def _remix_upward_fac_source(
+    ion: Any, hemisphere: str, unsigned_magnetic_latitude: np.ndarray, grid_longitude: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return physical SM positions and upward-positive ReMIX FAC.
+
+    ReMIX stores both hemispheres on the same unsigned polar grid. Kaiju
+    interprets southern positions with latitude ``-latitude`` and
+    longitude ``-longitude``. Its saved FAC is parallel-positive, so it
+    is negated in the north and retained in the south to obtain one
+    outward/upward-positive convention.
+    """
+    hemisphere = str(hemisphere).upper()
+    if hemisphere not in {"NORTH", "SOUTH"}:
+        raise ValueError("ReMIX hemisphere must be 'NORTH' or 'SOUTH'.")
+
+    latitude, longitude = np.broadcast_arrays(
+        np.asarray(unsigned_magnetic_latitude, dtype=float),
+        np.asarray(grid_longitude, dtype=float),
     )
-    return _interpolate_to_tiegcm_grid(scalar_lat, scalar_lon, fac, tiegcm_lon, tiegcm_lat)
+    dataset_name = f"Field-aligned current {hemisphere}"
+    if dataset_name not in ion.ion:
+        raise RuntimeError(f"ReMIX history is missing {dataset_name!r}.")
+    fac = np.asarray(ion.ion[dataset_name], dtype=float)
+    if fac.shape != latitude.shape:
+        raise RuntimeError(
+            f"ReMIX {dataset_name!r} shape {fac.shape} does not match "
+            f"the cell-center grid {latitude.shape}."
+        )
+
+    if hemisphere == "NORTH":
+        return latitude, wrap_longitude_180(longitude), -fac
+    return -latitude, wrap_longitude_180(-longitude), fac
 
 
-def _remix_fac_for_step(
-    remix_file: Path,
-    step: int,
-    event_time: dt.datetime,
-    tiegcm_lon: np.ndarray,
-    tiegcm_lat: np.ndarray,
-) -> np.ndarray:
-    """Read and combine north/south REMIX FAC for one step."""
-    try:
-        import kaipy.remix.remix as remix
-    except ModuleNotFoundError as exc:
-        raise ModuleNotFoundError(
-            "mage_prepare.py needs kaipy.remix to read REMIX files. "
-            f"Missing module: {exc.name!r}. Run it in the MAGE/GAMERA environment "
-            "where kaipy and its dependencies are installed."
-        ) from exc
+class _RemixRadialCurrentReader:
+    """Return outward current from REMIX FAC on a fixed GEO grid."""
 
-    coordinate_field = MainField(kind="kaiju_dipole", epoch=decimal_year(event_time))
-    ion = remix.remix(str(remix_file), step)
-    _, _, theta, phi = ion.cartesianCellCenters()
-    mlat = 90.0 - theta / np.pi * 180.0
-    sm_lon = wrap_longitude_180(phi / np.pi * 180.0)
+    def __init__(self, remix_file: Path) -> None:
+        try:
+            import kaipy.remix.remix as remix
+        except ModuleNotFoundError as exc:
+            raise ModuleNotFoundError(
+                "mage_prepare.py needs kaipy.remix to read REMIX files. "
+                f"Missing module: {exc.name!r}. Run it in the MAGE/GAMERA environment "
+                "where kaipy and its dependencies are installed."
+            ) from exc
+        self._remix = remix
+        self._remix_file = Path(remix_file)
+        self._interpolators: dict[str, _PeriodicLatLonInterpolator] = {}
 
-    north = _remix_fac_for_hemisphere(
-        ion, "NORTH", coordinate_field, mlat, sm_lon, tiegcm_lon, tiegcm_lat, event_time
-    )
-    south = _remix_fac_for_hemisphere(
-        ion, "SOUTH", coordinate_field, mlat, sm_lon, tiegcm_lon, tiegcm_lat, event_time
-    )
-    return _combine_remix_hemispheres(south, north)
+    def _hemisphere(
+        self,
+        ion: Any,
+        hemisphere: str,
+        mlat: np.ndarray,
+        sm_lon: np.ndarray,
+        target_sm_lon: np.ndarray,
+        target_sm_lat: np.ndarray,
+    ) -> np.ndarray:
+        """Sample one FAC hemisphere at target SM positions."""
+        source_lat, source_lon, upward_fac = _remix_upward_fac_source(
+            ion, hemisphere, mlat, sm_lon
+        )
+        interpolator = self._interpolators.get(hemisphere)
+        if interpolator is None:
+            interpolator = _PeriodicLatLonInterpolator(source_lat, source_lon)
+            self._interpolators[hemisphere] = interpolator
+        elif not interpolator.matches(source_lat, source_lon):
+            raise RuntimeError("REMIX grid coordinates changed between forcing histories.")
+        return interpolator.interpolate(upward_fac, target_sm_lon, target_sm_lat)
+
+    def read(
+        self,
+        step: int,
+        target_longitude: np.ndarray,
+        target_latitude: np.ndarray,
+        event_time: dt.datetime,
+    ) -> np.ndarray:
+        """Return outward current on the fixed geographic grid."""
+        ion = self._remix.remix(str(self._remix_file), step)
+        _, _, theta, phi = ion.cartesianCellCenters()
+        mlat = 90.0 - theta / np.pi * 180.0
+        sm_lon = wrap_longitude_180(phi / np.pi * 180.0)
+        target_sm_lat, target_sm_lon = _geographic_grid_in_sm(
+            target_latitude, target_longitude, event_time
+        )
+        north = self._hemisphere(ion, "NORTH", mlat, sm_lon, target_sm_lon, target_sm_lat)
+        south = self._hemisphere(ion, "SOUTH", mlat, sm_lon, target_sm_lon, target_sm_lat)
+        upward_fac = _combine_remix_hemispheres(south, north)
+        return _upward_fac_to_radial_current(upward_fac, target_sm_lat)
 
 
 def _h5_dataset_kwargs(compression: str) -> dict[str, Any]:
@@ -550,27 +902,34 @@ def _create_output_datasets(
 ) -> None:
     """Create all time-dependent output datasets."""
     kwargs = _h5_dataset_kwargs(compression)
-    for name in ("FAC", "SH", "SP", "We", "Wn", "WeH", "WnH"):
+    for name in ("jr", "SH", "SP", "u_p_theta", "u_p_phi", "u_h_theta", "u_h_phi"):
         output.create_dataset(name, shape=(n_steps, *ion_shape), dtype="f4", **kwargs)
-    output.create_dataset("Bu", shape=(n_steps, *inner_shape), dtype="f4", **kwargs)
-    output["FAC"].attrs["units"] = "uA m-2"
+    output.create_dataset("delta_Br", shape=(n_steps, *inner_shape), dtype="f4", **kwargs)
+    output["jr"].attrs["units"] = "uA m-2"
+    output["jr"].attrs["description"] = (
+        "outward radial current from upward-positive REMIX FAC times abs(source unit_br); "
+        "zero outside REMIX coverage"
+    )
     for name in ("SH", "SP"):
         output[name].attrs["units"] = "S"
-    for name in ("We", "Wn", "WeH", "WnH"):
+    for name in ("u_p_theta", "u_p_phi", "u_h_theta", "u_h_phi"):
         output[name].attrs["units"] = "m s-1"
-    output["Bu"].attrs["units"] = "nT"
-    output["Bu"].attrs["description"] = "radial perturbation from total B minus background B0"
+    output["delta_Br"].attrs["units"] = "nT"
+    output["delta_Br"].attrs["description"] = (
+        "radial perturbation from total B minus GAMERA split background B0"
+    )
 
 
 def _write_static_datasets(
     output: h5py.File,
     time_values: np.ndarray,
     event_time: dt.datetime,
-    tiegcm_lat: np.ndarray,
-    tiegcm_lon: np.ndarray,
+    ionosphere_lat: np.ndarray,
+    ionosphere_lon: np.ndarray,
     inner_lat: np.ndarray,
     inner_lon: np.ndarray,
     inner_r: np.ndarray,
+    inner_solid_angle: np.ndarray,
     settings: PreparationSettings,
     gamera_run_dir: Path,
     length_scale_m: float,
@@ -585,31 +944,50 @@ def _write_static_datasets(
     output.create_dataset(
         "time", data=np.asarray(time_values, dtype=string_dtype), dtype=string_dtype
     )
-    output.create_dataset("glat", data=tiegcm_lat)
-    output.create_dataset("glon", data=tiegcm_lon)
-    output.create_dataset("Blat", data=inner_lat)
-    output.create_dataset("Blon", data=inner_lon)
-    output.create_dataset("r", data=inner_r)
-    for name in ("glat", "glon", "Blat", "Blon"):
+    output.create_dataset("ionosphere_lat", data=ionosphere_lat)
+    output.create_dataset("ionosphere_lon", data=ionosphere_lon)
+    output.create_dataset("boundary_lat", data=inner_lat)
+    output.create_dataset("boundary_lon", data=inner_lon)
+    output.create_dataset("boundary_radius", data=inner_r)
+    output.create_dataset("boundary_solid_angle", data=inner_solid_angle)
+    for name in ("ionosphere_lat", "ionosphere_lon", "boundary_lat", "boundary_lon"):
         output[name].attrs["units"] = "degree"
-    output["r"].attrs["units"] = "m"
+    output["boundary_radius"].attrs["units"] = "m"
+    output["boundary_radius"].attrs["description"] = (
+        "radius of the Kaiju volume-barycentric GAMERA boundary cell center"
+    )
+    output["boundary_solid_angle"].attrs["units"] = "sr"
+    output["boundary_solid_angle"].attrs["description"] = (
+        "cell solid angle from the true GAMERA inner-boundary vertices"
+    )
     output.attrs["gamera_run_dir"] = str(gamera_run_dir)
     output.attrs["tiegcm_nc"] = str(tiegcm_path)
     output.attrs["conductance_source"] = settings.conductance_source
+    output.attrs["coordinate_system"] = "GEO"
+    output.attrs["longitude_convention"] = "east_positive_degrees"
+    output.attrs["tiegcm_source_coordinate_system"] = "geographic"
     output.attrs["wind_weighting"] = (
-        "Pedersen datasets We/Wn; Hall datasets WeH/WnH; projection uses "
-        "sheet-radius B and b for the electrodynamic source"
+        "Pedersen datasets u_p_theta/u_p_phi; Hall datasets u_h_theta/u_h_phi; "
+        "components are geographic south/east on the native TIEGCM grid"
     )
     output.attrs["remix_tag"] = settings.tag
     output.attrs["fac_convention"] = "upward"
-    output.attrs["fac_source"] = "kaipy.remix.init_vars"
+    output.attrs["fac_source"] = (
+        "Kaiju ReMIX Field-aligned current NORTH/SOUTH, converted from "
+        "parallel-positive to upward-positive"
+    )
+    output.attrs["radial_current_convention"] = "outward"
+    output.attrs["fac_to_radial_current"] = "jr = FAC_upward * abs(source unit_br)"
     output.attrs["gamera_inner_index"] = int(settings.inner_index)
     output.attrs["gamera_length_scale_m"] = float(length_scale_m)
-    output.attrs["gamera_B_output"] = "Kaiju Bx/By/Bz total field, with B0 active"
+    output.attrs["gamera_B_output"] = (
+        "Kaiju Bx/By/Bz total field; delta_Br removes the split background B0"
+    )
     for name, value in _centered_dipole_alignment_attrs(event_time, mag_m0_nT).items():
         output.attrs[name] = value
     output.attrs["gamera_mag_m0_nT"] = float(mag_m0_nT)
-    output.attrs["gamera_dipole_B0_T"] = abs(float(mag_m0_nT)) * 1e-9
+    output.attrs["main_field_B0_T"] = _pynamit_dipole_B0_T(mag_m0_nT, length_scale_m)
+    output.attrs["main_field_B0_reference_radius_m"] = RE
 
 
 def _validate_settings(settings: PreparationSettings) -> None:
@@ -706,24 +1084,30 @@ def prepare_forcing(settings: PreparationSettings = SETTINGS) -> Path:
     with Dataset(tiegcm_path, mode="r") as tiegcm:
         n_steps = n_available
         _validate_tiegcm_variables(tiegcm, n_steps, settings.conductance_source)
-        gamera_times = [value.replace(tzinfo=None) for value in gsph.UT[1 : n_steps + 1]]
+        gamera_times = [_naive_utc_datetime(value) for value in gsph.UT[1 : n_steps + 1]]
         tiegcm_times, time_tolerance_seconds = _tiegcm_times(tiegcm, gamera_times)
         _validate_source_times(
             gamera_times, tiegcm_times, tolerance_seconds=time_tolerance_seconds
         )
-        lon = np.asarray(tiegcm.variables["lon"][:], dtype=float)
-        lon[lon < 0.0] += 360.0
-        lat = np.asarray(tiegcm.variables["lat"][:], dtype=float)
-        tiegcm_lon, tiegcm_lat = np.meshgrid(lon, lat)
+        source_lon = np.asarray(tiegcm.variables["lon"][:], dtype=float)
+        source_lat = np.asarray(tiegcm.variables["lat"][:], dtype=float)
+        ionosphere_lon, ionosphere_lat = np.meshgrid(wrap_longitude_180(source_lon), source_lat)
 
         # Keep the source timestamps exact. MAGE histories can carry a
         # fractional-second offset even when the nominal cadence is
         # integral.
         time_values = np.array([value.isoformat() for value in gamera_times], dtype=object)
 
-        inner_lat, inner_lon, inner_r, sin_theta, cos_theta, sin_phi, cos_phi = (
+        radial_current_reader = _RemixRadialCurrentReader(remix_file)
+
+        inner_sm_lat, inner_sm_lon, inner_r, sin_theta, cos_theta, sin_phi, cos_phi = (
             _gamera_inner_boundary_geometry(gsph, settings.inner_index, length_scale_m)
         )
+        inner_solid_angle = _gamera_inner_boundary_solid_angle(gsph, settings.inner_index)
+        boundary_lat, boundary_lon = kaiju_geopack_sm(gamera_times[0]).sm2geo(
+            inner_sm_lat, inner_sm_lon
+        )
+        boundary_interpolator = _PeriodicLatLonInterpolator(inner_sm_lat, inner_sm_lon)
         # Kaiju gioH5 writes Bx/By/Bz as total field when
         # Model%doBackground is true, and root Bx0/By0/Bz0 as Gr%B0.
         # PynaMIT needs the perturbation.
@@ -732,11 +1116,12 @@ def prepare_forcing(settings: PreparationSettings = SETTINGS) -> Path:
                 output,
                 time_values,
                 gamera_times[0],
-                tiegcm_lat,
-                tiegcm_lon,
-                inner_lat,
-                inner_lon,
+                ionosphere_lat,
+                ionosphere_lon,
+                boundary_lat,
+                boundary_lon,
                 inner_r,
+                inner_solid_angle,
                 settings,
                 gamera_run_dir,
                 length_scale_m,
@@ -744,7 +1129,7 @@ def prepare_forcing(settings: PreparationSettings = SETTINGS) -> Path:
                 tiegcm_path,
             )
             _create_output_datasets(
-                output, n_steps, tiegcm_lat.shape, inner_lat.shape, settings.compression
+                output, n_steps, ionosphere_lat.shape, boundary_lat.shape, settings.compression
             )
 
             for out_step, event_time in enumerate(gamera_times):
@@ -755,18 +1140,23 @@ def prepare_forcing(settings: PreparationSettings = SETTINGS) -> Path:
                 )
 
                 integrated = _integrate_tiegcm_step(tiegcm, out_step, settings.conductance_source)
-                for key, values in integrated.items():
+                model_inputs = _tiegcm_step_in_geographic_coordinates(integrated)
+                for key, values in model_inputs.items():
                     output[key][out_step] = values
 
-                output["FAC"][out_step] = _remix_fac_for_step(
-                    remix_file, gamera_step, event_time, tiegcm_lon, tiegcm_lat
+                output["jr"][out_step] = radial_current_reader.read(
+                    gamera_step, ionosphere_lon, ionosphere_lat, event_time
                 ).astype(np.float32)
 
                 bx = gsph.GetVar("Bx", gamera_step)[settings.inner_index] - bx0
                 by = gsph.GetVar("By", gamera_step)[settings.inner_index] - by0
                 bz = gsph.GetVar("Bz", gamera_step)[settings.inner_index] - bz0
-                output["Bu"][out_step] = _radial_component(
-                    bx, by, bz, sin_theta, cos_theta, sin_phi, cos_phi
+                delta_br_sm = _radial_component(bx, by, bz, sin_theta, cos_theta, sin_phi, cos_phi)
+                boundary_sm_lat, boundary_sm_lon = _geographic_grid_in_sm(
+                    boundary_lat, boundary_lon, event_time
+                )
+                output["delta_Br"][out_step] = boundary_interpolator.interpolate(
+                    delta_br_sm, boundary_sm_lon, boundary_sm_lat, require_complete=True
                 ).astype(np.float32)
 
     return output_path

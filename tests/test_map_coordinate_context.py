@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import cartopy.crs as ccrs
 import numpy as np
+import pytest
 
 from pynamit.coordinates import local_noon_longitude
 from pynamit.visualization.map_coordinates import MapCoordinateContext
@@ -49,6 +50,30 @@ def test_geographic_context_matches_utc_local_time_helpers():
     np.testing.assert_allclose(
         context.longitude_to_local_time(np.array([-97.5, -7.5])), np.array([12.0, 18.0])
     )
+
+
+@pytest.mark.parametrize("utc_hour", [0.0, 6.0, 12.0, 18.5])
+def test_geographic_projection_places_solar_noon_at_map_center(utc_hour):
+    """A GEO projection moves only the seam, putting 12 LT at x=0."""
+    hour = int(utc_hour)
+    minute = int(round((utc_hour - hour) * 60.0))
+    context = MapCoordinateContext.geographic(dt.datetime(2011, 10, 24, hour, minute))
+    geographic_crs = ccrs.PlateCarree()
+
+    noon_x, noon_y = context.projection().transform_point(
+        context.noon_longitude, 0.0, geographic_crs
+    )
+    midnight_longitude = context.local_time_to_longitude(0.0)
+    midnight_x, midnight_y = context.projection().transform_point(
+        midnight_longitude, 0.0, geographic_crs
+    )
+
+    assert context.longitude_kind == "geographic"
+    assert context.longitude_to_local_time(context.noon_longitude) == pytest.approx(12.0)
+    assert noon_x == pytest.approx(0.0, abs=1e-10)
+    assert noon_y == pytest.approx(0.0, abs=1e-10)
+    assert abs(midnight_x) == pytest.approx(180.0, abs=1e-10)
+    assert midnight_y == pytest.approx(0.0, abs=1e-10)
 
 
 def test_magnetic_context_matches_dipole_mlt_conversion():
@@ -99,30 +124,34 @@ def test_pynameye_uses_distinct_global_and_magnetic_contexts():
     eye.time = dt.datetime(2011, 10, 24, 18, 30)
     eye.dp = FakeDipole()
     eye.apx = FakeApex()
+    eye.main_field = SimpleNamespace(magnetic_noon_longitude=lambda event_time: 40.0)
 
     eye.settings = SimpleNamespace(main_field_kind="dipole")
     magnetic_context = eye.get_magnetic_coordinate_context()
     global_context = eye.get_global_coordinate_context()
     assert magnetic_context.longitude_kind == "magnetic"
-    assert global_context == magnetic_context
+    assert global_context.longitude_kind == "geographic"
+    assert global_context.local_time_kind == "solar"
+    assert global_context.noon_longitude == local_noon_longitude(eye.time)
 
     eye.settings = SimpleNamespace(main_field_kind="igrf")
     global_context = eye.get_global_coordinate_context()
     assert global_context.longitude_kind == "geographic"
-    assert global_context.local_time_kind == "magnetic"
-    assert global_context.noon_longitude == 45.0
+    assert global_context.local_time_kind == "solar"
+    assert global_context.noon_longitude == local_noon_longitude(eye.time)
     assert magnetic_context.noon_longitude == 40.0
 
 
-def test_pynameye_uses_sm_noon_for_kaiju_dipole_context():
-    """Kaiju dipole runs use SM longitude with noon at zero."""
+def test_pynameye_centers_kaiju_magnetic_context_on_timestamped_noon():
+    """Magnetic polar plots follow timestamped magnetic noon."""
     eye = object.__new__(PynamEye)
     eye.time = dt.datetime(2011, 10, 24, 18, 30)
     eye.dp = FakeDipole()
+    eye.main_field = SimpleNamespace(magnetic_noon_longitude=lambda event_time: -73.0)
     eye.settings = SimpleNamespace(main_field_kind="kaiju_dipole")
 
     context = eye.get_magnetic_coordinate_context()
 
     assert context.longitude_kind == "magnetic"
     assert context.local_time_kind == "magnetic"
-    assert context.noon_longitude == 0.0
+    assert context.noon_longitude == -73.0

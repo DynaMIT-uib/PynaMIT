@@ -67,7 +67,12 @@ class InputPipeline:
         return self.projection_transforms[key]
 
     def radial_current_from_FAC(self, FAC, *, lat=None, lon=None, theta=None, phi=None):
-        """Convert field-aligned current samples to radial current."""
+        """Convert signed field-parallel samples to radial current.
+
+        Positive ``FAC`` is parallel to the background magnetic-field
+        vector. An upward-positive convention must first be converted to
+        that signed field-parallel convention.
+        """
         input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
         field = MagneticFieldEvaluation(
             self.simulation.geometry.main_field, input_grid, self.simulation.config.RI

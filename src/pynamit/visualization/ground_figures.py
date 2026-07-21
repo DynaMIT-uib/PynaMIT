@@ -646,11 +646,12 @@ class GroundFigureRenderer:
         lat_arr = np.asarray(lat, dtype=float)
         lon_arr = np.asarray(lon, dtype=float)
         main_field = self._main_field_for_saved_run()
-        if main_field.kind == "igrf":
-            height_km = (self.view.run_view.config.RI - RE) * 1e-3
-            mlat = main_field.magnetic_latitude(RE + height_km * 1e3, 90.0 - lat_arr, lon_arr)
+        if main_field.kind in {"igrf", "kaiju_dipole"}:
+            mlat = main_field.magnetic_latitude(
+                self.view.run_view.config.RI, 90.0 - lat_arr, lon_arr
+            )
             return np.asarray(mlat, dtype=float)
-        if main_field.kind in {"dipole", "kaiju_dipole"}:
+        if main_field.kind == "dipole":
             mlat, _ = main_field.geo_to_model_coordinates(lat_arr, lon_arr, event_time=event_time)
             return np.asarray(mlat, dtype=float)
         raise ValueError(f"Unsupported main_field kind for magnetic latitude: {main_field.kind!r}")
@@ -937,9 +938,7 @@ class GroundFigureRenderer:
             for magnetic_latitude in (boundary, -boundary):
                 traces.append((magnetic_latitude, low_latitude_style))
         for magnetic_latitude, style in traces:
-            lat, lon = main_field.magnetic_latitude_trace_to_geographic(
-                magnetic_latitude, event_time=reference_time
-            )
+            lat, lon = main_field.magnetic_latitude_trace_to_geographic(magnetic_latitude)
             finite = np.isfinite(lon) & np.isfinite(lat)
             if not np.any(finite):
                 continue

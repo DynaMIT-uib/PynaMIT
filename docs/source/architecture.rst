@@ -264,6 +264,19 @@ maps used by ``SimulationGeometry``. Full field components use ``Br``, ``Btheta`
 ``unit_btheta``, and ``unit_bphi`` so a case-only spelling difference cannot
 change the physics.
 
+Simulation state coordinates are Earth-fixed. ``kaiju_dipole``, ``igrf``, and
+``radial`` use geocentric geographic coordinates, so the SH and cubed-sphere
+positions denote locations on Earth directly. The generic idealized ``dipole``
+model retains centered-dipole ``MAG`` coordinates. For ``kaiju_dipole``,
+``MainField`` alone owns the fixed GEO-to-MAG rotation: it evaluates the
+analytic dipole, field-line mapping, conjugacy, magnetic latitude, and apex
+basis vectors in MAG and returns coordinates and vector components in GEO.
+The Kaiju/Geopack dipole coefficients and axis are frozen at
+``main_field_epoch``. ``SM`` remains a timestamped external-source coordinate
+system whose Sun-facing longitude origin is transformed at every source time;
+it is never the coordinate space of ``m_ind`` or another evolving PynaMIT
+state. The background field is not re-tilted every timestep.
+
 Do not promote every focused module to a package. A standalone package is
 warranted when the concept has a reusable public vocabulary and a dependency
 boundary of its own. The PynaMIT boundary, ionospheric closure, and induction
@@ -313,19 +326,47 @@ numerical work to package modules.
 
 The MAGE workflow has three stages with different reuse boundaries.
 ``mage_prepare.py`` owns optional Kaiju, NetCDF, and HDF5 access, signed GAMERA
-dipole-axis interpretation, and the stepwise external-data ETL loop. Its output
-is a minimal, versioned forcing contract independent of PynaMIT spectral
-resolution. Preparation validates GAMERA/TIEGCM time correspondence and
-atomically publishes the HDF5 file only after every source step succeeds. The
-contract fixes REMIX FAC to its upward-positive convention and records the
-GAMERA SM dipole orientation rather than exposing either as a projection knob.
-``mage_projection`` owns forcing-schema validation, coordinate conversion,
-projection geometry, least-squares weighting, and construction of a reusable
-coefficient-space input package. Internally, one private projector owns the
-grids and numerical operators that are invariant across forcing times; the
-public ``project_inputs`` function owns the HDF5 and manifest workflow. It
-builds in a temporary sibling directory and replaces the published artifacts
-only after every projected time and the package manifest succeed.
+dipole-axis interpretation, time-dependent external-coordinate conversion, and
+the stepwise external-data ETL loop. TIEGCM scalars and conductivity-weighted
+winds remain on the native geographic grid; only the conventional
+east/north-to-spherical component conversion is required. REMIX FAC and GAMERA
+fields originate on timestamped SM grids, so preparation maps each history
+onto fixed GEO target grids. The boundary target is the first GAMERA shell
+mapped into GEO and then held fixed. GAMERA boundary positions use the same
+volume-barycentric trilinear-cell quadrature as Kaiju, matching the
+cell-centered magnetic data before radial projection and remapping. Boundary
+fitting uses the corresponding spherical cell solid angles computed from the
+true vertices, rather than treating the nonuniform GAMERA mesh as regular
+latitude--longitude sampling. The output is a minimal, versioned forcing
+contract independent of PynaMIT spectral resolution.
+The saved main-field strength converts ``MagM0`` between GAMERA's length-scale
+reference radius and PynaMIT's dipole reference radius, preserving the same
+physical field. ``delta_Br`` subtracts GAMERA's split numerical ``B0`` rather
+than its separately evaluated analytic dipole, so finite-volume background
+representation error is not reinterpreted as an external perturbation.
+Preparation validates GAMERA/TIEGCM time correspondence and atomically
+publishes the HDF5 file only after every source step succeeds. The contract
+converts ReMIX's parallel-positive FAC explicitly to upward-positive FAC using
+Kaiju's northern and southern grid orientations, then converts it to PynaMIT's
+outward radial current with ``jr = FAC_upward * abs(unit_br)``. It records both
+the SM source and GEO model frames rather than exposing either as a projection
+knob.
+
+Visualization preserves the same frame boundary. Global maps are evaluated
+and drawn in GEO. A timestamp-dependent Plate Carrée projection moves the map
+seam so geographic noon/12 solar LT is central; fields and coastlines remain
+in ordinary GEO coordinates and are transformed by the map projection.
+Hemisphere maps evaluate the same model samples, transform their positions to
+MAG (or apex coordinates for an IGRF main field), and use magnetic local time
+for orientation and labeling. Plotting therefore does not silently reinterpret
+GEO model longitudes as magnetic longitudes.
+``mage_projection`` owns forcing-schema validation, fixed projection geometry,
+least-squares weighting, and construction of a reusable coefficient-space input
+package. Internally, one private projector owns the grids and numerical
+operators that are invariant across forcing times; the public ``project_inputs``
+function owns the HDF5 and manifest workflow. It builds in a temporary sibling
+directory and replaces the published artifacts only after every projected time
+and the package manifest succeed.
 Finally, ``mage_run.py`` creates any number of named runs from one projected
 package. These boundaries prevent external-reader concerns, numerical
 projection, and simulation experiments from sharing mutable state.
@@ -351,15 +392,16 @@ the prepared coefficient contract. The MAGE run uses
 ``dipole_fac_integration_radii`` with an editable point count, so this PFAC
 discretization remains a run choice rather than a projection side effect.
 
-Prepared-input coordinates name physical positions, not just array axes.
+For generic prepared inputs, coordinates name physical positions, not just
+array axes.
 Geographic wind positions and tangent-vector components are rotated into the
 configured model coordinates before projection. Native Hardy/AMPS scalar
 models are instead queried in their event-epoch centered-dipole coordinates;
 their values are then attached to the corresponding positions on the model
-grid. This two-sided conversion is necessary when the run uses IGRF/GEO, SM,
-or a centered dipole with another epoch. The forcing event time is persisted
-as ``t0``; ``main_field_epoch`` remains an independent choice for the
-background-field coefficients.
+grid. This two-sided conversion is necessary when the run uses IGRF/GEO or a
+centered dipole with another epoch. The forcing event time is persisted
+as the input time origin ``t0``; ``main_field_epoch`` remains an independent
+choice for the Earth-fixed background-field coefficients and coordinate axis.
 
 The versioned prepared-input manifest has one canonical ``input_contract``.
 Coefficient-space settings, geometry requirements, and the dataset list live
@@ -391,7 +433,9 @@ instead of mirroring the names of state variables:
   coefficient storage belong to ``InputPipeline``.
 * ``electrodynamics.induction`` owns Faraday evolution of ``m_ind``, including
   Euler, exponential, and SciPy integration and the corresponding steady
-  state.
+  state. Its coefficients and electric-field inputs share the fixed model
+  frame. Motion of an SM forcing pattern therefore appears through the
+  timestamped SM-to-GEO preparation, not through a rotating state basis.
 
 ``SimulationGeometry`` supplies run-specific grids, magnetic-field factors, transforms,
 radial field-line mapping, and interhemispheric constraint geometry to these
@@ -410,6 +454,11 @@ or an ``m_ind`` response. The name therefore describes its role without
 suggesting that it contains only the direct electric-field input or encoding
 the absence of ``m_imp``. The imposed potential then completes the response
 required by the radial-current and optional interhemispheric constraints.
+``E_source`` is the public name for an independently supplied additive
+electric-field term. It does not claim that the stored field is the total
+electric field. In the MAGE workflow it contains only the wind-driven term
+derived from Pedersen/Hall-weighted winds; the model composes the other terms
+while solving the closure.
 
 The poloidal and horizontal surface spaces coincide in the default SH mode.
 They are intentionally distinct in CS mode. ``surface_to_poloidal_operator``

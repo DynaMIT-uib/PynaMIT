@@ -3,6 +3,7 @@
 import datetime as dt
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import h5py
 import numpy as np
@@ -14,13 +15,24 @@ from scripts.simulation.mage_prepare import (
     PreparationSettings,
     _atomic_prepared_output,
     _centered_dipole_alignment_attrs,
+    _combine_remix_hemispheres,
     _create_output_datasets,
+    _gamera_inner_boundary_geometry,
+    _gamera_inner_boundary_solid_angle,
     _gamera_internal_dipole_axes,
+    _geographic_grid_in_sm,
     _integrate_tiegcm_step,
-    _interpolate_to_tiegcm_grid,
+    _interpolate_periodic_latlon_field,
+    _naive_utc_datetime,
+    _PeriodicLatLonInterpolator,
+    _pynamit_dipole_B0_T,
     _read_tiegcm_step,
+    _remix_upward_fac_source,
     _resolve_tiegcm_path,
+    _tiegcm_step_in_geographic_coordinates,
     _tiegcm_times,
+    _trilinear_hexahedron_volume_centers,
+    _upward_fac_to_radial_current,
     _validate_settings,
     _validate_source_times,
     _write_static_datasets,
@@ -29,12 +41,14 @@ from scripts.simulation.mage_project import CASE_DIRECTORY as MAGE_PROJECT_CASE
 from scripts.simulation.mage_project import DEFAULT_FORCING_PATH
 from scripts.simulation.mage_project import SETTINGS as MAGE_PROJECT_SETTINGS
 from scripts.simulation.mage_run import CASE_DIRECTORY as MAGE_RUN_CASE
-from scripts.simulation.mage_run import DEFAULT_PROJECTION_DIRECTORY
+from scripts.simulation.mage_run import DEFAULT_PROJECTION_DIRECTORY, _last_projected_input_time
 from scripts.simulation.mage_run import SETTINGS as MAGE_RUN_SETTINGS
 
+from pynamit.geomagnetism.kaiju_geopack import kaiju_geopack_sm
 from pynamit.simulation.workflows.mage_projection import (
     MAGE_FORCING_KIND,
     MAGE_FORCING_VERSION,
+    MAGE_MAIN_FIELD_KIND,
     _boundary_radius,
     _clear_existing_input_package,
     _dipole_B0,
@@ -42,6 +56,7 @@ from pynamit.simulation.workflows.mage_projection import (
     _h5_time_vector_seconds,
     _load_weighted_winds,
     _source_file_metadata,
+    _validate_prepared_forcing,
     project_inputs,
 )
 
@@ -85,42 +100,49 @@ def _write_projection_forcing(path: Path, *, hall_conductance=5.0) -> None:
             dtype=h5py.string_dtype("utf-8"),
         )
         for name, values in {
-            "r": np.full(latitude.shape, 7.0e6),
-            "glat": latitude,
-            "glon": longitude,
-            "Blat": latitude,
-            "Blon": longitude,
-            "Bu": np.full(step_shape, 10.0),
-            "FAC": np.full(step_shape, 0.1),
+            "boundary_radius": np.full(latitude.shape, 7.0e6),
+            "boundary_solid_angle": np.full(latitude.shape, 4.0 * np.pi / latitude.size),
+            "ionosphere_lat": latitude,
+            "ionosphere_lon": longitude,
+            "boundary_lat": latitude,
+            "boundary_lon": longitude,
+            "delta_Br": np.full(step_shape, 10.0),
+            "jr": np.full(step_shape, 0.1),
             "SH": hall,
             "SP": np.full(step_shape, 10.0),
-            "We": np.full(step_shape, 50.0),
-            "Wn": np.full(step_shape, -20.0),
-            "WeH": np.full(step_shape, 30.0),
-            "WnH": np.full(step_shape, 10.0),
+            "u_p_theta": np.full(step_shape, 20.0),
+            "u_p_phi": np.full(step_shape, 50.0),
+            "u_h_theta": np.full(step_shape, -10.0),
+            "u_h_phi": np.full(step_shape, 30.0),
         }.items():
             output.create_dataset(name, data=values)
         for name, units in {
-            "r": "m",
-            "glat": "degree",
-            "glon": "degree",
-            "Blat": "degree",
-            "Blon": "degree",
-            "Bu": "nT",
-            "FAC": "uA m-2",
+            "boundary_radius": "m",
+            "boundary_solid_angle": "sr",
+            "ionosphere_lat": "degree",
+            "ionosphere_lon": "degree",
+            "boundary_lat": "degree",
+            "boundary_lon": "degree",
+            "delta_Br": "nT",
+            "jr": "uA m-2",
             "SH": "S",
             "SP": "S",
-            "We": "m s-1",
-            "Wn": "m s-1",
-            "WeH": "m s-1",
-            "WnH": "m s-1",
+            "u_p_theta": "m s-1",
+            "u_p_phi": "m s-1",
+            "u_h_theta": "m s-1",
+            "u_h_phi": "m s-1",
         }.items():
             output[name].attrs["units"] = units
         output.attrs["gamera_mag_m0_nT"] = -30_000.0
+        output.attrs["main_field_B0_T"] = 3.0e-5
+        output.attrs["main_field_B0_reference_radius_m"] = 6_371_200.0
         output.attrs["gamera_internal_dipole_moment_axis"] = [0.0, 0.0, -1.0]
         output.attrs["gamera_internal_magnetic_north_axis"] = [0.0, 0.0, 1.0]
-        output.attrs["gamera_coordinate_system"] = "SM"
+        output.attrs["gamera_source_coordinate_system"] = "SM"
+        output.attrs["coordinate_system"] = "GEO"
+        output.attrs["longitude_convention"] = "east_positive_degrees"
         output.attrs["fac_convention"] = "upward"
+        output.attrs["radial_current_convention"] = "outward"
         output.attrs["kind"] = MAGE_FORCING_KIND
         output.attrs["version"] = MAGE_FORCING_VERSION
         output.attrs["complete"] = True
@@ -143,11 +165,21 @@ def test_gamera_dipole_axes_reject_unknown_orientation(mag_m0):
         _gamera_internal_dipole_axes(mag_m0)
 
 
+def test_gamera_dipole_strength_uses_pynamit_reference_radius():
+    """MagM0 must retain its field after changing radius units."""
+    gamera_radius = 6_378_100.0
+    mag_m0_nT = -29_617.4
+
+    B0 = _pynamit_dipole_B0_T(mag_m0_nT, gamera_radius)
+
+    np.testing.assert_allclose(B0 * (6_371_200.0 / gamera_radius) ** 3, 29_617.4e-9)
+
+
 def test_centered_dipole_alignment_uses_gamera_axis_convention():
     """Prepared alignment metadata carries the signed GAMERA axes."""
     attrs = _centered_dipole_alignment_attrs(dt.datetime(2020, 1, 1), -30_000.0)
 
-    assert attrs["gamera_coordinate_system"] == "SM"
+    assert attrs["gamera_source_coordinate_system"] == "SM"
     np.testing.assert_array_equal(attrs["gamera_internal_dipole_moment_axis"], [0.0, 0.0, -1.0])
     np.testing.assert_array_equal(attrs["gamera_internal_magnetic_north_axis"], [0.0, 0.0, 1.0])
     assert "gamera_internal_dipole_axis" not in attrs
@@ -206,6 +238,7 @@ def test_static_time_dataset_is_written_as_utf8(tmp_path, time_dtype):
             grid,
             grid,
             grid,
+            np.ones((1, 1)),
             PreparationSettings(gamera_directory=tmp_path),
             tmp_path,
             6.3781e6,
@@ -234,7 +267,16 @@ def test_prepared_forcing_schema_contains_only_projection_inputs(tmp_path):
             output, n_steps=2, ion_shape=(3, 4), inner_shape=(5, 6), compression="none"
         )
 
-        assert set(output) == {"FAC", "SH", "SP", "We", "Wn", "WeH", "WnH", "Bu"}
+        assert set(output) == {
+            "jr",
+            "SH",
+            "SP",
+            "u_p_theta",
+            "u_p_phi",
+            "u_h_theta",
+            "u_h_phi",
+            "delta_Br",
+        }
 
 
 def test_atomic_prepared_output_preserves_last_complete_file(tmp_path):
@@ -269,11 +311,24 @@ def test_mage_run_defaults_to_steady_state_initialization_and_output():
     """MAGE starts from and records the steady-state response."""
     assert MAGE_RUN_SETTINGS.steady_state_initialization is True
     assert MAGE_RUN_SETTINGS.run_steady_state is True
+    assert MAGE_RUN_SETTINGS.magnetic_boundary_shielding is False
+    assert MAGE_RUN_SETTINGS.final_time is None
+
+
+def test_mage_run_infers_final_time_from_projected_boundary_input():
+    """An unedited run must stop at its last projected forcing."""
+    store = SimpleNamespace(
+        load_dataset=lambda key: SimpleNamespace(
+            time=SimpleNamespace(values=np.array([0.0, 10.25, 20.5]))
+        )
+    )
+
+    assert _last_projected_input_time(store) == 20.5
 
 
 def test_mage_projection_uses_kaiju_dipole_by_default():
-    """MAGE projection should use the Kaiju/Geopack SM dipole."""
-    assert MAGE_PROJECT_SETTINGS.main_field_kind == "kaiju_dipole"
+    """MAGE projection uses Kaiju dipole physics on a GEO model grid."""
+    assert MAGE_MAIN_FIELD_KIND == "kaiju_dipole"
 
 
 def test_mage_projection_replaces_stale_pynamit_input_artifacts(tmp_path):
@@ -312,7 +367,6 @@ def test_invalid_forcing_does_not_remove_existing_projection(tmp_path):
         project_inputs(
             forcing_path=forcing_path,
             projection_directory=projection_directory,
-            main_field_kind="dipole",
             dipole_B0_override=None,
             boundary_radius_override=None,
             nmax=2,
@@ -331,19 +385,19 @@ def test_invalid_forcing_does_not_remove_existing_projection(tmp_path):
 
 def test_load_weighted_winds_requires_prepared_hall_products():
     """Projection does not reconstruct missing winds from TIEGCM."""
-    h5_like = {"We": np.zeros((1, 2)), "Wn": np.zeros((1, 2))}
+    h5_like = {"u_p_theta": np.zeros((1, 2)), "u_p_phi": np.zeros((1, 2))}
 
-    with pytest.raises(RuntimeError, match="WeH"):
+    with pytest.raises(RuntimeError, match="u_h_theta"):
         _load_weighted_winds(h5_like, 0)
 
 
 def test_load_weighted_winds_reads_all_prepared_products():
     """Projection loads Pedersen and Hall weighted winds from HDF5."""
     h5_like = {
-        "We": np.array([[1.0, 2.0]]),
-        "Wn": np.array([[3.0, 4.0]]),
-        "WeH": np.array([[5.0, 6.0]]),
-        "WnH": np.array([[7.0, 8.0]]),
+        "u_p_theta": np.array([[1.0, 2.0]]),
+        "u_p_phi": np.array([[3.0, 4.0]]),
+        "u_h_theta": np.array([[5.0, 6.0]]),
+        "u_h_phi": np.array([[7.0, 8.0]]),
     }
 
     loaded = _load_weighted_winds(h5_like, 0)
@@ -354,16 +408,49 @@ def test_load_weighted_winds_reads_all_prepared_products():
         np.testing.assert_allclose(value, expected)
 
 
+def test_upward_remix_fac_is_projected_onto_the_radial_direction():
+    """Upward FAC becomes radial current with the dip-angle factor."""
+    fac = np.array([2.0, -3.0, 4.0])
+    magnetic_latitude = np.array([90.0, -45.0, 0.0])
+
+    radial_current = _upward_fac_to_radial_current(fac, magnetic_latitude)
+
+    np.testing.assert_allclose(radial_current, [2.0, -3.0 * np.sqrt(0.8), 0.0])
+
+
+def test_remix_hemisphere_source_conventions_preserve_zero_longitude():
+    """South preserves the zero cell when negating SM longitude."""
+
+    class FakeRemix:
+        ion = {
+            "Field-aligned current NORTH": np.array([[1.0, 2.0, 3.0, 4.0]]),
+            "Field-aligned current SOUTH": np.array([[5.0, 6.0, 7.0, 8.0]]),
+        }
+
+    latitude = np.full((1, 4), 70.0)
+    longitude = np.array([[0.0, 90.0, 180.0, 270.0]])
+
+    north = _remix_upward_fac_source(FakeRemix(), "NORTH", latitude, longitude)
+    south = _remix_upward_fac_source(FakeRemix(), "SOUTH", latitude, longitude)
+
+    np.testing.assert_array_equal(north[0], latitude)
+    np.testing.assert_array_equal(north[1], [[0.0, 90.0, -180.0, -90.0]])
+    np.testing.assert_array_equal(north[2], [[-1.0, -2.0, -3.0, -4.0]])
+    np.testing.assert_array_equal(south[0], -latitude)
+    np.testing.assert_array_equal(south[1], [[0.0, -90.0, -180.0, 90.0]])
+    np.testing.assert_array_equal(south[2], [[5.0, 6.0, 7.0, 8.0]])
+
+
 def test_projection_geometry_requires_prepared_radius_or_explicit_value():
     """RM must come from the prepared file or the edited settings."""
-    with pytest.raises(RuntimeError, match="radius dataset 'r'"):
+    with pytest.raises(RuntimeError, match="boundary_radius"):
         _boundary_radius(_FakeH5(), explicit_radius=None)
 
     assert _boundary_radius(_FakeH5(), explicit_radius=7.0) == 7.0
     with pytest.raises(ValueError, match="positive"):
         _boundary_radius(_FakeH5(), explicit_radius=0.0)
     with pytest.raises(RuntimeError, match="non-finite"):
-        _boundary_radius(_FakeH5(r=np.array([7.0e6, np.nan])), explicit_radius=None)
+        _boundary_radius(_FakeH5(boundary_radius=np.array([7.0e6, np.nan])), explicit_radius=None)
 
 
 def test_projection_geometry_requires_prepared_dipole_strength_or_explicit_value():
@@ -372,7 +459,7 @@ def test_projection_geometry_requires_prepared_dipole_strength_or_explicit_value
         _dipole_B0(_FakeH5(), explicit_B0=None)
 
     assert _dipole_B0(_FakeH5(), explicit_B0=3.0e-5) == 3.0e-5
-    assert _dipole_B0(_FakeH5(attrs={"gamera_mag_m0_nT": -30_000.0}), explicit_B0=None) == 3.0e-5
+    assert _dipole_B0(_FakeH5(attrs={"main_field_B0_T": 3.0e-5}), explicit_B0=None) == 3.0e-5
     with pytest.raises(ValueError, match="positive"):
         _dipole_B0(_FakeH5(), explicit_B0=np.nan)
 
@@ -435,6 +522,15 @@ def test_mage_projection_normalizes_timezone_offsets_to_utc():
 
     assert times == [dt.datetime(2011, 10, 24, 18, 0, 10), dt.datetime(2011, 10, 24, 18, 0, 20)]
     np.testing.assert_allclose(seconds, [0.0, 10.0])
+
+
+def test_mage_preparation_normalizes_timezone_offsets_to_utc():
+    """Preparation must convert offsets before discarding them."""
+    source_time = dt.datetime(
+        2011, 10, 24, 20, 0, 10, tzinfo=dt.timezone(dt.timedelta(hours=2))
+    )
+
+    assert _naive_utc_datetime(source_time) == dt.datetime(2011, 10, 24, 18, 0, 10)
 
 
 def test_mage_preparation_rejects_misaligned_source_times():
@@ -514,7 +610,6 @@ def test_mage_step_limits_require_positive_integers(tmp_path, max_steps):
         project_inputs(
             forcing_path=tmp_path / "missing.h5",
             projection_directory=tmp_path / "projection",
-            main_field_kind="dipole",
             dipole_B0_override=None,
             boundary_radius_override=None,
             nmax=2,
@@ -536,6 +631,83 @@ def test_mage_inner_index_requires_a_nonnegative_integer(inner_index):
         _validate_settings(PreparationSettings(inner_index=inner_index))
 
 
+def test_gamera_boundary_geometry_uses_selected_volume_cell():
+    """The B[0] center belongs to the cell between shells 0 and 1."""
+
+    class FakeGameraGrid:
+        pass
+
+    grid = FakeGameraGrid()
+    grid.X = np.array([[[1.0, 1.0], [1.0, 1.0]], [[3.0, 3.0], [3.0, 3.0]]])
+    grid.Y = np.array([[[-1.0, 1.0], [-1.0, 1.0]], [[-1.0, 1.0], [-1.0, 1.0]]])
+    grid.Z = np.array([[[-1.0, -1.0], [1.0, 1.0]], [[-1.0, -1.0], [1.0, 1.0]]])
+
+    lat, lon, radius, sin_theta, cos_theta, sin_phi, cos_phi = _gamera_inner_boundary_geometry(
+        grid, inner_index=0, length_scale_m=10.0
+    )
+
+    np.testing.assert_allclose(lat, 0.0, atol=1e-14)
+    np.testing.assert_allclose(lon, 0.0, atol=1e-14)
+    np.testing.assert_allclose(radius, 20.0)
+    np.testing.assert_allclose(
+        (sin_theta, cos_theta, sin_phi, cos_phi),
+        (np.ones((1, 1)), np.zeros((1, 1)), np.zeros((1, 1)), np.ones((1, 1))),
+        atol=1e-14,
+    )
+
+
+def test_trilinear_volume_center_matches_wedge_centroid():
+    """Volume quadrature must reproduce a non-affine cell centroid."""
+    alpha = 1.0
+    vertices = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 1.0 + alpha],
+            [1.0, 1.0, 1.0 + alpha],
+            [0.0, 1.0, 1.0],
+        ]
+    )
+    volume = 1.0 + alpha / 2.0
+    expected = np.array(
+        [
+            (0.5 + alpha / 3.0) / volume,
+            0.5,
+            0.5 * (1.0 + alpha + alpha**2 / 3.0) / volume,
+        ]
+    )
+
+    center = _trilinear_hexahedron_volume_centers(vertices)
+
+    np.testing.assert_allclose(center, expected, rtol=0.0, atol=1e-14)
+
+
+def test_gamera_boundary_solid_angles_follow_true_cell_vertices():
+    """Boundary weights use spherical cell areas, not latitude alone."""
+
+    class FakeGameraGrid:
+        pass
+
+    latitude_edges = np.deg2rad(np.array([-90.0, -30.0, 30.0, 90.0]))
+    longitude_edges = np.deg2rad(np.array([-180.0, -60.0, 60.0, 180.0]))
+    longitude, latitude = np.meshgrid(longitude_edges, latitude_edges)
+    radius = np.array([1.0, 2.0])[:, None, None]
+    cos_latitude = np.cos(latitude)[None, ...]
+    grid = FakeGameraGrid()
+    grid.X = radius * cos_latitude * np.cos(longitude)[None, ...]
+    grid.Y = radius * cos_latitude * np.sin(longitude)[None, ...]
+    grid.Z = radius * np.sin(latitude)[None, ...]
+
+    solid_angle = _gamera_inner_boundary_solid_angle(grid, inner_index=0)
+
+    assert solid_angle.shape == (3, 3)
+    np.testing.assert_allclose(np.sum(solid_angle), 4.0 * np.pi, rtol=0.0, atol=1e-12)
+    assert np.all(solid_angle > 0.0)
+
+
 def test_tiegcm_reading_normalizes_masked_and_signed_fill_values():
     """NetCDF masks and either fill-value sign should become NaN."""
     values = np.ma.array([1.0, 2.0, 1.0e31, -1.0e31], mask=[False, True, False, False])
@@ -555,11 +727,99 @@ def test_remix_interpolation_is_periodic_across_longitude_seam():
     target_lon = np.array([[-179.0, 181.0, 359.0]])
     target_lat = np.full_like(target_lon, 70.0)
 
-    interpolated = _interpolate_to_tiegcm_grid(
+    interpolated = _interpolate_periodic_latlon_field(
         source_lat, source_lon, values, target_lon, target_lat
     )
 
     np.testing.assert_allclose(interpolated, 2.0)
+
+
+def test_remix_hemispheres_leave_zero_current_outside_source_coverage():
+    """Uncovered low latitudes have no prescribed REMIX current."""
+    south = np.array([1.0, np.nan, np.nan])
+    north = np.array([np.nan, 2.0, np.nan])
+
+    np.testing.assert_array_equal(
+        _combine_remix_hemispheres(south, north), np.array([1.0, 2.0, 0.0])
+    )
+
+
+def test_periodic_grid_interpolator_reuses_geometry_without_changing_values():
+    """Cached boundary interpolation preserves linear interpolation."""
+    source_lat, source_lon = np.meshgrid(
+        np.linspace(-80.0, 80.0, 9), np.linspace(-180.0, 150.0, 12), indexing="ij"
+    )
+    values = np.cos(np.deg2rad(source_lat)) * np.cos(np.deg2rad(source_lon))
+    target_lon = source_lon + 7.5
+    interpolator = _PeriodicLatLonInterpolator(source_lat, source_lon)
+
+    observed = interpolator.interpolate(values, target_lon, source_lat, require_complete=True)
+    expected = _interpolate_periodic_latlon_field(
+        source_lat, source_lon, values, target_lon, source_lat, require_complete=True
+    )
+
+    np.testing.assert_allclose(observed, expected, atol=1e-12)
+
+
+def test_periodic_latlon_interpolator_uses_spherical_nearest_fallback_lazily():
+    """Build the polar great-circle fallback only when needed."""
+    source_lat = np.array([88.0, 80.0, 80.0, 80.0])
+    source_lon = np.array([180.0, 0.0, 120.0, -120.0])
+    values = np.array([1.0, 2.0, 3.0, 4.0])
+    interpolator = _PeriodicLatLonInterpolator(source_lat, source_lon)
+
+    interpolator.interpolate(values, np.array([0.0]), np.array([85.0]))
+    assert interpolator._nearest_tree is None
+
+    observed = interpolator.interpolate(
+        values, np.array([0.0]), np.array([89.0]), require_complete=True
+    )
+
+    assert interpolator._nearest_tree is not None
+    np.testing.assert_array_equal(observed, [1.0])
+
+
+def test_tiegcm_history_stays_on_its_native_geographic_grid():
+    """Preparation only changes east/north into spherical components."""
+    source_lat = np.linspace(-89.0, 89.0, 45)
+    source_lon = np.linspace(-180.0, 175.0, 72)
+    lon_grid, lat_grid = np.meshgrid(source_lon, source_lat)
+    scalar = 5.0 + np.cos(np.deg2rad(lat_grid)) * np.cos(np.deg2rad(lon_grid))
+    integrated = {
+        "SP": scalar,
+        "SH": 2.0 * scalar,
+        "We": np.full_like(scalar, 100.0),
+        "Wn": np.zeros_like(scalar),
+        "WeH": np.full_like(scalar, -40.0),
+        "WnH": np.full_like(scalar, 30.0),
+    }
+    result = _tiegcm_step_in_geographic_coordinates(integrated)
+
+    np.testing.assert_allclose(result["SP"], integrated["SP"], rtol=1e-7)
+    np.testing.assert_allclose(result["SH"], integrated["SH"], rtol=1e-7)
+    np.testing.assert_allclose(result["u_p_theta"], -integrated["Wn"])
+    np.testing.assert_allclose(result["u_p_phi"], integrated["We"])
+    np.testing.assert_allclose(result["u_h_theta"], -integrated["WnH"])
+    np.testing.assert_allclose(result["u_h_phi"], integrated["WeH"])
+
+
+def test_fixed_geo_grid_maps_through_each_timestamped_sm_frame():
+    """Source transforms change without moving GEO coordinates."""
+    first_time = dt.datetime(2011, 10, 24, 18, 0, 10)
+    last_time = dt.datetime(2011, 10, 24, 19, 0, 0)
+    geographic_latitude = np.array([65.0, -40.0, 5.0])
+    geographic_longitude = np.array([-120.0, 15.0, 90.0])
+
+    first_sm = _geographic_grid_in_sm(geographic_latitude, geographic_longitude, first_time)
+    last_sm = _geographic_grid_in_sm(geographic_latitude, geographic_longitude, last_time)
+
+    assert not np.allclose(first_sm[1], last_sm[1])
+    for event_time, (sm_lat, sm_lon) in ((first_time, first_sm), (last_time, last_sm)):
+        geo_lat, geo_lon = kaiju_geopack_sm(event_time).sm2geo(sm_lat, sm_lon)
+        np.testing.assert_allclose(geo_lat, geographic_latitude, atol=1e-12)
+        np.testing.assert_allclose(
+            ((geo_lon - geographic_longitude + 180.0) % 360.0) - 180.0, 0.0, atol=1e-12
+        )
 
 
 def test_mage_source_file_metadata_is_lightweight(tmp_path):
@@ -584,7 +844,6 @@ def test_mage_projection_reuses_geometry_for_complete_input_series(tmp_path):
     result = project_inputs(
         forcing_path=forcing_path,
         projection_directory=projection_directory,
-        main_field_kind="dipole",
         dipole_B0_override=None,
         boundary_radius_override=None,
         nmax=2,
@@ -614,13 +873,12 @@ def test_mage_projection_rejects_incompatible_prepared_units(tmp_path):
     projection_directory = tmp_path / "projection"
     _write_projection_forcing(forcing_path)
     with h5py.File(forcing_path, "r+") as forcing:
-        forcing["Bu"].attrs["units"] = "T"
+        forcing["delta_Br"].attrs["units"] = "T"
 
-    with pytest.raises(RuntimeError, match="incompatible dataset units.*Bu"):
+    with pytest.raises(RuntimeError, match="incompatible dataset units.*delta_Br"):
         project_inputs(
             forcing_path=forcing_path,
             projection_directory=projection_directory,
-            main_field_kind="dipole",
             dipole_B0_override=None,
             boundary_radius_override=None,
             nmax=2,
@@ -633,6 +891,18 @@ def test_mage_projection_rejects_incompatible_prepared_units(tmp_path):
             e_source_lambda=0.1,
             artifact_storage="netcdf",
         )
+
+
+def test_mage_projection_requires_pynamit_dipole_reference_radius(tmp_path):
+    """Prepared B0 must declare the radius used by PynaMIT's dipole."""
+    forcing_path = tmp_path / "forcing.h5"
+    _write_projection_forcing(forcing_path)
+    with h5py.File(forcing_path, "r+") as output:
+        output.attrs["main_field_B0_reference_radius_m"] = 6_378_100.0
+
+    with h5py.File(forcing_path) as forcing:
+        with pytest.raises(RuntimeError, match="dipole reference radius"):
+            _validate_prepared_forcing(forcing)
 
 
 def test_projection_failure_preserves_last_complete_package(tmp_path):
@@ -650,7 +920,6 @@ def test_projection_failure_preserves_last_complete_package(tmp_path):
         project_inputs(
             forcing_path=forcing_path,
             projection_directory=projection_directory,
-            main_field_kind="dipole",
             dipole_B0_override=None,
             boundary_radius_override=None,
             nmax=2,
@@ -677,7 +946,6 @@ def test_projection_accepts_zero_hall_with_positive_pedersen(tmp_path):
     project_inputs(
         forcing_path=forcing_path,
         projection_directory=projection_directory,
-        main_field_kind="dipole",
         dipole_B0_override=None,
         boundary_radius_override=None,
         nmax=2,

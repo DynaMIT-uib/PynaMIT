@@ -43,7 +43,7 @@ def poloidal_to_gridded_JS(solid_harmonics, transform, *, poloidal_scale=None):
 
 
 def shielded_m_ind_poloidal_scale(solid_harmonics, boundary_radius, radius):
-    """Return the outer-boundary shielding response for m_ind."""
+    """Return the optional zero-Br image response for ``m_ind``."""
     regular_shift = _coefficient_scale(
         solid_harmonics.regular_reference_shift(boundary_radius, radius)
     )
@@ -55,7 +55,13 @@ def shielded_m_ind_poloidal_scale(solid_harmonics, boundary_radius, radius):
 
 
 def boundary_Br_to_poloidal_scale(solid_harmonics, boundary_radius, radius):
-    """Return the prescribed boundary-Br-to-poloidal scale."""
+    """Continue prescribed ``Br(RM)`` to its ionospheric potential jump.
+
+    The regular source field and its irregular response sum to the
+    supplied radial field at ``boundary_radius``. This continuation is
+    intrinsic to the boundary input and is separate from optional
+    shielding of the evolving ``m_ind`` field.
+    """
     regular_shift = _coefficient_scale(
         solid_harmonics.regular_reference_shift(boundary_radius, radius)
     )

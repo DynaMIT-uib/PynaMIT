@@ -284,7 +284,10 @@ def style_global_axis(
     """Style a global Cartopy axis for PynaMIT map plots."""
     if set_global:
         ax.set_global()
-    if draw_coastlines:
+    coordinates_are_geographic = (
+        coordinate_context is None or coordinate_context.longitude_kind == "geographic"
+    )
+    if draw_coastlines and coordinates_are_geographic:
         ax.coastlines(color=coastline_color, linewidth=coastline_linewidth, zorder=2)
     gridliner = ax.gridlines(
         crs=ccrs.PlateCarree(),
