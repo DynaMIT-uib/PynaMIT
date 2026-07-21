@@ -20,11 +20,11 @@ from scripts.simulation.mage_prepare import (
     _gamera_inner_boundary_geometry,
     _gamera_inner_boundary_solid_angle,
     _gamera_internal_dipole_axes,
+    _gamera_native_angles,
+    _GameraBoundaryInterpolator,
     _geographic_grid_in_sm,
     _integrate_tiegcm_step,
-    _interpolate_periodic_scattered_field,
     _naive_utc_datetime,
-    _PeriodicScatteredLatLonInterpolator,
     _pynamit_dipole_B0_T,
     _read_tiegcm_step,
     _remix_upward_fac_source,
@@ -146,7 +146,7 @@ def _write_projection_forcing(path: Path, *, hall_conductance=5.0) -> None:
         output.attrs["radial_current_convention"] = "outward"
         output.attrs["remix_fac_interpolation"] = "kaiju_native_periodic"
         output.attrs["gamera_boundary_interpolation"] = (
-            "periodic_scattered_linear_with_nearest_completion"
+            "gamera_native_periodic_bilinear_with_polar_mean"
         )
         output.attrs["kind"] = MAGE_FORCING_KIND
         output.attrs["version"] = MAGE_FORCING_VERSION
@@ -261,7 +261,7 @@ def test_static_time_dataset_is_written_as_utf8(tmp_path, time_dtype):
         assert output.attrs["remix_fac_interpolation"] == "kaiju_native_periodic"
         assert (
             output.attrs["gamera_boundary_interpolation"]
-            == "periodic_scattered_linear_with_nearest_completion"
+            == "gamera_native_periodic_bilinear_with_polar_mean"
         )
         assert not output.attrs["complete"]
         _, relative_seconds = _h5_time_vector_seconds(output["time"][:])
@@ -729,19 +729,26 @@ def test_tiegcm_reading_normalizes_masked_and_signed_fill_values():
     assert np.isnan(normalized[1:]).all()
 
 
-def test_scattered_interpolation_is_periodic_across_longitude_seam():
-    """Interpolate scattered values periodically in longitude."""
-    source_lat = np.array([[60.0, 60.0], [80.0, 80.0]])
-    source_lon = np.array([[-170.0, 170.0], [-170.0, 170.0]])
-    values = np.array([[1.0, 1.0], [3.0, 3.0]])
-    target_lon = np.array([[-179.0, 181.0, 359.0]])
-    target_lat = np.full_like(target_lon, 70.0)
-
-    interpolated = _interpolate_periodic_scattered_field(
-        source_lat, source_lon, values, target_lon, target_lat
+def _sm_from_gamera_angles(colatitude, azimuth):
+    """Return SM latitude/longitude for GAMERA-native angles."""
+    colatitude, azimuth = np.broadcast_arrays(
+        np.asarray(colatitude, dtype=float), np.asarray(azimuth, dtype=float)
     )
+    x = np.cos(colatitude)
+    y = np.sin(colatitude) * np.cos(azimuth)
+    z = np.sin(colatitude) * np.sin(azimuth)
+    return np.rad2deg(np.arcsin(z)), np.rad2deg(np.arctan2(y, x))
 
-    np.testing.assert_allclose(interpolated, 2.0)
+
+def test_gamera_native_angles_follow_kaiju_axis_convention():
+    """GAMERA uses +x as its pole and measures azimuth from +y."""
+    sm_latitude = np.array([0.0, 0.0, 90.0])
+    sm_longitude = np.array([0.0, 90.0, 0.0])
+
+    colatitude, azimuth = _gamera_native_angles(sm_latitude, sm_longitude)
+
+    np.testing.assert_allclose(colatitude, np.deg2rad([0.0, 90.0, 90.0]), atol=1e-15)
+    np.testing.assert_allclose(azimuth, np.deg2rad([0.0, 0.0, 90.0]), atol=1e-15)
 
 
 def test_remix_hemispheres_leave_zero_current_outside_source_coverage():
@@ -754,39 +761,72 @@ def test_remix_hemispheres_leave_zero_current_outside_source_coverage():
     )
 
 
-def test_periodic_scattered_interpolator_reuses_geometry_without_changing_values():
-    """Cached boundary interpolation preserves linear interpolation."""
-    source_lat, source_lon = np.meshgrid(
-        np.linspace(-80.0, 80.0, 9), np.linspace(-180.0, 150.0, 12), indexing="ij"
+def test_gamera_boundary_interpolator_preserves_source_nodes():
+    """Kaiju-style four-point weights preserve GAMERA cell values."""
+    colatitude, azimuth = np.meshgrid(
+        np.deg2rad([30.0, 90.0, 150.0]),
+        np.deg2rad([45.0, 135.0, 225.0, 315.0]),
+        indexing="ij",
     )
-    values = np.cos(np.deg2rad(source_lat)) * np.cos(np.deg2rad(source_lon))
-    target_lon = source_lon + 7.5
-    interpolator = _PeriodicScatteredLatLonInterpolator(source_lat, source_lon)
-
-    observed = interpolator.interpolate(values, target_lon, source_lat, require_complete=True)
-    expected = _interpolate_periodic_scattered_field(
-        source_lat, source_lon, values, target_lon, source_lat, require_complete=True
-    )
-
-    np.testing.assert_allclose(observed, expected, atol=1e-12)
-
-
-def test_periodic_scattered_interpolator_uses_spherical_nearest_fallback_lazily():
-    """Build the polar great-circle fallback only when needed."""
-    source_lat = np.array([88.0, 80.0, 80.0, 80.0])
-    source_lon = np.array([180.0, 0.0, 120.0, -120.0])
-    values = np.array([1.0, 2.0, 3.0, 4.0])
-    interpolator = _PeriodicScatteredLatLonInterpolator(source_lat, source_lon)
-
-    interpolator.interpolate(values, np.array([0.0]), np.array([85.0]))
-    assert interpolator._nearest_tree is None
+    source_latitude, source_longitude = _sm_from_gamera_angles(colatitude, azimuth)
+    values = np.arange(colatitude.size, dtype=float).reshape(colatitude.shape)
+    interpolator = _GameraBoundaryInterpolator(source_latitude, source_longitude)
 
     observed = interpolator.interpolate(
-        values, np.array([0.0]), np.array([89.0]), require_complete=True
+        values,
+        target_sm_lat=source_latitude,
+        target_sm_lon=source_longitude,
     )
 
-    assert interpolator._nearest_tree is not None
-    np.testing.assert_array_equal(observed, [1.0])
+    np.testing.assert_allclose(observed, values, atol=1e-12)
+
+
+def test_gamera_boundary_interpolator_is_periodic_and_bilinear():
+    """Interpolate GAMERA cells periodically with four weights."""
+    colatitude, azimuth = np.meshgrid(
+        np.deg2rad([30.0, 90.0, 150.0]),
+        np.deg2rad([45.0, 135.0, 225.0, 315.0]),
+        indexing="ij",
+    )
+    source_latitude, source_longitude = _sm_from_gamera_angles(colatitude, azimuth)
+    values = np.rad2deg(colatitude) + 2.0 * np.rad2deg(azimuth)
+    interpolator = _GameraBoundaryInterpolator(source_latitude, source_longitude)
+    target_colatitude = np.deg2rad([60.0, 60.0, 60.0])
+    target_azimuth = np.deg2rad([90.0, 450.0, 0.0])
+    target_latitude, target_longitude = _sm_from_gamera_angles(
+        target_colatitude, target_azimuth
+    )
+
+    observed = interpolator.interpolate(
+        values,
+        target_sm_lat=target_latitude,
+        target_sm_lon=target_longitude,
+    )
+
+    np.testing.assert_allclose(observed, [240.0, 240.0, 420.0], atol=1e-12)
+
+
+def test_gamera_boundary_interpolator_reconstructs_native_poles():
+    """Use adjacent ring means at the two omitted GAMERA axes."""
+    colatitude, azimuth = np.meshgrid(
+        np.deg2rad([30.0, 90.0, 150.0]),
+        np.deg2rad([45.0, 135.0, 225.0, 315.0]),
+        indexing="ij",
+    )
+    source_latitude, source_longitude = _sm_from_gamera_angles(colatitude, azimuth)
+    values = np.array([[1.0, 3.0, 5.0, 7.0], [9.0, 9.0, 9.0, 9.0], [2.0, 6.0, 10.0, 14.0]])
+    interpolator = _GameraBoundaryInterpolator(source_latitude, source_longitude)
+    target_latitude, target_longitude = _sm_from_gamera_angles(
+        np.array([0.0, np.pi]), np.deg2rad([20.0, 200.0])
+    )
+
+    observed = interpolator.interpolate(
+        values,
+        target_sm_lat=target_latitude,
+        target_sm_lon=target_longitude,
+    )
+
+    np.testing.assert_allclose(observed, [4.0, 8.0], atol=1e-12)
 
 
 def test_remix_grid_interpolator_is_periodic_and_bilinear():

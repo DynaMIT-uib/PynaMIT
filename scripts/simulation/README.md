@@ -19,8 +19,9 @@ The active MAGE workflow has three stages:
    the actual GAMERA cell vertices. The fixed prepared grids let all spectral
    projection matrices be built once and reused for every forcing time.
    ReMIX FAC follows Kaiju's native periodic grid interpolation, including its
-   polar-cell rule; the curvilinear GAMERA boundary uses a separate cached
-   scattered-grid interpolator because it does not form a tensor grid.
+   polar-cell rule. GAMERA `delta_Br` uses four-point bilinear interpolation on
+   GAMERA's own periodic native angular grid; its omitted cell-center polar
+   values are reconstructed from the adjacent ring means.
    ReMIX's parallel-positive FAC is converted explicitly to a common
    upward-positive convention using Kaiju's northern and southern grid
    orientations, then to PynaMIT's outward radial current with the local

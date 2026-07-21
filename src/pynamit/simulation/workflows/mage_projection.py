@@ -31,7 +31,7 @@ from pynamit.sphere.spherical_transform import grid_sqrt_area_weights
 IONOSPHERE_RADIUS_M = 6.5e6
 MAGE_MAIN_FIELD_KIND = "kaiju_dipole"
 MAGE_FORCING_KIND = "pynamit_mage_forcing"
-MAGE_FORCING_VERSION = 6
+MAGE_FORCING_VERSION = 7
 
 _MAGE_IONOSPHERE_DATASETS = (
     "jr",
@@ -152,9 +152,11 @@ def _validate_prepared_forcing(h5_file: Any) -> None:
         raise RuntimeError("MAGE projection requires Kaiju-native ReMIX FAC interpolation.")
     if (
         h5_file.attrs["gamera_boundary_interpolation"]
-        != "periodic_scattered_linear_with_nearest_completion"
+        != "gamera_native_periodic_bilinear_with_polar_mean"
     ):
-        raise RuntimeError("MAGE projection requires periodic GAMERA boundary interpolation.")
+        raise RuntimeError(
+            "MAGE projection requires GAMERA-native bilinear boundary interpolation."
+        )
     reference_radius = float(h5_file.attrs["main_field_B0_reference_radius_m"])
     if not np.isfinite(reference_radius) or not np.isclose(
         reference_radius, RE, rtol=0.0, atol=1e-6

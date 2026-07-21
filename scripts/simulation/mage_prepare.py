@@ -43,8 +43,6 @@ from typing import Any
 
 import h5py
 import numpy as np
-from scipy.interpolate import griddata
-from scipy.spatial import Delaunay, cKDTree
 
 from pynamit.coordinates import wrap_longitude_180
 from pynamit.geomagnetism import MainField, decimal_year
@@ -566,168 +564,202 @@ def _radial_component(
     return bx * sin_theta * cos_phi + by * sin_theta * sin_phi + bz * cos_theta
 
 
-def _interpolate_periodic_scattered_field(
-    source_lat: np.ndarray,
-    source_lon: np.ndarray,
-    values: np.ndarray,
-    target_lon: np.ndarray,
-    target_lat: np.ndarray,
-    *,
-    require_complete: bool = False,
-) -> np.ndarray:
-    """Interpolate scattered samples in periodic lat/lon coordinates."""
-    source_lat = np.asarray(source_lat, dtype=float).reshape(-1)
-    source_lon = wrap_longitude_180(source_lon).reshape(-1)
-    values = np.asarray(values, dtype=float).reshape(-1)
-    if source_lat.size != source_lon.size or source_lat.size != values.size:
-        raise ValueError("Source coordinates and values must have matching sizes.")
-    valid = np.isfinite(source_lat) & np.isfinite(source_lon) & np.isfinite(values)
-    if np.count_nonzero(valid) < 3:
-        raise ValueError("Periodic interpolation requires at least three finite samples.")
-    source_lat = source_lat[valid]
-    source_lon = source_lon[valid]
-    values = values[valid]
+def _gamera_native_angles(
+    sm_latitude: np.ndarray, sm_longitude: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return GAMERA-native colatitude and azimuth in radians.
 
-    # Longitude is periodic, while scipy.griddata operates on a plane.
-    # Shifted copies keep the date-line seam from becoming a boundary.
-    periodic_lon = np.concatenate((source_lon - 360.0, source_lon, source_lon + 360.0))
-    periodic_lat = np.tile(source_lat, 3)
-    periodic_values = np.tile(values, 3)
-    target_points = (wrap_longitude_180(target_lon), target_lat)
-    result = griddata(
-        (periodic_lon, periodic_lat), periodic_values, target_points, method="linear"
+    GAMERA's spherical grid uses the SM +x axis as its polar axis and
+    measures azimuth from +y toward +z.
+    """
+    sm_latitude, sm_longitude = np.broadcast_arrays(
+        np.asarray(sm_latitude, dtype=float), np.asarray(sm_longitude, dtype=float)
     )
-    if require_complete and np.any(~np.isfinite(result)):
-        missing = ~np.isfinite(result)
-        nearest_tree = cKDTree(_unit_sphere_positions(source_lat, source_lon))
-        target_lon, target_lat = np.broadcast_arrays(
-            np.asarray(target_lon, dtype=float), np.asarray(target_lat, dtype=float)
+    latitude = np.deg2rad(sm_latitude)
+    longitude = np.deg2rad(sm_longitude)
+    cos_latitude = np.cos(latitude)
+    x = cos_latitude * np.cos(longitude)
+    y = cos_latitude * np.sin(longitude)
+    z = np.sin(latitude)
+    colatitude = np.arccos(np.clip(x, -1.0, 1.0))
+    azimuth = np.mod(np.arctan2(z, y), 2.0 * np.pi)
+    return colatitude, azimuth
+
+
+class _GameraBoundaryInterpolator:
+    """Apply Kaiju-style four-point bilinear interpolation on GAMERA.
+
+    The full inner boundary is a periodic tensor grid in GAMERA's native
+    angular coordinates even though it is folded in ordinary SM
+    latitude/longitude. Cell transforms are built once and reused for
+    every magnetic history. Values at the omitted +x and -x poles are
+    reconstructed from the means of their adjacent cell-center rings.
+    """
+
+    def __init__(self, source_sm_lat: np.ndarray, source_sm_lon: np.ndarray) -> None:
+        source_sm_lat, source_sm_lon = np.broadcast_arrays(
+            np.asarray(source_sm_lat, dtype=float), np.asarray(source_sm_lon, dtype=float)
         )
-        target_positions = _unit_sphere_positions(target_lat[missing], target_lon[missing])
-        nearest_indices = nearest_tree.query(target_positions)[1]
-        result[missing] = values[nearest_indices]
-    return result
+        if source_sm_lat.ndim != 2 or min(source_sm_lat.shape) < 2:
+            raise ValueError(
+                "A GAMERA boundary grid must be two-dimensional with at least two cells per axis."
+            )
+        if np.any(~np.isfinite(source_sm_lat)) or np.any(~np.isfinite(source_sm_lon)):
+            raise ValueError("GAMERA boundary coordinates must be finite.")
 
-
-def _unit_sphere_positions(latitude: np.ndarray, longitude: np.ndarray) -> np.ndarray:
-    """Return Cartesian unit vectors for spherical positions."""
-    latitude, longitude = np.broadcast_arrays(
-        np.asarray(latitude, dtype=float), np.asarray(longitude, dtype=float)
-    )
-    latitude_radians = np.deg2rad(latitude.reshape(-1))
-    longitude_radians = np.deg2rad(longitude.reshape(-1))
-    cos_latitude = np.cos(latitude_radians)
-    return np.column_stack(
-        (
-            cos_latitude * np.cos(longitude_radians),
-            cos_latitude * np.sin(longitude_radians),
-            np.sin(latitude_radians),
+        colatitude, azimuth = _gamera_native_angles(source_sm_lat, source_sm_lon)
+        azimuth = np.unwrap(azimuth, axis=1)
+        azimuth += 2.0 * np.pi * np.round(
+            (azimuth[0, 0] - azimuth[:, [0]]) / (2.0 * np.pi)
         )
-    )
+        colatitude_axis = np.mean(colatitude, axis=1)
+        azimuth_axis = np.mean(azimuth, axis=0)
 
+        self._colatitude_order = np.arange(source_sm_lat.shape[0])
+        self._azimuth_order = np.arange(source_sm_lat.shape[1])
+        if np.all(np.diff(colatitude_axis) < 0.0):
+            self._colatitude_order = self._colatitude_order[::-1]
+            colatitude = colatitude[::-1]
+            colatitude_axis = colatitude_axis[::-1]
+            azimuth = azimuth[::-1]
+        if np.all(np.diff(azimuth_axis) < 0.0):
+            self._azimuth_order = self._azimuth_order[::-1]
+            colatitude = colatitude[:, ::-1]
+            azimuth = azimuth[:, ::-1]
+            azimuth_axis = azimuth_axis[::-1]
+        if np.any(np.diff(colatitude_axis) <= 0.0) or np.any(np.diff(azimuth_axis) <= 0.0):
+            raise ValueError("GAMERA native angular coordinates must be monotonic.")
+        if colatitude_axis[0] <= 0.0 or colatitude_axis[-1] >= np.pi:
+            raise ValueError("GAMERA cell-center colatitudes must lie strictly between its poles.")
 
-class _PeriodicScatteredLatLonInterpolator:
-    """Reuse scattered periodic lat/lon geometry across histories."""
+        colatitude_step = np.min(np.diff(colatitude_axis))
+        azimuth_step = np.min(np.diff(azimuth_axis))
+        if np.max(np.abs(colatitude - colatitude_axis[:, None])) >= 0.25 * colatitude_step:
+            raise ValueError("GAMERA colatitudes do not form a searchable logical grid.")
+        if np.max(np.abs(azimuth - azimuth_axis[None, :])) >= 0.25 * azimuth_step:
+            raise ValueError("GAMERA azimuths do not form a searchable logical grid.")
 
-    def __init__(self, source_lat: np.ndarray, source_lon: np.ndarray) -> None:
-        source_lat, source_lon = np.broadcast_arrays(
-            np.asarray(source_lat, dtype=float), np.asarray(source_lon, dtype=float)
+        self._source_shape = source_sm_lat.shape
+        self._colatitude_axis = np.concatenate(([0.0], colatitude_axis, [np.pi]))
+        self._azimuth_axis = azimuth_axis
+        self._periodic_azimuth_axis = np.concatenate(
+            (azimuth_axis, [azimuth_axis[0] + 2.0 * np.pi])
         )
-        self._source_shape = source_lat.shape
-        self._source_lat = np.array(source_lat, copy=True)
-        self._source_lon = wrap_longitude_180(source_lon).copy()
-        source_lat = source_lat.reshape(-1)
-        source_lon = wrap_longitude_180(source_lon).reshape(-1)
-        finite = np.isfinite(source_lat) & np.isfinite(source_lon)
-        if np.count_nonzero(finite) < 3:
-            raise ValueError("Periodic interpolation requires at least three finite positions.")
-        source_indices = np.flatnonzero(finite)
-        source_lat = source_lat[finite]
-        source_lon = source_lon[finite]
-        self._finite_source_lat = source_lat
-        self._finite_source_lon = source_lon
-        self._finite_source_indices = source_indices
-        periodic_points = np.column_stack(
+        polar_azimuth = np.broadcast_to(azimuth_axis, (1, azimuth_axis.size))
+        colatitude = np.vstack(
             (
-                np.concatenate((source_lon - 360.0, source_lon, source_lon + 360.0)),
-                np.tile(source_lat, 3),
+                np.zeros_like(polar_azimuth),
+                colatitude,
+                np.full_like(polar_azimuth, np.pi),
             )
         )
-        self._periodic_source_indices = np.tile(source_indices, 3)
-        self._triangulation = Delaunay(periodic_points)
-        self._nearest_tree = None
+        azimuth = np.vstack((polar_azimuth, azimuth, polar_azimuth))
+        self._cell_inverse = self._build_cell_inverse(colatitude, azimuth)
 
-    def matches(self, source_lat: np.ndarray, source_lon: np.ndarray) -> bool:
-        """Return whether coordinates match the cached source grid."""
-        source_lat, source_lon = np.broadcast_arrays(
-            np.asarray(source_lat, dtype=float), np.asarray(source_lon, dtype=float)
+    @staticmethod
+    def _build_cell_inverse(colatitude: np.ndarray, azimuth: np.ndarray) -> np.ndarray:
+        """Return Kaiju's four-corner bilinear transforms."""
+        lower_azimuth = azimuth[:-1]
+        upper_azimuth = azimuth[1:]
+        lower_right_azimuth = np.roll(lower_azimuth, -1, axis=1)
+        upper_right_azimuth = np.roll(upper_azimuth, -1, axis=1)
+        lower_right_azimuth[:, -1] += 2.0 * np.pi
+        upper_right_azimuth[:, -1] += 2.0 * np.pi
+        vertex_azimuth = np.stack(
+            (lower_azimuth, lower_right_azimuth, upper_azimuth, upper_right_azimuth),
+            axis=-1,
         )
-        return (
-            source_lat.shape == self._source_shape
-            and np.allclose(source_lat, self._source_lat, rtol=0.0, atol=1e-12)
-            and np.allclose(wrap_longitude_180(source_lon), self._source_lon, rtol=0.0, atol=1e-12)
+        vertex_colatitude = np.stack(
+            (
+                colatitude[:-1],
+                np.roll(colatitude[:-1], -1, axis=1),
+                colatitude[1:],
+                np.roll(colatitude[1:], -1, axis=1),
+            ),
+            axis=-1,
         )
+        basis = np.stack(
+            (
+                np.ones_like(vertex_azimuth),
+                vertex_azimuth,
+                vertex_colatitude,
+                vertex_azimuth * vertex_colatitude,
+            ),
+            axis=-2,
+        )
+        try:
+            inverse = np.linalg.inv(basis)
+        except np.linalg.LinAlgError as exc:
+            raise ValueError(
+                "GAMERA boundary cells must have invertible angular geometry."
+            ) from exc
+        if np.any(~np.isfinite(inverse)):
+            raise ValueError("GAMERA boundary interpolation geometry must be finite.")
+        return inverse
 
     def interpolate(
         self,
         values: np.ndarray,
-        target_lon: np.ndarray,
-        target_lat: np.ndarray,
         *,
-        require_complete: bool = False,
+        target_sm_lat: np.ndarray,
+        target_sm_lon: np.ndarray,
     ) -> np.ndarray:
-        """Interpolate one field without rebuilding source geometry."""
+        """Interpolate one boundary field at SM target positions."""
         values = np.asarray(values, dtype=float)
         if values.shape != self._source_shape:
             raise ValueError(
-                f"Periodic field shape {values.shape} does not match {self._source_shape}."
+                f"GAMERA boundary field shape {values.shape} does not match {self._source_shape}."
             )
-        periodic_values = values.reshape(-1)[self._periodic_source_indices]
-        if require_complete and np.any(~np.isfinite(periodic_values)):
-            raise ValueError("Complete periodic interpolation requires finite source values.")
-        if np.any(~np.isfinite(periodic_values)):
-            return _interpolate_periodic_scattered_field(
-                self._source_lat,
-                self._source_lon,
+        if np.any(~np.isfinite(values)):
+            raise ValueError("GAMERA boundary interpolation requires finite source values.")
+        values = values[np.ix_(self._colatitude_order, self._azimuth_order)]
+        values = np.vstack(
+            (
+                np.full((1, values.shape[1]), np.mean(values[0])),
                 values,
-                target_lon,
-                target_lat,
-                require_complete=require_complete,
+                np.full((1, values.shape[1]), np.mean(values[-1])),
             )
-
-        target_lon, target_lat = np.broadcast_arrays(
-            np.asarray(target_lon, dtype=float), np.asarray(target_lat, dtype=float)
         )
-        target_shape = target_lon.shape
-        target_points = np.column_stack(
-            (wrap_longitude_180(target_lon).reshape(-1), target_lat.reshape(-1))
-        )
-        simplex = self._triangulation.find_simplex(target_points)
-        valid = simplex >= 0
-        result = np.full(target_points.shape[0], np.nan)
-        if np.any(valid):
-            valid_simplex = simplex[valid]
-            delta = target_points[valid] - self._triangulation.transform[valid_simplex, 2]
-            leading_weights = np.einsum(
-                "nij,nj->ni", self._triangulation.transform[valid_simplex, :2], delta
-            )
-            weights = np.column_stack((leading_weights, 1.0 - np.sum(leading_weights, axis=1)))
-            vertices = self._triangulation.simplices[valid_simplex]
-            result[valid] = np.sum(periodic_values[vertices] * weights, axis=1)
 
-        if require_complete and np.any(~np.isfinite(result)):
-            missing = ~np.isfinite(result)
-            if self._nearest_tree is None:
-                self._nearest_tree = cKDTree(
-                    _unit_sphere_positions(self._finite_source_lat, self._finite_source_lon)
-                )
-            target_positions = _unit_sphere_positions(
-                target_lat.reshape(-1)[missing], target_lon.reshape(-1)[missing]
+        target_sm_lat, target_sm_lon = np.broadcast_arrays(
+            np.asarray(target_sm_lat, dtype=float), np.asarray(target_sm_lon, dtype=float)
+        )
+        target_shape = target_sm_lat.shape
+        colatitude, azimuth = _gamera_native_angles(target_sm_lat, target_sm_lon)
+        colatitude = colatitude.reshape(-1)
+        azimuth = azimuth.reshape(-1)
+        if np.any(~np.isfinite(colatitude)) or np.any(~np.isfinite(azimuth)):
+            raise ValueError("GAMERA boundary target coordinates must be finite.")
+        azimuth = np.mod(azimuth - self._azimuth_axis[0], 2.0 * np.pi) + self._azimuth_axis[0]
+
+        colatitude_index = np.searchsorted(
+            self._colatitude_axis, colatitude, side="right"
+        ) - 1
+        colatitude_index = np.clip(colatitude_index, 0, self._colatitude_axis.size - 2)
+        azimuth_index = np.searchsorted(
+            self._periodic_azimuth_axis, azimuth, side="right"
+        ) - 1
+        azimuth_index = np.clip(azimuth_index, 0, self._azimuth_axis.size - 1)
+        next_azimuth_index = (azimuth_index + 1) % self._azimuth_axis.size
+
+        target_basis = np.column_stack(
+            (np.ones_like(azimuth), azimuth, colatitude, azimuth * colatitude)
+        )
+        weights = np.einsum(
+            "nij,nj->ni",
+            self._cell_inverse[colatitude_index, azimuth_index],
+            target_basis,
+        )
+        weights = np.clip(weights, 0.0, 1.0)
+        corners = np.column_stack(
+            (
+                values[colatitude_index, azimuth_index],
+                values[colatitude_index, next_azimuth_index],
+                values[colatitude_index + 1, azimuth_index],
+                values[colatitude_index + 1, next_azimuth_index],
             )
-            nearest_indices = self._nearest_tree.query(target_positions)[1]
-            finite_source_values = values.reshape(-1)[self._finite_source_indices]
-            result[missing] = finite_source_values[nearest_indices]
-        return result.reshape(target_shape)
+        )
+        return np.sum(weights * corners, axis=1).reshape(target_shape)
 
 
 class _RemixGridInterpolator:
@@ -1149,7 +1181,7 @@ def _write_static_datasets(
     output.attrs["fac_to_radial_current"] = "jr = FAC_upward * abs(source unit_br)"
     output.attrs["remix_fac_interpolation"] = "kaiju_native_periodic"
     output.attrs["gamera_boundary_interpolation"] = (
-        "periodic_scattered_linear_with_nearest_completion"
+        "gamera_native_periodic_bilinear_with_polar_mean"
     )
     output.attrs["gamera_inner_index"] = int(settings.inner_index)
     output.attrs["gamera_length_scale_m"] = float(length_scale_m)
@@ -1280,7 +1312,7 @@ def prepare_forcing(settings: PreparationSettings = SETTINGS) -> Path:
         boundary_lat, boundary_lon = kaiju_geopack_sm(gamera_times[0]).sm2geo(
             inner_sm_lat, inner_sm_lon
         )
-        boundary_interpolator = _PeriodicScatteredLatLonInterpolator(inner_sm_lat, inner_sm_lon)
+        boundary_interpolator = _GameraBoundaryInterpolator(inner_sm_lat, inner_sm_lon)
         # Kaiju gioH5 writes Bx/By/Bz as total field when
         # Model%doBackground is true, and root Bx0/By0/Bz0 as Gr%B0.
         # PynaMIT needs the perturbation.
@@ -1329,7 +1361,9 @@ def prepare_forcing(settings: PreparationSettings = SETTINGS) -> Path:
                     boundary_lat, boundary_lon, event_time
                 )
                 output["delta_Br"][out_step] = boundary_interpolator.interpolate(
-                    delta_br_sm, boundary_sm_lon, boundary_sm_lat, require_complete=True
+                    delta_br_sm,
+                    target_sm_lat=boundary_sm_lat,
+                    target_sm_lon=boundary_sm_lon,
                 ).astype(np.float32)
 
     return output_path
