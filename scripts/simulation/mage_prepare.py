@@ -48,7 +48,11 @@ from pynamit.coordinates import wrap_longitude_180
 from pynamit.geomagnetism import MainField, decimal_year
 from pynamit.geomagnetism.kaiju_geopack import kaiju_geopack_sm
 from pynamit.math.constants import RE
-from pynamit.simulation.workflows.mage_projection import MAGE_FORCING_KIND, MAGE_FORCING_VERSION
+from pynamit.simulation.workflows.mage_projection import (
+    IONOSPHERE_RADIUS_M,
+    MAGE_FORCING_KIND,
+    MAGE_FORCING_VERSION,
+)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_GAMERA_DIRECTORY = Path("/disk/Gamera_Dong")
@@ -56,7 +60,8 @@ DEFAULT_OUTPUT_DIRECTORY = SCRIPT_DIR / "mage_prepared"
 DEFAULT_OUTPUT_NAME = "mage_prepared_forcing.h5"
 DEFAULT_TAG = "msphere"
 
-FALLBACK_EARTH_RADIUS_M = 6371.0e3
+GAMERA_EARTH_SPEED_SCALE_M_S = 1.0e5
+REMIX_TIME_TOLERANCE_SECONDS = 1.0e-3
 FILL_THRESHOLD = 1e30
 
 
@@ -70,7 +75,6 @@ class PreparationSettings:
     tiegcm_path: Path | None = None
     output_directory: Path = DEFAULT_OUTPUT_DIRECTORY
     output_name: str = DEFAULT_OUTPUT_NAME
-    conductance_source: str = "computed"
     compression: str = "lzf"
     max_steps: int | None = None
 
@@ -140,45 +144,88 @@ def _resolve_tiegcm_path(gamera_directory: Path, explicit_path: str | Path | Non
     return matches[0]
 
 
+def _h5_text(value: Any) -> str:
+    """Return one HDF5 text attribute as a stripped string."""
+    if isinstance(value, bytes):
+        value = value.decode("ascii", errors="replace")
+    return str(value).strip()
+
+
 def _gamera_length_scale_m(gsph: Any) -> float:
-    """Return the GAMERA-to-meter length scale."""
+    """Return the EARTH-normalized GAMERA coordinate scale in metres."""
     with h5py.File(gsph.f0, "r") as file:
-        units_id = file.attrs.get("UnitsID", b"")
-        if isinstance(units_id, bytes):
-            units_id = units_id.decode("ascii", errors="ignore")
-        if str(units_id).upper().startswith("EARTH") and "tScl" in file.attrs:
-            return float(file.attrs["tScl"]) * 1.0e5
+        units_id = _h5_text(file.attrs.get("UnitsID", ""))
+        if units_id.upper() != "EARTH":
+            raise RuntimeError(
+                "MAGE preparation requires an EARTH-normalized GAMERA file; "
+                f"got UnitsID={units_id!r}."
+            )
+        if "tScl" not in file.attrs:
+            raise RuntimeError("EARTH-normalized GAMERA metadata is missing tScl.")
+        time_scale_seconds = float(file.attrs["tScl"])
+        if not np.isfinite(time_scale_seconds) or time_scale_seconds <= 0.0:
+            raise RuntimeError("GAMERA tScl must be finite and positive.")
+        if _h5_text(file.attrs.get("timeID", "")) != "s":
+            raise RuntimeError("GAMERA tScl must be expressed in seconds.")
+    # Kaiju's EARTH normalization fixes v0=100 km/s and tScl=Rp/v0.
+    return time_scale_seconds * GAMERA_EARTH_SPEED_SCALE_M_S
 
-    warnings.warn(
-        f"GAMERA file has no EARTH tScl metadata; using {FALLBACK_EARTH_RADIUS_M:g} m.",
-        RuntimeWarning,
-        stacklevel=2,
-    )
-    return FALLBACK_EARTH_RADIUS_M
 
-
-def _gamera_dipole_strength_nT(gsph: Any) -> float | None:
-    """Return GAMERA's signed dipole strength in nT if available."""
+def _gamera_dipole_strength_nT(gsph: Any) -> float:
+    """Return GAMERA's required signed dipole strength in nT."""
     with h5py.File(gsph.f0, "r") as file:
-        if "MagM0" in file.attrs:
-            return float(file.attrs["MagM0"])
-    return None
+        if "MagM0" not in file.attrs:
+            raise RuntimeError(
+                "GAMERA root metadata is missing the signed dipole strength MagM0. "
+                "It is required to align and scale the prepared forcing."
+            )
+        strength = float(file.attrs["MagM0"])
+    if not np.isfinite(strength) or strength == 0.0:
+        raise RuntimeError("GAMERA MagM0 must be finite and nonzero.")
+    return strength
 
 
 def _gamera_background_field(
     gsph: Any, inner_index: int
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Return the inner-boundary GAMERA background field."""
+    """Return the volume-averaged inner-boundary GAMERA split field."""
     names = ("Bx0", "By0", "Bz0")
     with h5py.File(gsph.f0, "r") as root_file:
         missing = [name for name in names if name not in root_file]
+        wrong_units = [
+            name
+            for name in names
+            if name in root_file and _h5_text(root_file[name].attrs.get("Units", "")) != "nT"
+        ]
     if missing:
         raise RuntimeError(
             "This preparation path expects Kaiju background-field output. "
             f"Missing root datasets: {missing}. For MAGE/GAMERA Earth runs, "
             "Kaiju writes total Bx/By/Bz and root Bx0/By0/Bz0."
         )
+    if wrong_units:
+        raise RuntimeError(f"GAMERA split-background datasets must use nT: {wrong_units}.")
     return tuple(np.asarray(gsph.GetVar(name)[inner_index]) for name in names)
+
+
+def _validate_gamera_dynamic_field_units(gsph: Any, step: int) -> None:
+    """Require physical nT units for saved GAMERA magnetic histories."""
+    group_name = f"Step#{step}"
+    names = ("Bx", "By", "Bz")
+    with h5py.File(gsph.f0, "r") as file:
+        if group_name not in file:
+            raise RuntimeError(f"GAMERA file is missing {group_name!r}.")
+        group = file[group_name]
+        missing = [name for name in names if name not in group]
+        wrong_units = [
+            name
+            for name in names
+            if name in group and _h5_text(group[name].attrs.get("Units", "")) != "nT"
+        ]
+    if missing:
+        raise RuntimeError(f"GAMERA history {group_name!r} is missing {missing}.")
+    if wrong_units:
+        raise RuntimeError(f"GAMERA magnetic histories must use nT: {wrong_units}.")
 
 
 def _read_tiegcm_step(dataset: Any, name: str, step: int) -> np.ndarray:
@@ -196,87 +243,87 @@ def _read_tiegcm_step(dataset: Any, name: str, step: int) -> np.ndarray:
 
 
 def _conductance_normalized_wind(
-    numerator_sigma: np.ndarray,
-    denominator_conductance: np.ndarray,
+    conductivity: np.ndarray,
+    conductance: np.ndarray,
     wind_east: np.ndarray,
     wind_north: np.ndarray,
     dz: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return winds preserving conductivity-wind current moments."""
-    east_num = np.nansum(numerator_sigma * wind_east * dz, axis=0)
-    north_num = np.nansum(numerator_sigma * wind_north * dz, axis=0)
-    east = np.divide(
-        east_num,
-        denominator_conductance,
-        out=np.zeros_like(east_num),
-        where=denominator_conductance > 0.0,
-    )
+    east_num = np.sum(conductivity * wind_east * dz, axis=0)
+    north_num = np.sum(conductivity * wind_north * dz, axis=0)
+    east = np.divide(east_num, conductance, out=np.zeros_like(east_num), where=conductance > 0.0)
     north = np.divide(
-        north_num,
-        denominator_conductance,
-        out=np.zeros_like(north_num),
-        where=denominator_conductance > 0.0,
+        north_num, conductance, out=np.zeros_like(north_num), where=conductance > 0.0
     )
     return east.astype(np.float32), north.astype(np.float32)
 
 
-def _integrate_tiegcm_step(
-    dataset: Any, step: int, conductance_source: str
-) -> dict[str, np.ndarray]:
-    """Height-integrate conductivities and weighted winds."""
-    sigma_p = _read_tiegcm_step(dataset, "SIGMA_PED", step)
-    sigma_h = _read_tiegcm_step(dataset, "SIGMA_HAL", step)
+def _integrate_tiegcm_step(dataset: Any, step: int) -> dict[str, np.ndarray]:
+    """Height-integrate TIEGCM conductivities and weighted winds."""
+    pedersen_conductivity = _read_tiegcm_step(dataset, "SIGMA_PED", step)
+    hall_conductivity = _read_tiegcm_step(dataset, "SIGMA_HAL", step)
     height_m = _read_tiegcm_step(dataset, "ZG", step) / 100.0
     wind_east = _read_tiegcm_step(dataset, "UN", step) * 1e-2
     wind_north = _read_tiegcm_step(dataset, "VN", step) * 1e-2
 
     field_shapes = {
-        sigma_p.shape,
-        sigma_h.shape,
+        pedersen_conductivity.shape,
+        hall_conductivity.shape,
         height_m.shape,
         wind_east.shape,
         wind_north.shape,
     }
-    if len(field_shapes) != 1 or sigma_p.ndim < 1 or sigma_p.shape[0] < 2:
+    if (
+        len(field_shapes) != 1
+        or pedersen_conductivity.ndim < 1
+        or pedersen_conductivity.shape[0] < 2
+    ):
         raise RuntimeError(
             "TIEGCM conductivity, height, and wind histories must have matching "
             "shapes with at least two vertical levels."
         )
 
+    # TIEGCM's first n-1 ``lev`` entries are centered between the n
+    # ``ilev`` heights. Its final lev entry has no upper interface and
+    # is a fill-only history in the MAGE file, so it is deliberately
+    # excluded from both conductance and wind moments.
     dz = np.diff(height_m, axis=0)
-    if np.any(np.isfinite(dz) & (dz <= 0.0)):
+    if np.any(~np.isfinite(height_m)):
+        raise RuntimeError("TIEGCM ZG contains missing or non-finite interface heights.")
+    if np.any(dz <= 0.0):
         raise RuntimeError("TIEGCM geometric height must increase with vertical level.")
-    sigma_p_layer = sigma_p[:-1]
-    sigma_h_layer = sigma_h[:-1]
+    pedersen_layers = pedersen_conductivity[:-1]
+    hall_layers = hall_conductivity[:-1]
     wind_east = wind_east[:-1]
     wind_north = wind_north[:-1]
-    sigma_p_int = np.nansum(sigma_p_layer * dz, axis=0)
-    sigma_h_int = np.nansum(sigma_h_layer * dz, axis=0)
-
-    if conductance_source == "native":
-        sigma_p_out = _read_tiegcm_step(dataset, "gzigm1", step)
-        sigma_h_out = _read_tiegcm_step(dataset, "gzigm2", step)
-    else:
-        sigma_p_out = sigma_p_int
-        sigma_h_out = sigma_h_int
-
-    horizontal_shape = sigma_p.shape[1:]
-    if sigma_p_out.shape != horizontal_shape or sigma_h_out.shape != horizontal_shape:
+    layer_fields = {
+        "SIGMA_PED": pedersen_layers,
+        "SIGMA_HAL": hall_layers,
+        "UN": wind_east,
+        "VN": wind_north,
+    }
+    invalid = [name for name, values in layer_fields.items() if np.any(~np.isfinite(values))]
+    if invalid:
         raise RuntimeError(
-            "TIEGCM conductance grids must match the horizontal conductivity grid; "
-            f"expected {horizontal_shape}, got {sigma_p_out.shape} and {sigma_h_out.shape}."
+            f"TIEGCM contains missing or non-finite values in integrated layers: {invalid}."
         )
+    if np.any(pedersen_layers < 0.0) or np.any(hall_layers < 0.0):
+        raise RuntimeError("TIEGCM Pedersen/Hall conductivity must be non-negative.")
+
+    pedersen_conductance = np.sum(pedersen_layers * dz, axis=0)
+    hall_conductance = np.sum(hall_layers * dz, axis=0)
 
     u_p_east, u_p_north = _conductance_normalized_wind(
-        sigma_p_layer, sigma_p_out, wind_east, wind_north, dz
+        pedersen_layers, pedersen_conductance, wind_east, wind_north, dz
     )
     u_h_east, u_h_north = _conductance_normalized_wind(
-        sigma_h_layer, sigma_h_out, wind_east, wind_north, dz
+        hall_layers, hall_conductance, wind_east, wind_north, dz
     )
 
     return {
-        "SP": sigma_p_out.astype(np.float32),
-        "SH": sigma_h_out.astype(np.float32),
+        "SP": pedersen_conductance.astype(np.float32),
+        "SH": hall_conductance.astype(np.float32),
         "We": u_p_east,
         "Wn": u_p_north,
         "WeH": u_h_east,
@@ -380,23 +427,99 @@ def _validate_source_times(
         )
 
 
-def _validate_tiegcm_variables(dataset: Any, n_steps: int, conductance_source: str) -> None:
-    """Require every TIEGCM input variable and selected time range."""
-    required = ["lon", "lat", "SIGMA_PED", "SIGMA_HAL", "ZG", "UN", "VN"]
-    if conductance_source == "native":
-        required.extend(("gzigm1", "gzigm2"))
+def _validate_tiegcm_variables(dataset: Any, n_steps: int) -> None:
+    """Require the geographic grid and vertical-layer contract."""
+    required = [
+        "lon",
+        "lat",
+        "lev",
+        "ilev",
+        "mtime",
+        "year",
+        "SIGMA_PED",
+        "SIGMA_HAL",
+        "ZG",
+        "UN",
+        "VN",
+    ]
     missing = [name for name in required if name not in dataset.variables]
     if missing:
         raise RuntimeError(f"TIEGCM file is missing required variables {missing}.")
     too_short = [
         name
-        for name in required
-        if name not in {"lon", "lat"} and dataset.variables[name].shape[0] < n_steps
+        for name in ("SIGMA_PED", "SIGMA_HAL", "ZG", "UN", "VN")
+        if dataset.variables[name].shape[0] < n_steps
     ]
     if too_short:
         raise RuntimeError(
             f"TIEGCM variables {too_short} contain fewer than the required {n_steps} histories."
         )
+
+    expected_dimensions = {
+        "lon": ("lon",),
+        "lat": ("lat",),
+        "lev": ("lev",),
+        "ilev": ("ilev",),
+        "SIGMA_PED": ("time", "lev", "lat", "lon"),
+        "SIGMA_HAL": ("time", "lev", "lat", "lon"),
+        "ZG": ("time", "ilev", "lat", "lon"),
+        "UN": ("time", "lev", "lat", "lon"),
+        "VN": ("time", "lev", "lat", "lon"),
+    }
+    wrong_dimensions = {
+        name: tuple(dataset.variables[name].dimensions)
+        for name, expected in expected_dimensions.items()
+        if tuple(dataset.variables[name].dimensions) != expected
+    }
+    if wrong_dimensions:
+        raise RuntimeError(f"TIEGCM variables use incompatible dimensions: {wrong_dimensions}.")
+
+    expected_units = {
+        "lon": "degrees_east",
+        "lat": "degrees_north",
+        "SIGMA_PED": "S/m",
+        "SIGMA_HAL": "S/m",
+        "ZG": "cm",
+        "UN": "cm/s",
+        "VN": "cm/s",
+    }
+    wrong_units = {
+        name: getattr(dataset.variables[name], "units", None)
+        for name, expected in expected_units.items()
+        if getattr(dataset.variables[name], "units", None) != expected
+    }
+    if wrong_units:
+        raise RuntimeError(f"TIEGCM variables use incompatible units: {wrong_units}.")
+
+    longitude = np.asarray(dataset.variables["lon"][:], dtype=float)
+    latitude = np.asarray(dataset.variables["lat"][:], dtype=float)
+    for name, values, full_span in (
+        ("longitude", longitude, 360.0),
+        ("latitude", latitude, 180.0),
+    ):
+        if values.ndim != 1 or values.size < 2 or np.any(~np.isfinite(values)):
+            raise RuntimeError(f"TIEGCM {name} must be a finite one-dimensional grid.")
+        spacing = np.diff(values)
+        if np.any(spacing <= 0.0) or not np.allclose(spacing, spacing[0], rtol=0.0, atol=1e-10):
+            raise RuntimeError(f"TIEGCM {name} must be strictly increasing and uniform.")
+        if not np.isclose(values[-1] - values[0] + spacing[0], full_span, atol=1e-10):
+            raise RuntimeError(f"TIEGCM {name} must cover one global cell-centred span.")
+    if latitude[0] <= -90.0 or latitude[-1] >= 90.0:
+        raise RuntimeError("TIEGCM latitude must contain cell centres strictly between the poles.")
+
+    lev = np.asarray(dataset.variables["lev"][:], dtype=float)
+    ilev = np.asarray(dataset.variables["ilev"][:], dtype=float)
+    if (
+        lev.ndim != 1
+        or ilev.ndim != 1
+        or lev.size != ilev.size
+        or lev.size < 2
+        or np.any(~np.isfinite(lev))
+        or np.any(~np.isfinite(ilev))
+        or np.any(np.diff(ilev) <= 0.0)
+        or not np.allclose(lev[:-1], 0.5 * (ilev[:-1] + ilev[1:]), rtol=0.0, atol=1e-12)
+    ):
+        raise RuntimeError("TIEGCM lev[:-1] must be centered between consecutive ilev interfaces.")
 
 
 def _gamera_inner_boundary_geometry(
@@ -499,9 +622,7 @@ def _trilinear_hexahedron_volume_centers(vertices: np.ndarray) -> np.ndarray:
                     )
                     / 8.0
                 )
-                jacobian = np.einsum(
-                    "...vc,vq->...cq", vertices, derivatives, optimize=True
-                )
+                jacobian = np.einsum("...vc,vq->...cq", vertices, derivatives, optimize=True)
                 weighted_volume = (
                     weights[i] * weights[j] * weights[k] * np.abs(np.linalg.det(jacobian))
                 )
@@ -609,9 +730,7 @@ class _GameraBoundaryInterpolator:
 
         colatitude, azimuth = _gamera_native_angles(source_sm_lat, source_sm_lon)
         azimuth = np.unwrap(azimuth, axis=1)
-        azimuth += 2.0 * np.pi * np.round(
-            (azimuth[0, 0] - azimuth[:, [0]]) / (2.0 * np.pi)
-        )
+        azimuth += 2.0 * np.pi * np.round((azimuth[0, 0] - azimuth[:, [0]]) / (2.0 * np.pi))
         colatitude_axis = np.mean(colatitude, axis=1)
         azimuth_axis = np.mean(azimuth, axis=0)
 
@@ -647,11 +766,7 @@ class _GameraBoundaryInterpolator:
         )
         polar_azimuth = np.broadcast_to(azimuth_axis, (1, azimuth_axis.size))
         colatitude = np.vstack(
-            (
-                np.zeros_like(polar_azimuth),
-                colatitude,
-                np.full_like(polar_azimuth, np.pi),
-            )
+            (np.zeros_like(polar_azimuth), colatitude, np.full_like(polar_azimuth, np.pi))
         )
         azimuth = np.vstack((polar_azimuth, azimuth, polar_azimuth))
         self._cell_inverse = self._build_cell_inverse(colatitude, azimuth)
@@ -666,8 +781,7 @@ class _GameraBoundaryInterpolator:
         lower_right_azimuth[:, -1] += 2.0 * np.pi
         upper_right_azimuth[:, -1] += 2.0 * np.pi
         vertex_azimuth = np.stack(
-            (lower_azimuth, lower_right_azimuth, upper_azimuth, upper_right_azimuth),
-            axis=-1,
+            (lower_azimuth, lower_right_azimuth, upper_azimuth, upper_right_azimuth), axis=-1
         )
         vertex_colatitude = np.stack(
             (
@@ -698,11 +812,7 @@ class _GameraBoundaryInterpolator:
         return inverse
 
     def interpolate(
-        self,
-        values: np.ndarray,
-        *,
-        target_sm_lat: np.ndarray,
-        target_sm_lon: np.ndarray,
+        self, values: np.ndarray, *, target_sm_lat: np.ndarray, target_sm_lon: np.ndarray
     ) -> np.ndarray:
         """Interpolate one boundary field at SM target positions."""
         values = np.asarray(values, dtype=float)
@@ -732,13 +842,9 @@ class _GameraBoundaryInterpolator:
             raise ValueError("GAMERA boundary target coordinates must be finite.")
         azimuth = np.mod(azimuth - self._azimuth_axis[0], 2.0 * np.pi) + self._azimuth_axis[0]
 
-        colatitude_index = np.searchsorted(
-            self._colatitude_axis, colatitude, side="right"
-        ) - 1
+        colatitude_index = np.searchsorted(self._colatitude_axis, colatitude, side="right") - 1
         colatitude_index = np.clip(colatitude_index, 0, self._colatitude_axis.size - 2)
-        azimuth_index = np.searchsorted(
-            self._periodic_azimuth_axis, azimuth, side="right"
-        ) - 1
+        azimuth_index = np.searchsorted(self._periodic_azimuth_axis, azimuth, side="right") - 1
         azimuth_index = np.clip(azimuth_index, 0, self._azimuth_axis.size - 1)
         next_azimuth_index = (azimuth_index + 1) % self._azimuth_axis.size
 
@@ -746,9 +852,7 @@ class _GameraBoundaryInterpolator:
             (np.ones_like(azimuth), azimuth, colatitude, azimuth * colatitude)
         )
         weights = np.einsum(
-            "nij,nj->ni",
-            self._cell_inverse[colatitude_index, azimuth_index],
-            target_basis,
+            "nij,nj->ni", self._cell_inverse[colatitude_index, azimuth_index], target_basis
         )
         weights = np.clip(weights, 0.0, 1.0)
         corners = np.column_stack(
@@ -797,27 +901,12 @@ class _RemixGridInterpolator:
             raise ValueError("A saved ReMIX grid must contain exactly one magnetic hemisphere.")
 
         self._source_shape = source_lat.shape
-        self._source_lat = np.array(source_lat, copy=True)
-        self._source_lon = wrap_longitude_180(source_lon).copy()
         self._latitude_order = np.argsort(latitude)
         self._longitude_order = np.argsort(longitude)
         self._latitude = latitude[self._latitude_order]
         self._longitude = longitude[self._longitude_order]
         if np.any(np.diff(self._latitude) <= 0.0) or np.any(np.diff(self._longitude) <= 0.0):
             raise ValueError("ReMIX latitude and longitude coordinates must be unique.")
-
-    def matches(self, source_lat: np.ndarray, source_lon: np.ndarray) -> bool:
-        """Return whether coordinates match this saved ReMIX grid."""
-        source_lat, source_lon = np.broadcast_arrays(
-            np.asarray(source_lat, dtype=float), np.asarray(source_lon, dtype=float)
-        )
-        return (
-            source_lat.shape == self._source_shape
-            and np.allclose(source_lat, self._source_lat, rtol=0.0, atol=1e-12)
-            and np.allclose(
-                wrap_longitude_180(source_lon - self._source_lon), 0.0, rtol=0.0, atol=1e-12
-            )
-        )
 
     def interpolate(
         self, values: np.ndarray, target_lon: np.ndarray, target_lat: np.ndarray
@@ -885,12 +974,8 @@ class _RemixGridInterpolator:
         latitude_index = np.searchsorted(latitude, query_latitude, side="right") - 1
         latitude_index = np.clip(latitude_index, 0, latitude.size - 2)
 
-        periodic_longitude = np.concatenate(
-            (self._longitude, [self._longitude[0] + 360.0])
-        )
-        longitude_index = np.searchsorted(
-            periodic_longitude, query_longitude, side="right"
-        ) - 1
+        periodic_longitude = np.concatenate((self._longitude, [self._longitude[0] + 360.0]))
+        longitude_index = np.searchsorted(periodic_longitude, query_longitude, side="right") - 1
         longitude_index = np.clip(longitude_index, 0, self._longitude.size - 1)
         next_longitude_index = (longitude_index + 1) % self._longitude.size
 
@@ -906,11 +991,10 @@ class _RemixGridInterpolator:
         lower_right = values[latitude_index, next_longitude_index]
         upper_left = values[latitude_index + 1, longitude_index]
         upper_right = values[latitude_index + 1, next_longitude_index]
-        result[covered_indices] = (
-            (1.0 - latitude_fraction)
-            * ((1.0 - longitude_fraction) * lower_left + longitude_fraction * lower_right)
-            + latitude_fraction
-            * ((1.0 - longitude_fraction) * upper_left + longitude_fraction * upper_right)
+        result[covered_indices] = (1.0 - latitude_fraction) * (
+            (1.0 - longitude_fraction) * lower_left + longitude_fraction * lower_right
+        ) + latitude_fraction * (
+            (1.0 - longitude_fraction) * upper_left + longitude_fraction * upper_right
         )
 
         # Kaiju treats the polar quadrilateral as a triangle because all
@@ -918,9 +1002,7 @@ class _RemixGridInterpolator:
         # therefore averages the reconstructed pole and the two adjacent
         # values on the poleward ring, independently of polar distance.
         polar_cap = (
-            query_latitude > self._latitude[-1]
-            if north
-            else query_latitude < self._latitude[0]
+            query_latitude > self._latitude[-1] if north else query_latitude < self._latitude[0]
         )
         if np.any(polar_cap):
             result[covered_indices[polar_cap]] = (
@@ -977,7 +1059,10 @@ def _upward_fac_to_radial_current(
 
 
 def _remix_upward_fac_source(
-    ion: Any, hemisphere: str, unsigned_magnetic_latitude: np.ndarray, grid_longitude: np.ndarray
+    hemisphere: str,
+    fac: np.ndarray,
+    unsigned_magnetic_latitude: np.ndarray,
+    grid_longitude: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Return physical SM positions and upward-positive ReMIX FAC.
 
@@ -995,57 +1080,133 @@ def _remix_upward_fac_source(
         np.asarray(unsigned_magnetic_latitude, dtype=float),
         np.asarray(grid_longitude, dtype=float),
     )
-    dataset_name = f"Field-aligned current {hemisphere}"
-    if dataset_name not in ion.ion:
-        raise RuntimeError(f"ReMIX history is missing {dataset_name!r}.")
-    fac = np.asarray(ion.ion[dataset_name], dtype=float)
+    fac = np.asarray(fac, dtype=float)
     if fac.shape != latitude.shape:
         raise RuntimeError(
-            f"ReMIX {dataset_name!r} shape {fac.shape} does not match "
+            f"ReMIX {hemisphere} FAC shape {fac.shape} does not match "
             f"the cell-center grid {latitude.shape}."
         )
+    if np.any(~np.isfinite(fac)):
+        raise RuntimeError(f"ReMIX {hemisphere} FAC must be finite.")
 
     if hemisphere == "NORTH":
         return latitude, wrap_longitude_180(longitude), -fac
     return -latitude, wrap_longitude_180(-longitude), fac
 
 
+def _remix_cell_center_coordinates(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Return saved ReMIX field-node latitude and longitude."""
+    x, y = np.broadcast_arrays(np.asarray(x, dtype=float), np.asarray(y, dtype=float))
+    if x.ndim != 2 or min(x.shape) < 3 or np.any(~np.isfinite(x)) or np.any(~np.isfinite(y)):
+        raise RuntimeError("ReMIX X/Y must be finite two-dimensional corner grids.")
+    x_center = 0.25 * (x[:-1, :-1] + x[1:, :-1] + x[:-1, 1:] + x[1:, 1:])
+    y_center = 0.25 * (y[:-1, :-1] + y[1:, :-1] + y[:-1, 1:] + y[1:, 1:])
+    polar_radius = np.hypot(x_center, y_center)
+    tolerance = 32.0 * np.finfo(float).eps
+    if np.any(polar_radius > 1.0 + tolerance):
+        raise RuntimeError("ReMIX X/Y cell centres must lie inside the unit polar disk.")
+    colatitude = np.arcsin(np.clip(polar_radius, 0.0, 1.0))
+    longitude = np.arctan2(y_center, x_center)
+    return 90.0 - np.degrees(colatitude), wrap_longitude_180(np.degrees(longitude))
+
+
 class _RemixRadialCurrentReader:
-    """Return outward current from REMIX FAC on a fixed GEO grid."""
+    """Read only the ReMIX FAC needed for outward current forcing."""
 
     def __init__(self, remix_file: Path) -> None:
-        try:
-            import kaipy.remix.remix as remix
-        except ModuleNotFoundError as exc:
-            raise ModuleNotFoundError(
-                "mage_prepare.py needs kaipy.remix to read REMIX files. "
-                f"Missing module: {exc.name!r}. Run it in the MAGE/GAMERA environment "
-                "where kaipy and its dependencies are installed."
-            ) from exc
-        self._remix = remix
         self._remix_file = Path(remix_file)
+        self._file: h5py.File | None = None
+        self._unsigned_latitude: np.ndarray | None = None
+        self._grid_longitude: np.ndarray | None = None
         self._interpolators: dict[str, _RemixGridInterpolator] = {}
+
+    def __enter__(self):
+        """Open and validate the reusable ReMIX grid."""
+        self._file = h5py.File(self._remix_file, "r")
+        try:
+            if _h5_text(self._file.attrs.get("UnitsID", "")) != "ReMIX":
+                raise RuntimeError("ReMIX forcing must declare UnitsID='ReMIX'.")
+            missing = [name for name in ("X", "Y") if name not in self._file]
+            if missing:
+                raise RuntimeError(f"ReMIX forcing is missing grid datasets {missing}.")
+            wrong_units = [
+                name
+                for name in ("X", "Y")
+                if _h5_text(self._file[name].attrs.get("Units", "")) != "Ri"
+            ]
+            if wrong_units:
+                raise RuntimeError(f"ReMIX grid datasets must use Ri units: {wrong_units}.")
+            unsigned_latitude, grid_longitude = _remix_cell_center_coordinates(
+                self._file["X"][:], self._file["Y"][:]
+            )
+            self._unsigned_latitude = unsigned_latitude
+            self._grid_longitude = grid_longitude
+            shape = unsigned_latitude.shape
+            zeros = np.zeros(shape)
+            for hemisphere in ("NORTH", "SOUTH"):
+                source_lat, source_lon, _ = _remix_upward_fac_source(
+                    hemisphere, zeros, unsigned_latitude, grid_longitude
+                )
+                self._interpolators[hemisphere] = _RemixGridInterpolator(source_lat, source_lon)
+        except BaseException:
+            self._file.close()
+            self._file = None
+            raise
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        """Close the ReMIX source file."""
+        if self._file is not None:
+            self._file.close()
+            self._file = None
+
+    def _history(self, step: int, event_time: dt.datetime) -> h5py.Group:
+        """Return one time-aligned ReMIX history."""
+        if self._file is None:
+            raise RuntimeError("ReMIX reader must be used as a context manager.")
+        group_name = f"Step#{step}"
+        if group_name not in self._file:
+            raise RuntimeError(f"ReMIX forcing is missing {group_name!r}.")
+        history = self._file[group_name]
+        if "MJD" not in history.attrs:
+            raise RuntimeError(f"ReMIX history {group_name!r} is missing MJD time metadata.")
+        source_time = dt.datetime(1858, 11, 17) + dt.timedelta(days=float(history.attrs["MJD"]))
+        offset_seconds = abs((source_time - event_time).total_seconds())
+        if offset_seconds > REMIX_TIME_TOLERANCE_SECONDS:
+            raise RuntimeError(
+                f"ReMIX {group_name} is not aligned with GAMERA: "
+                f"ReMIX={source_time.isoformat()}, GAMERA={event_time.isoformat()}, "
+                f"offset={offset_seconds:g} s."
+            )
+        return history
+
+    @staticmethod
+    def _fac(history: h5py.Group, hemisphere: str) -> np.ndarray:
+        """Read one parallel-positive ReMIX FAC field."""
+        dataset_name = f"Field-aligned current {hemisphere}"
+        if dataset_name not in history:
+            raise RuntimeError(f"ReMIX history is missing {dataset_name!r}.")
+        dataset = history[dataset_name]
+        if _h5_text(dataset.attrs.get("Units", "")) != "muA/m**2":
+            raise RuntimeError(f"ReMIX {dataset_name!r} must use muA/m**2 units.")
+        return np.asarray(dataset, dtype=float)
 
     def _hemisphere(
         self,
-        ion: Any,
         hemisphere: str,
-        mlat: np.ndarray,
-        sm_lon: np.ndarray,
+        fac: np.ndarray,
         target_sm_lon: np.ndarray,
         target_sm_lat: np.ndarray,
     ) -> np.ndarray:
         """Sample one FAC hemisphere at target SM positions."""
-        source_lat, source_lon, upward_fac = _remix_upward_fac_source(
-            ion, hemisphere, mlat, sm_lon
+        if self._unsigned_latitude is None or self._grid_longitude is None:
+            raise RuntimeError("ReMIX reader must be used as a context manager.")
+        _, _, upward_fac = _remix_upward_fac_source(
+            hemisphere, fac, self._unsigned_latitude, self._grid_longitude
         )
-        interpolator = self._interpolators.get(hemisphere)
-        if interpolator is None:
-            interpolator = _RemixGridInterpolator(source_lat, source_lon)
-            self._interpolators[hemisphere] = interpolator
-        elif not interpolator.matches(source_lat, source_lon):
-            raise RuntimeError("REMIX grid coordinates changed between forcing histories.")
-        return interpolator.interpolate(upward_fac, target_sm_lon, target_sm_lat)
+        return self._interpolators[hemisphere].interpolate(
+            upward_fac, target_sm_lon, target_sm_lat
+        )
 
     def read(
         self,
@@ -1055,15 +1216,16 @@ class _RemixRadialCurrentReader:
         event_time: dt.datetime,
     ) -> np.ndarray:
         """Return outward current on the fixed geographic grid."""
-        ion = self._remix.remix(str(self._remix_file), step)
-        _, _, theta, phi = ion.cartesianCellCenters()
-        mlat = 90.0 - theta / np.pi * 180.0
-        sm_lon = wrap_longitude_180(phi / np.pi * 180.0)
+        history = self._history(step, event_time)
         target_sm_lat, target_sm_lon = _geographic_grid_in_sm(
             target_latitude, target_longitude, event_time
         )
-        north = self._hemisphere(ion, "NORTH", mlat, sm_lon, target_sm_lon, target_sm_lat)
-        south = self._hemisphere(ion, "SOUTH", mlat, sm_lon, target_sm_lon, target_sm_lat)
+        north = self._hemisphere(
+            "NORTH", self._fac(history, "NORTH"), target_sm_lon, target_sm_lat
+        )
+        south = self._hemisphere(
+            "SOUTH", self._fac(history, "SOUTH"), target_sm_lon, target_sm_lat
+        )
         upward_fac = _combine_remix_hemispheres(south, north)
         return _upward_fac_to_radial_current(upward_fac, target_sm_lat)
 
@@ -1117,7 +1279,8 @@ def _create_output_datasets(
         output[name].attrs["units"] = "m s-1"
     output["delta_Br"].attrs["units"] = "nT"
     output["delta_Br"].attrs["description"] = (
-        "radial perturbation from total B minus GAMERA split background B0"
+        "radial perturbation from cell-volume-average total B minus the matching "
+        "cell-volume-average GAMERA split background B0"
     )
 
 
@@ -1163,10 +1326,15 @@ def _write_static_datasets(
     )
     output.attrs["gamera_run_dir"] = str(gamera_run_dir)
     output.attrs["tiegcm_nc"] = str(tiegcm_path)
-    output.attrs["conductance_source"] = settings.conductance_source
+    output.attrs["tiegcm_conductance_integration"] = "geometric_height_layer_integral"
+    output.attrs["tiegcm_vertical_grid"] = (
+        "SIGMA_PED/SIGMA_HAL and UN/VN at lev[:-1], with dz=diff(ZG at ilev); "
+        "terminal fill-only lev omitted"
+    )
     output.attrs["coordinate_system"] = "GEO"
     output.attrs["longitude_convention"] = "east_positive_degrees"
     output.attrs["tiegcm_source_coordinate_system"] = "geographic"
+    output.attrs["ionosphere_radius_m"] = IONOSPHERE_RADIUS_M
     output.attrs["wind_weighting"] = (
         "Pedersen datasets u_p_theta/u_p_phi; Hall datasets u_h_theta/u_h_phi; "
         "components are geographic south/east on the native TIEGCM grid"
@@ -1185,8 +1353,10 @@ def _write_static_datasets(
     )
     output.attrs["gamera_inner_index"] = int(settings.inner_index)
     output.attrs["gamera_length_scale_m"] = float(length_scale_m)
+    output.attrs["gamera_background_reference"] = "cell_volume_average_split_B0"
     output.attrs["gamera_B_output"] = (
-        "Kaiju Bx/By/Bz total field; delta_Br removes the split background B0"
+        "Kaiju cell-volume-average total Bx/By/Bz; delta_Br removes the matching "
+        "cell-volume-average split B0, not point-sampled BxD/ByD/BzD"
     )
     for name, value in _centered_dipole_alignment_attrs(event_time, mag_m0_nT).items():
         output.attrs[name] = value
@@ -1197,11 +1367,6 @@ def _write_static_datasets(
 
 def _validate_settings(settings: PreparationSettings) -> None:
     """Validate in-script preparation settings."""
-    if settings.conductance_source not in ("computed", "native"):
-        raise ValueError(
-            "conductance_source must be 'computed' or 'native'; "
-            f"got {settings.conductance_source!r}."
-        )
     if settings.compression not in ("lzf", "gzip", "none"):
         raise ValueError(
             f"compression must be 'lzf', 'gzip', or 'none'; got {settings.compression!r}."
@@ -1234,7 +1399,7 @@ def prepare_forcing(settings: PreparationSettings = SETTINGS) -> Path:
         import kaipy.gamera.magsphere as msph
     except ModuleNotFoundError as exc:
         raise ModuleNotFoundError(
-            "mage_prepare.py needs kaipy to read GAMERA/REMIX files. "
+            "mage_prepare.py needs kaipy to read GAMERA files. "
             f"Missing module: {exc.name!r}. Run it in the MAGE/GAMERA environment "
             "where kaipy and its dependencies are installed."
         ) from exc
@@ -1262,11 +1427,6 @@ def prepare_forcing(settings: PreparationSettings = SETTINGS) -> Path:
         )
     length_scale_m = _gamera_length_scale_m(gsph)
     mag_m0_nT = _gamera_dipole_strength_nT(gsph)
-    if mag_m0_nT is None:
-        raise RuntimeError(
-            "GAMERA root metadata is missing the signed dipole strength MagM0. "
-            "It is required to align and scale the prepared forcing."
-        )
     bx0, by0, bz0 = _gamera_background_field(gsph, settings.inner_index)
     print(f"Using GAMERA length scale: {length_scale_m:.6g} m", flush=True)
     axes = _gamera_internal_dipole_axes(mag_m0_nT)
@@ -1285,10 +1445,11 @@ def prepare_forcing(settings: PreparationSettings = SETTINGS) -> Path:
         n_available = min(n_available, int(settings.max_steps))
     if n_available <= 0:
         raise RuntimeError("GAMERA contains no forcing steps after its initial state.")
+    _validate_gamera_dynamic_field_units(gsph, gsph.s0 + 1)
 
     with Dataset(tiegcm_path, mode="r") as tiegcm:
         n_steps = n_available
-        _validate_tiegcm_variables(tiegcm, n_steps, settings.conductance_source)
+        _validate_tiegcm_variables(tiegcm, n_steps)
         gamera_times = [_naive_utc_datetime(value) for value in gsph.UT[1 : n_steps + 1]]
         tiegcm_times, time_tolerance_seconds = _tiegcm_times(tiegcm, gamera_times)
         _validate_source_times(
@@ -1303,8 +1464,6 @@ def prepare_forcing(settings: PreparationSettings = SETTINGS) -> Path:
         # integral.
         time_values = np.array([value.isoformat() for value in gamera_times], dtype=object)
 
-        radial_current_reader = _RemixRadialCurrentReader(remix_file)
-
         inner_sm_lat, inner_sm_lon, inner_r, sin_theta, cos_theta, sin_phi, cos_phi = (
             _gamera_inner_boundary_geometry(gsph, settings.inner_index, length_scale_m)
         )
@@ -1316,7 +1475,10 @@ def prepare_forcing(settings: PreparationSettings = SETTINGS) -> Path:
         # Kaiju gioH5 writes Bx/By/Bz as total field when
         # Model%doBackground is true, and root Bx0/By0/Bz0 as Gr%B0.
         # PynaMIT needs the perturbation.
-        with _atomic_prepared_output(output_path) as output:
+        with (
+            _RemixRadialCurrentReader(remix_file) as radial_current_reader,
+            _atomic_prepared_output(output_path) as output,
+        ):
             _write_static_datasets(
                 output,
                 time_values,
@@ -1344,7 +1506,7 @@ def prepare_forcing(settings: PreparationSettings = SETTINGS) -> Path:
                     flush=True,
                 )
 
-                integrated = _integrate_tiegcm_step(tiegcm, out_step, settings.conductance_source)
+                integrated = _integrate_tiegcm_step(tiegcm, out_step)
                 model_inputs = _tiegcm_step_in_geographic_coordinates(integrated)
                 for key, values in model_inputs.items():
                     output[key][out_step] = values
@@ -1361,9 +1523,7 @@ def prepare_forcing(settings: PreparationSettings = SETTINGS) -> Path:
                     boundary_lat, boundary_lon, event_time
                 )
                 output["delta_Br"][out_step] = boundary_interpolator.interpolate(
-                    delta_br_sm,
-                    target_sm_lat=boundary_sm_lat,
-                    target_sm_lon=boundary_sm_lon,
+                    delta_br_sm, target_sm_lat=boundary_sm_lat, target_sm_lon=boundary_sm_lon
                 ).astype(np.float32)
 
     return output_path

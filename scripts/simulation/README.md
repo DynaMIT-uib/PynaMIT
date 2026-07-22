@@ -22,6 +22,15 @@ The active MAGE workflow has three stages:
    polar-cell rule. GAMERA `delta_Br` uses four-point bilinear interpolation on
    GAMERA's own periodic native angular grid; its omitted cell-center polar
    values are reconstructed from the adjacent ring means.
+   Sheet conductance is the geometric-height integral of TIEGCM's standard
+   geographic `SIGMA_PED` and `SIGMA_HAL` profiles. Pedersen- and
+   Hall-weighted winds use those same layer integrals. The MAGE-specific
+   `gzigm1`/`gzigm2` diagnostics are intentionally not a second input path:
+   TIEGCM forms them as Pedersen/Hall conductivity integrals along modified-
+   apex field lines for its equipotential-field-line dynamo, then regrids the
+   results to geographic coordinates. They are therefore not the local
+   radial-column conductances used by PynaMIT's spherical thin sheet, and
+   combining them with radial-column weighted winds would be inconsistent.
    ReMIX's parallel-positive FAC is converted explicitly to a common
    upward-positive convention using Kaiju's northern and southern grid
    orientations, then to PynaMIT's outward radial current with the local
@@ -68,6 +77,10 @@ only to the evolving `m_ind` field.
 Prepared `delta_Br` is GAMERA total field minus its split numerical `B0`
 background. This isolates the evolved perturbation without importing the
 finite-volume background representation error as a physical external field.
+Both fields are saved cell-volume averages; `BxD`/`ByD`/`BzD` are point
+samples at the volume barycentres and therefore are not the matching
+background subtraction. The single fitted boundary radius is the
+solid-angle-weighted mean of those barycentre radii.
 
 PynaMIT state is not evolved in SM or MAG. The MAGE/Kaiju run uses fixed
 geocentric geographic coordinates, matching the IGRF/paper workflow.

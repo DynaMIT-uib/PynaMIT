@@ -31,17 +31,9 @@ from pynamit.sphere.spherical_transform import grid_sqrt_area_weights
 IONOSPHERE_RADIUS_M = 6.5e6
 MAGE_MAIN_FIELD_KIND = "kaiju_dipole"
 MAGE_FORCING_KIND = "pynamit_mage_forcing"
-MAGE_FORCING_VERSION = 7
+MAGE_FORCING_VERSION = 8
 
-_MAGE_IONOSPHERE_DATASETS = (
-    "jr",
-    "SH",
-    "SP",
-    "u_p_theta",
-    "u_p_phi",
-    "u_h_theta",
-    "u_h_phi",
-)
+_MAGE_IONOSPHERE_DATASETS = ("jr", "SH", "SP", "u_p_theta", "u_p_phi", "u_h_theta", "u_h_phi")
 _MAGE_BOUNDARY_DATASETS = ("delta_Br",)
 _MAGE_STATIC_DATASETS = (
     "time",
@@ -65,6 +57,10 @@ _MAGE_REQUIRED_ATTRIBUTES = (
     "main_field_B0_reference_radius_m",
     "gamera_internal_dipole_moment_axis",
     "gamera_internal_magnetic_north_axis",
+    "gamera_background_reference",
+    "tiegcm_source_coordinate_system",
+    "tiegcm_conductance_integration",
+    "ionosphere_radius_m",
 )
 _MAGE_DATASET_UNITS = {
     "jr": "uA m-2",
@@ -148,6 +144,14 @@ def _validate_prepared_forcing(h5_file: Any) -> None:
         raise RuntimeError("MAGE projection requires an upward-positive REMIX FAC source.")
     if h5_file.attrs["radial_current_convention"] != "outward":
         raise RuntimeError("MAGE projection requires outward-positive prepared radial current.")
+    if h5_file.attrs["tiegcm_source_coordinate_system"] != "geographic":
+        raise RuntimeError("MAGE projection requires geographic TIEGCM forcing.")
+    if h5_file.attrs["tiegcm_conductance_integration"] != "geometric_height_layer_integral":
+        raise RuntimeError("MAGE projection requires vertically integrated TIEGCM conductivity.")
+    if h5_file.attrs["gamera_background_reference"] != "cell_volume_average_split_B0":
+        raise RuntimeError(
+            "MAGE projection requires GAMERA total B minus its matching volume-averaged B0."
+        )
     if h5_file.attrs["remix_fac_interpolation"] != "kaiju_native_periodic":
         raise RuntimeError("MAGE projection requires Kaiju-native ReMIX FAC interpolation.")
     if (
@@ -163,6 +167,13 @@ def _validate_prepared_forcing(h5_file: Any) -> None:
     ):
         raise RuntimeError(
             "Prepared MAGE main_field_B0_T must use PynaMIT's dipole reference radius."
+        )
+    ionosphere_radius = float(h5_file.attrs["ionosphere_radius_m"])
+    if not np.isfinite(ionosphere_radius) or not np.isclose(
+        ionosphere_radius, IONOSPHERE_RADIUS_M, rtol=0.0, atol=1e-6
+    ):
+        raise RuntimeError(
+            "Prepared MAGE forcing must use the 6500 km Kaiju/ReMIX ionosphere radius."
         )
     invalid_units = {
         name: h5_file[name].attrs.get("units")
@@ -231,7 +242,7 @@ def _input_cadence(relative_seconds: np.ndarray) -> dict[str, float | None]:
 
 
 def _boundary_radius(h5_file: Any, explicit_radius: float | None) -> float:
-    """Return the magnetospheric boundary radius used for Br fitting."""
+    """Return the area-weighted radius used for Br fitting."""
     if explicit_radius is not None:
         mean_radius = float(explicit_radius)
         if not np.isfinite(mean_radius) or mean_radius <= 0.0:
@@ -249,14 +260,21 @@ def _boundary_radius(h5_file: Any, explicit_radius: float | None) -> float:
             "Prepared MAGE forcing dataset 'boundary_radius' contains non-finite values. "
             "Regenerate the forcing or set SETTINGS.boundary_radius explicitly."
         )
-    mean_radius = float(np.mean(radius))
-    if mean_radius <= 0.0 or np.any(radius <= 0.0):
+    if np.any(radius <= 0.0):
         raise RuntimeError("Prepared MAGE forcing boundary radii must be positive.")
+    if "boundary_solid_angle" not in h5_file:
+        raise RuntimeError("Prepared MAGE forcing is missing boundary_solid_angle.")
+    solid_angle = np.asarray(h5_file["boundary_solid_angle"][:], dtype=float)
+    if solid_angle.shape != radius.shape:
+        raise RuntimeError("Prepared boundary radii and solid angles must have matching shapes.")
+    if np.any(~np.isfinite(solid_angle)) or np.any(solid_angle <= 0.0):
+        raise RuntimeError("Prepared MAGE boundary solid angles must be finite and positive.")
+    mean_radius = float(np.average(radius, weights=solid_angle))
     relative_spread = float((np.max(radius) - np.min(radius)) / mean_radius)
     if relative_spread > 1e-3:
         print(
             "Warning: Br grid radius varies by "
-            f"{relative_spread:.3%}; using mean RM={mean_radius:.6g} m.",
+            f"{relative_spread:.3%}; using solid-angle-weighted RM={mean_radius:.6g} m.",
             flush=True,
         )
     return mean_radius
@@ -595,16 +613,16 @@ def project_inputs(
             magnetosphere_lat = np.asarray(file["boundary_lat"][:], dtype=float)
             magnetosphere_lon = wrap_longitude_180(file["boundary_lon"][:])
             boundary_solid_angle = np.asarray(file["boundary_solid_angle"][:], dtype=float)
-            if np.any(~np.isfinite(boundary_solid_angle)) or np.any(
-                boundary_solid_angle <= 0.0
-            ):
+            if np.any(~np.isfinite(boundary_solid_angle)) or np.any(boundary_solid_angle <= 0.0):
                 raise RuntimeError(
                     "Prepared MAGE boundary solid angles must be finite and positive."
                 )
+            if not np.isclose(np.sum(boundary_solid_angle), 4.0 * np.pi, rtol=1e-6, atol=1e-10):
+                raise RuntimeError(
+                    "Prepared MAGE boundary solid angles must cover the complete sphere."
+                )
             magnetosphere_grid = pynamit.Grid(
-                lat=magnetosphere_lat,
-                lon=magnetosphere_lon,
-                area_weights=boundary_solid_angle,
+                lat=magnetosphere_lat, lon=magnetosphere_lon, area_weights=boundary_solid_angle
             )
 
             print(f"Using forcing file: {forcing_path}", flush=True)
@@ -626,17 +644,14 @@ def project_inputs(
                 flush=True,
             )
             print(
-                "PynaMIT-reference dipole B0: "
-                f"{dipole_B0:.6g} T ({dipole_B0 * 1e9:.6g} nT)",
+                f"PynaMIT-reference dipole B0: {dipole_B0:.6g} T ({dipole_B0 * 1e9:.6g} nT)",
                 flush=True,
             )
             print(f"GAMERA signed MagM0: {gamera_dipole['mag_m0_nT']:.6g} nT", flush=True)
             print("GAMERA source coordinates: timestamped SM", flush=True)
             print("PynaMIT model and prepared forcing coordinates: Earth-fixed GEO", flush=True)
             print(f"RM: {boundary_radius:.6g} m", flush=True)
-            print(
-                "Wind forcing: direct driving E from Pedersen/Hall weighted winds", flush=True
-            )
+            print("Wind forcing: direct driving E from Pedersen/Hall weighted winds", flush=True)
             print("REMIX FAC source convention: upward positive", flush=True)
             print("Prepared jr convention: outward positive", flush=True)
 
@@ -740,6 +755,7 @@ def project_inputs(
 
 
 __all__ = [
+    "IONOSPHERE_RADIUS_M",
     "MAGE_FORCING_KIND",
     "MAGE_FORCING_VERSION",
     "MAGE_MAIN_FIELD_KIND",

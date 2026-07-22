@@ -27,6 +27,7 @@ from scripts.simulation.mage_prepare import (
     _naive_utc_datetime,
     _pynamit_dipole_B0_T,
     _read_tiegcm_step,
+    _remix_cell_center_coordinates,
     _remix_upward_fac_source,
     _RemixGridInterpolator,
     _resolve_tiegcm_path,
@@ -36,6 +37,7 @@ from scripts.simulation.mage_prepare import (
     _upward_fac_to_radial_current,
     _validate_settings,
     _validate_source_times,
+    _validate_tiegcm_variables,
     _write_static_datasets,
 )
 from scripts.simulation.mage_project import CASE_DIRECTORY as MAGE_PROJECT_CASE
@@ -70,6 +72,10 @@ class _FakeVariable:
 
     def __getitem__(self, item):
         return self.values[item]
+
+    @property
+    def shape(self):
+        return self.values.shape
 
 
 class _FakeDataset:
@@ -148,6 +154,10 @@ def _write_projection_forcing(path: Path, *, hall_conductance=5.0) -> None:
         output.attrs["gamera_boundary_interpolation"] = (
             "gamera_native_periodic_bilinear_with_polar_mean"
         )
+        output.attrs["gamera_background_reference"] = "cell_volume_average_split_B0"
+        output.attrs["tiegcm_source_coordinate_system"] = "geographic"
+        output.attrs["tiegcm_conductance_integration"] = "geometric_height_layer_integral"
+        output.attrs["ionosphere_radius_m"] = 6.5e6
         output.attrs["kind"] = MAGE_FORCING_KIND
         output.attrs["version"] = MAGE_FORCING_VERSION
         output.attrs["complete"] = True
@@ -198,9 +208,41 @@ def _two_layer_tiegcm_dataset():
         SIGMA_HAL=np.array([[[4.0, 1.0], [1.0, 2.0], [99.0, 99.0]]]),
         ZG=np.array([[[10_000.0, 20_000.0], [20_000.0, 35_000.0], [50_000.0, 65_000.0]]]),
         UN=np.array([[[1000.0, -2000.0], [3000.0, 4000.0], [999.0, 999.0]]]),
-        VN=np.array([[[500.0, 2000.0], [1.0e31, -1000.0], [999.0, 999.0]]]),
-        gzigm1=np.array([[1200.0, 310.0]]),
-        gzigm2=np.array([[500.0, 750.0]]),
+        VN=np.array([[[500.0, 2000.0], [100.0, -1000.0], [1.0e31, 1.0e31]]]),
+    )
+
+
+def _valid_tiegcm_contract():
+    """Return a minimal global TIEGCM variable contract."""
+    horizontal = (4, 4)
+    layers = (1, 3, *horizontal)
+    common = np.ones(layers)
+    return _FakeDataset(
+        lon=_FakeVariable(
+            [-135.0, -45.0, 45.0, 135.0], dimensions=("lon",), units="degrees_east"
+        ),
+        lat=_FakeVariable(
+            [-67.5, -22.5, 22.5, 67.5], dimensions=("lat",), units="degrees_north"
+        ),
+        lev=_FakeVariable([-0.5, 0.5, 1.5], dimensions=("lev",)),
+        ilev=_FakeVariable([-1.0, 0.0, 1.0], dimensions=("ilev",)),
+        mtime=_FakeVariable([[1, 0, 0, 0]], dimensions=("time", "mtimedim")),
+        year=_FakeVariable([2020], dimensions=("time",)),
+        SIGMA_PED=_FakeVariable(
+            common, dimensions=("time", "lev", "lat", "lon"), units="S/m"
+        ),
+        SIGMA_HAL=_FakeVariable(
+            common, dimensions=("time", "lev", "lat", "lon"), units="S/m"
+        ),
+        ZG=_FakeVariable(
+            common, dimensions=("time", "ilev", "lat", "lon"), units="cm"
+        ),
+        UN=_FakeVariable(
+            common, dimensions=("time", "lev", "lat", "lon"), units="cm/s"
+        ),
+        VN=_FakeVariable(
+            common, dimensions=("time", "lev", "lat", "lon"), units="cm/s"
+        ),
     )
 
 
@@ -213,6 +255,22 @@ def test_default_prepared_forcing_artifact_name_is_canonical():
 def test_default_gamera_directory_is_cluster_path():
     """Preparation defaults to the intended MAGE machine data path."""
     assert DEFAULT_GAMERA_DIRECTORY == Path("/disk/Gamera_Dong")
+
+
+def test_tiegcm_contract_requires_geo_units_and_midpoint_layers():
+    """Validate the geographic and vertical-grid assumptions."""
+    dataset = _valid_tiegcm_contract()
+
+    _validate_tiegcm_variables(dataset, n_steps=1)
+
+    dataset.variables["UN"].units = "m/s"
+    with pytest.raises(RuntimeError, match="incompatible units.*UN"):
+        _validate_tiegcm_variables(dataset, n_steps=1)
+
+    dataset.variables["UN"].units = "cm/s"
+    dataset.variables["lev"].values[1] += 0.1
+    with pytest.raises(RuntimeError, match="centered between"):
+        _validate_tiegcm_variables(dataset, n_steps=1)
 
 
 def test_ambiguous_tiegcm_discovery_requires_an_explicit_path(tmp_path):
@@ -440,8 +498,12 @@ def test_remix_hemisphere_source_conventions_preserve_zero_longitude():
     latitude = np.full((1, 4), 70.0)
     longitude = np.array([[0.0, 90.0, 180.0, 270.0]])
 
-    north = _remix_upward_fac_source(FakeRemix(), "NORTH", latitude, longitude)
-    south = _remix_upward_fac_source(FakeRemix(), "SOUTH", latitude, longitude)
+    north = _remix_upward_fac_source(
+        "NORTH", FakeRemix.ion["Field-aligned current NORTH"], latitude, longitude
+    )
+    south = _remix_upward_fac_source(
+        "SOUTH", FakeRemix.ion["Field-aligned current SOUTH"], latitude, longitude
+    )
 
     np.testing.assert_array_equal(north[0], latitude)
     np.testing.assert_array_equal(north[1], [[0.0, 90.0, -180.0, -90.0]])
@@ -449,6 +511,21 @@ def test_remix_hemisphere_source_conventions_preserve_zero_longitude():
     np.testing.assert_array_equal(south[0], -latitude)
     np.testing.assert_array_equal(south[1], [[0.0, -90.0, -180.0, 90.0]])
     np.testing.assert_array_equal(south[2], [[5.0, 6.0, 7.0, 8.0]])
+
+
+def test_remix_cell_centers_match_kaipy_cartesian_average_convention():
+    """Saved ReMIX fields live at Cartesian averages of X/Y corners."""
+    x = np.array([[0.0, 0.1, 0.2], [0.0, 0.1, 0.2], [0.0, 0.1, 0.2]])
+    y = np.array([[0.0, 0.0, 0.0], [0.1, 0.1, 0.1], [0.2, 0.2, 0.2]])
+
+    latitude, longitude = _remix_cell_center_coordinates(x, y)
+
+    x_center = np.array([[0.05, 0.15], [0.05, 0.15]])
+    y_center = np.array([[0.05, 0.05], [0.15, 0.15]])
+    np.testing.assert_allclose(
+        latitude, 90.0 - np.degrees(np.arcsin(np.hypot(x_center, y_center)))
+    )
+    np.testing.assert_allclose(longitude, np.degrees(np.arctan2(y_center, x_center)))
 
 
 def test_projection_geometry_requires_prepared_radius_or_explicit_value():
@@ -460,7 +537,15 @@ def test_projection_geometry_requires_prepared_radius_or_explicit_value():
     with pytest.raises(ValueError, match="positive"):
         _boundary_radius(_FakeH5(), explicit_radius=0.0)
     with pytest.raises(RuntimeError, match="non-finite"):
-        _boundary_radius(_FakeH5(boundary_radius=np.array([7.0e6, np.nan])), explicit_radius=None)
+        _boundary_radius(
+            _FakeH5(boundary_radius=np.array([7.0e6, np.nan]), boundary_solid_angle=np.ones(2)),
+            explicit_radius=None,
+        )
+
+    weighted = _FakeH5(
+        boundary_radius=np.array([6.0e6, 8.0e6]), boundary_solid_angle=np.array([1.0, 3.0])
+    )
+    assert _boundary_radius(weighted, explicit_radius=None) == pytest.approx(7.5e6)
 
 
 def test_projection_geometry_requires_prepared_dipole_strength_or_explicit_value():
@@ -536,9 +621,7 @@ def test_mage_projection_normalizes_timezone_offsets_to_utc():
 
 def test_mage_preparation_normalizes_timezone_offsets_to_utc():
     """Preparation must convert offsets before discarding them."""
-    source_time = dt.datetime(
-        2011, 10, 24, 20, 0, 10, tzinfo=dt.timezone(dt.timedelta(hours=2))
-    )
+    source_time = dt.datetime(2011, 10, 24, 20, 0, 10, tzinfo=dt.timezone(dt.timedelta(hours=2)))
 
     assert _naive_utc_datetime(source_time) == dt.datetime(2011, 10, 24, 18, 0, 10)
 
@@ -683,11 +766,7 @@ def test_trilinear_volume_center_matches_wedge_centroid():
     )
     volume = 1.0 + alpha / 2.0
     expected = np.array(
-        [
-            (0.5 + alpha / 3.0) / volume,
-            0.5,
-            0.5 * (1.0 + alpha + alpha**2 / 3.0) / volume,
-        ]
+        [(0.5 + alpha / 3.0) / volume, 0.5, 0.5 * (1.0 + alpha + alpha**2 / 3.0) / volume]
     )
 
     center = _trilinear_hexahedron_volume_centers(vertices)
@@ -764,18 +843,14 @@ def test_remix_hemispheres_leave_zero_current_outside_source_coverage():
 def test_gamera_boundary_interpolator_preserves_source_nodes():
     """Kaiju-style four-point weights preserve GAMERA cell values."""
     colatitude, azimuth = np.meshgrid(
-        np.deg2rad([30.0, 90.0, 150.0]),
-        np.deg2rad([45.0, 135.0, 225.0, 315.0]),
-        indexing="ij",
+        np.deg2rad([30.0, 90.0, 150.0]), np.deg2rad([45.0, 135.0, 225.0, 315.0]), indexing="ij"
     )
     source_latitude, source_longitude = _sm_from_gamera_angles(colatitude, azimuth)
     values = np.arange(colatitude.size, dtype=float).reshape(colatitude.shape)
     interpolator = _GameraBoundaryInterpolator(source_latitude, source_longitude)
 
     observed = interpolator.interpolate(
-        values,
-        target_sm_lat=source_latitude,
-        target_sm_lon=source_longitude,
+        values, target_sm_lat=source_latitude, target_sm_lon=source_longitude
     )
 
     np.testing.assert_allclose(observed, values, atol=1e-12)
@@ -784,23 +859,17 @@ def test_gamera_boundary_interpolator_preserves_source_nodes():
 def test_gamera_boundary_interpolator_is_periodic_and_bilinear():
     """Interpolate GAMERA cells periodically with four weights."""
     colatitude, azimuth = np.meshgrid(
-        np.deg2rad([30.0, 90.0, 150.0]),
-        np.deg2rad([45.0, 135.0, 225.0, 315.0]),
-        indexing="ij",
+        np.deg2rad([30.0, 90.0, 150.0]), np.deg2rad([45.0, 135.0, 225.0, 315.0]), indexing="ij"
     )
     source_latitude, source_longitude = _sm_from_gamera_angles(colatitude, azimuth)
     values = np.rad2deg(colatitude) + 2.0 * np.rad2deg(azimuth)
     interpolator = _GameraBoundaryInterpolator(source_latitude, source_longitude)
     target_colatitude = np.deg2rad([60.0, 60.0, 60.0])
     target_azimuth = np.deg2rad([90.0, 450.0, 0.0])
-    target_latitude, target_longitude = _sm_from_gamera_angles(
-        target_colatitude, target_azimuth
-    )
+    target_latitude, target_longitude = _sm_from_gamera_angles(target_colatitude, target_azimuth)
 
     observed = interpolator.interpolate(
-        values,
-        target_sm_lat=target_latitude,
-        target_sm_lon=target_longitude,
+        values, target_sm_lat=target_latitude, target_sm_lon=target_longitude
     )
 
     np.testing.assert_allclose(observed, [240.0, 240.0, 420.0], atol=1e-12)
@@ -809,9 +878,7 @@ def test_gamera_boundary_interpolator_is_periodic_and_bilinear():
 def test_gamera_boundary_interpolator_reconstructs_native_poles():
     """Use adjacent ring means at the two omitted GAMERA axes."""
     colatitude, azimuth = np.meshgrid(
-        np.deg2rad([30.0, 90.0, 150.0]),
-        np.deg2rad([45.0, 135.0, 225.0, 315.0]),
-        indexing="ij",
+        np.deg2rad([30.0, 90.0, 150.0]), np.deg2rad([45.0, 135.0, 225.0, 315.0]), indexing="ij"
     )
     source_latitude, source_longitude = _sm_from_gamera_angles(colatitude, azimuth)
     values = np.array([[1.0, 3.0, 5.0, 7.0], [9.0, 9.0, 9.0, 9.0], [2.0, 6.0, 10.0, 14.0]])
@@ -821,9 +888,7 @@ def test_gamera_boundary_interpolator_reconstructs_native_poles():
     )
 
     observed = interpolator.interpolate(
-        values,
-        target_sm_lat=target_latitude,
-        target_sm_lon=target_longitude,
+        values, target_sm_lat=target_latitude, target_sm_lon=target_longitude
     )
 
     np.testing.assert_allclose(observed, [4.0, 8.0], atol=1e-12)
@@ -838,9 +903,7 @@ def test_remix_grid_interpolator_is_periodic_and_bilinear():
     interpolator = _RemixGridInterpolator(source_lat, source_lon)
 
     observed = interpolator.interpolate(
-        values,
-        target_lon=np.array([45.0, 405.0, 315.0]),
-        target_lat=np.array([70.0, 70.0, 70.0]),
+        values, target_lon=np.array([45.0, 405.0, 315.0]), target_lat=np.array([70.0, 70.0, 70.0])
     )
 
     np.testing.assert_allclose(observed, [55.0, 55.0, 65.0])
@@ -859,8 +922,7 @@ def test_remix_grid_interpolator_handles_pole_and_coverage():
 
     pole_value = np.mean(values[-1])
     np.testing.assert_allclose(
-        observed[:2],
-        [(pole_value + 10.0 + 14.0) / 3.0, (pole_value + 14.0 + 22.0) / 3.0],
+        observed[:2], [(pole_value + 10.0 + 14.0) / 3.0, (pole_value + 14.0 + 22.0) / 3.0]
     )
     assert np.isnan(observed[2])
 
@@ -1073,52 +1135,31 @@ def test_integrate_tiegcm_step_computed_conductances_and_weighted_winds():
     """Computed outputs should match layer integrals."""
     dataset = _two_layer_tiegcm_dataset()
 
-    integrated = _integrate_tiegcm_step(dataset, 0, conductance_source="computed")
+    integrated = _integrate_tiegcm_step(dataset, 0)
 
     dz = np.array([[100.0, 150.0], [300.0, 300.0]])
     sigma_p = np.array([[1.0, 2.0], [3.0, 0.5]])
     sigma_h = np.array([[4.0, 1.0], [1.0, 2.0]])
     east = np.array([[10.0, -20.0], [30.0, 40.0]])
-    north = np.array([[5.0, 20.0], [np.nan, -10.0]])
-    sp = np.nansum(sigma_p * dz, axis=0)
-    sh = np.nansum(sigma_h * dz, axis=0)
+    north = np.array([[5.0, 20.0], [1.0, -10.0]])
+    sp = np.sum(sigma_p * dz, axis=0)
+    sh = np.sum(sigma_h * dz, axis=0)
 
     np.testing.assert_allclose(integrated["SP"], sp)
     np.testing.assert_allclose(integrated["SH"], sh)
-    np.testing.assert_allclose(integrated["We"], np.nansum(sigma_p * east * dz, axis=0) / sp)
-    np.testing.assert_allclose(integrated["Wn"], np.nansum(sigma_p * north * dz, axis=0) / sp)
-    np.testing.assert_allclose(integrated["WeH"], np.nansum(sigma_h * east * dz, axis=0) / sh)
-    np.testing.assert_allclose(integrated["WnH"], np.nansum(sigma_h * north * dz, axis=0) / sh)
+    np.testing.assert_allclose(integrated["We"], np.sum(sigma_p * east * dz, axis=0) / sp)
+    np.testing.assert_allclose(integrated["Wn"], np.sum(sigma_p * north * dz, axis=0) / sp)
+    np.testing.assert_allclose(integrated["WeH"], np.sum(sigma_h * east * dz, axis=0) / sh)
+    np.testing.assert_allclose(integrated["WnH"], np.sum(sigma_h * north * dz, axis=0) / sh)
 
 
-def test_integrate_tiegcm_step_native_conductances_preserve_wind_current_numerators():
-    """Native conductances should preserve source numerators."""
+def test_integrate_tiegcm_step_rejects_missing_values_inside_integrated_layers():
+    """Preparation must reject missing integrated wind values."""
     dataset = _two_layer_tiegcm_dataset()
+    dataset.variables["VN"].values[0, 1, 0] = 1.0e31
 
-    integrated = _integrate_tiegcm_step(dataset, 0, conductance_source="native")
-
-    dz = np.array([[100.0, 150.0], [300.0, 300.0]])
-    sigma_p = np.array([[1.0, 2.0], [3.0, 0.5]])
-    sigma_h = np.array([[4.0, 1.0], [1.0, 2.0]])
-    east = np.array([[10.0, -20.0], [30.0, 40.0]])
-    north = np.array([[5.0, 20.0], [np.nan, -10.0]])
-
-    native_sp = np.array([1200.0, 310.0])
-    native_sh = np.array([500.0, 750.0])
-    np.testing.assert_allclose(integrated["SP"], native_sp)
-    np.testing.assert_allclose(integrated["SH"], native_sh)
-    np.testing.assert_allclose(
-        integrated["SP"] * integrated["We"], np.nansum(sigma_p * east * dz, axis=0)
-    )
-    np.testing.assert_allclose(
-        integrated["SP"] * integrated["Wn"], np.nansum(sigma_p * north * dz, axis=0)
-    )
-    np.testing.assert_allclose(
-        integrated["SH"] * integrated["WeH"], np.nansum(sigma_h * east * dz, axis=0)
-    )
-    np.testing.assert_allclose(
-        integrated["SH"] * integrated["WnH"], np.nansum(sigma_h * north * dz, axis=0)
-    )
+    with pytest.raises(RuntimeError, match="missing or non-finite.*VN"):
+        _integrate_tiegcm_step(dataset, 0)
 
 
 def test_integrate_tiegcm_step_zero_conductance_returns_zero_weighted_winds():
@@ -1129,11 +1170,9 @@ def test_integrate_tiegcm_step_zero_conductance_returns_zero_weighted_winds():
         ZG=np.array([[[10_000.0, 20_000.0], [20_000.0, 35_000.0], [50_000.0, 65_000.0]]]),
         UN=np.full((1, 3, 2), 1000.0),
         VN=np.full((1, 3, 2), -2000.0),
-        gzigm1=np.zeros((1, 2)),
-        gzigm2=np.zeros((1, 2)),
     )
 
-    integrated = _integrate_tiegcm_step(dataset, 0, conductance_source="computed")
+    integrated = _integrate_tiegcm_step(dataset, 0)
 
     for key in ("SP", "SH", "We", "Wn", "WeH", "WnH"):
         np.testing.assert_allclose(integrated[key], 0.0)
