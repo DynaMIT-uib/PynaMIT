@@ -17,6 +17,7 @@ from scripts.simulation.mage_prepare import (
     _centered_dipole_alignment_attrs,
     _combine_remix_hemispheres,
     _create_output_datasets,
+    _datetime_from_mjd,
     _gamera_inner_boundary_geometry,
     _gamera_inner_boundary_solid_angle,
     _gamera_internal_dipole_axes,
@@ -24,7 +25,6 @@ from scripts.simulation.mage_prepare import (
     _GameraBoundaryInterpolator,
     _geographic_grid_in_sm,
     _integrate_tiegcm_step,
-    _naive_utc_datetime,
     _pynamit_dipole_B0_T,
     _read_tiegcm_step,
     _remix_cell_center_coordinates,
@@ -35,10 +35,11 @@ from scripts.simulation.mage_prepare import (
     _tiegcm_times,
     _trilinear_hexahedron_volume_centers,
     _upward_fac_to_radial_current,
+    _validate_forcing_time_axis,
     _validate_settings,
-    _validate_source_times,
     _validate_tiegcm_variables,
     _write_static_datasets,
+    _write_time_axis,
 )
 from scripts.simulation.mage_project import CASE_DIRECTORY as MAGE_PROJECT_CASE
 from scripts.simulation.mage_project import DEFAULT_FORCING_PATH
@@ -101,11 +102,13 @@ def _write_projection_forcing(path: Path, *, hall_conductance=5.0) -> None:
     hall = np.broadcast_to(np.asarray(hall_conductance, dtype=float), step_shape)
 
     with h5py.File(path, "w") as output:
-        output.create_dataset(
-            "time",
-            data=np.array(["2020-01-01T00:00:00", "2020-01-01T00:00:10"], dtype=object),
-            dtype=h5py.string_dtype("utf-8"),
-        )
+        string_dtype = h5py.string_dtype("utf-8")
+        times = np.array(["2020-01-01T00:00:00", "2020-01-01T00:00:10"], dtype=object)
+        for name in ("time", "gamera_source_time", "remix_source_time"):
+            output.create_dataset(name, data=times, dtype=string_dtype)
+        for name in ("gamera_time_offset_seconds", "remix_time_offset_seconds"):
+            output.create_dataset(name, data=np.zeros(2))
+            output[name].attrs["units"] = "s"
         for name, values in {
             "boundary_radius": np.full(latitude.shape, 7.0e6),
             "boundary_solid_angle": np.full(latitude.shape, 4.0 * np.pi / latitude.size),
@@ -156,8 +159,16 @@ def _write_projection_forcing(path: Path, *, hall_conductance=5.0) -> None:
         )
         output.attrs["gamera_background_reference"] = "cell_volume_average_split_B0"
         output.attrs["tiegcm_source_coordinate_system"] = "geographic"
-        output.attrs["tiegcm_conductance_integration"] = "geometric_height_layer_integral"
+        output.attrs["tiegcm_conductance_integration"] = (
+            "radial_geometric_height_with_lower_dynamo_extension"
+        )
+        output.attrs["tiegcm_dynamo_bottom_ilev"] = -8.5
+        output.attrs["tiegcm_dynamo_reference_height_m"] = 90_000.0
+        output.attrs["tiegcm_pedersen_lower_scale_m"] = 5_000.0
+        output.attrs["tiegcm_hall_lower_scale_m"] = 3_000.0
         output.attrs["ionosphere_radius_m"] = 6.5e6
+        output.attrs["time_axis"] = "tiegcm_mtime_nominal"
+        output.attrs["source_time_tolerance_seconds"] = 0.1
         output.attrs["kind"] = MAGE_FORCING_KIND
         output.attrs["version"] = MAGE_FORCING_VERSION
         output.attrs["complete"] = True
@@ -203,12 +214,23 @@ def test_centered_dipole_alignment_uses_gamera_axis_convention():
 
 def _two_layer_tiegcm_dataset():
     """Return a tiny TIEGCM-like dataset with cm inputs."""
+    height_cm = np.array(
+        [
+            [
+                [10_000_000.0, 10_200_000.0],
+                [11_000_000.0, 11_400_000.0],
+                [13_000_000.0, 13_500_000.0],
+            ]
+        ]
+    )
     return _FakeDataset(
         SIGMA_PED=np.array([[[1.0, 2.0], [3.0, 0.5], [99.0, 99.0]]]),
         SIGMA_HAL=np.array([[[4.0, 1.0], [1.0, 2.0], [99.0, 99.0]]]),
-        ZG=np.array([[[10_000.0, 20_000.0], [20_000.0, 35_000.0], [50_000.0, 65_000.0]]]),
+        Z=height_cm,
+        ZG=height_cm,
         UN=np.array([[[1000.0, -2000.0], [3000.0, 4000.0], [999.0, 999.0]]]),
         VN=np.array([[[500.0, 2000.0], [100.0, -1000.0], [1.0e31, 1.0e31]]]),
+        ilev=np.array([-7.0, -6.75, -6.5]),
     )
 
 
@@ -218,31 +240,18 @@ def _valid_tiegcm_contract():
     layers = (1, 3, *horizontal)
     common = np.ones(layers)
     return _FakeDataset(
-        lon=_FakeVariable(
-            [-135.0, -45.0, 45.0, 135.0], dimensions=("lon",), units="degrees_east"
-        ),
-        lat=_FakeVariable(
-            [-67.5, -22.5, 22.5, 67.5], dimensions=("lat",), units="degrees_north"
-        ),
-        lev=_FakeVariable([-0.5, 0.5, 1.5], dimensions=("lev",)),
-        ilev=_FakeVariable([-1.0, 0.0, 1.0], dimensions=("ilev",)),
+        lon=_FakeVariable([-135.0, -45.0, 45.0, 135.0], dimensions=("lon",), units="degrees_east"),
+        lat=_FakeVariable([-67.5, -22.5, 22.5, 67.5], dimensions=("lat",), units="degrees_north"),
+        lev=_FakeVariable([-6.875, -6.625, -6.375], dimensions=("lev",)),
+        ilev=_FakeVariable([-7.0, -6.75, -6.5], dimensions=("ilev",)),
         mtime=_FakeVariable([[1, 0, 0, 0]], dimensions=("time", "mtimedim")),
         year=_FakeVariable([2020], dimensions=("time",)),
-        SIGMA_PED=_FakeVariable(
-            common, dimensions=("time", "lev", "lat", "lon"), units="S/m"
-        ),
-        SIGMA_HAL=_FakeVariable(
-            common, dimensions=("time", "lev", "lat", "lon"), units="S/m"
-        ),
-        ZG=_FakeVariable(
-            common, dimensions=("time", "ilev", "lat", "lon"), units="cm"
-        ),
-        UN=_FakeVariable(
-            common, dimensions=("time", "lev", "lat", "lon"), units="cm/s"
-        ),
-        VN=_FakeVariable(
-            common, dimensions=("time", "lev", "lat", "lon"), units="cm/s"
-        ),
+        SIGMA_PED=_FakeVariable(common, dimensions=("time", "lev", "lat", "lon"), units="S/m"),
+        SIGMA_HAL=_FakeVariable(common, dimensions=("time", "lev", "lat", "lon"), units="S/m"),
+        Z=_FakeVariable(common, dimensions=("time", "ilev", "lat", "lon"), units="cm"),
+        ZG=_FakeVariable(common, dimensions=("time", "ilev", "lat", "lon"), units="cm"),
+        UN=_FakeVariable(common, dimensions=("time", "lev", "lat", "lon"), units="cm/s"),
+        VN=_FakeVariable(common, dimensions=("time", "lev", "lat", "lon"), units="cm/s"),
     )
 
 
@@ -282,20 +291,22 @@ def test_ambiguous_tiegcm_discovery_requires_an_explicit_path(tmp_path):
         _resolve_tiegcm_path(tmp_path, explicit_path=None)
 
 
-@pytest.mark.parametrize("time_dtype", ["S26", "U26", object])
-def test_static_time_dataset_is_written_as_utf8(tmp_path, time_dtype):
-    """Prepared ISO timestamps should be valid HDF5 UTF-8 strings."""
-    time_values = np.array(
-        ["2011-10-24T18:00:10.459051", "2011-10-24T18:00:20.459051"], dtype=time_dtype
-    )
+def test_prepared_time_axis_is_written_as_utf8_with_source_provenance(tmp_path):
+    """Prepared time retains exact source-time provenance."""
+    nominal_times = [dt.datetime(2011, 10, 24, 18, 0, 10), dt.datetime(2011, 10, 24, 18, 0, 20)]
+    gamera_times = [
+        dt.datetime(2011, 10, 24, 18, 0, 10, 12_674),
+        dt.datetime(2011, 10, 24, 18, 0, 20, 16_929),
+    ]
+    remix_times = [value + dt.timedelta(microseconds=400) for value in gamera_times]
     output_path = tmp_path / "prepared.h5"
     grid = np.zeros((1, 1))
 
     with h5py.File(output_path, "w") as output:
+        _write_time_axis(output, nominal_times, gamera_times, remix_times)
         _write_static_datasets(
             output,
-            time_values,
-            dt.datetime(2011, 10, 24, 18, 0, 10),
+            gamera_times[0],
             grid,
             grid,
             grid,
@@ -310,10 +321,15 @@ def test_static_time_dataset_is_written_as_utf8(tmp_path, time_dtype):
         )
 
     with h5py.File(output_path) as output:
-        assert output["time"].asstr()[:].tolist() == [
-            "2011-10-24T18:00:10.459051",
-            "2011-10-24T18:00:20.459051",
+        assert output["time"].asstr()[:].tolist() == ["2011-10-24T18:00:10", "2011-10-24T18:00:20"]
+        assert output["gamera_source_time"].asstr()[:].tolist() == [
+            "2011-10-24T18:00:10.012674",
+            "2011-10-24T18:00:20.016929",
         ]
+        np.testing.assert_allclose(output["gamera_time_offset_seconds"][:], [0.012674, 0.016929])
+        np.testing.assert_allclose(output["remix_time_offset_seconds"][:], [0.013074, 0.017329])
+        assert output.attrs["time_axis"] == "tiegcm_mtime_nominal"
+        assert output.attrs["source_time_tolerance_seconds"] == 0.1
         assert output.attrs["kind"] == MAGE_FORCING_KIND
         assert output.attrs["version"] == MAGE_FORCING_VERSION
         assert output.attrs["remix_fac_interpolation"] == "kaiju_native_periodic"
@@ -321,6 +337,12 @@ def test_static_time_dataset_is_written_as_utf8(tmp_path, time_dtype):
             output.attrs["gamera_boundary_interpolation"]
             == "gamera_native_periodic_bilinear_with_polar_mean"
         )
+        assert (
+            output.attrs["tiegcm_conductance_integration"]
+            == "radial_geometric_height_with_lower_dynamo_extension"
+        )
+        assert output.attrs["tiegcm_dynamo_bottom_ilev"] == -8.5
+        assert output.attrs["tiegcm_dynamo_reference_height_m"] == 90_000.0
         assert not output.attrs["complete"]
         _, relative_seconds = _h5_time_vector_seconds(output["time"][:])
 
@@ -449,6 +471,30 @@ def test_invalid_forcing_does_not_remove_existing_projection(tmp_path):
         )
 
     assert existing_input.read_text(encoding="utf-8") == "existing"
+
+
+def test_prepared_forcing_rejects_incompatible_lower_dynamo_parameters(tmp_path):
+    """Reject conductance prepared with another lower extension."""
+    forcing_path = tmp_path / "forcing.h5"
+    _write_projection_forcing(forcing_path)
+    with h5py.File(forcing_path, "r+") as forcing:
+        forcing.attrs["tiegcm_hall_lower_scale_m"] = 4_000.0
+
+    with h5py.File(forcing_path) as forcing:
+        with pytest.raises(RuntimeError, match="lower-dynamo parameters.*hall"):
+            _validate_prepared_forcing(forcing)
+
+
+def test_prepared_forcing_rejects_inconsistent_source_time_offsets(tmp_path):
+    """Source-time offsets must agree with stored timestamps."""
+    forcing_path = tmp_path / "forcing.h5"
+    _write_projection_forcing(forcing_path)
+    with h5py.File(forcing_path, "r+") as forcing:
+        forcing["gamera_time_offset_seconds"][1] = 0.01
+
+    with h5py.File(forcing_path) as forcing:
+        with pytest.raises(RuntimeError, match="gamera_time_offset_seconds.*timestamps"):
+            _validate_prepared_forcing(forcing)
 
 
 def test_load_weighted_winds_requires_prepared_hall_products():
@@ -619,20 +665,58 @@ def test_mage_projection_normalizes_timezone_offsets_to_utc():
     np.testing.assert_allclose(seconds, [0.0, 10.0])
 
 
-def test_mage_preparation_normalizes_timezone_offsets_to_utc():
-    """Preparation must convert offsets before discarding them."""
-    source_time = dt.datetime(2011, 10, 24, 20, 0, 10, tzinfo=dt.timezone(dt.timedelta(hours=2)))
+def test_mage_preparation_preserves_mjd_subsecond_precision():
+    """Source MJD conversion should retain microsecond-scale timing."""
+    expected = dt.datetime(2011, 10, 24, 18, 0, 10, 12_674)
+    mjd = (expected - dt.datetime(1858, 11, 17)).total_seconds() / 86_400.0
 
-    assert _naive_utc_datetime(source_time) == dt.datetime(2011, 10, 24, 18, 0, 10)
+    actual = _datetime_from_mjd(mjd)
+
+    assert abs((actual - expected).total_seconds()) <= 1e-6
+
+
+def test_mage_preparation_canonicalizes_realistic_cfl_output_jitter():
+    """Small MAGE output overshoots keep exact provenance."""
+    nominal_times = [dt.datetime(2011, 10, 24, 18, 0, second) for second in (10, 20, 30, 40)]
+    gamera_offsets = (0.012674, 0.016929, 0.015364, 0.023720)
+    gamera_times = [
+        value + dt.timedelta(seconds=offset)
+        for value, offset in zip(nominal_times, gamera_offsets, strict=True)
+    ]
+    remix_times = [value + dt.timedelta(microseconds=400) for value in gamera_times]
+
+    stored_gamera_offsets, stored_remix_offsets = _validate_forcing_time_axis(
+        nominal_times, gamera_times, remix_times
+    )
+
+    np.testing.assert_allclose(stored_gamera_offsets, gamera_offsets)
+    np.testing.assert_allclose(stored_remix_offsets, np.asarray(gamera_offsets) + 0.0004)
+    nominal_seconds = np.array(
+        [(value - nominal_times[0]).total_seconds() for value in nominal_times]
+    )
+    np.testing.assert_array_equal(nominal_seconds, [0.0, 10.0, 20.0, 30.0])
 
 
 def test_mage_preparation_rejects_misaligned_source_times():
-    """GAMERA and TIEGCM histories must correspond by time."""
-    gamera_times = [dt.datetime(2011, 10, 24, 18, 0, 10), dt.datetime(2011, 10, 24, 18, 0, 20)]
-    tiegcm_times = [dt.datetime(2011, 10, 24, 18, 0, 10), dt.datetime(2011, 10, 24, 18, 1, 20)]
+    """Every source history must match one nominal step."""
+    nominal_times = [dt.datetime(2011, 10, 24, 18, 0, 10), dt.datetime(2011, 10, 24, 18, 0, 20)]
+    gamera_times = nominal_times.copy()
+    remix_times = [nominal_times[0], nominal_times[1] + dt.timedelta(seconds=1.0)]
 
-    with pytest.raises(RuntimeError, match="not time-aligned"):
-        _validate_source_times(gamera_times, tiegcm_times, tolerance_seconds=1.0)
+    with pytest.raises(RuntimeError, match="ReMIX is not aligned with the nominal"):
+        _validate_forcing_time_axis(nominal_times, gamera_times, remix_times)
+
+
+def test_mage_preparation_rejects_nonuniform_nominal_time_axis():
+    """Fixed-step runs require a uniform nominal schedule."""
+    nominal_times = [
+        dt.datetime(2011, 10, 24, 18, 0, 10),
+        dt.datetime(2011, 10, 24, 18, 0, 20),
+        dt.datetime(2011, 10, 24, 18, 0, 31),
+    ]
+
+    with pytest.raises(RuntimeError, match="nominal TIEGCM.*uniform cadence"):
+        _validate_forcing_time_axis(nominal_times, nominal_times, nominal_times)
 
 
 def test_tiegcm_uses_mtime_instead_of_model_relative_time():
@@ -646,10 +730,9 @@ def test_tiegcm_uses_mtime_instead_of_model_relative_time():
         year=_FakeVariable([2011, 2011], dimensions=("time",)),
     )
 
-    times, tolerance = _tiegcm_times(dataset, reference)
+    times = _tiegcm_times(dataset, reference)
 
     assert times == reference
-    assert tolerance == 1.0
 
 
 def test_tiegcm_three_component_mtime_uses_minute_precision():
@@ -660,10 +743,9 @@ def test_tiegcm_three_component_mtime_uses_minute_precision():
         year=_FakeVariable([2011, 2011], dimensions=("time",)),
     )
 
-    times, tolerance = _tiegcm_times(dataset, reference)
+    times = _tiegcm_times(dataset, reference)
 
     assert times == [dt.datetime(2011, 10, 24, 18, 0)] * 2
-    assert tolerance == 60.0
 
 
 def test_tiegcm_mtime_uses_named_component_axis():
@@ -676,10 +758,9 @@ def test_tiegcm_mtime_uses_named_component_axis():
         year=_FakeVariable([2011, 2011], dimensions=("time",)),
     )
 
-    times, tolerance = _tiegcm_times(dataset, reference)
+    times = _tiegcm_times(dataset, reference)
 
     assert times == reference
-    assert tolerance == 1.0
 
 
 def test_tiegcm_mtime_rejects_day_366_without_a_nearby_leap_year():
@@ -1132,25 +1213,48 @@ def test_projection_accepts_zero_hall_with_positive_pedersen(tmp_path):
 
 
 def test_integrate_tiegcm_step_computed_conductances_and_weighted_winds():
-    """Computed outputs should match layer integrals."""
+    """Computed outputs include TIEGCM's lower dynamo extension."""
     dataset = _two_layer_tiegcm_dataset()
 
     integrated = _integrate_tiegcm_step(dataset, 0)
 
-    dz = np.array([[100.0, 150.0], [300.0, 300.0]])
+    interface_height = np.array(
+        [[100_000.0, 102_000.0], [110_000.0, 114_000.0], [130_000.0, 135_000.0]]
+    )
+    dz = np.diff(interface_height, axis=0)
     sigma_p = np.array([[1.0, 2.0], [3.0, 0.5]])
     sigma_h = np.array([[4.0, 1.0], [1.0, 2.0]])
     east = np.array([[10.0, -20.0], [30.0, 40.0]])
     north = np.array([[5.0, 20.0], [1.0, -10.0]])
-    sp = np.sum(sigma_p * dz, axis=0)
-    sh = np.sum(sigma_h * dz, axis=0)
+    lower_interfaces = 90_000.0 + np.linspace(0.0, 1.0, 7)[:, None] * (
+        interface_height[0] - 90_000.0
+    )
+    lower_midpoints = 0.5 * (lower_interfaces[:-1] + lower_interfaces[1:])
+    first_saved_midpoint = 0.5 * (interface_height[0] + interface_height[1])
+    lower_dz = np.diff(lower_interfaces, axis=0)
+    lower_p = np.sum(
+        sigma_p[0] * np.exp((lower_midpoints - first_saved_midpoint) / 5_000.0) * lower_dz, axis=0
+    )
+    lower_h = np.sum(
+        sigma_h[0] * np.exp((lower_midpoints - first_saved_midpoint) / 3_000.0) * lower_dz, axis=0
+    )
+    sp = np.sum(sigma_p * dz, axis=0) + lower_p
+    sh = np.sum(sigma_h * dz, axis=0) + lower_h
 
     np.testing.assert_allclose(integrated["SP"], sp)
     np.testing.assert_allclose(integrated["SH"], sh)
-    np.testing.assert_allclose(integrated["We"], np.sum(sigma_p * east * dz, axis=0) / sp)
-    np.testing.assert_allclose(integrated["Wn"], np.sum(sigma_p * north * dz, axis=0) / sp)
-    np.testing.assert_allclose(integrated["WeH"], np.sum(sigma_h * east * dz, axis=0) / sh)
-    np.testing.assert_allclose(integrated["WnH"], np.sum(sigma_h * north * dz, axis=0) / sh)
+    np.testing.assert_allclose(
+        integrated["We"], (np.sum(sigma_p * east * dz, axis=0) + lower_p * east[0]) / sp
+    )
+    np.testing.assert_allclose(
+        integrated["Wn"], (np.sum(sigma_p * north * dz, axis=0) + lower_p * north[0]) / sp
+    )
+    np.testing.assert_allclose(
+        integrated["WeH"], (np.sum(sigma_h * east * dz, axis=0) + lower_h * east[0]) / sh
+    )
+    np.testing.assert_allclose(
+        integrated["WnH"], (np.sum(sigma_h * north * dz, axis=0) + lower_h * north[0]) / sh
+    )
 
 
 def test_integrate_tiegcm_step_rejects_missing_values_inside_integrated_layers():
@@ -1167,9 +1271,27 @@ def test_integrate_tiegcm_step_zero_conductance_returns_zero_weighted_winds():
     dataset = _FakeDataset(
         SIGMA_PED=np.zeros((1, 3, 2)),
         SIGMA_HAL=np.zeros((1, 3, 2)),
-        ZG=np.array([[[10_000.0, 20_000.0], [20_000.0, 35_000.0], [50_000.0, 65_000.0]]]),
+        Z=np.array(
+            [
+                [
+                    [10_000_000.0, 10_200_000.0],
+                    [11_000_000.0, 11_400_000.0],
+                    [13_000_000.0, 13_500_000.0],
+                ]
+            ]
+        ),
+        ZG=np.array(
+            [
+                [
+                    [10_000_000.0, 10_200_000.0],
+                    [11_000_000.0, 11_400_000.0],
+                    [13_000_000.0, 13_500_000.0],
+                ]
+            ]
+        ),
         UN=np.full((1, 3, 2), 1000.0),
         VN=np.full((1, 3, 2), -2000.0),
+        ilev=np.array([-7.0, -6.75, -6.5]),
     )
 
     integrated = _integrate_tiegcm_step(dataset, 0)

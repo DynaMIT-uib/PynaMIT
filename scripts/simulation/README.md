@@ -22,9 +22,23 @@ The active MAGE workflow has three stages:
    polar-cell rule. GAMERA `delta_Br` uses four-point bilinear interpolation on
    GAMERA's own periodic native angular grid; its omitted cell-center polar
    values are reconstructed from the adjacent ring means.
-   Sheet conductance is the geometric-height integral of TIEGCM's standard
-   geographic `SIGMA_PED` and `SIGMA_HAL` profiles. Pedersen- and
-   Hall-weighted winds use those same layer integrals. The MAGE-specific
+   The prepared `time` dataset is the validated, uniform TIEGCM `mtime`
+   schedule. GAMERA's adaptive stepper can write a nominal 10-second output
+   a few hundredths of a second after that target; preparation retains those
+   exact GAMERA and ReMIX timestamps and their signed offsets as provenance,
+   requires both sources to remain within 0.1 seconds of the nominal history,
+   and still performs each SM-to-GEO transform at the exact GAMERA time. This
+   lets PynaMIT apply each record on its intended fixed-step clock without
+   interpolating conductance or changing the dense-exponential evolution.
+   Sheet conductance is a radial geometric-height integral of TIEGCM's
+   geographic `SIGMA_PED` and `SIGMA_HAL` profiles. Below the first saved
+   interface, preparation reproduces TIEGCM's `pdynamo` continuation to its
+   -8.5 log-pressure interface (90 km): Pedersen and Hall conductivity use
+   5 km and 3 km exponential scale lengths, respectively, and the lowest
+   saved winds are held constant. The extension uses the source grid's own
+   vertical spacing (six added layers for this high-resolution file).
+   Pedersen- and Hall-weighted winds include those same radial layer
+   integrals. The MAGE-specific
    `gzigm1`/`gzigm2` diagnostics are intentionally not a second input path:
    TIEGCM forms them as Pedersen/Hall conductivity integrals along modified-
    apex field lines for its equipotential-field-line dynamo, then regrids the

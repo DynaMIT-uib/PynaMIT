@@ -52,6 +52,12 @@ from pynamit.simulation.workflows.mage_projection import (
     IONOSPHERE_RADIUS_M,
     MAGE_FORCING_KIND,
     MAGE_FORCING_VERSION,
+    MAGE_SOURCE_TIME_TOLERANCE_SECONDS,
+    MAGE_TIME_AXIS,
+    TIEGCM_DYNAMO_BOTTOM_ILEV,
+    TIEGCM_DYNAMO_REFERENCE_HEIGHT_M,
+    TIEGCM_HALL_LOWER_SCALE_M,
+    TIEGCM_PEDERSEN_LOWER_SCALE_M,
 )
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -63,6 +69,7 @@ DEFAULT_TAG = "msphere"
 GAMERA_EARTH_SPEED_SCALE_M_S = 1.0e5
 REMIX_TIME_TOLERANCE_SECONDS = 1.0e-3
 FILL_THRESHOLD = 1e30
+MJD_EPOCH = dt.datetime(1858, 11, 17)
 
 
 @dataclass(frozen=True)
@@ -82,11 +89,12 @@ class PreparationSettings:
 SETTINGS = PreparationSettings()
 
 
-def _naive_utc_datetime(value: dt.datetime) -> dt.datetime:
-    """Normalize a source time to the naive-UTC convention."""
-    if value.tzinfo is None:
-        return value
-    return value.astimezone(dt.timezone.utc).replace(tzinfo=None)
+def _datetime_from_mjd(value: float) -> dt.datetime:
+    """Convert one finite MJD value to a naive UTC datetime."""
+    mjd = float(value)
+    if not np.isfinite(mjd):
+        raise RuntimeError("Source MJD time must be finite.")
+    return MJD_EPOCH + dt.timedelta(days=mjd)
 
 
 def _gamera_internal_dipole_axes(mag_m0_nT: float) -> dict[str, np.ndarray]:
@@ -242,35 +250,119 @@ def _read_tiegcm_step(dataset: Any, name: str, step: int) -> np.ndarray:
     return array
 
 
-def _conductance_normalized_wind(
-    conductivity: np.ndarray,
-    conductance: np.ndarray,
+def _column_conductance_and_winds(
+    layer_conductance: np.ndarray,
+    lower_conductance: np.ndarray,
     wind_east: np.ndarray,
     wind_north: np.ndarray,
-    dz: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Return winds preserving conductivity-wind current moments."""
-    east_num = np.sum(conductivity * wind_east * dz, axis=0)
-    north_num = np.sum(conductivity * wind_north * dz, axis=0)
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Integrate conductance and wind moments over a radial column."""
+    conductance = np.sum(layer_conductance, axis=0) + lower_conductance
+    # TIEGCM holds the lowest resolved wind constant through its lower
+    # extension. Its moment is exact without six additional wind arrays.
+    east_num = np.sum(layer_conductance * wind_east, axis=0) + (lower_conductance * wind_east[0])
+    north_num = np.sum(layer_conductance * wind_north, axis=0) + (
+        lower_conductance * wind_north[0]
+    )
     east = np.divide(east_num, conductance, out=np.zeros_like(east_num), where=conductance > 0.0)
     north = np.divide(
         north_num, conductance, out=np.zeros_like(north_num), where=conductance > 0.0
     )
-    return east.astype(np.float32), north.astype(np.float32)
+    return conductance, east.astype(np.float32), north.astype(np.float32)
+
+
+def _lower_dynamo_layer_count(interface_levels: np.ndarray) -> int:
+    """Count TIEGCM layers missing below the saved history."""
+    interface_levels = np.asarray(interface_levels, dtype=float)
+    if (
+        interface_levels.ndim != 1
+        or interface_levels.size < 2
+        or np.any(~np.isfinite(interface_levels))
+    ):
+        raise RuntimeError("TIEGCM ilev must be a finite one-dimensional grid.")
+    spacing = np.diff(interface_levels)
+    if np.any(spacing <= 0.0) or not np.allclose(spacing, spacing[0], rtol=0.0, atol=1e-12):
+        raise RuntimeError("TIEGCM ilev must be strictly increasing and uniform.")
+
+    missing_layers = (interface_levels[0] - TIEGCM_DYNAMO_BOTTOM_ILEV) / spacing[0]
+    rounded_layers = int(round(float(missing_layers)))
+    if rounded_layers < 1 or not np.isclose(missing_layers, rounded_layers, rtol=0.0, atol=1e-10):
+        raise RuntimeError(
+            "TIEGCM's saved lower interface must lie an integer number of layers "
+            f"above the dynamo ilev {TIEGCM_DYNAMO_BOTTOM_ILEV:g}."
+        )
+    return rounded_layers
+
+
+def _lower_dynamo_conductances(
+    interface_levels: np.ndarray,
+    geopotential_height_m: np.ndarray,
+    geometric_height_m: np.ndarray,
+    bottom_pedersen_conductivity: np.ndarray,
+    bottom_hall_conductivity: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Reproduce TIEGCM's lower dynamo conductivity continuation."""
+    n_lower = _lower_dynamo_layer_count(interface_levels)
+    horizontal_shape = geopotential_height_m.shape[1:]
+    if (
+        geopotential_height_m.shape != geometric_height_m.shape
+        or geopotential_height_m.ndim < 1
+        or geopotential_height_m.shape[0] < 2
+        or bottom_pedersen_conductivity.shape != horizontal_shape
+        or bottom_hall_conductivity.shape != horizontal_shape
+    ):
+        raise RuntimeError(
+            "TIEGCM Z/ZG histories and bottom conductivities use incompatible shapes."
+        )
+
+    bottom_geopotential = geopotential_height_m[0]
+    bottom_geometric = geometric_height_m[0]
+    if np.any(bottom_geopotential <= TIEGCM_DYNAMO_REFERENCE_HEIGHT_M) or np.any(
+        bottom_geometric <= TIEGCM_DYNAMO_REFERENCE_HEIGHT_M
+    ):
+        raise RuntimeError("TIEGCM's saved lower interface must lie above 90 km.")
+
+    fraction_shape = (n_lower + 1, *((1,) * (geopotential_height_m.ndim - 1)))
+    fractions = np.linspace(0.0, 1.0, n_lower + 1).reshape(fraction_shape)
+    lower_geopotential_interfaces = TIEGCM_DYNAMO_REFERENCE_HEIGHT_M + fractions * (
+        bottom_geopotential - TIEGCM_DYNAMO_REFERENCE_HEIGHT_M
+    )
+    lower_geometric_interfaces = TIEGCM_DYNAMO_REFERENCE_HEIGHT_M + fractions * (
+        bottom_geometric - TIEGCM_DYNAMO_REFERENCE_HEIGHT_M
+    )
+    lower_midpoint_height = 0.5 * (
+        lower_geopotential_interfaces[:-1] + lower_geopotential_interfaces[1:]
+    )
+    first_saved_midpoint_height = 0.5 * (geopotential_height_m[0] + geopotential_height_m[1])
+    lower_dz = np.diff(lower_geometric_interfaces, axis=0)
+
+    pedersen_extension = bottom_pedersen_conductivity * np.exp(
+        (lower_midpoint_height - first_saved_midpoint_height) / TIEGCM_PEDERSEN_LOWER_SCALE_M
+    )
+    hall_extension = bottom_hall_conductivity * np.exp(
+        (lower_midpoint_height - first_saved_midpoint_height) / TIEGCM_HALL_LOWER_SCALE_M
+    )
+    return (
+        np.sum(pedersen_extension * lower_dz, axis=0),
+        np.sum(hall_extension * lower_dz, axis=0),
+    )
 
 
 def _integrate_tiegcm_step(dataset: Any, step: int) -> dict[str, np.ndarray]:
     """Height-integrate TIEGCM conductivities and weighted winds."""
     pedersen_conductivity = _read_tiegcm_step(dataset, "SIGMA_PED", step)
     hall_conductivity = _read_tiegcm_step(dataset, "SIGMA_HAL", step)
-    height_m = _read_tiegcm_step(dataset, "ZG", step) / 100.0
+    geopotential_height_m = _read_tiegcm_step(dataset, "Z", step) / 100.0
+    geometric_height_m = _read_tiegcm_step(dataset, "ZG", step) / 100.0
     wind_east = _read_tiegcm_step(dataset, "UN", step) * 1e-2
     wind_north = _read_tiegcm_step(dataset, "VN", step) * 1e-2
+    interface_levels = np.asarray(dataset.variables["ilev"][:], dtype=float)
 
     field_shapes = {
         pedersen_conductivity.shape,
         hall_conductivity.shape,
-        height_m.shape,
+        geopotential_height_m.shape,
+        geometric_height_m.shape,
         wind_east.shape,
         wind_north.shape,
     }
@@ -280,7 +372,7 @@ def _integrate_tiegcm_step(dataset: Any, step: int) -> dict[str, np.ndarray]:
         or pedersen_conductivity.shape[0] < 2
     ):
         raise RuntimeError(
-            "TIEGCM conductivity, height, and wind histories must have matching "
+            "TIEGCM conductivity, Z/ZG, and wind histories must have matching "
             "shapes with at least two vertical levels."
         )
 
@@ -288,9 +380,9 @@ def _integrate_tiegcm_step(dataset: Any, step: int) -> dict[str, np.ndarray]:
     # ``ilev`` heights. Its final lev entry has no upper interface and
     # is a fill-only history in the MAGE file, so it is deliberately
     # excluded from both conductance and wind moments.
-    dz = np.diff(height_m, axis=0)
-    if np.any(~np.isfinite(height_m)):
-        raise RuntimeError("TIEGCM ZG contains missing or non-finite interface heights.")
+    dz = np.diff(geometric_height_m, axis=0)
+    if np.any(~np.isfinite(geopotential_height_m)) or np.any(~np.isfinite(geometric_height_m)):
+        raise RuntimeError("TIEGCM Z/ZG contains missing or non-finite interface heights.")
     if np.any(dz <= 0.0):
         raise RuntimeError("TIEGCM geometric height must increase with vertical level.")
     pedersen_layers = pedersen_conductivity[:-1]
@@ -311,14 +403,19 @@ def _integrate_tiegcm_step(dataset: Any, step: int) -> dict[str, np.ndarray]:
     if np.any(pedersen_layers < 0.0) or np.any(hall_layers < 0.0):
         raise RuntimeError("TIEGCM Pedersen/Hall conductivity must be non-negative.")
 
-    pedersen_conductance = np.sum(pedersen_layers * dz, axis=0)
-    hall_conductance = np.sum(hall_layers * dz, axis=0)
-
-    u_p_east, u_p_north = _conductance_normalized_wind(
-        pedersen_layers, pedersen_conductance, wind_east, wind_north, dz
+    lower_pedersen, lower_hall = _lower_dynamo_conductances(
+        interface_levels,
+        geopotential_height_m,
+        geometric_height_m,
+        pedersen_layers[0],
+        hall_layers[0],
     )
-    u_h_east, u_h_north = _conductance_normalized_wind(
-        hall_layers, hall_conductance, wind_east, wind_north, dz
+
+    pedersen_conductance, u_p_east, u_p_north = _column_conductance_and_winds(
+        pedersen_layers * dz, lower_pedersen, wind_east, wind_north
+    )
+    hall_conductance, u_h_east, u_h_north = _column_conductance_and_winds(
+        hall_layers * dz, lower_hall, wind_east, wind_north
     )
 
     return {
@@ -331,9 +428,7 @@ def _integrate_tiegcm_step(dataset: Any, step: int) -> dict[str, np.ndarray]:
     }
 
 
-def _tiegcm_times(
-    dataset: Any, reference_times: list[dt.datetime]
-) -> tuple[list[dt.datetime], float]:
+def _tiegcm_times(dataset: Any, reference_times: list[dt.datetime]) -> list[dt.datetime]:
     """Return standard TIEGCM mtime histories as datetimes."""
     if not reference_times:
         raise ValueError("At least one GAMERA reference time is required.")
@@ -396,35 +491,78 @@ def _tiegcm_times(
             )
         )
 
-    return times, 1.0 if raw_mtime.shape[1] == 4 else 60.0
+    return times
 
 
-def _validate_source_times(
-    gamera_times: list[dt.datetime], tiegcm_times: list[dt.datetime], *, tolerance_seconds: float
-) -> None:
-    """Require one corresponding TIEGCM history per GAMERA step."""
-    if not gamera_times:
-        raise RuntimeError("No GAMERA forcing steps are available.")
-    if len(tiegcm_times) < len(gamera_times):
-        raise RuntimeError(
-            f"TIEGCM provides {len(tiegcm_times)} histories but GAMERA requires "
-            f"{len(gamera_times)}."
-        )
-    offsets = np.array(
+def _time_offsets_seconds(
+    source_times: list[dt.datetime], nominal_times: list[dt.datetime]
+) -> np.ndarray:
+    """Return signed source-minus-nominal time offsets."""
+    return np.array(
         [
-            abs((tiegcm_time - gamera_time).total_seconds())
-            for gamera_time, tiegcm_time in zip(gamera_times, tiegcm_times, strict=False)
-        ]
+            (source_time - nominal_time).total_seconds()
+            for source_time, nominal_time in zip(source_times, nominal_times, strict=True)
+        ],
+        dtype=float,
     )
-    mismatch = np.flatnonzero(offsets > tolerance_seconds)
+
+
+def _validate_forcing_time_axis(
+    nominal_times: list[dt.datetime],
+    gamera_times: list[dt.datetime],
+    remix_times: list[dt.datetime],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Validate the nominal schedule and exact source times."""
+    n_steps = len(nominal_times)
+    if n_steps == 0:
+        raise RuntimeError("No forcing steps are available.")
+    source_lengths = {"GAMERA": len(gamera_times), "ReMIX": len(remix_times)}
+    mismatched = {name: size for name, size in source_lengths.items() if size != n_steps}
+    if mismatched:
+        raise RuntimeError(
+            f"The nominal time axis has {n_steps} histories but source counts are {mismatched}."
+        )
+
+    time_axes = {"nominal TIEGCM": nominal_times, "GAMERA": gamera_times, "ReMIX": remix_times}
+    for name, times in time_axes.items():
+        intervals = np.array(
+            [
+                (next_time - time).total_seconds()
+                for time, next_time in zip(times[:-1], times[1:], strict=True)
+            ],
+            dtype=float,
+        )
+        if np.any(intervals <= 0.0):
+            raise RuntimeError(f"The {name} time axis must be strictly increasing.")
+        if (
+            name == "nominal TIEGCM"
+            and intervals.size > 1
+            and not np.allclose(intervals, intervals[0], rtol=0.0, atol=1e-9)
+        ):
+            raise RuntimeError("The nominal TIEGCM time axis must have a uniform cadence.")
+
+    gamera_offsets = _time_offsets_seconds(gamera_times, nominal_times)
+    remix_offsets = _time_offsets_seconds(remix_times, nominal_times)
+    for source, offsets in {"GAMERA": gamera_offsets, "ReMIX": remix_offsets}.items():
+        mismatch = np.flatnonzero(np.abs(offsets) > MAGE_SOURCE_TIME_TOLERANCE_SECONDS)
+        if mismatch.size:
+            index = int(mismatch[0])
+            raise RuntimeError(
+                f"{source} is not aligned with the nominal forcing time at source step "
+                f"{index}: offset={offsets[index]:g} s; allowed absolute offset is "
+                f"{MAGE_SOURCE_TIME_TOLERANCE_SECONDS:g} s."
+            )
+
+    remix_gamera_offsets = _time_offsets_seconds(remix_times, gamera_times)
+    mismatch = np.flatnonzero(np.abs(remix_gamera_offsets) > REMIX_TIME_TOLERANCE_SECONDS)
     if mismatch.size:
         index = int(mismatch[0])
         raise RuntimeError(
-            "GAMERA and TIEGCM histories are not time-aligned at source step "
-            f"{index}: GAMERA={gamera_times[index].isoformat()}, "
-            f"TIEGCM={tiegcm_times[index].isoformat()}, "
-            f"offset={offsets[index]:g} s."
+            "ReMIX is not aligned with GAMERA at source step "
+            f"{index}: offset={remix_gamera_offsets[index]:g} s; allowed absolute offset is "
+            f"{REMIX_TIME_TOLERANCE_SECONDS:g} s."
         )
+    return gamera_offsets, remix_offsets
 
 
 def _validate_tiegcm_variables(dataset: Any, n_steps: int) -> None:
@@ -438,6 +576,7 @@ def _validate_tiegcm_variables(dataset: Any, n_steps: int) -> None:
         "year",
         "SIGMA_PED",
         "SIGMA_HAL",
+        "Z",
         "ZG",
         "UN",
         "VN",
@@ -447,7 +586,7 @@ def _validate_tiegcm_variables(dataset: Any, n_steps: int) -> None:
         raise RuntimeError(f"TIEGCM file is missing required variables {missing}.")
     too_short = [
         name
-        for name in ("SIGMA_PED", "SIGMA_HAL", "ZG", "UN", "VN")
+        for name in ("SIGMA_PED", "SIGMA_HAL", "Z", "ZG", "UN", "VN")
         if dataset.variables[name].shape[0] < n_steps
     ]
     if too_short:
@@ -462,6 +601,7 @@ def _validate_tiegcm_variables(dataset: Any, n_steps: int) -> None:
         "ilev": ("ilev",),
         "SIGMA_PED": ("time", "lev", "lat", "lon"),
         "SIGMA_HAL": ("time", "lev", "lat", "lon"),
+        "Z": ("time", "ilev", "lat", "lon"),
         "ZG": ("time", "ilev", "lat", "lon"),
         "UN": ("time", "lev", "lat", "lon"),
         "VN": ("time", "lev", "lat", "lon"),
@@ -479,6 +619,7 @@ def _validate_tiegcm_variables(dataset: Any, n_steps: int) -> None:
         "lat": "degrees_north",
         "SIGMA_PED": "S/m",
         "SIGMA_HAL": "S/m",
+        "Z": "cm",
         "ZG": "cm",
         "UN": "cm/s",
         "VN": "cm/s",
@@ -520,6 +661,7 @@ def _validate_tiegcm_variables(dataset: Any, n_steps: int) -> None:
         or not np.allclose(lev[:-1], 0.5 * (ilev[:-1] + ilev[1:]), rtol=0.0, atol=1e-12)
     ):
         raise RuntimeError("TIEGCM lev[:-1] must be centered between consecutive ilev interfaces.")
+    _lower_dynamo_layer_count(ilev)
 
 
 def _gamera_inner_boundary_geometry(
@@ -1160,8 +1302,8 @@ class _RemixRadialCurrentReader:
             self._file.close()
             self._file = None
 
-    def _history(self, step: int, event_time: dt.datetime) -> h5py.Group:
-        """Return one time-aligned ReMIX history."""
+    def _history(self, step: int) -> tuple[h5py.Group, dt.datetime]:
+        """Return one ReMIX history and its exact source time."""
         if self._file is None:
             raise RuntimeError("ReMIX reader must be used as a context manager.")
         group_name = f"Step#{step}"
@@ -1170,15 +1312,12 @@ class _RemixRadialCurrentReader:
         history = self._file[group_name]
         if "MJD" not in history.attrs:
             raise RuntimeError(f"ReMIX history {group_name!r} is missing MJD time metadata.")
-        source_time = dt.datetime(1858, 11, 17) + dt.timedelta(days=float(history.attrs["MJD"]))
-        offset_seconds = abs((source_time - event_time).total_seconds())
-        if offset_seconds > REMIX_TIME_TOLERANCE_SECONDS:
-            raise RuntimeError(
-                f"ReMIX {group_name} is not aligned with GAMERA: "
-                f"ReMIX={source_time.isoformat()}, GAMERA={event_time.isoformat()}, "
-                f"offset={offset_seconds:g} s."
-            )
-        return history
+        source_time = _datetime_from_mjd(history.attrs["MJD"])
+        return history, source_time
+
+    def source_time(self, step: int) -> dt.datetime:
+        """Return the exact timestamp of one ReMIX history."""
+        return self._history(step)[1]
 
     @staticmethod
     def _fac(history: h5py.Group, hemisphere: str) -> np.ndarray:
@@ -1213,12 +1352,19 @@ class _RemixRadialCurrentReader:
         step: int,
         target_longitude: np.ndarray,
         target_latitude: np.ndarray,
-        event_time: dt.datetime,
+        gamera_time: dt.datetime,
     ) -> np.ndarray:
         """Return outward current on the fixed geographic grid."""
-        history = self._history(step, event_time)
+        history, source_time = self._history(step)
+        offset_seconds = abs((source_time - gamera_time).total_seconds())
+        if offset_seconds > REMIX_TIME_TOLERANCE_SECONDS:
+            raise RuntimeError(
+                f"ReMIX Step#{step} is not aligned with GAMERA: "
+                f"ReMIX={source_time.isoformat()}, GAMERA={gamera_time.isoformat()}, "
+                f"offset={offset_seconds:g} s."
+            )
         target_sm_lat, target_sm_lon = _geographic_grid_in_sm(
-            target_latitude, target_longitude, event_time
+            target_latitude, target_longitude, gamera_time
         )
         north = self._hemisphere(
             "NORTH", self._fac(history, "NORTH"), target_sm_lon, target_sm_lat
@@ -1284,10 +1430,44 @@ def _create_output_datasets(
     )
 
 
+def _write_time_axis(
+    output: h5py.File,
+    nominal_times: list[dt.datetime],
+    gamera_times: list[dt.datetime],
+    remix_times: list[dt.datetime],
+) -> None:
+    """Write the nominal clock and exact coupled-source times."""
+    string_dtype = h5py.string_dtype(encoding="utf-8")
+    timestamp_datasets = {
+        "time": nominal_times,
+        "gamera_source_time": gamera_times,
+        "remix_source_time": remix_times,
+    }
+    for name, times in timestamp_datasets.items():
+        values = np.asarray([value.isoformat() for value in times], dtype=string_dtype)
+        output.create_dataset(name, data=values, dtype=string_dtype)
+
+    output["time"].attrs["description"] = (
+        "nominal forcing application time from the uniform TIEGCM mtime schedule"
+    )
+    output["gamera_source_time"].attrs["description"] = (
+        "exact GAMERA history time used for source-coordinate transformations"
+    )
+    output["remix_source_time"].attrs["description"] = "exact coupled ReMIX history time"
+
+    for source, times in {"gamera": gamera_times, "remix": remix_times}.items():
+        name = f"{source}_time_offset_seconds"
+        output.create_dataset(name, data=_time_offsets_seconds(times, nominal_times))
+        output[name].attrs["units"] = "s"
+        output[name].attrs["description"] = f"{source.upper()} source time minus nominal time"
+
+    output.attrs["time_axis"] = MAGE_TIME_AXIS
+    output.attrs["source_time_tolerance_seconds"] = MAGE_SOURCE_TIME_TOLERANCE_SECONDS
+
+
 def _write_static_datasets(
     output: h5py.File,
-    time_values: np.ndarray,
-    event_time: dt.datetime,
+    gamera_reference_time: dt.datetime,
     ionosphere_lat: np.ndarray,
     ionosphere_lon: np.ndarray,
     inner_lat: np.ndarray,
@@ -1304,10 +1484,6 @@ def _write_static_datasets(
     output.attrs["kind"] = MAGE_FORCING_KIND
     output.attrs["version"] = MAGE_FORCING_VERSION
     output.attrs["complete"] = False
-    string_dtype = h5py.string_dtype(encoding="utf-8")
-    output.create_dataset(
-        "time", data=np.asarray(time_values, dtype=string_dtype), dtype=string_dtype
-    )
     output.create_dataset("ionosphere_lat", data=ionosphere_lat)
     output.create_dataset("ionosphere_lon", data=ionosphere_lon)
     output.create_dataset("boundary_lat", data=inner_lat)
@@ -1326,10 +1502,19 @@ def _write_static_datasets(
     )
     output.attrs["gamera_run_dir"] = str(gamera_run_dir)
     output.attrs["tiegcm_nc"] = str(tiegcm_path)
-    output.attrs["tiegcm_conductance_integration"] = "geometric_height_layer_integral"
+    output.attrs["tiegcm_conductance_integration"] = (
+        "radial_geometric_height_with_lower_dynamo_extension"
+    )
+    output.attrs["tiegcm_dynamo_bottom_ilev"] = TIEGCM_DYNAMO_BOTTOM_ILEV
+    output.attrs["tiegcm_dynamo_reference_height_m"] = TIEGCM_DYNAMO_REFERENCE_HEIGHT_M
+    output.attrs["tiegcm_pedersen_lower_scale_m"] = TIEGCM_PEDERSEN_LOWER_SCALE_M
+    output.attrs["tiegcm_hall_lower_scale_m"] = TIEGCM_HALL_LOWER_SCALE_M
     output.attrs["tiegcm_vertical_grid"] = (
         "SIGMA_PED/SIGMA_HAL and UN/VN at lev[:-1], with dz=diff(ZG at ilev); "
-        "terminal fill-only lev omitted"
+        "terminal fill-only lev omitted; below the first saved interface, conductivity is "
+        "continued against Z to ilev=-8.5 at 90 km using TIEGCM pdynamo scale lengths, "
+        "radial thickness uses the corresponding ZG intervals, and the lowest winds are "
+        "held constant"
     )
     output.attrs["coordinate_system"] = "GEO"
     output.attrs["longitude_convention"] = "east_positive_degrees"
@@ -1358,7 +1543,7 @@ def _write_static_datasets(
         "Kaiju cell-volume-average total Bx/By/Bz; delta_Br removes the matching "
         "cell-volume-average split B0, not point-sampled BxD/ByD/BzD"
     )
-    for name, value in _centered_dipole_alignment_attrs(event_time, mag_m0_nT).items():
+    for name, value in _centered_dipole_alignment_attrs(gamera_reference_time, mag_m0_nT).items():
         output.attrs[name] = value
     output.attrs["gamera_mag_m0_nT"] = float(mag_m0_nT)
     output.attrs["main_field_B0_T"] = _pynamit_dipole_B0_T(mag_m0_nT, length_scale_m)
@@ -1440,7 +1625,9 @@ def prepare_forcing(settings: PreparationSettings = SETTINGS) -> Path:
         flush=True,
     )
     print(f"Using GAMERA inner index: {settings.inner_index}", flush=True)
-    n_available = len(gsph.UT) - 1
+    if not getattr(gsph, "hasMJD", False):
+        raise RuntimeError("GAMERA forcing must provide MJD time metadata.")
+    n_available = len(gsph.MJDs) - 1
     if settings.max_steps is not None:
         n_available = min(n_available, int(settings.max_steps))
     if n_available <= 0:
@@ -1450,19 +1637,11 @@ def prepare_forcing(settings: PreparationSettings = SETTINGS) -> Path:
     with Dataset(tiegcm_path, mode="r") as tiegcm:
         n_steps = n_available
         _validate_tiegcm_variables(tiegcm, n_steps)
-        gamera_times = [_naive_utc_datetime(value) for value in gsph.UT[1 : n_steps + 1]]
-        tiegcm_times, time_tolerance_seconds = _tiegcm_times(tiegcm, gamera_times)
-        _validate_source_times(
-            gamera_times, tiegcm_times, tolerance_seconds=time_tolerance_seconds
-        )
+        gamera_times = [_datetime_from_mjd(value) for value in gsph.MJDs[1 : n_steps + 1]]
+        nominal_times = _tiegcm_times(tiegcm, gamera_times)
         source_lon = np.asarray(tiegcm.variables["lon"][:], dtype=float)
         source_lat = np.asarray(tiegcm.variables["lat"][:], dtype=float)
         ionosphere_lon, ionosphere_lat = np.meshgrid(wrap_longitude_180(source_lon), source_lat)
-
-        # Keep the source timestamps exact. MAGE histories can carry a
-        # fractional-second offset even when the nominal cadence is
-        # integral.
-        time_values = np.array([value.isoformat() for value in gamera_times], dtype=object)
 
         inner_sm_lat, inner_sm_lon, inner_r, sin_theta, cos_theta, sin_phi, cos_phi = (
             _gamera_inner_boundary_geometry(gsph, settings.inner_index, length_scale_m)
@@ -1475,56 +1654,73 @@ def prepare_forcing(settings: PreparationSettings = SETTINGS) -> Path:
         # Kaiju gioH5 writes Bx/By/Bz as total field when
         # Model%doBackground is true, and root Bx0/By0/Bz0 as Gr%B0.
         # PynaMIT needs the perturbation.
-        with (
-            _RemixRadialCurrentReader(remix_file) as radial_current_reader,
-            _atomic_prepared_output(output_path) as output,
-        ):
-            _write_static_datasets(
-                output,
-                time_values,
-                gamera_times[0],
-                ionosphere_lat,
-                ionosphere_lon,
-                boundary_lat,
-                boundary_lon,
-                inner_r,
-                inner_solid_angle,
-                settings,
-                gamera_run_dir,
-                length_scale_m,
-                mag_m0_nT,
-                tiegcm_path,
+        with _RemixRadialCurrentReader(remix_file) as radial_current_reader:
+            gamera_steps = [gsph.s0 + out_step + 1 for out_step in range(n_steps)]
+            remix_times = [
+                radial_current_reader.source_time(gamera_step) for gamera_step in gamera_steps
+            ]
+            gamera_offsets, remix_offsets = _validate_forcing_time_axis(
+                nominal_times, gamera_times, remix_times
             )
-            _create_output_datasets(
-                output, n_steps, ionosphere_lat.shape, boundary_lat.shape, settings.compression
+            print(
+                "Canonical forcing clock: TIEGCM mtime; "
+                f"GAMERA offsets {gamera_offsets.min():.6g} to {gamera_offsets.max():.6g} s; "
+                f"ReMIX offsets {remix_offsets.min():.6g} to {remix_offsets.max():.6g} s",
+                flush=True,
             )
 
-            for out_step, event_time in enumerate(gamera_times):
-                gamera_step = gsph.s0 + out_step + 1
-                print(
-                    f"Preparing step {out_step + 1} of {n_steps}: {event_time.isoformat()}",
-                    flush=True,
+            with _atomic_prepared_output(output_path) as output:
+                _write_time_axis(output, nominal_times, gamera_times, remix_times)
+                _write_static_datasets(
+                    output,
+                    gamera_times[0],
+                    ionosphere_lat,
+                    ionosphere_lon,
+                    boundary_lat,
+                    boundary_lon,
+                    inner_r,
+                    inner_solid_angle,
+                    settings,
+                    gamera_run_dir,
+                    length_scale_m,
+                    mag_m0_nT,
+                    tiegcm_path,
+                )
+                _create_output_datasets(
+                    output, n_steps, ionosphere_lat.shape, boundary_lat.shape, settings.compression
                 )
 
-                integrated = _integrate_tiegcm_step(tiegcm, out_step)
-                model_inputs = _tiegcm_step_in_geographic_coordinates(integrated)
-                for key, values in model_inputs.items():
-                    output[key][out_step] = values
+                for out_step, (gamera_step, gamera_time) in enumerate(
+                    zip(gamera_steps, gamera_times, strict=True)
+                ):
+                    print(
+                        f"Preparing step {out_step + 1} of {n_steps}: "
+                        f"nominal {nominal_times[out_step].isoformat()}, "
+                        f"GAMERA {gamera_time.isoformat()}",
+                        flush=True,
+                    )
 
-                output["jr"][out_step] = radial_current_reader.read(
-                    gamera_step, ionosphere_lon, ionosphere_lat, event_time
-                ).astype(np.float32)
+                    integrated = _integrate_tiegcm_step(tiegcm, out_step)
+                    model_inputs = _tiegcm_step_in_geographic_coordinates(integrated)
+                    for key, values in model_inputs.items():
+                        output[key][out_step] = values
 
-                bx = gsph.GetVar("Bx", gamera_step)[settings.inner_index] - bx0
-                by = gsph.GetVar("By", gamera_step)[settings.inner_index] - by0
-                bz = gsph.GetVar("Bz", gamera_step)[settings.inner_index] - bz0
-                delta_br_sm = _radial_component(bx, by, bz, sin_theta, cos_theta, sin_phi, cos_phi)
-                boundary_sm_lat, boundary_sm_lon = _geographic_grid_in_sm(
-                    boundary_lat, boundary_lon, event_time
-                )
-                output["delta_Br"][out_step] = boundary_interpolator.interpolate(
-                    delta_br_sm, target_sm_lat=boundary_sm_lat, target_sm_lon=boundary_sm_lon
-                ).astype(np.float32)
+                    output["jr"][out_step] = radial_current_reader.read(
+                        gamera_step, ionosphere_lon, ionosphere_lat, gamera_time
+                    ).astype(np.float32)
+
+                    bx = gsph.GetVar("Bx", gamera_step)[settings.inner_index] - bx0
+                    by = gsph.GetVar("By", gamera_step)[settings.inner_index] - by0
+                    bz = gsph.GetVar("Bz", gamera_step)[settings.inner_index] - bz0
+                    delta_br_sm = _radial_component(
+                        bx, by, bz, sin_theta, cos_theta, sin_phi, cos_phi
+                    )
+                    boundary_sm_lat, boundary_sm_lon = _geographic_grid_in_sm(
+                        boundary_lat, boundary_lon, gamera_time
+                    )
+                    output["delta_Br"][out_step] = boundary_interpolator.interpolate(
+                        delta_br_sm, target_sm_lat=boundary_sm_lat, target_sm_lon=boundary_sm_lon
+                    ).astype(np.float32)
 
     return output_path
 

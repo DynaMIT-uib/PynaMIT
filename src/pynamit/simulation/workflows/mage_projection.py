@@ -31,12 +31,22 @@ from pynamit.sphere.spherical_transform import grid_sqrt_area_weights
 IONOSPHERE_RADIUS_M = 6.5e6
 MAGE_MAIN_FIELD_KIND = "kaiju_dipole"
 MAGE_FORCING_KIND = "pynamit_mage_forcing"
-MAGE_FORCING_VERSION = 8
+MAGE_FORCING_VERSION = 10
+MAGE_TIME_AXIS = "tiegcm_mtime_nominal"
+MAGE_SOURCE_TIME_TOLERANCE_SECONDS = 0.1
+TIEGCM_DYNAMO_BOTTOM_ILEV = -8.5
+TIEGCM_DYNAMO_REFERENCE_HEIGHT_M = 90_000.0
+TIEGCM_PEDERSEN_LOWER_SCALE_M = 5_000.0
+TIEGCM_HALL_LOWER_SCALE_M = 3_000.0
 
 _MAGE_IONOSPHERE_DATASETS = ("jr", "SH", "SP", "u_p_theta", "u_p_phi", "u_h_theta", "u_h_phi")
 _MAGE_BOUNDARY_DATASETS = ("delta_Br",)
 _MAGE_STATIC_DATASETS = (
     "time",
+    "gamera_source_time",
+    "remix_source_time",
+    "gamera_time_offset_seconds",
+    "remix_time_offset_seconds",
     "ionosphere_lat",
     "ionosphere_lon",
     "boundary_lat",
@@ -45,6 +55,8 @@ _MAGE_STATIC_DATASETS = (
     "boundary_solid_angle",
 )
 _MAGE_REQUIRED_ATTRIBUTES = (
+    "time_axis",
+    "source_time_tolerance_seconds",
     "fac_convention",
     "radial_current_convention",
     "remix_fac_interpolation",
@@ -60,9 +72,15 @@ _MAGE_REQUIRED_ATTRIBUTES = (
     "gamera_background_reference",
     "tiegcm_source_coordinate_system",
     "tiegcm_conductance_integration",
+    "tiegcm_dynamo_bottom_ilev",
+    "tiegcm_dynamo_reference_height_m",
+    "tiegcm_pedersen_lower_scale_m",
+    "tiegcm_hall_lower_scale_m",
     "ionosphere_radius_m",
 )
 _MAGE_DATASET_UNITS = {
+    "gamera_time_offset_seconds": "s",
+    "remix_time_offset_seconds": "s",
     "jr": "uA m-2",
     "SH": "S",
     "SP": "S",
@@ -134,6 +152,15 @@ def _validate_prepared_forcing(h5_file: Any) -> None:
         if missing_attributes:
             details.append(f"attributes {missing_attributes}")
         raise RuntimeError("Prepared forcing is missing required " + " and ".join(details) + ".")
+    if h5_file.attrs["time_axis"] != MAGE_TIME_AXIS:
+        raise RuntimeError("MAGE projection requires the nominal TIEGCM mtime forcing axis.")
+    source_time_tolerance = float(h5_file.attrs["source_time_tolerance_seconds"])
+    if not np.isfinite(source_time_tolerance) or not np.isclose(
+        source_time_tolerance, MAGE_SOURCE_TIME_TOLERANCE_SECONDS, rtol=0.0, atol=1e-12
+    ):
+        raise RuntimeError(
+            "Prepared forcing uses an incompatible source-time alignment tolerance."
+        )
     if h5_file.attrs["gamera_source_coordinate_system"] != "SM":
         raise RuntimeError("MAGE preparation requires GAMERA source coordinates in SM.")
     if h5_file.attrs["coordinate_system"] != "GEO":
@@ -146,8 +173,29 @@ def _validate_prepared_forcing(h5_file: Any) -> None:
         raise RuntimeError("MAGE projection requires outward-positive prepared radial current.")
     if h5_file.attrs["tiegcm_source_coordinate_system"] != "geographic":
         raise RuntimeError("MAGE projection requires geographic TIEGCM forcing.")
-    if h5_file.attrs["tiegcm_conductance_integration"] != "geometric_height_layer_integral":
-        raise RuntimeError("MAGE projection requires vertically integrated TIEGCM conductivity.")
+    if (
+        h5_file.attrs["tiegcm_conductance_integration"]
+        != "radial_geometric_height_with_lower_dynamo_extension"
+    ):
+        raise RuntimeError(
+            "MAGE projection requires radial TIEGCM conductance with its lower dynamo extension."
+        )
+    expected_dynamo_parameters = {
+        "tiegcm_dynamo_bottom_ilev": TIEGCM_DYNAMO_BOTTOM_ILEV,
+        "tiegcm_dynamo_reference_height_m": TIEGCM_DYNAMO_REFERENCE_HEIGHT_M,
+        "tiegcm_pedersen_lower_scale_m": TIEGCM_PEDERSEN_LOWER_SCALE_M,
+        "tiegcm_hall_lower_scale_m": TIEGCM_HALL_LOWER_SCALE_M,
+    }
+    invalid_dynamo_parameters = [
+        name
+        for name, expected in expected_dynamo_parameters.items()
+        if not np.isclose(float(h5_file.attrs[name]), expected, rtol=0.0, atol=1e-12)
+    ]
+    if invalid_dynamo_parameters:
+        raise RuntimeError(
+            "Prepared forcing uses incompatible TIEGCM lower-dynamo parameters: "
+            f"{invalid_dynamo_parameters}."
+        )
     if h5_file.attrs["gamera_background_reference"] != "cell_volume_average_split_B0":
         raise RuntimeError(
             "MAGE projection requires GAMERA total B minus its matching volume-averaged B0."
@@ -191,6 +239,7 @@ def _validate_prepared_forcing(h5_file: Any) -> None:
     if len(time_shape) != 1 or time_shape[0] == 0:
         raise RuntimeError("Prepared forcing time must be a non-empty one-dimensional dataset.")
     n_steps = time_shape[0]
+    _validate_prepared_time_axis(h5_file, n_steps)
     ionosphere_shape = _matching_grid_shape(
         h5_file, ("ionosphere_lat", "ionosphere_lon"), "ionosphere"
     )
@@ -227,6 +276,56 @@ def _h5_time_vector_seconds(raw_times: Any) -> tuple[list[dt.datetime], np.ndarr
     if np.any(np.diff(relative_seconds) <= 0.0):
         raise ValueError("Forcing HDF5 time dataset must be strictly increasing.")
     return parsed_times, relative_seconds
+
+
+def _validate_prepared_time_axis(h5_file: Any, n_steps: int) -> None:
+    """Validate the nominal clock and exact source-time provenance."""
+    timestamp_names = ("time", "gamera_source_time", "remix_source_time")
+    for name in timestamp_names:
+        if h5_file[name].shape != (n_steps,):
+            raise RuntimeError(
+                f"Prepared forcing dataset {name!r} has shape {h5_file[name].shape}; "
+                f"expected {(n_steps,)}."
+            )
+
+    try:
+        nominal_times, nominal_seconds = _h5_time_vector_seconds(h5_file["time"][:])
+        gamera_times, _ = _h5_time_vector_seconds(h5_file["gamera_source_time"][:])
+        remix_times, _ = _h5_time_vector_seconds(h5_file["remix_source_time"][:])
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(f"Prepared forcing time metadata is invalid: {exc}") from exc
+
+    nominal_intervals = np.diff(nominal_seconds)
+    if nominal_intervals.size > 1 and not np.allclose(
+        nominal_intervals, nominal_intervals[0], rtol=0.0, atol=1e-9
+    ):
+        raise RuntimeError("Prepared forcing nominal time axis must have a uniform cadence.")
+
+    source_times = {"gamera": gamera_times, "remix": remix_times}
+    for source, times in source_times.items():
+        offsets = np.array(
+            [
+                (source_time - nominal_time).total_seconds()
+                for source_time, nominal_time in zip(times, nominal_times, strict=True)
+            ],
+            dtype=float,
+        )
+        dataset_name = f"{source}_time_offset_seconds"
+        stored_offsets = np.asarray(h5_file[dataset_name][:], dtype=float)
+        if stored_offsets.shape != (n_steps,) or np.any(~np.isfinite(stored_offsets)):
+            raise RuntimeError(
+                f"Prepared forcing dataset {dataset_name!r} must contain one finite value "
+                "per forcing step."
+            )
+        if not np.allclose(stored_offsets, offsets, rtol=0.0, atol=1e-9):
+            raise RuntimeError(
+                f"Prepared forcing dataset {dataset_name!r} does not match its timestamps."
+            )
+        if np.any(np.abs(offsets) > MAGE_SOURCE_TIME_TOLERANCE_SECONDS):
+            raise RuntimeError(
+                f"Prepared forcing {source.upper()} source times exceed the allowed "
+                f"{MAGE_SOURCE_TIME_TOLERANCE_SECONDS:g} s offset from the nominal axis."
+            )
 
 
 def _input_cadence(relative_seconds: np.ndarray) -> dict[str, float | None]:
@@ -598,8 +697,14 @@ def project_inputs(
     with _staged_input_package(projection_directory, artifact_storage) as staged_directory:
         with h5py.File(forcing_path, "r") as file:
             _validate_prepared_forcing(file)
-            forcing_times, input_times = _h5_time_vector_seconds(file["time"][:])
-            event_time = forcing_times[0]
+            nominal_times, input_times = _h5_time_vector_seconds(file["time"][:])
+            gamera_source_times = [
+                _parse_h5_time(value) for value in file["gamera_source_time"][:]
+            ]
+            remix_source_times = [_parse_h5_time(value) for value in file["remix_source_time"][:]]
+            gamera_time_offsets = np.asarray(file["gamera_time_offset_seconds"][:], dtype=float)
+            remix_time_offsets = np.asarray(file["remix_time_offset_seconds"][:], dtype=float)
+            event_time = nominal_times[0]
             dipole_epoch = decimal_year(event_time)
             boundary_radius = _boundary_radius(file, boundary_radius_override)
             dipole_B0 = _dipole_B0(file, dipole_B0_override)
@@ -627,11 +732,19 @@ def project_inputs(
 
             print(f"Using forcing file: {forcing_path}", flush=True)
             print(f"Writing projected input package: {projection_directory}", flush=True)
-            print(f"Event time: {event_time.isoformat()}", flush=True)
+            print(f"Nominal event time: {event_time.isoformat()}", flush=True)
             print(
-                "Forcing time span: "
-                f"{forcing_times[0].isoformat()} to {forcing_times[-1].isoformat()} "
-                f"({len(forcing_times)} step(s))",
+                "Nominal forcing time span: "
+                f"{nominal_times[0].isoformat()} to {nominal_times[-1].isoformat()} "
+                f"({len(nominal_times)} step(s))",
+                flush=True,
+            )
+            print(
+                "Exact source offsets from nominal time: "
+                f"GAMERA {gamera_time_offsets.min():.6g} to "
+                f"{gamera_time_offsets.max():.6g} s; "
+                f"ReMIX {remix_time_offsets.min():.6g} to "
+                f"{remix_time_offsets.max():.6g} s",
                 flush=True,
             )
             print(f"Main field used for projection: {MAGE_MAIN_FIELD_KIND}", flush=True)
@@ -681,7 +794,11 @@ def project_inputs(
 
             if max_steps is not None:
                 input_times = input_times[: int(max_steps)]
-                forcing_times = forcing_times[: int(max_steps)]
+                nominal_times = nominal_times[: int(max_steps)]
+                gamera_source_times = gamera_source_times[: int(max_steps)]
+                remix_source_times = remix_source_times[: int(max_steps)]
+                gamera_time_offsets = gamera_time_offsets[: int(max_steps)]
+                remix_time_offsets = remix_time_offsets[: int(max_steps)]
             n_steps = input_times.size
             if n_steps == 0:
                 raise ValueError("No forcing time steps selected for projection.")
@@ -690,7 +807,7 @@ def project_inputs(
                 input_time = float(input_times[step])
                 print(
                     f"Projecting input step {step + 1} of {n_steps} "
-                    f"at t={input_time:g} s ({forcing_times[step].isoformat()})",
+                    f"at t={input_time:g} s ({nominal_times[step].isoformat()})",
                     flush=True,
                 )
                 projector.project_step(file, step, input_time)
@@ -708,8 +825,17 @@ def project_inputs(
                 "tiegcm": None if source_tiegcm is None else str(source_tiegcm),
             }
             input_time_metadata = {
-                "source_time_first": forcing_times[0].isoformat(),
-                "source_time_last": forcing_times[-1].isoformat(),
+                "time_axis": str(file.attrs["time_axis"]),
+                "nominal_time_first": nominal_times[0].isoformat(),
+                "nominal_time_last": nominal_times[-1].isoformat(),
+                "gamera_source_time_first": gamera_source_times[0].isoformat(),
+                "gamera_source_time_last": gamera_source_times[-1].isoformat(),
+                "remix_source_time_first": remix_source_times[0].isoformat(),
+                "remix_source_time_last": remix_source_times[-1].isoformat(),
+                "gamera_time_offset_min_s": float(np.min(gamera_time_offsets)),
+                "gamera_time_offset_max_s": float(np.max(gamera_time_offsets)),
+                "remix_time_offset_min_s": float(np.min(remix_time_offsets)),
+                "remix_time_offset_max_s": float(np.max(remix_time_offsets)),
                 "input_time_first_s": float(input_times[0]),
                 "input_time_last_s": float(input_times[-1]),
                 **_input_cadence(input_times),
@@ -759,5 +885,7 @@ __all__ = [
     "MAGE_FORCING_KIND",
     "MAGE_FORCING_VERSION",
     "MAGE_MAIN_FIELD_KIND",
+    "MAGE_SOURCE_TIME_TOLERANCE_SECONDS",
+    "MAGE_TIME_AXIS",
     "project_inputs",
 ]
