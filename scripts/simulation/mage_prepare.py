@@ -97,6 +97,17 @@ def _datetime_from_mjd(value: float) -> dt.datetime:
     return MJD_EPOCH + dt.timedelta(days=mjd)
 
 
+def _kaiju_sm_transform_time(event_time: dt.datetime) -> dt.datetime:
+    """Return the whole-second time used by Kaiju's ``mjdRECALC``."""
+    if not isinstance(event_time, dt.datetime):
+        raise TypeError("Kaiju SM transform time must be a datetime.")
+    if event_time.tzinfo is not None:
+        event_time = event_time.astimezone(dt.timezone.utc).replace(tzinfo=None)
+    # Fortran NINT rounds the non-negative second-of-minute value to the
+    # nearest integer, including carry into the next minute.
+    return (event_time + dt.timedelta(microseconds=500_000)).replace(microsecond=0)
+
+
 def _gamera_internal_dipole_axes(mag_m0_nT: float) -> dict[str, np.ndarray]:
     """Return GAMERA dipole-moment and magnetic-pole axes."""
     if not np.isfinite(mag_m0_nT) or mag_m0_nT == 0.0:
@@ -120,8 +131,9 @@ def _pynamit_dipole_B0_T(mag_m0_nT: float, length_scale_m: float) -> float:
 
 def _centered_dipole_alignment_attrs(event_time: dt.datetime, mag_m0_nT: float) -> dict[str, Any]:
     """Return coordinate alignment for prepared GAMERA forcing."""
-    main_field = MainField(kind="kaiju_dipole", epoch=decimal_year(event_time))
-    alignment = main_field.alignment_metadata(event_time)
+    transform_time = _kaiju_sm_transform_time(event_time)
+    main_field = MainField(kind="kaiju_dipole", epoch=decimal_year(transform_time))
+    alignment = main_field.alignment_metadata(transform_time)
     internal = _gamera_internal_dipole_axes(mag_m0_nT)
     return {
         "gamera_source_coordinate_system": "SM",
@@ -1158,8 +1170,8 @@ class _RemixGridInterpolator:
 def _geographic_grid_in_sm(
     latitude: np.ndarray, longitude: np.ndarray, event_time: dt.datetime
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Return timestamped Kaiju SM coordinates of a fixed GEO grid."""
-    return kaiju_geopack_sm(event_time).geo2sm(latitude, longitude)
+    """Return Kaiju SM coordinates of a fixed GEO grid."""
+    return kaiju_geopack_sm(_kaiju_sm_transform_time(event_time)).geo2sm(latitude, longitude)
 
 
 def _tiegcm_step_in_geographic_coordinates(
@@ -1451,7 +1463,8 @@ def _write_time_axis(
         "nominal forcing application time from the uniform TIEGCM mtime schedule"
     )
     output["gamera_source_time"].attrs["description"] = (
-        "exact GAMERA history time used for source-coordinate transformations"
+        "exact GAMERA history time retained as provenance; Kaiju SM transformations "
+        "round it to the nearest whole second"
     )
     output["remix_source_time"].attrs["description"] = "exact coupled ReMIX history time"
 
@@ -1536,6 +1549,7 @@ def _write_static_datasets(
     output.attrs["gamera_boundary_interpolation"] = (
         "gamera_native_periodic_bilinear_with_polar_mean"
     )
+    output.attrs["gamera_sm_transform_time_convention"] = "kaiju_mjdrecalc_nearest_second"
     output.attrs["gamera_inner_index"] = int(settings.inner_index)
     output.attrs["gamera_length_scale_m"] = float(length_scale_m)
     output.attrs["gamera_background_reference"] = "cell_volume_average_split_B0"
@@ -1647,9 +1661,9 @@ def prepare_forcing(settings: PreparationSettings = SETTINGS) -> Path:
             _gamera_inner_boundary_geometry(gsph, settings.inner_index, length_scale_m)
         )
         inner_solid_angle = _gamera_inner_boundary_solid_angle(gsph, settings.inner_index)
-        boundary_lat, boundary_lon = kaiju_geopack_sm(gamera_times[0]).sm2geo(
-            inner_sm_lat, inner_sm_lon
-        )
+        boundary_lat, boundary_lon = kaiju_geopack_sm(
+            _kaiju_sm_transform_time(gamera_times[0])
+        ).sm2geo(inner_sm_lat, inner_sm_lon)
         boundary_interpolator = _GameraBoundaryInterpolator(inner_sm_lat, inner_sm_lon)
         # Kaiju gioH5 writes Bx/By/Bz as total field when
         # Model%doBackground is true, and root Bx0/By0/Bz0 as Gr%B0.

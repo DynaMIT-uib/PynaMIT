@@ -25,6 +25,7 @@ from scripts.simulation.mage_prepare import (
     _GameraBoundaryInterpolator,
     _geographic_grid_in_sm,
     _integrate_tiegcm_step,
+    _kaiju_sm_transform_time,
     _pynamit_dipole_B0_T,
     _read_tiegcm_step,
     _remix_cell_center_coordinates,
@@ -149,6 +150,7 @@ def _write_projection_forcing(path: Path, *, hall_conductance=5.0) -> None:
         output.attrs["gamera_internal_dipole_moment_axis"] = [0.0, 0.0, -1.0]
         output.attrs["gamera_internal_magnetic_north_axis"] = [0.0, 0.0, 1.0]
         output.attrs["gamera_source_coordinate_system"] = "SM"
+        output.attrs["gamera_sm_transform_time_convention"] = "kaiju_mjdrecalc_nearest_second"
         output.attrs["coordinate_system"] = "GEO"
         output.attrs["longitude_convention"] = "east_positive_degrees"
         output.attrs["fac_convention"] = "upward"
@@ -203,13 +205,39 @@ def test_gamera_dipole_strength_uses_pynamit_reference_radius():
 
 def test_centered_dipole_alignment_uses_gamera_axis_convention():
     """Prepared alignment metadata carries the signed GAMERA axes."""
-    attrs = _centered_dipole_alignment_attrs(dt.datetime(2020, 1, 1), -30_000.0)
+    attrs = _centered_dipole_alignment_attrs(dt.datetime(2020, 1, 1, 0, 0, 0, 12_674), -30_000.0)
 
     assert attrs["gamera_source_coordinate_system"] == "SM"
+    assert attrs["dipole_sm_transform_time"] == "2020-01-01T00:00:00"
     np.testing.assert_array_equal(attrs["gamera_internal_dipole_moment_axis"], [0.0, 0.0, -1.0])
     np.testing.assert_array_equal(attrs["gamera_internal_magnetic_north_axis"], [0.0, 0.0, 1.0])
     assert "gamera_internal_dipole_axis" not in attrs
     assert "pynamit_run_coordinate_system" not in attrs
+
+
+@pytest.mark.parametrize(
+    ("source_time", "expected"),
+    [
+        (dt.datetime(2011, 10, 24, 18, 0, 10, 499_999), dt.datetime(2011, 10, 24, 18, 0, 10)),
+        (dt.datetime(2011, 10, 24, 18, 0, 10, 500_000), dt.datetime(2011, 10, 24, 18, 0, 11)),
+        (dt.datetime(2011, 10, 24, 18, 0, 59, 900_000), dt.datetime(2011, 10, 24, 18, 1, 0)),
+    ],
+)
+def test_kaiju_sm_transform_time_matches_fortran_nint(source_time, expected):
+    """SM transformations reproduce Kaiju's whole-second MJD wrapper."""
+    assert _kaiju_sm_transform_time(source_time) == expected
+
+
+def test_geographic_grid_in_sm_uses_kaiju_nearest_second():
+    """Fractional source seconds do not leak into the Kaiju SM frame."""
+    source_time = dt.datetime(2011, 10, 24, 18, 0, 10, 33_088)
+    latitude = np.array([20.0, 65.0])
+    longitude = np.array([-40.0, 130.0])
+
+    observed = _geographic_grid_in_sm(latitude, longitude, source_time)
+    expected = kaiju_geopack_sm(dt.datetime(2011, 10, 24, 18, 0, 10)).geo2sm(latitude, longitude)
+
+    np.testing.assert_allclose(observed, expected, rtol=0.0, atol=1e-13)
 
 
 def _two_layer_tiegcm_dataset():
@@ -336,6 +364,9 @@ def test_prepared_time_axis_is_written_as_utf8_with_source_provenance(tmp_path):
         assert (
             output.attrs["gamera_boundary_interpolation"]
             == "gamera_native_periodic_bilinear_with_polar_mean"
+        )
+        assert (
+            output.attrs["gamera_sm_transform_time_convention"] == "kaiju_mjdrecalc_nearest_second"
         )
         assert (
             output.attrs["tiegcm_conductance_integration"]
@@ -482,6 +513,18 @@ def test_prepared_forcing_rejects_incompatible_lower_dynamo_parameters(tmp_path)
 
     with h5py.File(forcing_path) as forcing:
         with pytest.raises(RuntimeError, match="lower-dynamo parameters.*hall"):
+            _validate_prepared_forcing(forcing)
+
+
+def test_prepared_forcing_rejects_incompatible_sm_time_convention(tmp_path):
+    """Projection must not silently mix SM timestamp conventions."""
+    forcing_path = tmp_path / "forcing.h5"
+    _write_projection_forcing(forcing_path)
+    with h5py.File(forcing_path, "r+") as forcing:
+        forcing.attrs["gamera_sm_transform_time_convention"] = "fractional_source_time"
+
+    with h5py.File(forcing_path) as forcing:
+        with pytest.raises(RuntimeError, match="nearest-second SM transform"):
             _validate_prepared_forcing(forcing)
 
 

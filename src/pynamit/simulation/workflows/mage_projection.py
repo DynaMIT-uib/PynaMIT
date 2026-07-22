@@ -31,7 +31,7 @@ from pynamit.sphere.spherical_transform import grid_sqrt_area_weights
 IONOSPHERE_RADIUS_M = 6.5e6
 MAGE_MAIN_FIELD_KIND = "kaiju_dipole"
 MAGE_FORCING_KIND = "pynamit_mage_forcing"
-MAGE_FORCING_VERSION = 10
+MAGE_FORCING_VERSION = 11
 MAGE_TIME_AXIS = "tiegcm_mtime_nominal"
 MAGE_SOURCE_TIME_TOLERANCE_SECONDS = 0.1
 TIEGCM_DYNAMO_BOTTOM_ILEV = -8.5
@@ -62,6 +62,7 @@ _MAGE_REQUIRED_ATTRIBUTES = (
     "remix_fac_interpolation",
     "gamera_boundary_interpolation",
     "gamera_source_coordinate_system",
+    "gamera_sm_transform_time_convention",
     "coordinate_system",
     "longitude_convention",
     "gamera_mag_m0_nT",
@@ -163,6 +164,10 @@ def _validate_prepared_forcing(h5_file: Any) -> None:
         )
     if h5_file.attrs["gamera_source_coordinate_system"] != "SM":
         raise RuntimeError("MAGE preparation requires GAMERA source coordinates in SM.")
+    if h5_file.attrs["gamera_sm_transform_time_convention"] != "kaiju_mjdrecalc_nearest_second":
+        raise RuntimeError(
+            "MAGE projection requires Kaiju's nearest-second SM transform convention."
+        )
     if h5_file.attrs["coordinate_system"] != "GEO":
         raise RuntimeError("MAGE projection requires Earth-fixed geographic coordinates.")
     if h5_file.attrs["longitude_convention"] != "east_positive_degrees":
@@ -761,7 +766,10 @@ def project_inputs(
                 flush=True,
             )
             print(f"GAMERA signed MagM0: {gamera_dipole['mag_m0_nT']:.6g} nT", flush=True)
-            print("GAMERA source coordinates: timestamped SM", flush=True)
+            print(
+                "GAMERA source coordinates: SM using Kaiju's nearest-second MJDRecalc time",
+                flush=True,
+            )
             print("PynaMIT model and prepared forcing coordinates: Earth-fixed GEO", flush=True)
             print(f"RM: {boundary_radius:.6g} m", flush=True)
             print("Wind forcing: direct driving E from Pedersen/Hall weighted winds", flush=True)
@@ -859,6 +867,9 @@ def project_inputs(
                         "GAMERA_and_REMIX": "SM",
                         "TIEGCM": "geographic",
                     },
+                    "gamera_sm_transform_time_convention": str(
+                        file.attrs["gamera_sm_transform_time_convention"]
+                    ),
                     "fac_convention": "upward",
                     "fac_to_radial_current": "jr = FAC_upward * abs(source unit_br)",
                     "least_squares_weighting": "surface_area",

@@ -27,7 +27,8 @@ The active MAGE workflow has three stages:
    a few hundredths of a second after that target; preparation retains those
    exact GAMERA and ReMIX timestamps and their signed offsets as provenance,
    requires both sources to remain within 0.1 seconds of the nominal history,
-   and still performs each SM-to-GEO transform at the exact GAMERA time. This
+   and performs each SM-to-GEO transform at the GAMERA time rounded to the
+   nearest whole second, exactly following Kaiju's `mjdRECALC`. This
    lets PynaMIT apply each record on its intended fixed-step clock without
    interpolating conductance or changing the dense-exponential evolution.
    Sheet conductance is a radial geometric-height integral of TIEGCM's
