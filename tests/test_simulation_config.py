@@ -29,6 +29,34 @@ def test_simulation_from_config_requires_normalized_config():
         Simulation.from_config({"Nmax": 2})
 
 
+def test_operator_cache_is_a_nonphysical_runtime_preference(tmp_path):
+    """Restart can change or omit the disposable operator-cache path."""
+    run_directory = tmp_path / "run"
+    first_cache = tmp_path / "first-cache"
+    config = SimulationConfig(
+        Nmax=2, Mmax=1, Ncs=4, main_field_kind="radial", enable_pfac_coupling=False
+    )
+    original = Simulation.from_config(
+        config,
+        run_directory=run_directory,
+        artifact_storage="netcdf",
+        operator_cache_directory=first_cache,
+        backend="numpy",
+    )
+    assert original.operator_cache.directory == first_cache.resolve()
+    assert list(first_cache.rglob("*.npy"))
+
+    reloaded = Simulation.from_directory(
+        run_directory,
+        artifact_storage="netcdf",
+        operator_cache_directory=tmp_path / "second-cache",
+        backend="numpy",
+    )
+
+    assert reloaded.config.to_dataset().identical(original.config.to_dataset())
+    assert "operator_cache_directory" not in reloaded.config.to_kwargs()
+
+
 def test_simulation_config_normalizes_projection_defaults():
     """Projection settings inherit from basis and wind route."""
     config = SimulationConfig(u_projection_basis="CS")

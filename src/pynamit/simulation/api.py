@@ -11,7 +11,7 @@ from pynamit.simulation.inputs import InputPipeline
 from pynamit.simulation.response import ElectrodynamicResponse
 from pynamit.simulation.run_data import RunData
 from pynamit.simulation.runner import SimulationRunner
-from pynamit.storage import ArtifactStore
+from pynamit.storage import ArrayCache, ArtifactStore
 
 
 class Simulation:
@@ -34,6 +34,8 @@ class Simulation:
         Run-invariant spatial realization of the model equations.
     response : ElectrodynamicResponse
         Instantaneous forcing and electrodynamic response model.
+    operator_cache : ArrayCache, optional
+        Shared cache for deterministic materialized operators.
     """
 
     def __init__(
@@ -67,6 +69,7 @@ class Simulation:
         reuse_preconditioner=False,
         m_imp_regularization_lambda=0.0,
         artifact_storage="auto",
+        operator_cache_directory=None,
         backend="auto",
         horizontal_basis_kind="SH",
         area_weighted_least_squares=False,
@@ -155,6 +158,11 @@ class Simulation:
         artifact_storage : {'auto', 'netcdf', 'zarr'}, optional
             Preferred backend for new saved xarray artifacts. Existing
             artifacts keep their format on restart.
+        operator_cache_directory : path-like, optional
+            Shared content-addressed cache for expensive deterministic
+            numerical arrays, including spherical-harmonic evaluation
+            matrices. This runtime optimization is not part of the
+            persisted physical configuration.
         backend : {'auto', 'numpy', 'jax', bool}, optional
             Array backend to use. ``"auto"`` respects the current global
             setting (environment variable or previous choice).
@@ -205,8 +213,15 @@ class Simulation:
             reuse_preconditioner=reuse_preconditioner,
             m_imp_regularization_lambda=m_imp_regularization_lambda,
         )
+        self.operator_cache = (
+            None if operator_cache_directory is None else ArrayCache(operator_cache_directory)
+        )
         self.run_data = RunData.open(
-            config, run_directory=run_directory, artifact_storage=artifact_storage, print_info=True
+            config,
+            run_directory=run_directory,
+            artifact_storage=artifact_storage,
+            operator_cache=self.operator_cache,
+            print_info=True,
         )
         self.config = self.run_data.config
         schema = self.run_data.schema
@@ -219,6 +234,7 @@ class Simulation:
             self.config,
             pfac_matrix=self.run_data.pfac_matrix,
             solid_harmonics=schema.solid_harmonics,
+            operator_cache=self.operator_cache,
         )
         self.response = ElectrodynamicResponse(self.geometry, self.config)
         self._input_pipeline = InputPipeline(self)
@@ -241,19 +257,21 @@ class Simulation:
         *,
         run_directory=None,
         artifact_storage="auto",
+        operator_cache_directory=None,
         backend="auto",
     ):
         """Construct a simulation from a normalized configuration.
 
-        ``run_directory``, ``artifact_storage``, and ``backend`` are
-        execution preferences rather than persisted model settings, so
-        they remain explicit alongside the configuration.
+        The run directory, artifact storage, operator-cache directory,
+        and backend are runtime preferences rather than persisted model
+        settings.
         """
         if not isinstance(config, SimulationConfig):
             raise TypeError("Simulation.from_config requires a SimulationConfig.")
         return cls(
             run_directory=run_directory,
             artifact_storage=artifact_storage,
+            operator_cache_directory=operator_cache_directory,
             backend=backend,
             **config.to_kwargs(),
         )

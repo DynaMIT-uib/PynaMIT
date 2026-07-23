@@ -1,5 +1,6 @@
 """Mathematical helpers for PynaMIT."""
 
+from pynamit.math._einsum_linear_map import einsum_linear_map, einsum_linear_map_from_matvec
 from pynamit.math.backend import (
     JAX_AVAILABLE,
     asarray,
@@ -14,6 +15,7 @@ from pynamit.math.backend import (
     vmap,
     xp,
 )
+from pynamit.math.fingerprints import array_fingerprint, content_fingerprint
 from pynamit.math.linear_map import (
     LinearMap,
     as_linear_map,
@@ -24,18 +26,16 @@ from pynamit.math.linear_map import (
     take_linear_map,
     vstack_linear_maps,
 )
-from pynamit.math._einsum_linear_map import (
-    einsum_linear_map,
-    einsum_linear_map_from_matvec,
-)
 
 __all__ = [
     "JAX_AVAILABLE",
     "LinearMap",
     "as_linear_map",
     "asarray",
+    "array_fingerprint",
     "backend_context",
     "block_until_ready",
+    "content_fingerprint",
     "diagonal_linear_map",
     "einsum_linear_map",
     "einsum_linear_map_from_matvec",

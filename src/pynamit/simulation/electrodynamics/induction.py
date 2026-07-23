@@ -15,14 +15,10 @@ logger = logging.getLogger(__name__)
 def m_ind_time_derivative(response, m_ind, E_coeffs_noninductive):
     """Return ``d(m_ind)/dt`` for the current ionospheric response."""
     poloidal_W = response.m_ind_feedback_operator.matvec(m_ind)
-    surface_W_noninductive = (
-        response.geometry.helmholtz_divergence_free_potential_operator.matvec(
-            E_coeffs_noninductive
-        )
+    surface_W_noninductive = response.geometry.helmholtz_divergence_free_potential_operator.matvec(
+        E_coeffs_noninductive
     )
-    poloidal_W += response.geometry.surface_to_poloidal_operator.matvec(
-        surface_W_noninductive
-    )
+    poloidal_W += response.geometry.surface_to_poloidal_operator.matvec(surface_W_noninductive)
     return response.geometry.faraday_rate_scale * poloidal_W
 
 

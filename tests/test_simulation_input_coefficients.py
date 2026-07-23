@@ -323,6 +323,25 @@ def test_set_resistance_can_store_native_cs_grid_values(tmp_path):
     )
 
 
+def test_identical_resistance_history_retains_closure_caches(tmp_path):
+    """Repeated coefficient values do not rebuild the same closure."""
+    simulation = _small_simulation(tmp_path)
+    field_space = simulation.run_data.schema.input_field_spaces["resistance"]
+    eta_p = np.ones((2, *field_space.coefficient_shape))
+    eta_h = np.zeros_like(eta_p)
+    simulation.set_resistance(etaP_coefficients=eta_p, etaH_coefficients=eta_h, time=[0.0, 1.0])
+
+    response = simulation.response
+    response.activate_inputs_at_time(simulation.run_data.input_series, time=0.0)
+    sentinel = object()
+    response._m_ind_feedback_matrix = sentinel
+    first_fingerprint = response.resistance_fingerprint
+    response.activate_inputs_at_time(simulation.run_data.input_series, time=1.0)
+
+    assert response.resistance_fingerprint == first_fingerprint
+    assert response._m_ind_feedback_matrix is sentinel
+
+
 def test_set_resistance_cs_basis_remaps_non_model_grid(tmp_path):
     """CS resistance basis can remap values from another grid."""
     simulation = _small_simulation(tmp_path, resistance_projection_basis="CS")

@@ -29,7 +29,13 @@ class RunData:
 
     @classmethod
     def open(
-        cls, settings: Any, *, run_directory=None, artifact_storage="auto", print_info=False
+        cls,
+        settings: Any,
+        *,
+        run_directory=None,
+        artifact_storage="auto",
+        operator_cache=None,
+        print_info=False,
     ) -> "RunData":
         """Open or create a persisted run context."""
         config = (
@@ -57,7 +63,7 @@ class RunData:
                 )
 
         pfac_matrix = artifact_store.load_dataarray("PFAC_matrix", print_info=print_info)
-        schema = build_simulation_schema(config)
+        schema = build_simulation_schema(config, operator_cache=operator_cache)
 
         input_series = FieldTimeSeries(schema.input_field_spaces, schema.input_variables)
         input_series.load_all(artifact_store)
@@ -96,9 +102,7 @@ class RunData:
         matrix = np.asarray(pfac_matrix)
         if matrix.ndim != 2:
             raise ValueError(f"pfac_matrix must be two-dimensional; got shape {matrix.shape}.")
-        dataarray = xr.DataArray(
-            matrix, dims=("poloidal_i", "surface_i"), name="PFAC_matrix"
-        )
+        dataarray = xr.DataArray(matrix, dims=("poloidal_i", "surface_i"), name="PFAC_matrix")
         self.artifact_store.save_dataarray(dataarray, "PFAC_matrix", print_info=print_info)
         self.pfac_matrix = dataarray
 

@@ -124,13 +124,13 @@ def field_spaces_from_bases(
     return field_spaces
 
 
-def build_simulation_schema(config: SimulationConfig) -> SimulationSchema:
+def build_simulation_schema(config: SimulationConfig, *, operator_cache=None) -> SimulationSchema:
     """Build the basis and storage schema for one ``Simulation``."""
     if not isinstance(config, SimulationConfig):
         raise TypeError("build_simulation_schema requires a SimulationConfig.")
     horizontal_basis_kind = config.horizontal_basis_kind
 
-    sh_basis = SHBasis(config.Nmax, config.Mmax, mean_free=False)
+    sh_basis = SHBasis(config.Nmax, config.Mmax, mean_free=False, operator_cache=operator_cache)
     mean_free_sh_basis = sh_basis.with_mean_free(True)
     cs_basis = CSBasis(config.Ncs)
     horizontal_basis = cs_basis if horizontal_basis_kind == "CS" else mean_free_sh_basis

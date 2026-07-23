@@ -8,10 +8,27 @@ from types import SimpleNamespace
 import h5py
 import numpy as np
 import pytest
-from scripts.simulation.mage_prepare import (
-    DEFAULT_GAMERA_DIRECTORY,
-    DEFAULT_OUTPUT_DIRECTORY,
-    DEFAULT_OUTPUT_NAME,
+import xarray as xr
+from scripts.simulation.mage_prepare import CASE_DIRECTORY as MAGE_PREPARE_CASE
+from scripts.simulation.mage_prepare import DEFAULT_GAMERA_DIRECTORY, DEFAULT_OUTPUT_PATH
+from scripts.simulation.mage_project import CASE_DIRECTORY as MAGE_PROJECT_CASE
+from scripts.simulation.mage_project import (
+    DEFAULT_FORCING_PATH,
+    DEFAULT_RESOLUTIONS_DIRECTORY,
+    ProjectionSettings,
+)
+from scripts.simulation.mage_project import SETTINGS as MAGE_PROJECT_SETTINGS
+from scripts.simulation.mage_project import main as project_mage_inputs
+from scripts.simulation.mage_run import CASE_DIRECTORY as MAGE_RUN_CASE
+from scripts.simulation.mage_run import DEFAULT_RESOLUTIONS_DIRECTORY as RUN_RESOLUTIONS_DIRECTORY
+from scripts.simulation.mage_run import SETTINGS as MAGE_RUN_SETTINGS
+from scripts.simulation.mage_run import RunSettings, _last_projected_input_time, _run_targets
+
+from pynamit.geomagnetism.kaiju_geopack import kaiju_geopack_sm
+from pynamit.simulation.config import SimulationConfig
+from pynamit.simulation.workflows.mage_preparation import (
+    MAGE_FORCING_KIND,
+    MAGE_FORCING_VERSION,
     PreparationSettings,
     _atomic_prepared_output,
     _centered_dipole_alignment_attrs,
@@ -19,7 +36,6 @@ from scripts.simulation.mage_prepare import (
     _create_output_datasets,
     _datetime_from_mjd,
     _gamera_inner_boundary_geometry,
-    _gamera_inner_boundary_solid_angle,
     _gamera_internal_dipole_axes,
     _gamera_native_angles,
     _GameraBoundaryInterpolator,
@@ -32,7 +48,6 @@ from scripts.simulation.mage_prepare import (
     _remix_upward_fac_source,
     _RemixGridInterpolator,
     _resolve_tiegcm_path,
-    _tiegcm_step_in_geographic_coordinates,
     _tiegcm_times,
     _trilinear_hexahedron_volume_centers,
     _upward_fac_to_radial_current,
@@ -42,17 +57,7 @@ from scripts.simulation.mage_prepare import (
     _write_static_datasets,
     _write_time_axis,
 )
-from scripts.simulation.mage_project import CASE_DIRECTORY as MAGE_PROJECT_CASE
-from scripts.simulation.mage_project import DEFAULT_FORCING_PATH
-from scripts.simulation.mage_project import SETTINGS as MAGE_PROJECT_SETTINGS
-from scripts.simulation.mage_run import CASE_DIRECTORY as MAGE_RUN_CASE
-from scripts.simulation.mage_run import DEFAULT_PROJECTION_DIRECTORY, _last_projected_input_time
-from scripts.simulation.mage_run import SETTINGS as MAGE_RUN_SETTINGS
-
-from pynamit.geomagnetism.kaiju_geopack import kaiju_geopack_sm
 from pynamit.simulation.workflows.mage_projection import (
-    MAGE_FORCING_KIND,
-    MAGE_FORCING_VERSION,
     MAGE_MAIN_FIELD_KIND,
     _boundary_radius,
     _clear_existing_input_package,
@@ -64,6 +69,7 @@ from pynamit.simulation.workflows.mage_projection import (
     _validate_prepared_forcing,
     project_inputs,
 )
+from pynamit.storage import ArtifactStore
 
 
 class _FakeVariable:
@@ -283,10 +289,11 @@ def _valid_tiegcm_contract():
     )
 
 
-def test_default_prepared_forcing_artifact_name_is_canonical():
-    """Preparation and projection share one canonical forcing path."""
-    assert DEFAULT_OUTPUT_NAME == "mage_prepared_forcing.h5"
-    assert DEFAULT_FORCING_PATH == DEFAULT_OUTPUT_DIRECTORY / DEFAULT_OUTPUT_NAME
+def test_default_mage_case_paths_are_consistent():
+    """Every MAGE stage uses the same event-local artifact tree."""
+    assert MAGE_PREPARE_CASE == MAGE_PROJECT_CASE == MAGE_RUN_CASE
+    assert MAGE_PREPARE_CASE.name == "2011-10-24"
+    assert DEFAULT_OUTPUT_PATH == DEFAULT_FORCING_PATH == MAGE_PREPARE_CASE / "forcing.h5"
 
 
 def test_default_gamera_directory_is_cluster_path():
@@ -341,7 +348,7 @@ def test_prepared_time_axis_is_written_as_utf8_with_source_provenance(tmp_path):
             grid,
             grid,
             np.ones((1, 1)),
-            PreparationSettings(gamera_directory=tmp_path),
+            PreparationSettings(gamera_directory=tmp_path, output_path=output_path),
             tmp_path,
             6.3781e6,
             -29_617.4,
@@ -418,14 +425,67 @@ def test_atomic_prepared_output_preserves_last_complete_file(tmp_path):
 
 def test_projected_input_default_matches_run_input_directory():
     """Projection and run scripts should agree on the input package."""
-    assert MAGE_PROJECT_SETTINGS.projection_directory is None
-    project_resolution = (
-        f"N{MAGE_PROJECT_SETTINGS.nmax}_M{MAGE_PROJECT_SETTINGS.mmax}_"
-        f"Ncs{MAGE_PROJECT_SETTINGS.ncs}"
-    )
+    assert MAGE_PROJECT_SETTINGS.resolutions_directory == DEFAULT_RESOLUTIONS_DIRECTORY
+    assert MAGE_PROJECT_SETTINGS.resolutions == (20, 40, 60, 80)
     assert MAGE_PROJECT_CASE == MAGE_RUN_CASE
-    assert DEFAULT_PROJECTION_DIRECTORY == MAGE_PROJECT_CASE / "projections" / project_resolution
-    assert MAGE_RUN_SETTINGS.projection_directory == DEFAULT_PROJECTION_DIRECTORY
+    assert MAGE_PROJECT_CASE.name == "2011-10-24"
+    assert RUN_RESOLUTIONS_DIRECTORY == DEFAULT_RESOLUTIONS_DIRECTORY
+    assert MAGE_RUN_SETTINGS.resolutions_directory == DEFAULT_RESOLUTIONS_DIRECTORY
+    assert MAGE_RUN_SETTINGS.resolutions == MAGE_PROJECT_SETTINGS.resolutions
+    assert MAGE_RUN_SETTINGS.projection_name == MAGE_PROJECT_SETTINGS.projection_name
+    assert MAGE_PROJECT_SETTINGS.cache_operators is True
+    assert MAGE_RUN_SETTINGS.cache_operators is True
+
+
+def test_mage_projection_sweeps_configured_resolutions(monkeypatch, tmp_path):
+    """Every configured resolution uses the same projection path."""
+    calls = []
+    monkeypatch.setattr(
+        "scripts.simulation.mage_project.project_inputs", lambda **kwargs: calls.append(kwargs)
+    )
+    settings = ProjectionSettings(
+        forcing_path=tmp_path / "forcing.h5",
+        resolutions_directory=tmp_path / "resolutions",
+        resolutions=(20, 40, 60, 80),
+    )
+
+    project_mage_inputs(settings)
+
+    assert [(call["nmax"], call["mmax"], call["ncs"]) for call in calls] == [
+        (20, 20, 20),
+        (40, 40, 40),
+        (60, 60, 60),
+        (80, 80, 80),
+    ]
+    assert [call["projection_directory"] for call in calls] == [
+        tmp_path / "resolutions" / "N20_M20_Ncs20" / "projections" / "default",
+        tmp_path / "resolutions" / "N40_M40_Ncs40" / "projections" / "default",
+        tmp_path / "resolutions" / "N60_M60_Ncs60" / "projections" / "default",
+        tmp_path / "resolutions" / "N80_M80_Ncs80" / "projections" / "default",
+    ]
+    assert [call["operator_cache_directory"] for call in calls] == [
+        tmp_path / "resolutions" / "N20_M20_Ncs20" / "operator_cache",
+        tmp_path / "resolutions" / "N40_M40_Ncs40" / "operator_cache",
+        tmp_path / "resolutions" / "N60_M60_Ncs60" / "operator_cache",
+        tmp_path / "resolutions" / "N80_M80_Ncs80" / "operator_cache",
+    ]
+
+
+@pytest.mark.parametrize("resolutions", [(), (20, 0), (20, True), (20, 20)])
+def test_mage_projection_validates_sweep_before_projecting(monkeypatch, tmp_path, resolutions):
+    """Reject an invalid sweep before replacing projected packages."""
+    calls = []
+    monkeypatch.setattr(
+        "scripts.simulation.mage_project.project_inputs", lambda **kwargs: calls.append(kwargs)
+    )
+    settings = ProjectionSettings(
+        resolutions_directory=tmp_path / "resolutions", resolutions=resolutions
+    )
+
+    with pytest.raises(ValueError, match="resolutions"):
+        project_mage_inputs(settings)
+
+    assert not calls
 
 
 def test_mage_run_defaults_to_steady_state_initialization_and_output():
@@ -445,6 +505,38 @@ def test_mage_run_infers_final_time_from_projected_boundary_input():
     )
 
     assert _last_projected_input_time(store) == 20.5
+
+
+def test_mage_run_resolves_every_projected_resolution(tmp_path):
+    """A run sweep maps each projection to an independent named run."""
+    resolutions_directory = tmp_path / "resolutions"
+    for resolution in (20, 40):
+        directory = (
+            resolutions_directory
+            / f"N{resolution}_M{resolution}_Ncs{resolution}"
+            / "projections"
+            / "comparison"
+        )
+        store = ArtifactStore(directory, preferred_dataset_storage="netcdf")
+        config = SimulationConfig(Nmax=resolution, Mmax=resolution, Ncs=resolution, RM=7.0e6)
+        store.save_dataset(config.to_dataset(), "settings")
+        store.save_dataset(xr.Dataset(coords={"time": [0.0, 10.0]}), "Br")
+
+    settings = RunSettings(
+        resolutions_directory=resolutions_directory,
+        resolutions=(20, 40),
+        projection_name="comparison",
+        run_name="exponential",
+        artifact_storage="netcdf",
+    )
+    targets = _run_targets(settings)
+
+    assert [target.resolution_name for target in targets] == ["N20_M20_Ncs20", "N40_M40_Ncs40"]
+    assert [target.final_time for target in targets] == [10.0, 10.0]
+    assert [target.run_directory for target in targets] == [
+        resolutions_directory / "N20_M20_Ncs20" / "runs" / "exponential",
+        resolutions_directory / "N40_M40_Ncs40" / "runs" / "exponential",
+    ]
 
 
 def test_mage_projection_uses_kaiju_dipole_by_default():
@@ -821,7 +913,11 @@ def test_tiegcm_mtime_rejects_day_366_without_a_nearby_leap_year():
 def test_mage_step_limits_require_positive_integers(tmp_path, max_steps):
     """Preparation and projection must not truncate step limits."""
     with pytest.raises(ValueError, match="positive integer"):
-        _validate_settings(PreparationSettings(max_steps=max_steps))
+        _validate_settings(
+            PreparationSettings(
+                gamera_directory=tmp_path, output_path=tmp_path / "forcing.h5", max_steps=max_steps
+            )
+        )
 
     with pytest.raises(ValueError, match="positive integer"):
         project_inputs(
@@ -842,10 +938,16 @@ def test_mage_step_limits_require_positive_integers(tmp_path, max_steps):
 
 
 @pytest.mark.parametrize("inner_index", [True, 0.5, -1])
-def test_mage_inner_index_requires_a_nonnegative_integer(inner_index):
+def test_mage_inner_index_requires_a_nonnegative_integer(tmp_path, inner_index):
     """Reject values that cannot index a GAMERA shell."""
     with pytest.raises(ValueError, match="inner_index"):
-        _validate_settings(PreparationSettings(inner_index=inner_index))
+        _validate_settings(
+            PreparationSettings(
+                gamera_directory=tmp_path,
+                output_path=tmp_path / "forcing.h5",
+                inner_index=inner_index,
+            )
+        )
 
 
 def test_gamera_boundary_geometry_uses_selected_volume_cell():
@@ -859,17 +961,21 @@ def test_gamera_boundary_geometry_uses_selected_volume_cell():
     grid.Y = np.array([[[-1.0, 1.0], [-1.0, 1.0]], [[-1.0, 1.0], [-1.0, 1.0]]])
     grid.Z = np.array([[[-1.0, -1.0], [1.0, 1.0]], [[-1.0, -1.0], [1.0, 1.0]]])
 
-    lat, lon, radius, sin_theta, cos_theta, sin_phi, cos_phi = _gamera_inner_boundary_geometry(
-        grid, inner_index=0, length_scale_m=10.0
-    )
+    geometry = _gamera_inner_boundary_geometry(grid, inner_index=0, length_scale_m=10.0)
 
-    np.testing.assert_allclose(lat, 0.0, atol=1e-14)
-    np.testing.assert_allclose(lon, 0.0, atol=1e-14)
-    np.testing.assert_allclose(radius, 20.0)
+    np.testing.assert_allclose(geometry.sm_latitude, 0.0, atol=1e-14)
+    np.testing.assert_allclose(geometry.sm_longitude, 0.0, atol=1e-14)
+    np.testing.assert_allclose(geometry.radius_m, 20.0)
     np.testing.assert_allclose(
-        (sin_theta, cos_theta, sin_phi, cos_phi),
-        (np.ones((1, 1)), np.zeros((1, 1)), np.zeros((1, 1)), np.ones((1, 1))),
+        (geometry.radial_unit_x, geometry.radial_unit_y, geometry.radial_unit_z),
+        (np.ones((1, 1)), np.zeros((1, 1)), np.zeros((1, 1))),
         atol=1e-14,
+    )
+    np.testing.assert_allclose(
+        geometry.radial_component(
+            np.full((1, 1), 2.0), np.full((1, 1), 3.0), np.full((1, 1), 4.0)
+        ),
+        2.0,
     )
 
 
@@ -914,7 +1020,9 @@ def test_gamera_boundary_solid_angles_follow_true_cell_vertices():
     grid.Y = radius * cos_latitude * np.sin(longitude)[None, ...]
     grid.Z = radius * np.sin(latitude)[None, ...]
 
-    solid_angle = _gamera_inner_boundary_solid_angle(grid, inner_index=0)
+    solid_angle = _gamera_inner_boundary_geometry(
+        grid, inner_index=0, length_scale_m=1.0
+    ).solid_angle
 
     assert solid_angle.shape == (3, 3)
     np.testing.assert_allclose(np.sum(solid_angle), 4.0 * np.pi, rtol=0.0, atol=1e-12)
@@ -1070,30 +1178,6 @@ def test_remix_grid_interpolator_rejects_nonrectilinear_coordinates():
 
     with pytest.raises(ValueError, match="rectilinear"):
         _RemixGridInterpolator(latitude, longitude)
-
-
-def test_tiegcm_history_stays_on_its_native_geographic_grid():
-    """Preparation only changes east/north into spherical components."""
-    source_lat = np.linspace(-89.0, 89.0, 45)
-    source_lon = np.linspace(-180.0, 175.0, 72)
-    lon_grid, lat_grid = np.meshgrid(source_lon, source_lat)
-    scalar = 5.0 + np.cos(np.deg2rad(lat_grid)) * np.cos(np.deg2rad(lon_grid))
-    integrated = {
-        "SP": scalar,
-        "SH": 2.0 * scalar,
-        "We": np.full_like(scalar, 100.0),
-        "Wn": np.zeros_like(scalar),
-        "WeH": np.full_like(scalar, -40.0),
-        "WnH": np.full_like(scalar, 30.0),
-    }
-    result = _tiegcm_step_in_geographic_coordinates(integrated)
-
-    np.testing.assert_allclose(result["SP"], integrated["SP"], rtol=1e-7)
-    np.testing.assert_allclose(result["SH"], integrated["SH"], rtol=1e-7)
-    np.testing.assert_allclose(result["u_p_theta"], -integrated["Wn"])
-    np.testing.assert_allclose(result["u_p_phi"], integrated["We"])
-    np.testing.assert_allclose(result["u_h_theta"], -integrated["WnH"])
-    np.testing.assert_allclose(result["u_h_phi"], integrated["WeH"])
 
 
 def test_fixed_geo_grid_maps_through_each_timestamped_sm_frame():
@@ -1287,16 +1371,16 @@ def test_integrate_tiegcm_step_computed_conductances_and_weighted_winds():
     np.testing.assert_allclose(integrated["SP"], sp)
     np.testing.assert_allclose(integrated["SH"], sh)
     np.testing.assert_allclose(
-        integrated["We"], (np.sum(sigma_p * east * dz, axis=0) + lower_p * east[0]) / sp
+        integrated["u_p_phi"], (np.sum(sigma_p * east * dz, axis=0) + lower_p * east[0]) / sp
     )
     np.testing.assert_allclose(
-        integrated["Wn"], (np.sum(sigma_p * north * dz, axis=0) + lower_p * north[0]) / sp
+        integrated["u_p_theta"], -(np.sum(sigma_p * north * dz, axis=0) + lower_p * north[0]) / sp
     )
     np.testing.assert_allclose(
-        integrated["WeH"], (np.sum(sigma_h * east * dz, axis=0) + lower_h * east[0]) / sh
+        integrated["u_h_phi"], (np.sum(sigma_h * east * dz, axis=0) + lower_h * east[0]) / sh
     )
     np.testing.assert_allclose(
-        integrated["WnH"], (np.sum(sigma_h * north * dz, axis=0) + lower_h * north[0]) / sh
+        integrated["u_h_theta"], -(np.sum(sigma_h * north * dz, axis=0) + lower_h * north[0]) / sh
     )
 
 
@@ -1339,5 +1423,5 @@ def test_integrate_tiegcm_step_zero_conductance_returns_zero_weighted_winds():
 
     integrated = _integrate_tiegcm_step(dataset, 0)
 
-    for key in ("SP", "SH", "We", "Wn", "WeH", "WnH"):
+    for key in ("SP", "SH", "u_p_theta", "u_p_phi", "u_h_theta", "u_h_phi"):
         np.testing.assert_allclose(integrated[key], 0.0)

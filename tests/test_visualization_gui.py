@@ -57,7 +57,9 @@ def test_panel_default_run_directory_finds_mage_case_run(tmp_path, monkeypatch):
     """GUI auto-detection should follow the MAGE case layout."""
     from pynamit.visualization.panel_app import _default_run_directory
 
-    run_dir = tmp_path / "mage_cases" / "case" / "runs" / "N50_M50_Ncs50" / "default"
+    run_dir = (
+        tmp_path / "mage_output" / "case" / "resolutions" / "N50_M50_Ncs50" / "runs" / "default"
+    )
     run_dir.mkdir(parents=True)
     (run_dir / "settings.ncdf").write_text("", encoding="utf-8")
     monkeypatch.chdir(tmp_path)

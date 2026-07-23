@@ -16,6 +16,8 @@ from pynamit.sphere.spherical_harmonics.helpers import (
     schmidt_quasi_normalization_factors,
 )
 
+_EVALUATION_CACHE_VERSION = 1
+
 # Conditional Import for SciPy Version Compatibility
 # Check the SciPy version to import the correct, available function.
 _SCIPY_VERSION = version.parse(scipy.__version__)
@@ -94,7 +96,14 @@ class SHBasis(SurfaceOperators):
     _grid_cache_size = 8
 
     def __init__(
-        self, Nmax, Mmax, Nmin=None, mean_free=None, quasi_normalized=True, backend="internal"
+        self,
+        Nmax,
+        Mmax,
+        Nmin=None,
+        mean_free=None,
+        quasi_normalized=True,
+        backend="internal",
+        operator_cache=None,
     ):
         """
         Initialize the SHBasis instance.
@@ -116,6 +125,8 @@ class SHBasis(SurfaceOperators):
         backend : str, optional
             Backend for Legendre function calculation. Can be 'internal'
             (default) or 'scipy'. Both produce identical results.
+        operator_cache : pynamit.storage.ArrayCache, optional
+            Cache for materialized evaluation matrices.
         """
         Nmax, Mmax = _normalized_degree_limits(Nmax, Mmax)
         if backend not in ["internal", "scipy"]:
@@ -123,6 +134,7 @@ class SHBasis(SurfaceOperators):
         effective_nmin = _minimum_scalar_degree(Nmin, mean_free)
         self.Nmax, self.Mmax, self.Nmin, self.backend = Nmax, Mmax, effective_nmin, backend
         self.mean_free = self.Nmin >= 1
+        self.operator_cache = operator_cache
         self._related_basis_cache = {}
         self._grid_cache = OrderedDict()
         self._init_coefficient_indices()
@@ -233,10 +245,25 @@ class SHBasis(SurfaceOperators):
     @staticmethod
     def _grid_cache_key(grid):
         """Return a stable cache key for one grid/backend pair."""
-        signature = getattr(grid, "signature", None)
+        signature = getattr(grid, "exact_coordinate_signature", None)
+        if signature is None:
+            signature = getattr(grid, "signature", None)
         if signature is None:
             return None
         return (signature, bool(use_jax()))
+
+    def _evaluation_cache_identity(self, grid, derivative):
+        """Return exact identity for one persisted SH evaluation."""
+        coordinates = getattr(grid, "exact_coordinate_signature", None)
+        if coordinates is None:
+            return None
+        return {
+            "algorithm": "sh_scalar_evaluation",
+            "algorithm_version": _EVALUATION_CACHE_VERSION,
+            "basis": self.signature,
+            "grid_coordinates": coordinates,
+            "derivative": "value" if derivative is None else derivative,
+        }
 
     def _grid_cache_entry(self, grid):
         """Return the cache entry for one stable grid."""
@@ -345,6 +372,7 @@ class SHBasis(SurfaceOperators):
                 mean_free=target_mean_free,
                 quasi_normalized=self.is_normalized,
                 backend=self.backend,
+                operator_cache=self.operator_cache,
             )
         self._related_basis_cache[target_mean_free] = sibling
         sibling._related_basis_cache[bool(self.mean_free)] = self
@@ -418,13 +446,24 @@ class SHBasis(SurfaceOperators):
 
     def evaluate_on_grid(self, grid, derivative=None):
         """Evaluate scalar basis or surface derivatives on ``grid``."""
-        return self._cached_grid_matrix(
-            grid,
-            ("scalar_evaluation", derivative),
-            lambda legendre_cache: self._evaluate_on_grid(
-                grid, derivative=derivative, legendre_cache=legendre_cache
-            ),
-        )
+
+        def build(legendre_cache):
+            def evaluate():
+                return self._evaluate_on_grid(
+                    grid, derivative=derivative, legendre_cache=legendre_cache
+                )
+
+            identity = self._evaluation_cache_identity(grid, derivative)
+            if self.operator_cache is None or identity is None:
+                return evaluate()
+            cached = self.operator_cache.get_or_create("sh_evaluation", identity, evaluate)
+            return get_array_module().asarray(cached)
+
+        return self._cached_grid_matrix(grid, ("scalar_evaluation", derivative), build)
+
+    def evaluate_on_grid_uncached(self, grid, derivative=None):
+        """Evaluate without the persistent array cache."""
+        return get_array_module().asarray(self._evaluate_on_grid(grid, derivative=derivative))
 
     def get_scalar_evaluation_matrix(self, grid, derivative=None):
         """Return the cached SH scalar evaluation matrix."""
@@ -510,9 +549,7 @@ class SHBasis(SurfaceOperators):
         return self._cached_grid_operator(
             grid,
             "helmholtz_synthesis",
-            lambda: self._operator_from_matrix(
-                self.get_helmholtz_synthesis_matrix(grid), input_shape=(2, self.index_length)
-            ),
+            lambda: SurfaceOperators.get_helmholtz_synthesis_operator(self, grid),
         )
 
     def _normalized_legendre_values(self, theta, *, derivative_required, cache):

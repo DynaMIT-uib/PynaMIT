@@ -22,22 +22,24 @@ from pynamit.math.constants import RE
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     electric_field_from_weighted_winds,
 )
+from pynamit.simulation.workflows.mage_preparation import (
+    IONOSPHERE_RADIUS_M,
+    MAGE_FORCING_KIND,
+    MAGE_FORCING_VERSION,
+    MAGE_SOURCE_TIME_TOLERANCE_SECONDS,
+    MAGE_TIME_AXIS,
+    TIEGCM_DYNAMO_BOTTOM_ILEV,
+    TIEGCM_DYNAMO_REFERENCE_HEIGHT_M,
+    TIEGCM_HALL_LOWER_SCALE_M,
+    TIEGCM_PEDERSEN_LOWER_SCALE_M,
+)
 from pynamit.simulation.workflows.prepared_inputs import (
     clear_prepared_input_package,
     write_input_manifest,
 )
 from pynamit.sphere.spherical_transform import grid_sqrt_area_weights
 
-IONOSPHERE_RADIUS_M = 6.5e6
 MAGE_MAIN_FIELD_KIND = "kaiju_dipole"
-MAGE_FORCING_KIND = "pynamit_mage_forcing"
-MAGE_FORCING_VERSION = 11
-MAGE_TIME_AXIS = "tiegcm_mtime_nominal"
-MAGE_SOURCE_TIME_TOLERANCE_SECONDS = 0.1
-TIEGCM_DYNAMO_BOTTOM_ILEV = -8.5
-TIEGCM_DYNAMO_REFERENCE_HEIGHT_M = 90_000.0
-TIEGCM_PEDERSEN_LOWER_SCALE_M = 5_000.0
-TIEGCM_HALL_LOWER_SCALE_M = 3_000.0
 
 _MAGE_IONOSPHERE_DATASETS = ("jr", "SH", "SP", "u_p_theta", "u_p_phi", "u_h_theta", "u_h_phi")
 _MAGE_BOUNDARY_DATASETS = ("delta_Br",)
@@ -676,6 +678,7 @@ def project_inputs(
     jr_lambda: float,
     e_source_lambda: float,
     artifact_storage: str,
+    operator_cache_directory: str | Path | None = None,
 ) -> Path:
     """Project one prepared MAGE forcing file into PynaMIT inputs."""
     if max_steps is not None:
@@ -789,6 +792,7 @@ def project_inputs(
                 enable_pfac_coupling=False,
                 t0=str(event_time),
                 artifact_storage=artifact_storage,
+                operator_cache_directory=operator_cache_directory,
             )
             projector = _MageInputProjector(
                 simulation=simulation,
@@ -891,12 +895,4 @@ def project_inputs(
     return projection_directory
 
 
-__all__ = [
-    "IONOSPHERE_RADIUS_M",
-    "MAGE_FORCING_KIND",
-    "MAGE_FORCING_VERSION",
-    "MAGE_MAIN_FIELD_KIND",
-    "MAGE_SOURCE_TIME_TOLERANCE_SECONDS",
-    "MAGE_TIME_AXIS",
-    "project_inputs",
-]
+__all__ = ["MAGE_MAIN_FIELD_KIND", "project_inputs"]

@@ -4,11 +4,11 @@ This module contains the Grid class for representing two-dimensional
 coordinate grids.
 """
 
-import hashlib
 from functools import cached_property
 
 import numpy as np
 
+from pynamit.math import array_fingerprint, content_fingerprint
 from pynamit.sphere.core import SphericalRepresentation
 
 
@@ -132,28 +132,29 @@ class Grid(SphericalRepresentation):
         return self.signature
 
     @cached_property
+    def exact_coordinate_signature(self):
+        """Return exact coordinate identity for persisted operators."""
+        return (
+            array_fingerprint(self.theta, dtype="<f8"),
+            array_fingerprint(self.phi, dtype="<f8"),
+        )
+
+    @cached_property
     def analysis_signature(self):
         """Return cache identity for coordinate-weighted analysis."""
         if not hasattr(self, "area_weights"):
             return (self.signature, None)
-        weights = np.ascontiguousarray(self.area_weights, dtype="<f8")
-        digest = hashlib.blake2b(weights.tobytes(), digest_size=16)
-        return (self.signature, digest.hexdigest())
-
-    @staticmethod
-    def _hash_coordinate(digest, values):
-        """Hash one coordinate array at float32 precision."""
-        array = np.ascontiguousarray(np.asarray(values, dtype="<f4").reshape(-1))
-        digest.update(np.asarray(array.shape, dtype="<i8").tobytes())
-        digest.update(array.tobytes())
+        return (self.signature, array_fingerprint(self.area_weights, dtype="<f8"))
 
     @classmethod
     def coordinate_hash(cls, theta, phi):
         """Return a hash for flattened spherical coordinates."""
-        digest = hashlib.blake2b(digest_size=16)
-        cls._hash_coordinate(digest, theta)
-        cls._hash_coordinate(digest, phi)
-        return digest.hexdigest()
+        return content_fingerprint(
+            {
+                "theta": np.asarray(theta, dtype="<f4").reshape(-1),
+                "phi": np.asarray(phi, dtype="<f4").reshape(-1),
+            }
+        )
 
     @property
     def hash(self):

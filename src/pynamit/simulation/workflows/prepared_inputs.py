@@ -27,8 +27,10 @@ from pynamit.geomagnetism import MainField, decimal_year
 from pynamit.math.constants import RE
 from pynamit.simulation.api import Simulation
 from pynamit.simulation.config import SimulationConfig
+from pynamit.simulation.runner import SimulationRunner
 from pynamit.simulation.schema import INPUT_DATASET_KEYS, RUN_ARTIFACT_NAMES
 from pynamit.storage import ArtifactStore, FieldTimeSeries
+from pynamit.storage.field_time_series import TIME_TOLERANCE_SECONDS
 
 INPUT_MANIFEST_FILENAME = "pynamit_input_manifest.json"
 RUN_MANIFEST_FILENAME = "pynamit_run_manifest.json"
@@ -470,15 +472,15 @@ def _copy_prepared_inputs(
 def _validate_run_identity(
     run_directory: str | Path,
     *,
-    input_directory: str,
     selected_inputs: list[str],
     input_manifest: dict[str, Any],
+    run_settings: dict[str, Any],
     evolution_policy: dict[str, Any],
-) -> None:
+) -> bool:
     """Require a trajectory to keep one identity."""
     existing = _read_json(Path(run_directory) / RUN_MANIFEST_FILENAME)
     if existing is None:
-        return
+        return False
     if (
         not isinstance(existing, dict)
         or existing.get("kind") not in {"pynamit_run", "pynamit_paper_run"}
@@ -492,9 +494,9 @@ def _validate_run_identity(
     existing_evolution = dict(existing.get("time_evolution", {}))
     existing_evolution.pop("final_time", None)
     expected = {
-        "input_directory": str(Path(input_directory).resolve()),
         "enabled_inputs": selected_inputs,
         "input_manifest": input_manifest,
+        "run_settings": run_settings,
         "time_evolution": evolution_policy,
     }
     actual = {**existing, "time_evolution": existing_evolution}
@@ -504,6 +506,50 @@ def _validate_run_identity(
             f"Existing run in {run_directory!s} has a different trajectory identity "
             f"({', '.join(mismatches)}). Use a new run directory for a different "
             "input package, selection, or evolution policy."
+        )
+    return True
+
+
+def _stored_run_outputs_reach(
+    store: ArtifactStore, target_time: float, *, run_inductive: bool, run_steady_state: bool
+) -> bool:
+    """Return whether all requested persisted outputs reach a target."""
+    requested_outputs = []
+    if run_inductive:
+        requested_outputs.append("state")
+    if run_steady_state:
+        requested_outputs.append("steady_state")
+    if not requested_outputs:
+        return False
+
+    available = store.scan_artifacts(requested_outputs)
+    if any(key not in available for key in requested_outputs):
+        return False
+    for key in requested_outputs:
+        dataset = store.load_dataset(key)
+        if dataset is None or "time" not in dataset.coords or dataset.sizes.get("time", 0) == 0:
+            return False
+        times = np.asarray(dataset.time.values, dtype=float)
+        if not np.all(np.isfinite(times)):
+            return False
+        if float(np.max(times)) < float(target_time) - TIME_TOLERANCE_SECONDS:
+            return False
+    return True
+
+
+def _validate_stored_run_settings(
+    store: ArtifactStore, config: SimulationConfig, run_directory: str | Path
+) -> None:
+    """Require stored run settings to match the request."""
+    stored_settings = store.load_dataset("settings")
+    if stored_settings is None:
+        raise ValueError(
+            f"Existing {RUN_MANIFEST_FILENAME} in {run_directory!s} has no settings artifact."
+        )
+    normalized_stored = SimulationConfig.from_settings(stored_settings).to_dataset()
+    if not config.to_dataset().identical(normalized_stored):
+        raise ValueError(
+            f"Existing run settings in {run_directory!s} do not match the requested run."
         )
 
 
@@ -708,9 +754,17 @@ def run_pynamit_from_inputs(
     reuse_preconditioner=False,
     m_imp_regularization_lambda=0.0,
     artifact_storage="auto",
+    operator_cache_directory=None,
     magnetic_boundary_shielding=False,
+    skip_completed=False,
 ):
-    """Run simulation from a prepared input package."""
+    """Run simulation from a prepared input package.
+
+    With ``skip_completed=True``, a matching run whose requested outputs
+    reach ``final_time`` returns ``None`` before constructing geometry.
+    This is intended for batch orchestration; callers requiring a live
+    ``Simulation`` object should keep the default.
+    """
     input_directory, input_store, input_settings, selected_inputs, input_manifest = (
         _validate_and_select_prepared_inputs(
             input_directory, artifact_storage=artifact_storage, enabled_inputs=enabled_inputs
@@ -748,6 +802,27 @@ def run_pynamit_from_inputs(
     validate_prepared_input_compatibility(
         input_settings, config, input_datasets=selected_inputs, input_directory=input_directory
     )
+    if not isinstance(skip_completed, (bool, np.bool_)):
+        raise ValueError("skip_completed must be a boolean value.")
+    skip_completed = bool(skip_completed)
+    options = SimulationRunner.normalize_evolution_options(
+        config,
+        t=final_time,
+        dt=dt,
+        sampling_step_interval=sampling_step_interval,
+        saving_sample_interval=saving_sample_interval,
+        quiet=False,
+        steady_state_initialization=steady_state_initialization,
+        run_inductive=run_inductive,
+        run_steady_state=run_steady_state,
+    )
+    final_time = options.target_time
+    dt = float(options.dt)
+    sampling_step_interval = options.sampling_step_interval
+    saving_sample_interval = options.saving_sample_interval
+    steady_state_initialization = options.steady_state_initialization
+    run_inductive = options.run_inductive
+    run_steady_state = options.run_steady_state
     time_evolution = {
         "final_time": final_time,
         "dt": dt,
@@ -760,23 +835,47 @@ def run_pynamit_from_inputs(
     evolution_policy = {
         name: value for name, value in time_evolution.items() if name != "final_time"
     }
+    run_settings = {name: _plain_json_value(getattr(config, name)) for name in _RUN_SETTING_KEYS}
     run_directory = _run_directory(run_directory)
     if Path(run_directory) == Path(input_directory):
         raise ValueError(
             "run_directory must differ from input_directory so the reusable "
             "prepared-input package remains immutable."
         )
-    _validate_run_identity(
+    existing_run = _validate_run_identity(
         run_directory,
-        input_directory=input_directory,
         selected_inputs=selected_inputs,
         input_manifest=input_manifest,
+        run_settings=run_settings,
         evolution_policy=evolution_policy,
     )
+    if existing_run:
+        run_store = ArtifactStore(run_directory, preferred_dataset_storage=artifact_storage)
+        _validate_stored_run_settings(run_store, config, run_directory)
+        if skip_completed and _stored_run_outputs_reach(
+            run_store, final_time, run_inductive=run_inductive, run_steady_state=run_steady_state
+        ):
+            print(
+                f"Run output in {run_directory} already reaches t={float(final_time):g} s; "
+                "skipping.",
+                flush=True,
+            )
+            return None
+
     simulation = Simulation.from_config(
-        config, run_directory=run_directory, artifact_storage=artifact_storage
+        config,
+        run_directory=run_directory,
+        artifact_storage=artifact_storage,
+        operator_cache_directory=operator_cache_directory,
     )
-    loaded_inputs = _copy_prepared_inputs(simulation, input_store, selected_inputs)
+    existing_inputs = [
+        key for key in INPUT_DATASET_KEYS if key in simulation.run_data.input_series.datasets
+    ]
+    loaded_inputs = (
+        existing_inputs
+        if existing_run and existing_inputs == selected_inputs
+        else _copy_prepared_inputs(simulation, input_store, selected_inputs)
+    )
 
     _write_json(
         Path(run_directory) / RUN_MANIFEST_FILENAME,
@@ -786,10 +885,7 @@ def run_pynamit_from_inputs(
             "input_directory": str(Path(input_directory).resolve()),
             "enabled_inputs": loaded_inputs,
             "input_manifest": input_manifest,
-            "run_settings": {
-                name: _plain_json_value(getattr(simulation.config, name))
-                for name in _RUN_SETTING_KEYS
-            },
+            "run_settings": run_settings,
             "time_evolution": time_evolution,
         },
     )

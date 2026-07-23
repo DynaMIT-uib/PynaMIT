@@ -6,6 +6,7 @@ import pytest
 import pynamit
 from pynamit.fields import FieldCoefficients, FieldSpace
 from pynamit.math import JAX_AVAILABLE, set_backend, to_numpy, use_jax
+from pynamit.math.least_squares_solver import dense_full_rank_least_squares_map
 from pynamit.sphere import BasisEvaluator, CSBasis, Grid, SHBasis
 from pynamit.sphere.cubed_sphere.cs_grid import CSGridRemapper
 from pynamit.sphere.spherical_transform import SphericalTransform
@@ -47,6 +48,50 @@ def test_spherical_transform_synthesizes_field_coefficients():
     np.testing.assert_allclose(
         transform.synthesize_scalar(field), transform.synthesize_scalar(field.array)
     )
+
+
+def test_rotated_gradient_analysis_matches_dense_least_squares():
+    """Structured potential analysis preserves the dense definition."""
+    basis = SHBasis(3, 3, mean_free=True)
+    grid = _regular_grid()
+    transform = SphericalTransform(basis, grid, area_weighted=True)
+    scale = np.linspace(0.5, 1.5, basis.index_length)
+    synthesis = (
+        np.asarray(transform.scalar_coeffs_to_gridded_rhat_cross_gradient)
+        * scale.reshape(1, 1, -1)
+    ).reshape(2 * grid.size, basis.index_length)
+    expected = dense_full_rank_least_squares_map(
+        synthesis,
+        sqrt_weights=transform.helmholtz_sqrt_weights,
+        input_shape=(2, grid.size),
+        output_shape=(basis.index_length,),
+    )
+
+    observed = transform.rhat_cross_gradient_analysis_operator(coefficient_scale=scale)
+
+    np.testing.assert_allclose(
+        observed.to_matrix(backend="numpy"),
+        expected.to_matrix(backend="numpy"),
+        rtol=1e-12,
+        atol=1e-12,
+    )
+
+
+@pytest.mark.parametrize("field_type", ["scalar", "helmholtz"])
+def test_structured_sh_normal_matrix_matches_explicit_system(field_type):
+    """Memory-bounded SH normals preserve the explicit system."""
+    basis = SHBasis(3, 3, mean_free=True)
+    transform = SphericalTransform(basis, _regular_grid(), reg_lambda=0.2, area_weighted=True)
+    problem = (
+        transform.scalar_least_squares_problem
+        if field_type == "scalar"
+        else transform.helmholtz_least_squares_problem
+    )
+
+    observed = np.asarray(problem.dense_normal_matrix())
+    system = np.asarray(problem.get_system_linear_map().to_matrix(backend="numpy"))
+
+    np.testing.assert_allclose(observed, system.T @ system, rtol=1e-12, atol=1e-12)
 
 
 def test_spherical_transform_caches_direct_input_transforms_by_grid():

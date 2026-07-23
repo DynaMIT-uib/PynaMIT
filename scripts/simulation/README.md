@@ -6,13 +6,18 @@ paths, experiment names, and machine-specific settings remain here.
 
 ## MAGE/GAMERA/TIEGCM
 
+The configured case is the 24 October 2011 sudden commencement simulated for
+Shi et al. (2022), *Geospace Concussion: Global Reversal of Ionospheric
+Vertical Plasma Drift in Response to a Sudden Commencement*,
+https://doi.org/10.1029/2022GL100014.
+
 The active MAGE workflow has three stages:
 
 1. Run `mage_prepare.py` once to read GAMERA, REMIX, and TIEGCM and write
-   resolution-independent forcing under `mage_prepared/`. The prepared file
-   contains only projection inputs and atomically replaces an older complete
-   file after successful preparation. TIEGCM conductance and weighted winds
-   remain on their native geographic grid. REMIX FAC and GAMERA fields
+   resolution-independent `forcing.h5` in the event directory. The prepared
+   file contains only projection inputs and atomically replaces an older
+   complete file after successful preparation. TIEGCM conductance and weighted
+   winds remain on their native geographic grid. REMIX FAC and GAMERA fields
    originate in timestamped SM coordinates and are remapped onto fixed GEO
    grids for each history. GAMERA `delta_Br` is first evaluated at the true
    three-dimensional cell centers, and its fit uses solid-angle weights from
@@ -54,33 +59,86 @@ The active MAGE workflow has three stages:
    radius to PynaMIT's dipole reference radius, so the analytic main field
    agrees in physical SI coordinates. Both reference radii are recorded in
    the prepared forcing metadata.
-2. Run `mage_project.py` once for each desired spectral resolution or set of
-   projection choices. Each projected package is reusable, and a failed
+2. Run `mage_project.py` to project every resolution listed in its
+   `resolutions` setting. The default `(20, 40, 60, 80)` sweep supports a
+   direct convergence comparison. `projection_name` keeps alternative fitting
+   choices separate. Each projected package is reusable, and a failed
    reprojection leaves the previous complete package in place.
-3. Run `mage_run.py` for each simulation experiment. Change `run_name` to keep
-   alternatives such as integrators, shielding choices, and regularization in
-   separate directories. A run directory may be resumed or extended only with
-   the same projected-input manifest, input selection, and evolution policy.
-   By default, the inductive state starts from the initial steady state and a
-   steady-state comparison is saved throughout the run. Optional shielding of
-   the evolving induced field at the GAMERA boundary is disabled by default.
-   With no explicit `final_time`, the run stops at the last projected input
-   time rather than extrapolating beyond the prepared forcing.
+3. Run `mage_run.py` to evolve every resolution in its `resolutions` setting.
+   Select its `projection_name`, then change `run_name` to keep alternatives
+   such as integrators, shielding choices, and regularization in separate
+   directories. The full sweep is validated before its first simulation
+   starts. A matching completed run is skipped before simulation geometry is
+   constructed; an interrupted run resumes from its last persisted `m_ind`
+   state. A run directory may be resumed or extended only with the same
+   projected-input manifest, input selection, run settings, and evolution
+   policy. By default, the inductive state starts from the initial steady state
+   and a steady-state comparison is saved throughout the run. Optional
+   shielding of the evolving induced field at the GAMERA boundary is disabled
+   by default. With no explicit `final_time`, the run stops at the last
+   projected input time rather than extrapolating beyond the prepared forcing.
 
 The default layout is:
 
 ```text
-mage_prepared/
-  mage_prepared_forcing.h5
-mage_cases/<case>/
-  projections/N<nmax>_M<mmax>_Ncs<ncs>/
-  runs/N<nmax>_M<mmax>_Ncs<ncs>/<run_name>/
+mage_output/2011-10-24/
+  forcing.h5
+  resolutions/
+    N<nmax>_M<mmax>_Ncs<ncs>/
+      operator_cache/
+      projections/<projection_name>/
+      runs/<run_name>/
 ```
 
-Set `projection_directory` or `run_directory` explicitly when resolution alone
-does not distinguish an experiment. Preparation settings belong in
-`mage_prepare.py`, coefficient-fitting settings in `mage_project.py`, and time
-evolution settings in `mage_run.py`.
+The event is the natural ownership boundary: its resolution-independent
+prepared forcing sits above the resolution-specific numerical operators,
+projected inputs, and simulation runs. Projection and run names are independent
+namespaces. Every run records and owns a copy of the exact projected inputs it
+consumes, so dependency validation does not rely on directory nesting. Set
+`output_path` or `resolutions_directory` explicitly when the default layout is
+unsuitable. Preparation settings belong in `mage_prepare.py`,
+coefficient-fitting settings in `mage_project.py`, and time evolution settings
+in `mage_run.py`.
+
+Run directories own copies of their projected inputs, saved state and
+steady-state histories, settings and provenance manifests. They also persist
+the time-independent PFAC coupling matrix, which is restored directly on a
+restart. Healthy input copies are reused instead of being recopied from the
+projection package.
+
+Projection and run stages share the `operator_cache/` belonging to their
+resolution. Materialized SH evaluation matrices, projection normal
+pseudo-inverses, the fixed model-grid Helmholtz Cholesky factor, and the final
+PFAC coupling matrix are stored there as read-only NumPy arrays and
+memory-mapped on reuse. Their identities include implementation-version tags,
+the full basis and field-space signatures, exact grid coordinates and
+weights, regularization, solver tolerance where applicable, main-field
+geometry, and PFAC integration radii. Thus a normalization, coordinate,
+weight, regularization, or geometry change cannot silently reuse the wrong
+array. PFAC's one-use radial-quadrature grids are deliberately excluded; only
+their final integrated matrix is persisted. The run still owns a PFAC copy so
+restart correctness does not depend on the optional shared cache.
+The cache is only an optimization and can be deleted without affecting a
+run's physical identity or restartability. At high resolution these exact
+float64 arrays can occupy several GiB, trading disk space for avoiding
+repeated basis evaluation and dense factorization. Set
+`cache_operators=False` to disable the trade.
+Native CS identity, interpolation, and finite-difference operators remain
+structured or sparse, so the cache does not turn them into enormous dense
+arrays merely to persist them. SH Helmholtz and PFAC analysis likewise
+compose their two derivative operators directly; they do not assemble an
+additional four-dimensional synthesis tensor just to obtain a factor.
+
+The active Pedersen and Hall resistance coefficients also receive an exact
+content fingerprint. In-memory exponential-propagator reuse requires that
+fingerprint and the integration step to match; it does not rely merely on
+object identity. Resistance-dependent closure matrices, steady-state inverses,
+and propagators are not persisted by default. At N=80 one dense square matrix
+is already hundreds of MiB, and a distinct conductance normally occurs at
+every forcing time, so storing each dynamic matrix would turn one history into
+hundreds of GiB without helping its forward continuation. The fixed geometric
+and basis constructions, together with the existing PFAC sidecar, are the
+high-value persistent cache boundary.
 
 The projected `E_source` stream is the direct wind-driven electric-field term,
 not the total model electric field. PynaMIT adds boundary, induced, and imposed

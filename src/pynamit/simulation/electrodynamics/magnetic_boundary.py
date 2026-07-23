@@ -69,19 +69,12 @@ def boundary_Br_to_poloidal_scale(solid_harmonics, boundary_radius, radius):
         solid_harmonics.irregular_reference_shift(radius, boundary_radius)
     )
     denominator = 1.0 - regular_shift * irregular_shift
-    m_ind_to_Br = _coefficient_scale(
-        -(radius**2) * solid_harmonics.basis.laplacian(radius)
-    )
+    m_ind_to_Br = _coefficient_scale(-(radius**2) * solid_harmonics.basis.laplacian(radius))
     return -regular_shift / denominator / m_ind_to_Br
 
 
 def m_ind_to_gridded_JS(
-    solid_harmonics,
-    transform,
-    *,
-    radius,
-    boundary_radius=None,
-    boundary_shielding=False,
+    solid_harmonics, transform, *, radius, boundary_radius=None, boundary_shielding=False
 ):
     """Map induced-potential coefficients to gridded JS."""
     return m_ind_to_gridded_JS_operator(
@@ -94,21 +87,14 @@ def m_ind_to_gridded_JS(
 
 
 def m_ind_to_gridded_JS_operator(
-    solid_harmonics,
-    transform,
-    *,
-    radius,
-    boundary_radius=None,
-    boundary_shielding=False,
+    solid_harmonics, transform, *, radius, boundary_radius=None, boundary_shielding=False
 ):
     """Return the map from induced-potential coefficients to JS."""
     poloidal_scale = None
     if boundary_radius is not None and boundary_shielding:
         poloidal_scale = shielded_m_ind_poloidal_scale(solid_harmonics, boundary_radius, radius)
     return poloidal_to_gridded_JS_operator(
-        solid_harmonics,
-        transform,
-        poloidal_scale=poloidal_scale,
+        solid_harmonics, transform, poloidal_scale=poloidal_scale
     )
 
 
@@ -123,18 +109,12 @@ def Br_to_gridded_JS_operator(solid_harmonics, transform, *, radius, boundary_ra
     """Return the map from boundary-Br coefficients to gridded JS."""
     poloidal_scale = boundary_Br_to_poloidal_scale(solid_harmonics, boundary_radius, radius)
     return poloidal_to_gridded_JS_operator(
-        solid_harmonics,
-        transform,
-        poloidal_scale=poloidal_scale,
+        solid_harmonics, transform, poloidal_scale=poloidal_scale
     )
 
 
 def m_imp_to_gridded_JS(
-    solid_harmonics,
-    horizontal_transform,
-    *,
-    poloidal_transform=None,
-    pfac_coupling_matrix=None,
+    solid_harmonics, horizontal_transform, *, poloidal_transform=None, pfac_coupling_matrix=None
 ):
     """Map imposed-potential coefficients to their total gridded JS."""
     return m_imp_to_gridded_JS_operator(
@@ -146,11 +126,7 @@ def m_imp_to_gridded_JS(
 
 
 def m_imp_to_gridded_JS_operator(
-    solid_harmonics,
-    horizontal_transform,
-    *,
-    poloidal_transform=None,
-    pfac_coupling_matrix=None,
+    solid_harmonics, horizontal_transform, *, poloidal_transform=None, pfac_coupling_matrix=None
 ):
     """Return the map from imposed-potential coefficients to total JS.
 
@@ -159,9 +135,7 @@ def m_imp_to_gridded_JS_operator(
     ionosphere also creates a poloidal magnetic contribution and an
     additional sheet current through the magnetic-potential jump.
     """
-    poloidal_transform = (
-        horizontal_transform if poloidal_transform is None else poloidal_transform
-    )
+    poloidal_transform = horizontal_transform if poloidal_transform is None else poloidal_transform
     direct_sheet_current = (
         -1.0 / mu0
     ) * horizontal_transform.scalar_coeffs_to_gridded_gradient_operator

@@ -9,7 +9,7 @@ from typing import Any, Final
 
 import numpy as np
 import scipy.sparse as sp
-from scipy.linalg import cho_factor, cho_solve
+from scipy.linalg import cho_solve, cholesky
 from scipy.sparse.linalg import LinearOperator, cg, lsmr, splu
 
 from pynamit.math.backend import (
@@ -52,15 +52,8 @@ def _scale_rows(values, row_weights, *, array_module=np):
     return weights * values if values.ndim == 1 else weights.reshape(-1, 1) * values
 
 
-def dense_full_rank_least_squares_map(
-    data_matrix, *, sqrt_weights=None, input_shape=None, output_shape=None
-) -> LinearMap:
-    """Factor a dense full-column-rank least-squares response map.
-
-    The returned operator maps ``b`` to the unique minimizer of
-    ``||W (A x - b)||``. A Cholesky factorization of ``A* W**2 A`` is
-    retained, while the rectangular analysis matrix remains implicit.
-    """
+def dense_full_rank_least_squares_factor(data_matrix, *, sqrt_weights=None) -> np.ndarray:
+    """Return the lower Cholesky factor of a weighted normal matrix."""
     data = np.asarray(data_matrix)
     if data.ndim != 2:
         raise ValueError(f"data_matrix must be two-dimensional; got shape {data.shape}.")
@@ -77,41 +70,71 @@ def dense_full_rank_least_squares_map(
     else:
         normal_matrix = data_adjoint @ (objective_weights.reshape(-1, 1) * data)
     try:
-        factor = cho_factor(normal_matrix, lower=True, check_finite=False)
+        return cholesky(normal_matrix, lower=True, check_finite=False)
     except np.linalg.LinAlgError as exc:
         raise ValueError("data_matrix must have full column rank.") from exc
-    factor_is_complex = np.issubdtype(factor[0].dtype, np.complexfloating)
 
-    def solve_factor(rhs, array_module):
-        if array_module is not np:
-            from jax.scipy.linalg import solve_triangular
 
-            lower_factor = array_module.asarray(factor[0])
-            intermediate = solve_triangular(lower_factor, rhs, lower=True)
-            return solve_triangular(
-                array_module.swapaxes(array_module.conjugate(lower_factor), -2, -1),
-                intermediate,
-                lower=False,
+def _solve_cholesky_factor(factor, rhs, array_module):
+    """Solve a positive-definite system from its lower factor."""
+    factor_is_complex = np.issubdtype(factor.dtype, np.complexfloating)
+    if array_module is not np:
+        from jax.scipy.linalg import solve_triangular
+
+        lower_factor = array_module.asarray(factor)
+        intermediate = solve_triangular(lower_factor, rhs, lower=True)
+        return solve_triangular(
+            array_module.swapaxes(array_module.conjugate(lower_factor), -2, -1),
+            intermediate,
+            lower=False,
+        )
+    if np.iscomplexobj(rhs) and not factor_is_complex:
+        return cho_solve((factor, True), rhs.real, check_finite=False) + 1j * cho_solve(
+            (factor, True), rhs.imag, check_finite=False
+        )
+    return cho_solve((factor, True), rhs, check_finite=False)
+
+
+def dense_full_rank_least_squares_map(
+    data_matrix, *, sqrt_weights=None, input_shape=None, output_shape=None, normal_factor=None
+) -> LinearMap:
+    """Factor a dense full-column-rank least-squares response map.
+
+    The returned operator maps ``b`` to the unique minimizer of
+    ``||W (A x - b)||``. A Cholesky factorization of ``A* W**2 A`` is
+    retained, while the rectangular analysis matrix remains implicit.
+    """
+    data = np.asarray(data_matrix)
+    if data.ndim != 2:
+        raise ValueError(f"data_matrix must be two-dimensional; got shape {data.shape}.")
+    data_size, solution_size = data.shape
+    if data_size < solution_size:
+        raise ValueError("data_matrix must have at least as many rows as columns.")
+    objective_weights = _squared_objective_weights(sqrt_weights, data_size)
+    data_adjoint = data.T if np.isrealobj(data) else data.T.conjugate()
+    if normal_factor is None:
+        factor = dense_full_rank_least_squares_factor(data, sqrt_weights=sqrt_weights)
+    else:
+        factor = np.asarray(normal_factor)
+        expected_shape = (solution_size, solution_size)
+        if factor.shape != expected_shape:
+            raise ValueError(
+                f"normal_factor must have shape {expected_shape}; got {factor.shape}."
             )
-        if np.iscomplexobj(rhs) and not factor_is_complex:
-            return cho_solve(factor, rhs.real, check_finite=False) + 1j * cho_solve(
-                factor, rhs.imag, check_finite=False
-            )
-        return cho_solve(factor, rhs, check_finite=False)
 
     def solve_coefficients(grid_values):
         array_module = get_array_module(grid_values)
         values = _reshape_columns(grid_values, data_size, array_module=array_module)
-        weighted_values = _scale_rows(
-            values, objective_weights, array_module=array_module
-        )
+        weighted_values = _scale_rows(values, objective_weights, array_module=array_module)
         rhs = array_module.asarray(data_adjoint) @ weighted_values
-        return solve_factor(rhs, array_module)
+        return _solve_cholesky_factor(factor, rhs, array_module)
 
     def solve_adjoint(coefficients):
         array_module = get_array_module(coefficients)
         values = _reshape_columns(coefficients, solution_size, array_module=array_module)
-        analyzed = array_module.asarray(data) @ solve_factor(values, array_module)
+        analyzed = array_module.asarray(data) @ _solve_cholesky_factor(
+            factor, values, array_module
+        )
         return _scale_rows(analyzed, objective_weights, array_module=array_module)
 
     return LinearMap(
@@ -126,13 +149,46 @@ def dense_full_rank_least_squares_map(
     )
 
 
+def factorized_least_squares_map(
+    data_operator, normal_factor, *, sqrt_weights=None, input_shape=None, output_shape=None
+) -> LinearMap:
+    """Return analysis from an operator and normal factor."""
+    data = as_linear_map(data_operator)
+    data_size, solution_size = data.shape
+    factor = np.asarray(normal_factor)
+    expected_shape = (solution_size, solution_size)
+    if factor.shape != expected_shape:
+        raise ValueError(f"normal_factor must have shape {expected_shape}; got {factor.shape}.")
+    objective_weights = _squared_objective_weights(sqrt_weights, data_size)
+
+    def solve_coefficients(grid_values):
+        array_module = data.array_module(grid_values, factor)
+        values = _reshape_columns(grid_values, data_size, array_module=array_module)
+        weighted_values = _scale_rows(values, objective_weights, array_module=array_module)
+        rhs = data.rmatmat(weighted_values)
+        return _solve_cholesky_factor(factor, rhs, array_module)
+
+    def solve_adjoint(coefficients):
+        array_module = data.array_module(coefficients, factor)
+        values = _reshape_columns(coefficients, solution_size, array_module=array_module)
+        analyzed = data.matmat(_solve_cholesky_factor(factor, values, array_module))
+        return _scale_rows(analyzed, objective_weights, array_module=array_module)
+
+    return LinearMap(
+        shape=(solution_size, data_size),
+        dtype=np.result_type(data.dtype, factor.dtype, objective_weights.dtype),
+        _matvec=lambda values: solve_coefficients(values).reshape(-1),
+        _rmatvec=lambda values: solve_adjoint(values).reshape(-1),
+        _matmat=solve_coefficients,
+        _rmatmat=solve_adjoint,
+        _backend_context=(*data.backend_context, factor),
+        input_shape=input_shape,
+        output_shape=output_shape,
+    )
+
+
 def sparse_constrained_least_squares_map(
-    data_matrix,
-    constraint_matrix,
-    *,
-    sqrt_weights=None,
-    input_shape=None,
-    output_shape=None,
+    data_matrix, constraint_matrix, *, sqrt_weights=None, input_shape=None, output_shape=None
 ) -> LinearMap:
     """Factor a sparse equality-constrained least-squares response map.
 
@@ -145,29 +201,19 @@ def sparse_constrained_least_squares_map(
     constraints = sp.csr_matrix(constraint_matrix)
     data_size, solution_size = data.shape
     if constraints.shape[1] != solution_size:
-        raise ValueError(
-            "constraint_matrix must have the same number of columns as data_matrix."
-        )
+        raise ValueError("constraint_matrix must have the same number of columns as data_matrix.")
 
     objective_weights = _squared_objective_weights(sqrt_weights, data_size)
 
     weighted_data = sp.diags(np.sqrt(objective_weights)) @ data
     normal_matrix = weighted_data.T.conjugate() @ weighted_data
     kkt_matrix = sp.bmat(
-        [
-            [normal_matrix, constraints.T.conjugate()],
-            [constraints, None],
-        ],
-        format="csc",
+        [[normal_matrix, constraints.T.conjugate()], [constraints, None]], format="csc"
     )
     factor = splu(kkt_matrix)
     data_adjoint = data.T.conjugate().tocsr()
     data_coo = data.tocoo()
-    data_coo_parts = (
-        data_coo.data,
-        np.column_stack([data_coo.row, data_coo.col]),
-        data_coo.shape,
-    )
+    data_coo_parts = (data_coo.data, np.column_stack([data_coo.row, data_coo.col]), data_coo.shape)
     data_adjoint_coo = data_adjoint.tocoo()
     data_adjoint_coo_parts = (
         data_adjoint_coo.data,
@@ -213,11 +259,7 @@ def sparse_constrained_least_squares_map(
 
     def append_constraint_zeros(values):
         array_module = get_array_module(values)
-        shape = (
-            (constraint_size,)
-            if values.ndim == 1
-            else (constraint_size, values.shape[1])
-        )
+        shape = (constraint_size,) if values.ndim == 1 else (constraint_size, values.shape[1])
         return array_module.concatenate(
             [values, array_module.zeros(shape, dtype=values.dtype)], axis=0
         )
@@ -225,9 +267,7 @@ def sparse_constrained_least_squares_map(
     def solve_coefficients(grid_values):
         array_module = get_array_module(grid_values)
         values = _reshape_columns(grid_values, data_size, array_module=array_module)
-        weighted_values = _scale_rows(
-            values, objective_weights, array_module=array_module
-        )
+        weighted_values = _scale_rows(values, objective_weights, array_module=array_module)
         normal_rhs = (
             data_adjoint @ weighted_values
             if array_module is np
@@ -295,7 +335,9 @@ class LeastSquaresSolver:
     ) -> Any:
         """Solve least-squares problem for given right-hand side(s)."""
         preconditioner_map = self._prepare_preconditioner(problem, preconditioner)
-        rhs_block, rhs_shape, num_rhs = problem.assemble_rhs_block(rhs)
+        rhs_block, rhs_shape, num_rhs = problem.assemble_rhs_block(
+            rhs, include_regularization=self.solver != "normal_pinv"
+        )
         if rhs_block is None:
             dtype = problem.A[0].dtype if problem.A else np.float64
             return get_array_module().zeros(problem.solution_shape + rhs_shape, dtype=dtype)
@@ -357,7 +399,7 @@ class LeastSquaresSolver:
         self, problem: LeastSquaresProblem, rhs_block: np.ndarray, *_args, **_kwargs
     ) -> np.ndarray:
         """Solve through the pseudo-inverse of the normal equations."""
-        _, _, normal_rhs = self._dense_normal_equations(problem, rhs_block)
+        normal_rhs = problem.data_operator.rmatmat(rhs_block)
         normal_pinv = problem.dense_normal_pinv(self.tolerance)
         # Finish this dependent backend matmul before callers assemble
         # NumPy/SciPy blocks.
@@ -367,15 +409,16 @@ class LeastSquaresSolver:
         self, problem: LeastSquaresProblem
     ) -> Callable[[np.ndarray | list[np.ndarray]], Any]:
         """Build a normal-pinv response solver with cached factors."""
-        xp, _, system_matrix_adjoint, _ = problem.dense_normal_equations()
         normal_pinv = problem.dense_normal_pinv(self.tolerance)
+        data_operator = problem.data_operator
+        xp = get_array_module(normal_pinv, *data_operator.backend_context)
 
         def solve_response(rhs: np.ndarray | list[np.ndarray]) -> Any:
-            rhs_block, rhs_shape, _ = problem.assemble_rhs_block(rhs)
+            rhs_block, rhs_shape, _ = problem.assemble_rhs_block(rhs, include_regularization=False)
             if rhs_block is None:
                 dtype = problem.A[0].dtype if problem.A else np.float64
                 return xp.zeros(problem.solution_shape + rhs_shape, dtype=dtype)
-            solution_block = normal_pinv @ (system_matrix_adjoint @ rhs_block)
+            solution_block = normal_pinv @ data_operator.rmatmat(rhs_block)
             return block_until_ready(solution_block.reshape(problem.solution_shape + rhs_shape))
 
         return solve_response
@@ -467,11 +510,7 @@ class LeastSquaresSolver:
             message = (
                 f"LSMR may not have converged for RHS column {column} (stop_code={stop_code})."
             )
-        warnings.warn(
-            message,
-            RuntimeWarning,
-            stacklevel=3,
-        )
+        warnings.warn(message, RuntimeWarning, stacklevel=3)
 
     def _solve_cgls(
         self,

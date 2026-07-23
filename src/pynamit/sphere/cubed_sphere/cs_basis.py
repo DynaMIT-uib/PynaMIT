@@ -551,11 +551,7 @@ class CSBasis(SurfaceOperators):
             )
         )
         return sparse_constrained_least_squares_map(
-            synthesis,
-            gauges,
-            sqrt_weights=sqrt_weights,
-            input_shape=(2, n),
-            output_shape=(2, n),
+            synthesis, gauges, sqrt_weights=sqrt_weights, input_shape=(2, n), output_shape=(2, n)
         )
 
     def _sparse_laplacian_matrix(self, r=1.0):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from functools import cached_property
 from typing import Any, TypeAlias
 
@@ -10,12 +11,13 @@ import numpy as np
 import scipy.sparse
 from scipy.sparse.linalg import LinearOperator
 
-from pynamit.math.backend import asarray, block_after_jax_linalg, get_array_module
+from pynamit.math.backend import asarray, block_after_jax_linalg, get_array_module, to_numpy
 from pynamit.math.linear_map import LinearMap, as_linear_map, vstack_linear_maps
 
 OperatorInput: TypeAlias = np.ndarray | scipy.sparse.spmatrix | LinearOperator | LinearMap
 OperatorInputList: TypeAlias = OperatorInput | list[OperatorInput]
 NumericInputList: TypeAlias = float | list[float]
+_NORMAL_PINV_CACHE_VERSION = 1
 
 
 class LeastSquaresProblem:
@@ -29,6 +31,9 @@ class LeastSquaresProblem:
         sqrt_weights: Any | list[Any] | None = None,
         regularization_weights: NumericInputList | None = None,
         regularization_matrices: OperatorInputList | None = None,
+        operator_cache: Any | None = None,
+        cache_identity: Any | None = None,
+        data_normal_matrix_builder: Callable[[], Any] | None = None,
     ):
         self.solution_shape = (
             (solution_shape,) if isinstance(solution_shape, int) else tuple(solution_shape)
@@ -38,6 +43,10 @@ class LeastSquaresProblem:
         self._dense_system_matrix_cache: dict[str, Any] = {}
         self._dense_normal_equation_cache: dict[str, tuple[Any, Any, Any]] = {}
         self._dense_normal_pinv_cache: dict[tuple[str, float], Any] = {}
+        self.operator_cache = operator_cache
+        self.cache_identity = cache_identity
+        self.data_normal_matrix_builder = data_normal_matrix_builder
+        self._data_normal_matrix_cache = None
 
         self._process_data_terms(A, data_shapes, sqrt_weights)
         self._process_regularization_terms(regularization_matrices, regularization_weights)
@@ -94,7 +103,10 @@ class LeastSquaresProblem:
             for index, matrix in enumerate(self.regularization_matrices)
         ):
             return [0.0] * len(self.regularization_matrices)
-        diag_A_T_A = self.data_operator.normal_matrix_diag()
+        if self.data_normal_matrix_builder is None:
+            diag_A_T_A = self.data_operator.normal_matrix_diag()
+        else:
+            diag_A_T_A = np.diag(self._custom_data_normal_matrix()).real
         active_diag_A = diag_A_T_A[diag_A_T_A > 0]
         data_term_scale = np.median(active_diag_A) if active_diag_A.size > 0 else 1.0
         scaled_lambdas = []
@@ -144,13 +156,78 @@ class LeastSquaresProblem:
 
     def dense_normal_pinv(self, tolerance: float) -> Any:
         """Return cached pseudo-inverse of the dense normal matrix."""
-        xp, _, _, normal_matrix = self.dense_normal_equations()
+        xp = get_array_module()
         key = (_backend_cache_key(xp), float(tolerance))
         if key not in self._dense_normal_pinv_cache:
-            self._dense_normal_pinv_cache[key] = block_after_jax_linalg(
-                xp.linalg.pinv(normal_matrix, rtol=tolerance, hermitian=True)
-            )
+
+            def build():
+                normal_matrix = self.dense_normal_matrix()
+                normal_pinv = to_numpy(
+                    block_after_jax_linalg(
+                        xp.linalg.pinv(normal_matrix, rtol=tolerance, hermitian=True)
+                    )
+                )
+                # Repeated solves need the pseudo-inverse and the lazy
+                # system map, not the dense rectangular system or
+                # normal matrix used to construct it.
+                self._dense_normal_equation_cache.clear()
+                self._dense_system_matrix_cache.clear()
+                self._data_normal_matrix_cache = None
+                self.__dict__.pop("dense_system_matrix", None)
+                return normal_pinv
+
+            if self.operator_cache is None or self.cache_identity is None:
+                value = xp.asarray(build())
+            else:
+                cached = self.operator_cache.get_or_create(
+                    "least_squares_normal_pinv",
+                    {
+                        "algorithm": "least_squares_normal_pinv",
+                        "version": _NORMAL_PINV_CACHE_VERSION,
+                        "problem": self.cache_identity,
+                        "backend": key[0],
+                        "tolerance": float(tolerance),
+                    },
+                    build,
+                )
+                value = xp.asarray(cached)
+            self._dense_normal_pinv_cache[key] = value
         return self._dense_normal_pinv_cache[key]
+
+    def dense_normal_matrix(self) -> Any:
+        """Return the regularized normal matrix."""
+        if self.data_normal_matrix_builder is None:
+            return self.dense_normal_equations()[3]
+
+        data_normal = self._custom_data_normal_matrix()
+        regularization_terms = self._active_regularization_terms()
+        self._data_normal_matrix_cache = None
+        normal = data_normal if data_normal.flags.writeable else np.array(data_normal, copy=True)
+        diagonal_indices = np.diag_indices(self.solution_size)
+        for weight, regularization in regularization_terms:
+            try:
+                diagonal = np.asarray(regularization.diagonal(backend="numpy"))
+            except ValueError:
+                matrix = np.asarray(regularization.to_matrix(backend="numpy"))
+                normal += weight**2 * (matrix.T.conj() @ matrix)
+            else:
+                normal[diagonal_indices] += weight**2 * np.abs(diagonal) ** 2
+        return get_array_module().asarray(normal)
+
+    def _custom_data_normal_matrix(self) -> np.ndarray:
+        """Build and validate a supplied data-term normal matrix."""
+        if self._data_normal_matrix_cache is None:
+            matrix = np.asarray(self.data_normal_matrix_builder())
+            expected_shape = (self.solution_size, self.solution_size)
+            if matrix.shape != expected_shape:
+                raise ValueError(
+                    "data_normal_matrix_builder returned shape "
+                    f"{matrix.shape}, expected {expected_shape}."
+                )
+            if not np.all(np.isfinite(matrix)):
+                raise ValueError("The data normal matrix must contain only finite values.")
+            self._data_normal_matrix_cache = matrix
+        return self._data_normal_matrix_cache
 
     def _dense_system_matrix(self, backend_key: str) -> Any:
         """Return cached dense system matrix for one backend key."""
@@ -166,7 +243,9 @@ class LeastSquaresProblem:
         """Compute the SVD of the dense system matrix."""
         return np.linalg.svd(self.dense_system_matrix, full_matrices=False)
 
-    def assemble_rhs_block(self, b: Any | list[Any]) -> tuple[Any | None, tuple[int, ...], int]:
+    def assemble_rhs_block(
+        self, b: Any | list[Any], *, include_regularization: bool = True
+    ) -> tuple[Any | None, tuple[int, ...], int]:
         """Assemble one or more right-hand side columns."""
         b_list = self._prepare_input_list(b, "b", count=self.num_data_terms)
         processed = [
@@ -181,8 +260,12 @@ class LeastSquaresProblem:
 
         num_rhs = math.prod(rhs_shape) if rhs_shape else 1
         dtype = self.A[0].dtype if self.A else np.float64
-        active_regularization_terms = self._active_regularization_terms()
-        backend_context = self.get_system_linear_map().backend_context
+        active_regularization_terms = (
+            self._active_regularization_terms() if include_regularization else ()
+        )
+        backend_context = self.get_system_linear_map(
+            include_regularization=include_regularization
+        ).backend_context
         xp = get_array_module(*(p[0] for p in valid_b), *backend_context)
 
         blocks = []

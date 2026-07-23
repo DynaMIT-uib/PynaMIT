@@ -39,9 +39,7 @@ class _FakeSimulation:
             input_series=SimpleNamespace(),
             output_series=SimpleNamespace(datasets={}),
             schema=SimpleNamespace(
-                output_field_spaces={
-                    "state": {"m_ind": SimpleNamespace(index_length=1)}
-                }
+                output_field_spaces={"state": {"m_ind": SimpleNamespace(index_length=1)}}
             ),
             save_output_dataset=lambda key: self.saved.append((key, float(self.current_time))),
         )
@@ -149,3 +147,27 @@ def test_exponential_propagator_reused_until_operator_or_dt_changes(monkeypatch)
     np.testing.assert_allclose(first, [[1.0]])
     np.testing.assert_allclose(third, [[2.0]])
     np.testing.assert_allclose(fourth, [[3.0]])
+
+
+def test_exponential_propagator_identity_tracks_active_resistance(monkeypatch):
+    """Equivalent closures reuse a propagator by exact resistance."""
+    simulation = _FakeSimulation(integrator="exponential")
+    simulation.response.resistance_fingerprint = "first"
+    runner = SimulationRunner(simulation)
+    calls = []
+
+    def build_propagator(_response, _dt, *, m_ind_feedback_matrix):
+        calls.append(m_ind_feedback_matrix)
+        return np.array([[len(calls)]], dtype=float)
+
+    monkeypatch.setattr(induction, "exponential_propagator", build_propagator)
+
+    first = runner._exponential_propagator_for_step(0.1)
+    simulation.response.m_ind_feedback_matrix = np.eye(1) * 2.0
+    equivalent = runner._exponential_propagator_for_step(0.1)
+    simulation.response.resistance_fingerprint = "second"
+    changed = runner._exponential_propagator_for_step(0.1)
+
+    assert equivalent is first
+    assert changed is not first
+    assert len(calls) == 2

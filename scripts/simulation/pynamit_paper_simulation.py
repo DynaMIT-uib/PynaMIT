@@ -262,12 +262,12 @@ def run_paper_simulation(settings: PaperSimulationSettings = SETTINGS) -> pynami
     return simulation
 
 
-def main() -> None:
+def main(settings: PaperSimulationSettings = SETTINGS) -> None:
     """Run the configured prepare/run workflow."""
-    if SETTINGS.prepare_inputs:
-        prepare_paper_inputs(SETTINGS)
-    if SETTINGS.run_simulation:
-        run_paper_simulation(SETTINGS)
+    if settings.prepare_inputs:
+        prepare_paper_inputs(settings)
+    if settings.run_simulation:
+        run_paper_simulation(settings)
 
 
 if __name__ == "__main__":

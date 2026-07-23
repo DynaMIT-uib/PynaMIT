@@ -4,16 +4,17 @@ This module contains the SphericalTransform class for converting between
 spherical-basis coefficients and grid values.
 """
 
-import hashlib
 from collections import OrderedDict
 
 import numpy as np
+from scipy.linalg import cholesky
 
+from pynamit.math import array_fingerprint
 from pynamit.math.backend import get_array_module
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import (
     LeastSquaresSolver,
-    dense_full_rank_least_squares_map,
+    factorized_least_squares_map,
     get_default_least_squares_solver,
 )
 from pynamit.math.linear_map import (
@@ -23,8 +24,11 @@ from pynamit.math.linear_map import (
     is_noop_linear_map,
 )
 from pynamit.math.tensor_operations import weighted_tensor_pinv
-from pynamit.sphere.core import SurfaceOperators
+from pynamit.sphere.core import SurfaceOperators, is_sh_basis
 from pynamit.sphere.grid import Grid
+
+_LEAST_SQUARES_CACHE_VERSION = 1
+_WEIGHTED_PRODUCT_WORK_BYTES = 512 * 1024**2
 
 
 def grid_sqrt_area_weights(grid):
@@ -59,25 +63,123 @@ def _representation_signature(representation):
     return getattr(representation, "coefficient_space_signature", id(representation))
 
 
-def _array_fingerprint(values):
-    """Return compact content identity for a concrete numeric array."""
-    try:
-        array = np.asarray(values)
-    except (TypeError, ValueError):
-        return None
-    if array.dtype.hasobject:
-        return None
-
-    canonical = np.ascontiguousarray(array)
-    digest = hashlib.blake2b(canonical.tobytes(), digest_size=16).hexdigest()
-    return canonical.shape, canonical.dtype.str, digest
-
-
 def _owned_explicit_weights(values):
     """Own weights so cached analysis cannot be mutated externally."""
     owned = np.array(values, copy=True, order="C")
     owned.setflags(write=False)
     return owned
+
+
+def _helmholtz_squared_weights(sqrt_weights, grid_size):
+    """Return objective weights by vector component and point."""
+    if sqrt_weights is None:
+        return np.ones((2, grid_size))
+    values = np.asarray(sqrt_weights, dtype=float)
+    if values.size != 2 * grid_size:
+        raise ValueError(
+            f"Helmholtz sqrt_weights must contain {2 * grid_size} values; got {values.size}."
+        )
+    if not np.all(np.isfinite(values)) or np.any(values < 0.0):
+        raise ValueError("Helmholtz sqrt_weights must be finite and non-negative.")
+    return values.reshape(2, grid_size) ** 2
+
+
+def _weighted_cross_product(left, right, weights):
+    """Return ``left* diag(weights) right`` in bounded row blocks."""
+    left = np.asarray(left)
+    right = np.asarray(right)
+    weights = np.asarray(weights)
+    if left.shape[0] != right.shape[0] or weights.shape != (left.shape[0],):
+        raise ValueError("Weighted cross-product operands have incompatible shapes.")
+    dtype = np.result_type(left.dtype, right.dtype, weights.dtype)
+    result = np.zeros((left.shape[1], right.shape[1]), dtype=dtype)
+    bytes_per_row = max(1, right.shape[1] * np.dtype(dtype).itemsize)
+    rows_per_block = max(1, _WEIGHTED_PRODUCT_WORK_BYTES // bytes_per_row)
+    for start in range(0, left.shape[0], rows_per_block):
+        stop = min(left.shape[0], start + rows_per_block)
+        weighted_right = weights[start:stop, None] * right[start:stop]
+        result += left[start:stop].T.conj() @ weighted_right
+    return result
+
+
+def _scalar_data_normal_matrix(matrix, sqrt_weights):
+    """Return a weighted scalar data-term normal matrix."""
+    matrix = np.asarray(matrix)
+    if matrix.ndim != 2:
+        raise ValueError("Scalar synthesis must be a 2-D matrix.")
+    if sqrt_weights is None:
+        weights = np.ones(matrix.shape[0])
+    else:
+        weights = np.asarray(sqrt_weights, dtype=float).reshape(-1)
+        if weights.shape != (matrix.shape[0],):
+            raise ValueError("Scalar sqrt_weights must match the grid size.")
+        if not np.all(np.isfinite(weights)) or np.any(weights < 0.0):
+            raise ValueError("Scalar sqrt_weights must be finite and non-negative.")
+        weights = weights**2
+    return _weighted_cross_product(matrix, matrix, weights)
+
+
+def _helmholtz_data_normal_matrix(theta_matrix, phi_matrix, sqrt_weights):
+    """Return a normal matrix without a Helmholtz synthesis tensor."""
+    theta = np.asarray(theta_matrix)
+    phi = np.asarray(phi_matrix)
+    if theta.shape != phi.shape or theta.ndim != 2:
+        raise ValueError("Helmholtz derivative matrices must be matching 2-D arrays.")
+    if not np.all(np.isfinite(theta)) or not np.all(np.isfinite(phi)):
+        raise ValueError("Helmholtz derivative matrices must contain only finite values.")
+
+    grid_size, coefficient_size = theta.shape
+    theta_weights, phi_weights = _helmholtz_squared_weights(sqrt_weights, grid_size)
+    normal = np.empty((2 * coefficient_size, 2 * coefficient_size), order="F")
+
+    if np.array_equal(theta_weights, phi_weights):
+        diagonal = _weighted_cross_product(theta, theta, theta_weights)
+        diagonal += _weighted_cross_product(phi, phi, theta_weights)
+        cross = _weighted_cross_product(theta, phi, theta_weights)
+        cross -= cross.T.conj()
+        normal[:coefficient_size, :coefficient_size] = diagonal
+        normal[coefficient_size:, coefficient_size:] = diagonal
+    else:
+        first_diagonal = _weighted_cross_product(theta, theta, theta_weights)
+        first_diagonal += _weighted_cross_product(phi, phi, phi_weights)
+        second_diagonal = _weighted_cross_product(phi, phi, theta_weights)
+        second_diagonal += _weighted_cross_product(theta, theta, phi_weights)
+        cross = _weighted_cross_product(theta, phi, theta_weights)
+        cross -= _weighted_cross_product(phi, theta, phi_weights)
+        normal[:coefficient_size, :coefficient_size] = first_diagonal
+        normal[coefficient_size:, coefficient_size:] = second_diagonal
+
+    normal[:coefficient_size, coefficient_size:] = cross
+    normal[coefficient_size:, :coefficient_size] = cross.T.conj()
+    return normal
+
+
+def _helmholtz_normal_factor(theta_matrix, phi_matrix, sqrt_weights):
+    """Build a Cholesky factor for Helmholtz analysis."""
+    normal = _helmholtz_data_normal_matrix(theta_matrix, phi_matrix, sqrt_weights)
+    try:
+        return cholesky(normal, lower=True, overwrite_a=True, check_finite=False)
+    except np.linalg.LinAlgError as exc:
+        raise ValueError("Helmholtz synthesis must have full column rank.") from exc
+
+
+def _rhat_cross_gradient_normal_factor(theta_matrix, phi_matrix, sqrt_weights, coefficient_scale):
+    """Build a normal factor for one rotated-gradient potential."""
+    theta = np.asarray(theta_matrix)
+    phi = np.asarray(phi_matrix)
+    scale = np.asarray(coefficient_scale)
+    if theta.shape != phi.shape or theta.ndim != 2:
+        raise ValueError("Derivative matrices must be matching 2-D arrays.")
+    if scale.shape != (theta.shape[1],):
+        raise ValueError("coefficient_scale must match the basis length.")
+    theta_weights, phi_weights = _helmholtz_squared_weights(sqrt_weights, theta.shape[0])
+    normal = _weighted_cross_product(phi, phi, theta_weights)
+    normal += _weighted_cross_product(theta, theta, phi_weights)
+    normal *= scale.conj()[:, None] * scale[None, :]
+    try:
+        return cholesky(normal, lower=True, overwrite_a=True, check_finite=False)
+    except np.linalg.LinAlgError as exc:
+        raise ValueError("Rotated-gradient synthesis must have full column rank.") from exc
 
 
 class SphericalTransform:
@@ -101,6 +203,7 @@ class SphericalTransform:
         reg_lambda=None,
         pinv_rtol=1e-15,
         area_weighted=False,
+        use_persistent_evaluation_cache=True,
     ):
         """Initialize a transform between ``basis`` and ``grid``."""
         if not isinstance(basis, SurfaceOperators):
@@ -121,6 +224,7 @@ class SphericalTransform:
         )
         self.reg_lambda = reg_lambda
         self.pinv_rtol = pinv_rtol
+        self.use_persistent_evaluation_cache = bool(use_persistent_evaluation_cache)
 
         self._scalar_least_squares_problem = None
         self._helmholtz_least_squares_problem = None
@@ -128,7 +232,51 @@ class SphericalTransform:
 
     def _evaluate_basis_on_grid(self, derivative=None):
         """Evaluate the basis on the transform grid."""
+        if not self.use_persistent_evaluation_cache:
+            return self.basis.evaluate_on_grid_uncached(self.grid, derivative=derivative)
         return self.basis.get_scalar_evaluation_matrix(self.grid, derivative=derivative)
+
+    def _operator_cache(self):
+        """Return the basis's persistent operator cache."""
+        basis = getattr(self.basis, "root_basis", self.basis)
+        return getattr(basis, "operator_cache", None)
+
+    def _data_normal_matrix_builder(self, field_type):
+        """Return a memory-bounded SH normal-matrix builder."""
+        if get_array_module() is not np or not is_sh_basis(self.basis):
+            return None
+        if field_type == "scalar":
+            return lambda: _scalar_data_normal_matrix(
+                self.scalar_coeffs_to_grid, self.sqrt_weights
+            )
+        if field_type == "helmholtz":
+            return lambda: _helmholtz_data_normal_matrix(
+                self.scalar_coeffs_to_gridded_theta_derivative,
+                self.scalar_coeffs_to_gridded_phi_derivative,
+                self.helmholtz_sqrt_weights,
+            )
+        raise ValueError(f"Unknown transform field type {field_type!r}.")
+
+    def _least_squares_cache_identity(self, field_type):
+        """Return an exact transform-analysis identity."""
+        if self._operator_cache() is None:
+            return None
+        weights = self.helmholtz_sqrt_weights if field_type == "helmholtz" else self.sqrt_weights
+        return {
+            "algorithm": "spherical_transform_least_squares",
+            "version": _LEAST_SQUARES_CACHE_VERSION,
+            "field_type": str(field_type),
+            "basis": _representation_signature(self.basis),
+            "grid_coordinates": self.grid.exact_coordinate_signature,
+            "sqrt_weights": array_fingerprint(weights),
+            "regularization_lambda": self.reg_lambda,
+            "area_weighted": self.area_weighted,
+            "normal_matrix_algorithm": (
+                "structured_sh_v1"
+                if self._data_normal_matrix_builder(field_type) is not None
+                else "dense_backend_v1"
+            ),
+        }
 
     @property
     def scalar_coeffs_to_grid(self):
@@ -141,8 +289,14 @@ class SphericalTransform:
     def scalar_coeffs_to_grid_operator(self):
         """Operator mapping scalar coefficients to grid values."""
         if not hasattr(self, "_scalar_coeffs_to_grid_operator"):
-            self._scalar_coeffs_to_grid_operator = self.basis.get_scalar_evaluation_operator(
-                self.grid
+            self._scalar_coeffs_to_grid_operator = (
+                self.basis.get_scalar_evaluation_operator(self.grid)
+                if self.use_persistent_evaluation_cache
+                else as_linear_map(
+                    self.scalar_coeffs_to_grid,
+                    input_shape=(self.basis.index_length,),
+                    output_shape=(self.grid.size,),
+                )
             )
         return self._scalar_coeffs_to_grid_operator
 
@@ -166,6 +320,12 @@ class SphericalTransform:
         if not hasattr(self, "_scalar_coeffs_to_gridded_theta_derivative_operator"):
             self._scalar_coeffs_to_gridded_theta_derivative_operator = (
                 self.basis.get_scalar_evaluation_operator(self.grid, derivative="theta")
+                if self.use_persistent_evaluation_cache
+                else as_linear_map(
+                    self.scalar_coeffs_to_gridded_theta_derivative,
+                    input_shape=(self.basis.index_length,),
+                    output_shape=(self.grid.size,),
+                )
             )
         return self._scalar_coeffs_to_gridded_theta_derivative_operator
 
@@ -189,6 +349,12 @@ class SphericalTransform:
         if not hasattr(self, "_scalar_coeffs_to_gridded_phi_derivative_operator"):
             self._scalar_coeffs_to_gridded_phi_derivative_operator = (
                 self.basis.get_scalar_evaluation_operator(self.grid, derivative="phi")
+                if self.use_persistent_evaluation_cache
+                else as_linear_map(
+                    self.scalar_coeffs_to_gridded_phi_derivative,
+                    input_shape=(self.basis.index_length,),
+                    output_shape=(self.grid.size,),
+                )
             )
         return self._scalar_coeffs_to_gridded_phi_derivative_operator
 
@@ -301,18 +467,54 @@ class SphericalTransform:
         if not callable(mean_free) or not mean_free():
             return None
 
-        synthesis = np.asarray(self.helmholtz_coeffs_to_gridded_vector).reshape(
-            2 * self.grid.size, 2 * self.basis.index_length
-        )
+        theta_matrix = self.scalar_coeffs_to_gridded_theta_derivative
+        phi_matrix = self.scalar_coeffs_to_gridded_phi_derivative
         try:
-            return dense_full_rank_least_squares_map(
-                synthesis,
+            cache = self._operator_cache()
+            identity = self._least_squares_cache_identity("helmholtz")
+            if cache is not None and identity is not None:
+                factor = cache.get_or_create(
+                    "least_squares_factor",
+                    {**identity, "factorization": "structured_helmholtz_cholesky"},
+                    lambda: _helmholtz_normal_factor(
+                        theta_matrix, phi_matrix, self.helmholtz_sqrt_weights
+                    ),
+                )
+            else:
+                factor = _helmholtz_normal_factor(
+                    theta_matrix, phi_matrix, self.helmholtz_sqrt_weights
+                )
+            return factorized_least_squares_map(
+                self.helmholtz_coeffs_to_gridded_vector_operator,
+                factor,
                 sqrt_weights=self.helmholtz_sqrt_weights,
                 input_shape=(2, self.grid.size),
                 output_shape=(2, self.basis.index_length),
             )
         except ValueError:
             return None
+
+    def rhat_cross_gradient_analysis_operator(self, *, coefficient_scale=None):
+        """Factor analysis for one rotated-gradient potential."""
+        if coefficient_scale is None:
+            coefficient_scale = np.ones(self.basis.index_length)
+        scale = np.asarray(coefficient_scale)
+        factor = _rhat_cross_gradient_normal_factor(
+            self.scalar_coeffs_to_gridded_theta_derivative,
+            self.scalar_coeffs_to_gridded_phi_derivative,
+            self.helmholtz_sqrt_weights,
+            scale,
+        )
+        synthesis = self.scalar_coeffs_to_gridded_rhat_cross_gradient_operator
+        if not np.all(scale == 1):
+            synthesis = synthesis @ diagonal_linear_map(scale)
+        return factorized_least_squares_map(
+            synthesis,
+            factor,
+            sqrt_weights=self.helmholtz_sqrt_weights,
+            input_shape=(2, self.grid.size),
+            output_shape=(self.basis.index_length,),
+        )
 
     @property
     def G(self):
@@ -393,6 +595,9 @@ class SphericalTransform:
                 sqrt_weights=self.sqrt_weights,
                 regularization_weights=self.reg_lambda,
                 regularization_matrices=self.scalar_regularization_operator,
+                operator_cache=self._operator_cache(),
+                cache_identity=self._least_squares_cache_identity("scalar"),
+                data_normal_matrix_builder=self._data_normal_matrix_builder("scalar"),
             )
         return self._scalar_least_squares_problem
 
@@ -407,6 +612,9 @@ class SphericalTransform:
                 sqrt_weights=self.helmholtz_sqrt_weights,
                 regularization_weights=self.reg_lambda,
                 regularization_matrices=self.helmholtz_regularization_operator,
+                operator_cache=self._operator_cache(),
+                cache_identity=self._least_squares_cache_identity("helmholtz"),
+                data_normal_matrix_builder=self._data_normal_matrix_builder("helmholtz"),
             )
         return self._helmholtz_least_squares_problem
 
@@ -704,7 +912,7 @@ class SphericalTransform:
     ):
         """Return transform for direct input-grid projection."""
         if sqrt_weights is not None:
-            weight_signature = _array_fingerprint(sqrt_weights)
+            weight_signature = array_fingerprint(sqrt_weights)
             if weight_signature is None:
                 return SphericalTransform(
                     projection_basis,

@@ -1,6 +1,7 @@
 """Tests for prepared input package helpers."""
 
 import json
+import shutil
 
 import numpy as np
 import pytest
@@ -39,9 +40,7 @@ def test_geographic_wind_is_rotated_into_model_coordinates():
     u_phi = np.array([[5.0, 6.0], [7.0, 8.0]])
 
     theta_model, phi_model, model_lat, model_lon = (
-        prepared_inputs_module._wind_to_model_coordinates(
-            main_field, u_theta, u_phi, lat, lon
-        )
+        prepared_inputs_module._wind_to_model_coordinates(main_field, u_theta, u_phi, lat, lon)
     )
     expected_lat, expected_lon = main_field.geo_to_model_coordinates(
         lat, lon, event_time=event_time
@@ -348,6 +347,92 @@ def test_run_from_inputs_rejects_changed_input_identity(tmp_path):
         )
 
     assert (run_directory / "jr.ncdf").exists()
+
+
+def test_run_from_inputs_allows_prepared_package_relocation(tmp_path):
+    """The input manifest identifies a relocated package."""
+    input_directory = tmp_path / "inputs"
+    relocated_directory = tmp_path / "relocated-inputs"
+    run_directory = tmp_path / "run"
+    prepare_pynamit_inputs(
+        input_directory, final_time=0.0, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf"
+    )
+    run_pynamit_from_inputs(
+        input_directory,
+        run_directory=run_directory,
+        final_time=0.0,
+        RM=2 * RE,
+        artifact_storage="netcdf",
+    )
+    shutil.copytree(input_directory, relocated_directory)
+
+    result = run_pynamit_from_inputs(
+        relocated_directory,
+        run_directory=run_directory,
+        final_time=0.0,
+        RM=2 * RE,
+        artifact_storage="netcdf",
+        skip_completed=True,
+    )
+
+    assert result is None
+
+
+def test_run_from_inputs_skips_completed_run_before_geometry(monkeypatch, tmp_path):
+    """Batch sweeps do not rebuild completed-run geometry."""
+    input_directory = tmp_path / "inputs"
+    run_directory = tmp_path / "run"
+    prepare_pynamit_inputs(
+        input_directory, final_time=0.0, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf"
+    )
+    run_pynamit_from_inputs(
+        input_directory,
+        run_directory=run_directory,
+        final_time=0.0,
+        RM=2 * RE,
+        artifact_storage="netcdf",
+    )
+
+    monkeypatch.setattr(
+        prepared_inputs_module.Simulation,
+        "from_config",
+        lambda *_args, **_kwargs: pytest.fail("completed run rebuilt geometry"),
+    )
+    result = run_pynamit_from_inputs(
+        input_directory,
+        run_directory=run_directory,
+        final_time=0.0,
+        RM=2 * RE,
+        artifact_storage="netcdf",
+        skip_completed=True,
+    )
+
+    assert result is None
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"final_time": -1.0}, "finite, non-negative"),
+        ({"skip_completed": "yes"}, "skip_completed"),
+        ({"run_inductive": False, "run_steady_state": False}, "At least one"),
+    ],
+)
+def test_run_from_inputs_validates_batch_options_before_skipping(tmp_path, kwargs, match):
+    """Completion preflight cannot bypass evolution validation."""
+    input_directory = tmp_path / "inputs"
+    prepare_pynamit_inputs(
+        input_directory, final_time=0.0, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf"
+    )
+
+    with pytest.raises(ValueError, match=match):
+        run_pynamit_from_inputs(
+            input_directory,
+            run_directory=tmp_path / "run",
+            RM=2 * RE,
+            artifact_storage="netcdf",
+            **kwargs,
+        )
 
 
 def test_run_from_inputs_requires_a_separate_run_directory(tmp_path):

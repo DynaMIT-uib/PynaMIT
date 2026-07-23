@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 
 from pynamit.fields import FieldCoefficients
+from pynamit.math import content_fingerprint
 from pynamit.math.backend import block_after_jax_linalg, get_array_module, to_jax, use_jax, xp
 from pynamit.math.least_squares_problem import LeastSquaresProblem
 from pynamit.math.least_squares_solver import LeastSquaresSolver
@@ -155,6 +156,7 @@ class ElectrodynamicResponse:
 
     def _invalidate_closure_caches(self) -> None:
         """Invalidate resistance-dependent cached properties."""
+        self._resistance_fingerprint_cache: str | None = None
         self._resistance_tensor_on_grid: np.ndarray | None = None
         self._m_ind_to_E_coeffs_cache: LinearMap | None = None
         self._m_imp_to_E_coeffs_cache: LinearMap | None = None
@@ -182,6 +184,23 @@ class ElectrodynamicResponse:
         self._m_imp_preconditioner_ready = False
 
     # ----- Cached Physical Properties (dependent on resistance) -----
+
+    @property
+    def resistance_fingerprint(self) -> str:
+        """Return exact active-resistance identity."""
+        if self.etaP is None or self.etaH is None:
+            raise RuntimeError(
+                "Resistance or conductance must be set before it can be fingerprinted."
+            )
+        if self._resistance_fingerprint_cache is None:
+            self._resistance_fingerprint_cache = content_fingerprint(
+                {
+                    "field_space": self.etaP.field_space.signature,
+                    "etaP": np.asarray(self.etaP.array),
+                    "etaH": np.asarray(self.etaH.array),
+                }
+            )
+        return self._resistance_fingerprint_cache
 
     @property
     def resistance_tensor_on_grid(self) -> np.ndarray:
@@ -237,9 +256,7 @@ class ElectrodynamicResponse:
     def _sheet_current_source_to_E_coeffs_operator(self, source_to_JS: LinearMap) -> LinearMap:
         """Map a magnetic source through derived sheet current to E."""
         return ionospheric_closure.tangential_current_to_E_coeffs_operator(
-            self.geometry.helmholtz_analysis_operator,
-            self.resistance_tensor_on_grid,
-            source_to_JS,
+            self.geometry.helmholtz_analysis_operator, self.resistance_tensor_on_grid, source_to_JS
         )
 
     @property
@@ -459,8 +476,7 @@ class ElectrodynamicResponse:
                 self.geometry.interhemispheric_electric_field_difference_operator.matvec(driving_E)
             )
             rhs_entries[1] = (
-                -self.config.interhemispheric_electric_field_weight
-                * electric_field_difference
+                -self.config.interhemispheric_electric_field_weight * electric_field_difference
             )
             has_rhs = True
 
@@ -564,9 +580,7 @@ class ElectrodynamicResponse:
                 input_shape=source_to_driving_E.input_shape,
                 output_shape=(self.geometry.horizontal_basis.index_length,),
             )
-            total_E_from_source = (
-                source_to_driving_E + self.m_imp_to_E_coeffs @ m_imp_from_source
-            )
+            total_E_from_source = source_to_driving_E + self.m_imp_to_E_coeffs @ m_imp_from_source
         return self.geometry.helmholtz_divergence_free_potential_operator @ total_E_from_source
 
     @property
@@ -595,6 +609,9 @@ class ElectrodynamicResponse:
         self, input_series: Any, time: float, interpolation: bool = False
     ) -> None:
         """Update inputs active at the requested simulation time."""
+        previous_resistance_fingerprint = (
+            None if self.etaP is None or self.etaH is None else self.resistance_fingerprint
+        )
         resistance_updated = False
         for key in input_series.datasets:
             updated_input = input_series.get_entry_if_changed(key, time, interpolation)
@@ -619,10 +636,17 @@ class ElectrodynamicResponse:
             resistance_updated |= key == "resistance"
 
         if resistance_updated:
+            self._resistance_fingerprint_cache = None
+            active_resistance_fingerprint = self.resistance_fingerprint
+            if active_resistance_fingerprint == previous_resistance_fingerprint:
+                logger.info("Resistance coefficients unchanged: retaining closure caches.")
+                return
+
             logger.info("Resistance updated: invalidating caches and problem definition.")
             preconditioner_to_keep = self._m_imp_preconditioner_cache
             preconditioner_ready_to_keep = self._m_imp_preconditioner_ready
             self._invalidate_closure_caches()
+            self._resistance_fingerprint_cache = active_resistance_fingerprint
             if self.config.reuse_preconditioner and preconditioner_ready_to_keep:
                 logger.info("...reusing preconditioner due to configuration.")
                 self._m_imp_preconditioner_cache = preconditioner_to_keep
@@ -686,9 +710,7 @@ class ElectrodynamicResponse:
         """Return E and imposed-potential responses caused by m_ind."""
         E_shape = (2, self.geometry.horizontal_basis.index_length)
         driving_E = self._apply_operator(
-            self._runtime_m_ind_to_E_coeffs,
-            xp.asarray(m_ind),
-            E_shape,
+            self._runtime_m_ind_to_E_coeffs, xp.asarray(m_ind), E_shape
         )
         return self._complete_electric_response(driving_E, None)
 
@@ -733,9 +755,7 @@ class ElectrodynamicResponse:
             )
             poloidal_size = self.geometry.poloidal_basis.index_length
             steady_poloidal_response = as_linear_map(
-                -feedback_pinv,
-                input_shape=(poloidal_size,),
-                output_shape=(poloidal_size,),
+                -feedback_pinv, input_shape=(poloidal_size,), output_shape=(poloidal_size,)
             )
             self._noninductive_E_df_to_steady_m_ind_operator = (
                 steady_poloidal_response @ self.geometry.surface_to_poloidal_operator
@@ -744,10 +764,7 @@ class ElectrodynamicResponse:
 
     def _create_m_ind_feedback_operator(self) -> LinearMap:
         """Construct induced-state feedback in poloidal space."""
-        return (
-            self.geometry.surface_to_poloidal_operator
-            @ self.m_ind_to_E_df_operator
-        )
+        return self.geometry.surface_to_poloidal_operator @ self.m_ind_to_E_df_operator
 
     def _build_m_ind_feedback_matrix(self) -> None:
         """Construct the dense induced-state feedback matrix."""

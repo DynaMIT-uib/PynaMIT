@@ -197,9 +197,7 @@ def _collect_comparison_data(h5file, input_series, timesteps, input_dt, data_typ
             details = _INPUT_DATA_DETAILS[data_type]
             series_key = _INPUT_TIMESERIES_KEY[data_type]
             target_lon, target_lat, target_shape = _target_grid(grids, details["grid_type"])
-            raw = _read_raw_input_field(
-                h5file, data_type, details, timestep, target_shape
-            )
+            raw = _read_raw_input_field(h5file, data_type, details, timestep, target_shape)
 
             projected = np.full(target_shape, np.nan)
             if series_key in input_series.datasets:

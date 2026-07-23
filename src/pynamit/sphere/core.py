@@ -220,6 +220,10 @@ class SurfaceOperators(SphericalBasis):
         """Evaluate basis functions or derivatives on ``grid``."""
         pass
 
+    def evaluate_on_grid_uncached(self, grid, derivative=None):
+        """Evaluate without optional persistent materialization."""
+        return self.evaluate_on_grid(grid, derivative=derivative)
+
     @abstractmethod
     def laplacian(self, r=1.0):
         """Return the scalar surface Laplacian operator."""
@@ -281,10 +285,13 @@ class SurfaceOperators(SphericalBasis):
 
     def get_helmholtz_synthesis_operator(self, grid):
         """Return the Helmholtz-potential-to-vector operator."""
-        matrix = self.get_helmholtz_synthesis_matrix(grid)
-        return as_linear_map(
-            matrix, input_shape=(2, self.index_length), output_shape=matrix.shape[:2]
+        curl_free = self.get_surface_gradient_operator(grid) @ _helmholtz_component_operator(
+            self.index_length, 0
         )
+        divergence_free = self.get_rhat_cross_gradient_operator(
+            grid
+        ) @ _helmholtz_component_operator(self.index_length, 1)
+        return -curl_free + divergence_free
 
     def get_helmholtz_curl_free_potential_matrix(self):
         """Return the Helmholtz-to-curl-free-potential matrix."""
@@ -537,10 +544,24 @@ class BasisView(SurfaceOperators):
             return array[indices][:, indices]
         raise ValueError(f"{operator_name} must be a 1-D or square 2-D coefficient operator.")
 
+    def _slice_evaluation(self, result):
+        """Slice parent evaluation columns into this view."""
+        indices = self._parent_coefficient_indices
+        if indices.size and np.all(np.diff(indices) == 1):
+            return result[:, slice(int(indices[0]), int(indices[-1]) + 1)]
+        return result[:, indices]
+
     def evaluate_on_grid(self, grid, derivative=None):
         """Evaluate the viewed basis functions on ``grid``."""
-        result = self.parent_basis.evaluate_on_grid(grid, derivative=derivative)
-        return result[:, self._parent_coefficient_indices]
+        return self._slice_evaluation(
+            self.parent_basis.evaluate_on_grid(grid, derivative=derivative)
+        )
+
+    def evaluate_on_grid_uncached(self, grid, derivative=None):
+        """Evaluate the view without persistent materialization."""
+        return self._slice_evaluation(
+            self.parent_basis.evaluate_on_grid_uncached(grid, derivative=derivative)
+        )
 
     def laplacian(self, r=1.0):
         """Return the viewed scalar surface Laplacian operator."""

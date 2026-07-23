@@ -11,6 +11,7 @@ from numpy.typing import ArrayLike
 from pynamit.geomagnetism import MagneticFieldEvaluation, MainField
 from pynamit.math import (
     LinearMap,
+    array_fingerprint,
     as_linear_map,
     diagonal_linear_map,
     identity_linear_map,
@@ -26,6 +27,7 @@ from pynamit.sphere import CSBasis, Grid, SolidHarmonics, SurfaceOperators, is_s
 from pynamit.sphere.spherical_transform import SphericalTransform, resolve_sqrt_weights
 
 logger = logging.getLogger(__name__)
+_PFAC_CACHE_VERSION = 1
 
 
 def build_main_field(config: SimulationConfig) -> MainField:
@@ -56,6 +58,7 @@ class SimulationGeometry:
         config: SimulationConfig,
         pfac_matrix: ArrayLike | None = None,
         solid_harmonics: SolidHarmonics | None = None,
+        operator_cache=None,
     ) -> None:
         """Initialize the geometric context."""
         if not isinstance(horizontal_basis, SurfaceOperators):
@@ -76,6 +79,7 @@ class SimulationGeometry:
             )
         self.poloidal_basis = self.solid_harmonics.basis
         self.main_field = main_field
+        self.operator_cache = operator_cache
 
         # Store the configuration values used by geometric construction.
         self.RI = config.RI
@@ -221,9 +225,7 @@ class SimulationGeometry:
             )
         normalized_mean = np.sqrt(self.horizontal_basis.index_length) * weights
         return as_linear_map(
-            normalized_mean.reshape(1, -1),
-            input_shape=expected_shape,
-            output_shape=(1,),
+            normalized_mean.reshape(1, -1), input_shape=expected_shape, output_shape=(1,)
         )
 
     def _build_surface_to_poloidal_operator(self):
@@ -263,9 +265,7 @@ class SimulationGeometry:
         )
         if cache_key not in self._poloidal_transform_cache:
             self._poloidal_transform_cache[cache_key] = SphericalTransform(
-                self.poloidal_basis,
-                transform.grid,
-                area_weighted=self.area_weighted_least_squares,
+                self.poloidal_basis, transform.grid, area_weighted=self.area_weighted_least_squares
             )
         return self._poloidal_transform_cache[cache_key]
 
@@ -487,7 +487,9 @@ class SimulationGeometry:
         footpoint_grid = Grid(theta=theta_footpoint, phi=phi_footpoint)
         shell_field = MagneticFieldEvaluation(self.main_field, self.model_grid, radius)
         footpoint_field = MagneticFieldEvaluation(self.main_field, footpoint_grid, self.RI)
-        footpoint_transform = SphericalTransform(self.horizontal_basis, footpoint_grid)
+        footpoint_transform = SphericalTransform(
+            self.horizontal_basis, footpoint_grid, use_persistent_evaluation_cache=False
+        )
 
         jr_to_gridded_JS = pointwise_matrix_linear_map(
             np.array(
@@ -499,9 +501,8 @@ class SimulationGeometry:
             self.solid_harmonics.regular_reference_shift(radius, self.RI), copy=True
         )
         if self.RM is not None:
-            poloidal_scale -= (
-                outer_regular_to_ionosphere
-                * np.asarray(self.solid_harmonics.irregular_reference_shift(radius, self.RM))
+            poloidal_scale -= outer_regular_to_ionosphere * np.asarray(
+                self.solid_harmonics.irregular_reference_shift(radius, self.RM)
             )
 
         poloidal_scale *= boundary_response_factor
@@ -516,27 +517,59 @@ class SimulationGeometry:
 
     def _build_pfac_matrix(self) -> None:
         """Construct the PFAC coupling matrix by radial integration."""
+        if self.main_field.kind == "radial" or not self.enable_pfac_coupling:
+            pfac_matrix = np.zeros(
+                (self.poloidal_basis.index_length, self.horizontal_basis.index_length)
+            )
+        elif self.operator_cache is None:
+            pfac_matrix = self._compute_pfac_matrix()
+        else:
+            pfac_matrix = self.operator_cache.get_or_create(
+                "pfac_coupling", self._pfac_cache_identity(), self._compute_pfac_matrix
+            )
+        pfac_matrix.flags.writeable = False
+        self._pfac_matrix = pfac_matrix
+
+    def _pfac_cache_identity(self) -> dict:
+        """Return the exact identity of the final PFAC matrix."""
+        field_components = (
+            self.main_field_evaluation.Br,
+            self.main_field_evaluation.Btheta,
+            self.main_field_evaluation.Bphi,
+        )
+        return {
+            "algorithm": "pfac_radial_integration",
+            "version": _PFAC_CACHE_VERSION,
+            "horizontal_basis": self.horizontal_basis.signature,
+            "poloidal_basis": self.poloidal_basis.signature,
+            "model_grid_coordinates": self.model_grid.exact_coordinate_signature,
+            "model_grid_area_weights": array_fingerprint(self.model_grid.area_weights),
+            "main_field_kind": self.main_field.kind,
+            "main_field_epoch": self.main_field.epoch,
+            "main_field_on_model_grid": tuple(
+                array_fingerprint(component) for component in field_components
+            ),
+            "ionosphere_radius": self.RI,
+            "boundary_radius": self.RM,
+            "integration_radii": array_fingerprint(self.fac_integration_radii),
+            "area_weighted_least_squares": self.area_weighted_least_squares,
+        }
+
+    def _compute_pfac_matrix(self) -> np.ndarray:
+        """Compute PFAC from transient shell operators."""
         pfac_matrix = np.zeros(
             (self.poloidal_basis.index_length, self.horizontal_basis.index_length)
         )
-        if self.main_field.kind == "radial" or not self.enable_pfac_coupling:
-            pfac_matrix.flags.writeable = False
-            self._pfac_matrix = pfac_matrix
-            return
-
         integration_radii = np.asarray(self.fac_integration_radii)
         radial_step_widths = np.diff(integration_radii)
         radial_midpoints = integration_radii[:-1] + 0.5 * radial_step_widths
-        poloidal_to_gridded_JS_matrix = magnetic_boundary.poloidal_to_gridded_JS(
-            self.solid_harmonics, self.poloidal_transform
-        )
-        gridded_JS_to_poloidal_operator = dense_full_rank_least_squares_map(
-            poloidal_to_gridded_JS_matrix.reshape(
-                2 * self.model_grid.size, self.poloidal_basis.index_length
-            ),
-            sqrt_weights=self.model_grid_sqrt_weights(vector=True),
-            input_shape=(2, self.model_grid.size),
-            output_shape=(self.poloidal_basis.index_length,),
+        gridded_JS_to_poloidal_operator = (
+            self.poloidal_transform.rhat_cross_gradient_analysis_operator(
+                coefficient_scale=(
+                    -np.asarray(self.solid_harmonics.poloidal_to_boundary_potential_jump_factor)
+                    / mu0
+                )
+            )
         )
         outer_regular_to_ionosphere, boundary_response_factor = self._pfac_boundary_response()
 
@@ -553,8 +586,7 @@ class SimulationGeometry:
                 outer_regular_to_ionosphere,
                 boundary_response_factor,
             )
-        pfac_matrix.flags.writeable = False
-        self._pfac_matrix = pfac_matrix
+        return pfac_matrix
 
     def Br_to_gridded_JS(
         self,
@@ -563,9 +595,7 @@ class SimulationGeometry:
         poloidal_transform: SphericalTransform | None = None,
     ) -> np.ndarray | None:
         """Map boundary-Br coefficients to JS."""
-        operator = self.Br_to_gridded_JS_operator(
-            transform, poloidal_transform=poloidal_transform
-        )
+        operator = self.Br_to_gridded_JS_operator(transform, poloidal_transform=poloidal_transform)
         return None if operator is None else operator.array
 
     def Br_to_gridded_JS_operator(
@@ -584,8 +614,5 @@ class SimulationGeometry:
                 else self.poloidal_transform_for(transform)
             )
         return magnetic_boundary.Br_to_gridded_JS_operator(
-            self.solid_harmonics,
-            poloidal_transform,
-            radius=self.RI,
-            boundary_radius=self.RM,
+            self.solid_harmonics, poloidal_transform, radius=self.RI, boundary_radius=self.RM
         )
