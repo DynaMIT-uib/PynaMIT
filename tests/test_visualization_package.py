@@ -107,7 +107,7 @@ def test_saved_field_view_loads_projected_input_package_without_state(tmp_path):
     assert view.input_evaluators["jr"] is view.input_evaluators["Br"]
     assert view.input_evaluators["u"] is None
     assert view.input_evaluators["Q_eff"] is None
-    assert view.input_evaluators["E_source"] is None
+    assert view.input_evaluators["E_neutral_wind"] is None
 
 
 def test_saved_field_view_loads_without_boundary_br(tmp_path):
@@ -289,8 +289,8 @@ def test_saved_field_view_aligns_inputs_by_time_not_index(tmp_path):
     np.testing.assert_allclose(fields["Br"], expected)
 
 
-def test_saved_field_view_inspects_direct_e_source_input(tmp_path):
-    """Projected direct E_source packages should be inspectable."""
+def test_saved_field_view_inspects_neutral_wind_electric_field_input(tmp_path):
+    """Projected neutral-wind E packages should be inspectable."""
     run_fields = importlib.import_module("pynamit.visualization.run_fields")
 
     simulation = pynamit.Simulation(
@@ -301,19 +301,21 @@ def test_saved_field_view_inspects_direct_e_source_input(tmp_path):
         enable_pfac_coupling=False,
         artifact_storage="netcdf",
     )
-    coeff_length = simulation.run_data.schema.input_field_spaces["E_source"].index_length
+    coeff_length = simulation.run_data.schema.input_field_spaces["E_neutral_wind"].index_length
     cf_coeffs = np.zeros(coeff_length)
     df_coeffs = np.zeros(coeff_length)
     cf_coeffs[0] = 1.0e-3
-    simulation.set_E_source(E_source_cf=cf_coeffs, E_source_df=df_coeffs, time=0.0)
+    simulation.set_E_neutral_wind(
+        E_neutral_wind_cf=cf_coeffs, E_neutral_wind_df=df_coeffs, time=0.0
+    )
 
     view = run_fields.SavedCoefficientFieldView.from_directory(tmp_path)
     fields = view.input_grid_fields(0)
 
-    assert view.available_inputs == ("E_source",)
-    assert fields["E_source_theta"].shape == view.wind_lat.shape
-    assert fields["E_source_phi"].shape == view.wind_lat.shape
-    assert np.any(np.isfinite(fields["E_source_theta"]))
+    assert view.available_inputs == ("E_neutral_wind",)
+    assert fields["E_neutral_wind_theta"].shape == view.wind_lat.shape
+    assert fields["E_neutral_wind_phi"].shape == view.wind_lat.shape
+    assert np.any(np.isfinite(fields["E_neutral_wind_theta"]))
 
 
 def test_saved_field_view_keeps_model_and_geographic_evaluation_grids_separate(tmp_path):
@@ -505,7 +507,7 @@ def test_field_renderer_selects_coordinates_for_map_type(
 
         @staticmethod
         def timestamp_at_index(index):
-            return np.datetime64("2020-01-01") + np.timedelta64(index, "s")
+            return pd.Timestamp("2020-01-01") + pd.Timedelta(seconds=index)
 
         @staticmethod
         def geographic_map_context(reference_time=None):
@@ -542,6 +544,134 @@ def test_field_renderer_selects_coordinates_for_map_type(
         plt.close(figure)
 
 
+def test_field_renderer_applies_manual_fill_and_line_levels(monkeypatch):
+    """Manual controls replace selected main-field presets."""
+    import matplotlib.pyplot as plt
+
+    figures = importlib.import_module("pynamit.visualization.field_comparison_figures")
+    figure_specs = importlib.import_module("pynamit.visualization.figure_specs")
+    map_coordinates = importlib.import_module("pynamit.visualization.map_coordinates")
+
+    class View:
+        lat, lon = np.meshgrid(np.linspace(-80.0, 80.0, 4), np.linspace(-180.0, 180.0, 5))
+        run_view = type("RunView", (), {"datasets": {"steady_state": object()}})()
+
+        @classmethod
+        def state_comparison_grid_fields(cls, index, *, field_names, coordinate_system):
+            del index, field_names, coordinate_system
+            return {"jr_steady": np.zeros(cls.lat.shape), "Phi_steady": np.zeros(cls.lat.shape)}
+
+        @staticmethod
+        def timestamp_at_index(index):
+            return pd.Timestamp("2020-01-01") + pd.Timedelta(seconds=index)
+
+        @staticmethod
+        def geographic_map_context(reference_time=None):
+            return map_coordinates.MapCoordinateContext.geographic(reference_time)
+
+    captured = {}
+
+    def capture(*args, **kwargs):
+        captured.update(kwargs)
+        return [], None, None
+
+    monkeypatch.setattr(figures, "_draw_field_comparison_artists", capture)
+    spec = figure_specs.PynamitFigureSpec(
+        plot_type="global",
+        fill="jr",
+        lines="Phi",
+        show_inductive=False,
+        show_noninductive=True,
+        show_difference=False,
+        manual_color_min=-5e-7,
+        manual_color_max=5e-7,
+        line_first_abs_level=4.0,
+        line_interval=4.0,
+        line_levels_per_sign=3,
+    )
+
+    figure = figures.FieldComparisonRenderer(spec, view=View()).render()
+    try:
+        np.testing.assert_allclose(
+            captured["plot_kwargs"]["jr"]["levels"], np.linspace(-5e-7, 5e-7, 18)
+        )
+        np.testing.assert_allclose(
+            captured["plot_kwargs"]["Phi"]["levels"], [-12.0, -8.0, -4.0, 4.0, 8.0, 12.0]
+        )
+    finally:
+        plt.close(figure)
+
+
+def test_hemisphere_renderer_uses_cutoff_and_writes_coordinate_labels(monkeypatch):
+    """Polar axes use the requested edge and show MLT orientation."""
+    import matplotlib.pyplot as plt
+
+    figures = importlib.import_module("pynamit.visualization.field_comparison_figures")
+    figure_specs = importlib.import_module("pynamit.visualization.figure_specs")
+    captured = []
+
+    class FakePolar:
+        def __init__(self, axis, min_abs_latitude):
+            self.ax = axis
+            self.min_abs_latitude = min_abs_latitude
+            self.lat_labels = []
+            self.lt_labels = 0
+
+        def writeLATlabels(self, **kwargs):
+            self.lat_labels.append(kwargs)
+
+        def writeLTlabels(self):
+            self.lt_labels += 1
+
+    def fake_polar(axis, min_abs_latitude):
+        polar = FakePolar(axis, min_abs_latitude)
+        captured.append(polar)
+        return polar
+
+    monkeypatch.setattr(figures, "make_hemisphere_polarplot", fake_polar)
+    renderer = object.__new__(figures.FieldComparisonRenderer)
+    renderer.spec = figure_specs.PynamitFigureSpec(
+        plot_type="hemispheres",
+        show_north=True,
+        show_south=False,
+        hemisphere_min_abs_latitude=42.0,
+    )
+
+    figure, _, _ = renderer._create_hemisphere_axes([("state", "Inductive")], 1)
+    try:
+        assert len(captured) == 1
+        assert captured[0].min_abs_latitude == 42.0
+        assert captured[0].lat_labels == [
+            {"color": "black", "backgroundcolor": (0, 0, 0, 0), "north": True}
+        ]
+        assert captured[0].lt_labels == 1
+    finally:
+        plt.close(figure)
+
+
+def test_line_legend_omits_unused_difference_interval():
+    """A single-state plot should not advertise difference contours."""
+    import matplotlib.pyplot as plt
+
+    figures = importlib.import_module("pynamit.visualization.field_comparison_figures")
+    styles = importlib.import_module("pynamit.visualization.figure_styles")
+    figure, axis = plt.subplots()
+    try:
+        figures.FieldComparisonRenderer._draw_map_line_legend(
+            axis,
+            ["Phi"],
+            styles.FIELD_PLOT_KWARGS,
+            styles.FIELD_DIFF_KWARGS,
+            include_difference=False,
+        )
+        labels = [text.get_text() for text in axis.texts]
+        assert len(labels) == 1
+        assert "8 kV" in labels[0]
+        assert "diff" not in labels[0]
+    finally:
+        plt.close(figure)
+
+
 def test_input_summary_keeps_polar_jr_model_aligned(monkeypatch):
     """Mixed input figures request both model and geographic fields."""
     import matplotlib.pyplot as plt
@@ -570,8 +700,8 @@ def test_input_summary_keeps_polar_jr_model_aligned(monkeypatch):
                 "wind_phi": np.zeros(shape),
                 "Q_eff_theta": np.full(shape, np.nan),
                 "Q_eff_phi": np.full(shape, np.nan),
-                "E_source_theta": np.full(shape, np.nan),
-                "E_source_phi": np.full(shape, np.nan),
+                "E_neutral_wind_theta": np.full(shape, np.nan),
+                "E_neutral_wind_phi": np.full(shape, np.nan),
             }
 
         @staticmethod
@@ -635,6 +765,10 @@ def test_publication_script_export_is_jupyter_friendly():
         {"time_range": (0.5, 2)},
         {"dbdt_window_points": 1.5},
         {"color_scale_percentile": np.nan},
+        {"manual_color_min": -1.0},
+        {"manual_color_min": 1.0, "manual_color_max": -1.0},
+        {"line_first_abs_level": 1.0},
+        {"line_first_abs_level": 1.0, "line_interval": 0.0, "line_levels_per_sign": 2},
         {"sim_time_offset_seconds": np.inf},
     ],
 )
@@ -644,6 +778,15 @@ def test_figure_spec_rejects_invalid_renderer_values(kwargs):
 
     with pytest.raises(ValueError):
         figure_specs.PynamitFigureSpec(**kwargs)
+
+
+def test_figure_spec_migrates_fixed_color_scale_to_manual():
+    """Saved fixed-mode specs retain their preset semantics."""
+    figure_specs = importlib.import_module("pynamit.visualization.figure_specs")
+
+    spec = figure_specs.PynamitFigureSpec(color_scale_mode="fixed")
+
+    assert spec.color_scale_mode == "manual"
 
 
 def test_figure_spec_preserves_removed_options_as_extra_metadata():

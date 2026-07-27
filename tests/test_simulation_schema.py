@@ -53,7 +53,7 @@ def test_projection_basis_settings_resolve_defaults_and_inheritance():
         "Br_projection_basis": "SH",
         "resistance_projection_basis": "SH",
         "u_projection_basis": "CS",
-        "E_source_projection_basis": "SH",
+        "E_neutral_wind_projection_basis": "SH",
         "Q_eff_projection_basis": "CS",
     }
 
@@ -131,7 +131,7 @@ def test_schema_respects_input_projection_basis_for_sh_mode():
             resistance_projection_basis="CS",
             u_projection_basis="CS",
             Q_eff_projection_basis="CS",
-            E_source_projection_basis="CS",
+            E_neutral_wind_projection_basis="CS",
         )
     )
 

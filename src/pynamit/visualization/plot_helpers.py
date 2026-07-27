@@ -9,6 +9,26 @@ import numpy as np
 from pynamit.visualization.local_time import apply_local_time_grid_labels
 
 
+def symmetric_contour_levels(first_abs_level, interval, levels_per_sign):
+    """Return zero-free levels from a positive sequence."""
+    first_abs_level = float(first_abs_level)
+    interval = float(interval)
+    integer_levels = int(levels_per_sign)
+    if not np.isfinite(first_abs_level) or first_abs_level <= 0.0:
+        raise ValueError("first_abs_level must be finite and positive.")
+    if not np.isfinite(interval) or interval <= 0.0:
+        raise ValueError("interval must be finite and positive.")
+    if (
+        isinstance(levels_per_sign, (bool, np.bool_))
+        or integer_levels != levels_per_sign
+        or integer_levels < 1
+    ):
+        raise ValueError("levels_per_sign must be an integer of at least one.")
+    levels_per_sign = integer_levels
+    positive = first_abs_level + interval * np.arange(levels_per_sign, dtype=float)
+    return np.concatenate((-positive[::-1], positive))
+
+
 def symmetric_contour_levels_without_zero(max_abs, interval):
     """Return symmetric contour levels whose centers avoid zero."""
     max_abs = float(max_abs)
@@ -401,6 +421,7 @@ __all__ = [
     "style_global_axis",
     "style_global_comparison_axis",
     "style_global_input_axis",
+    "symmetric_contour_levels",
     "suppress_empty_contour_warnings",
     "symmetric_contour_levels_without_zero",
 ]

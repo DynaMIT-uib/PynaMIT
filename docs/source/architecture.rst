@@ -291,21 +291,21 @@ Input projection is intentionally separated from ``Simulation`` in
 variables, mutual-exclusion group, and projection-control restrictions for
 each input stream. Every persisted input also has an explicit projection-basis
 setting in ``SimulationConfig``. ``Q_eff`` defaults to the ``u`` route because
-it is an alternative representation of the same wind forcing; the independent
-``E_source`` route defaults to the horizontal model basis. Field type remains
-canonical in the schema's ``FieldSpace``. ``InputPipeline`` owns:
+it is an alternative representation of the same wind forcing;
+``E_neutral_wind`` defaults to the horizontal model basis because it stores an
+equivalent electric field directly. Field type remains canonical in the
+schema's ``FieldSpace``. ``InputPipeline`` owns:
 
 * sample-vs-coefficient validation;
 * gridded scalar and tangential projection;
 * coefficient row and time-row validation;
 * storage of projected input rows; and
-* mutual exclusivity between the alternative wind representations ``u``
-  and ``Q_eff``;
-* additive composition of independent ``E_source`` forcing; and
+* mutual exclusivity between the alternative wind representations ``u``,
+  ``Q_eff``, and ``E_neutral_wind``; and
 * time-series coordination when deriving ``Q_eff`` from neutral wind.
 
 Public setters such as ``set_jr``, ``set_resistance``, ``set_neutral_wind``,
-``set_Q_eff``, and ``set_E_source`` should remain thin API methods.  When a
+``set_Q_eff``, and ``set_E_neutral_wind`` should remain thin API methods.  When a
 new input stream is added, prefer extending the schema and the private input
 specification table over hand-writing a new projection path inside ``Simulation``.
 ``set_Q_eff_from_neutral_wind`` follows one coefficient-space route: it fits
@@ -449,15 +449,15 @@ those compositions with their caches avoids split ownership between an
 operator facade and the response object whose private state they mutate.
 
 The combined field that drives the imposed-potential response is named
-``driving_E``. It can contain wind, ``Q_eff``, ``E_source``, boundary ``Br``,
-or an ``m_ind`` response. The name therefore describes its role without
-suggesting that it contains only the direct electric-field input or encoding
+``driving_E``. It can contain one neutral-wind representation, boundary
+``Br``, or an ``m_ind`` response. The name therefore describes its role without
+suggesting that it contains only one neutral-wind representation or encoding
 the absence of ``m_imp``. The imposed potential then completes the response
 required by the radial-current and optional interhemispheric constraints.
-``E_source`` is the public name for an independently supplied additive
-electric-field term. It does not claim that the stored field is the total
-electric field. In the MAGE workflow it contains only the wind-driven term
-derived from Pedersen/Hall-weighted winds; the model composes the other terms
+``E_neutral_wind`` is the public name for an externally prepared equivalent
+neutral-wind electric field. It does not claim that the stored field is the
+total electric field. In the MAGE workflow it is derived from separate
+Pedersen- and Hall-weighted winds; the model composes the other terms
 while solving the closure.
 
 The poloidal and horizontal surface spaces coincide in the default SH mode.

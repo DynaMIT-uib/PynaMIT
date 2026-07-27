@@ -28,10 +28,14 @@ from pynamit.simulation.workflows.mage_preparation import (
     MAGE_FORCING_VERSION,
     MAGE_SOURCE_TIME_TOLERANCE_SECONDS,
     MAGE_TIME_AXIS,
+    REMIX_CONDUCTANCE_FLOOR_MODEL,
+    REMIX_HALL_FLOOR_S,
+    REMIX_PEDERSEN_FLOOR_S,
     TIEGCM_DYNAMO_BOTTOM_ILEV,
     TIEGCM_DYNAMO_REFERENCE_HEIGHT_M,
     TIEGCM_HALL_LOWER_SCALE_M,
     TIEGCM_PEDERSEN_LOWER_SCALE_M,
+    _remix_conductance_domain_mask,
 )
 from pynamit.simulation.workflows.prepared_inputs import (
     clear_prepared_input_package,
@@ -79,6 +83,10 @@ _MAGE_REQUIRED_ATTRIBUTES = (
     "tiegcm_dynamo_reference_height_m",
     "tiegcm_pedersen_lower_scale_m",
     "tiegcm_hall_lower_scale_m",
+    "remix_conductance_floor_model",
+    "remix_pedersen_floor_S",
+    "remix_hall_floor_S",
+    "remix_grid_equatorward_sm_latitude_deg",
     "ionosphere_radius_m",
 )
 _MAGE_DATASET_UNITS = {
@@ -203,6 +211,28 @@ def _validate_prepared_forcing(h5_file: Any) -> None:
             "Prepared forcing uses incompatible TIEGCM lower-dynamo parameters: "
             f"{invalid_dynamo_parameters}."
         )
+    if h5_file.attrs["remix_conductance_floor_model"] != REMIX_CONDUCTANCE_FLOOR_MODEL:
+        raise RuntimeError(
+            "Prepared forcing does not use the required ReMIX hard conductance floor."
+        )
+    expected_floors = {
+        "remix_pedersen_floor_S": REMIX_PEDERSEN_FLOOR_S,
+        "remix_hall_floor_S": REMIX_HALL_FLOOR_S,
+    }
+    invalid_floors = [
+        name
+        for name, expected in expected_floors.items()
+        if not np.isclose(float(h5_file.attrs[name]), expected, rtol=0.0, atol=1e-12)
+    ]
+    if invalid_floors:
+        raise RuntimeError(
+            f"Prepared forcing uses incompatible ReMIX conductance floors: {invalid_floors}."
+        )
+    equatorward_sm_latitude = float(h5_file.attrs["remix_grid_equatorward_sm_latitude_deg"])
+    if not np.isfinite(equatorward_sm_latitude) or not 0.0 < equatorward_sm_latitude < 90.0:
+        raise RuntimeError(
+            "Prepared forcing ReMIX floor-domain latitude must be between 0 and 90 degrees."
+        )
     if h5_file.attrs["gamera_background_reference"] != "cell_volume_average_split_B0":
         raise RuntimeError(
             "MAGE projection requires GAMERA total B minus its matching volume-averaged B0."
@@ -257,6 +287,35 @@ def _validate_prepared_forcing(h5_file: Any) -> None:
     )
     _validate_time_series_shapes(h5_file, _MAGE_IONOSPHERE_DATASETS, n_steps, ionosphere_shape)
     _validate_time_series_shapes(h5_file, _MAGE_BOUNDARY_DATASETS, n_steps, boundary_shape)
+    _validate_remix_conductance_floor(h5_file, n_steps, equatorward_sm_latitude)
+
+
+def _validate_remix_conductance_floor(
+    h5_file: Any, n_steps: int, equatorward_sm_latitude: float
+) -> None:
+    """Require polar conductance to satisfy the ReMIX hard floor."""
+    latitude = np.asarray(h5_file["ionosphere_lat"][:], dtype=float)
+    longitude = np.asarray(h5_file["ionosphere_lon"][:], dtype=float)
+    tolerance = 8.0 * np.finfo(np.float32).eps
+    for step in range(n_steps):
+        event_time = _parse_h5_time(h5_file["gamera_source_time"][step])
+        domain = _remix_conductance_domain_mask(
+            latitude, longitude, event_time, equatorward_sm_latitude
+        )
+        if not np.any(domain):
+            raise RuntimeError(
+                "Prepared forcing grid does not sample the saved ReMIX polar domain."
+            )
+        pedersen = np.asarray(h5_file["SP"][step], dtype=float)
+        hall = np.asarray(h5_file["SH"][step], dtype=float)
+        if np.any(pedersen[domain] < REMIX_PEDERSEN_FLOOR_S - tolerance):
+            raise RuntimeError(
+                f"Prepared Pedersen conductance violates the ReMIX hard floor at step {step}."
+            )
+        if np.any(hall[domain] < REMIX_HALL_FLOOR_S - tolerance):
+            raise RuntimeError(
+                f"Prepared Hall conductance violates the ReMIX hard floor at step {step}."
+            )
 
 
 def _parse_h5_time(value: Any) -> dt.datetime:
@@ -531,7 +590,7 @@ class _MageInputProjector:
         br_lambda: float,
         conductance_lambda: float,
         jr_lambda: float,
-        e_source_lambda: float,
+        e_neutral_wind_lambda: float,
     ) -> None:
         self._simulation = simulation
         self._ionosphere_grid = ionosphere_grid
@@ -539,7 +598,7 @@ class _MageInputProjector:
         self._br_lambda = br_lambda
         self._conductance_lambda = conductance_lambda
         self._jr_lambda = jr_lambda
-        self._e_source_lambda = e_source_lambda
+        self._e_neutral_wind_lambda = e_neutral_wind_lambda
 
         self._ionosphere_field = MagneticFieldEvaluation(
             simulation.geometry.main_field, ionosphere_grid, IONOSPHERE_RADIUS_M
@@ -628,7 +687,7 @@ class _MageInputProjector:
     def _project_wind_source(
         self, h5_file: Any, step: int, input_time: float, sigma_p: np.ndarray, sigma_h: np.ndarray
     ) -> None:
-        """Project the direct wind-driven electric field."""
+        """Project equator-safe E from the integrated wind current."""
         u_p_theta, u_p_phi, u_h_theta, u_h_phi = _load_weighted_winds(h5_file, step)
         u_p_theta = np.asarray(u_p_theta, dtype=float).reshape(-1)
         u_p_phi = np.asarray(u_p_phi, dtype=float).reshape(-1)
@@ -652,14 +711,14 @@ class _MageInputProjector:
         _print_field_stats(
             "  Wind-driven E [V/m]", np.hypot(wind_driven_e_theta, wind_driven_e_phi)
         )
-        self._simulation.set_E_source(
-            E_source_theta=wind_driven_e_theta,
-            E_source_phi=wind_driven_e_phi,
+        self._simulation.set_E_neutral_wind(
+            E_neutral_wind_theta=wind_driven_e_theta,
+            E_neutral_wind_phi=wind_driven_e_phi,
             lat=self._ionosphere_grid.lat,
             lon=self._ionosphere_grid.lon,
             time=input_time,
             sqrt_weights=self._ionosphere_tangential_sqrt_weights,
-            reg_lambda=self._e_source_lambda,
+            reg_lambda=self._e_neutral_wind_lambda,
         )
 
 
@@ -676,7 +735,7 @@ def project_inputs(
     br_lambda: float,
     conductance_lambda: float,
     jr_lambda: float,
-    e_source_lambda: float,
+    e_neutral_wind_lambda: float,
     artifact_storage: str,
     operator_cache_directory: str | Path | None = None,
 ) -> Path:
@@ -775,7 +834,18 @@ def project_inputs(
             )
             print("PynaMIT model and prepared forcing coordinates: Earth-fixed GEO", flush=True)
             print(f"RM: {boundary_radius:.6g} m", flush=True)
-            print("Wind forcing: direct driving E from Pedersen/Hall weighted winds", flush=True)
+            print(
+                "Neutral-wind forcing: equivalent E from Pedersen/Hall-weighted winds",
+                flush=True,
+            )
+            print(
+                "ReMIX conductance floors: "
+                f"Pedersen {REMIX_PEDERSEN_FLOOR_S:g} S, "
+                f"Hall {REMIX_HALL_FLOOR_S:g} S inside "
+                f"|SM latitude| >= "
+                f"{float(file.attrs['remix_grid_equatorward_sm_latitude_deg']):.6g} degrees",
+                flush=True,
+            )
             print("REMIX FAC source convention: upward positive", flush=True)
             print("Prepared jr convention: outward positive", flush=True)
 
@@ -801,7 +871,7 @@ def project_inputs(
                 br_lambda=br_lambda,
                 conductance_lambda=conductance_lambda,
                 jr_lambda=jr_lambda,
-                e_source_lambda=e_source_lambda,
+                e_neutral_wind_lambda=e_neutral_wind_lambda,
             )
 
             if max_steps is not None:
@@ -858,9 +928,13 @@ def project_inputs(
                 input_datasets=projected_datasets,
                 source="pynamit.simulation.workflows.mage_projection",
                 notes=(
-                    "The stored E_source input is only the direct wind-driven electric field, "
-                    "computed from Pedersen/Hall weighted winds using the sheet-radius main "
-                    "field and projected sheet resistance; it is not total model E.",
+                    "The stored E_neutral_wind input is the equivalent electric-field "
+                    "contribution derived from Pedersen/Hall-weighted neutral winds "
+                    "using the sheet-radius main field and projected sheet resistance; "
+                    "it is not total model E.",
+                    "This E formulation is algebraically equivalent to the Appendix-A "
+                    "Q_eff formulation away from the dip equator but remains finite at "
+                    "the equator because it never divides by the radial field component.",
                     "All input fits used explicit square-root surface-area weights.",
                 ),
                 metadata={
@@ -877,11 +951,19 @@ def project_inputs(
                     "fac_convention": "upward",
                     "fac_to_radial_current": "jr = FAC_upward * abs(source unit_br)",
                     "least_squares_weighting": "surface_area",
+                    "conductance_floor": {
+                        "model": str(file.attrs["remix_conductance_floor_model"]),
+                        "pedersen_S": float(file.attrs["remix_pedersen_floor_S"]),
+                        "hall_S": float(file.attrs["remix_hall_floor_S"]),
+                        "grid_equatorward_sm_latitude_deg": float(
+                            file.attrs["remix_grid_equatorward_sm_latitude_deg"]
+                        ),
+                    },
                     "projection_regularization": {
                         "Br_lambda": br_lambda,
                         "conductance_lambda": conductance_lambda,
                         "jr_lambda": jr_lambda,
-                        "E_source_lambda": e_source_lambda,
+                        "E_neutral_wind_lambda": e_neutral_wind_lambda,
                     },
                     "n_projected_steps": n_steps,
                     "sources": sources,

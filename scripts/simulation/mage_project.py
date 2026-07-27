@@ -34,7 +34,7 @@ class ProjectionSettings:
     br_lambda: float = 0.1
     conductance_lambda: float = 3.0
     jr_lambda: float = 0.1
-    e_source_lambda: float = 0.1
+    e_neutral_wind_lambda: float = 0.1
     artifact_storage: str = "auto"
 
 
@@ -84,7 +84,7 @@ def main(settings: ProjectionSettings = SETTINGS) -> None:
             br_lambda=settings.br_lambda,
             conductance_lambda=settings.conductance_lambda,
             jr_lambda=settings.jr_lambda,
-            e_source_lambda=settings.e_source_lambda,
+            e_neutral_wind_lambda=settings.e_neutral_wind_lambda,
             artifact_storage=settings.artifact_storage,
             operator_cache_directory=operator_cache_directory,
         )

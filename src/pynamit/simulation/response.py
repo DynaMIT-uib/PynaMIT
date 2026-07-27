@@ -19,7 +19,7 @@ from pynamit.simulation.geometry import SimulationGeometry
 
 logger = logging.getLogger(__name__)
 
-_ACTIVE_INPUT_NAMES = frozenset({"u", "Q_eff", "E_source", "Br", "jr", "etaP", "etaH"})
+_ACTIVE_INPUT_NAMES = frozenset({"u", "Q_eff", "E_neutral_wind", "Br", "jr", "etaP", "etaH"})
 
 
 class ElectrodynamicResponse:
@@ -50,12 +50,12 @@ class ElectrodynamicResponse:
         # (independent of resistance)
         self._u_coeffs_to_E_coeffs_cache: LinearMap | None = None
         self._Q_eff_synthesis_operator_cache: LinearMap | None = None
-        self._E_source_to_E_coeffs_cache: LinearMap | None = None
+        self._E_neutral_wind_to_E_coeffs_cache: LinearMap | None = None
 
         # Inputs active at the current simulation time.
         self.u: FieldCoefficients | None = None
         self.Q_eff: FieldCoefficients | None = None
-        self.E_source: FieldCoefficients | None = None
+        self.E_neutral_wind: FieldCoefficients | None = None
         self.Br: FieldCoefficients | None = None
         self.jr: FieldCoefficients | None = None
         self.etaP: FieldCoefficients | None = None
@@ -127,32 +127,33 @@ class ElectrodynamicResponse:
             )
         return self._Q_eff_to_E_coeffs_cache
 
-    def _create_E_source_to_E_operator_for_representation(self, representation) -> LinearMap:
-        """Map direct E-source coefficients to model E coefficients."""
+    def _create_E_neutral_wind_to_E_operator_for_representation(self, representation) -> LinearMap:
+        """Map neutral-wind E coefficients to model E coefficients."""
         if representation.coefficients_are_compatible_with(self.geometry.horizontal_basis):
             return identity_linear_map((2, self.geometry.horizontal_basis.index_length))
 
         get_operator = getattr(representation, "get_helmholtz_synthesis_operator", None)
         if not callable(get_operator):
             raise ValueError(
-                "E_source storage basis cannot evaluate tangential fields on the state/model grid."
+                "E_neutral_wind storage basis cannot evaluate tangential "
+                "fields on the state/model grid."
             )
         source_synthesis = get_operator(self.geometry.model_grid)
         grid_to_coeffs = self.geometry.helmholtz_analysis_operator
         return grid_to_coeffs @ source_synthesis
 
     @property
-    def E_source_to_E_coeffs(self) -> LinearMap | None:
-        """Linear map from direct E-source coeffs to E coeffs."""
-        if self.E_source is None:
+    def E_neutral_wind_to_E_coeffs(self) -> LinearMap | None:
+        """Map neutral-wind E coefficients to model E coefficients."""
+        if self.E_neutral_wind is None:
             return None
-        if self._E_source_to_E_coeffs_cache is None:
-            self._E_source_to_E_coeffs_cache = (
-                self._create_E_source_to_E_operator_for_representation(
-                    self.E_source.field_space.representation
+        if self._E_neutral_wind_to_E_coeffs_cache is None:
+            self._E_neutral_wind_to_E_coeffs_cache = (
+                self._create_E_neutral_wind_to_E_operator_for_representation(
+                    self.E_neutral_wind.field_space.representation
                 )
             )
-        return self._E_source_to_E_coeffs_cache
+        return self._E_neutral_wind_to_E_coeffs_cache
 
     def _invalidate_closure_caches(self) -> None:
         """Invalidate resistance-dependent cached properties."""
@@ -680,19 +681,23 @@ class ElectrodynamicResponse:
     def calculate_noninductive_response(self) -> tuple[np.ndarray, np.ndarray]:
         """Return E and imposed-potential responses without m_ind."""
         E_shape = (2, self.geometry.horizontal_basis.index_length)
-        if self.u is not None and self.Q_eff is not None:
+        active_wind_forcings = [
+            name for name in ("u", "Q_eff", "E_neutral_wind") if getattr(self, name) is not None
+        ]
+        if len(active_wind_forcings) > 1:
+            representations = ", ".join(repr(name) for name in active_wind_forcings)
             raise ValueError(
-                "Neutral wind input 'u' and effective-current input 'Q_eff' are "
-                "mutually exclusive; use only one wind-forcing representation."
+                f"Wind-forcing representations {representations} are mutually "
+                "exclusive; use only one."
             )
         driving_E = xp.zeros(E_shape)
         if self.u is not None:
             driving_E += self._apply_operator(
                 self.u_coeffs_to_E_coeffs, xp.asarray(self.u.array), E_shape
             )
-        if self.E_source is not None:
+        if self.E_neutral_wind is not None:
             driving_E += self._apply_operator(
-                self.E_source_to_E_coeffs, xp.asarray(self.E_source.array), E_shape
+                self.E_neutral_wind_to_E_coeffs, xp.asarray(self.E_neutral_wind.array), E_shape
             )
         if self.Br is not None:
             driving_E += self._apply_operator(
@@ -773,7 +778,11 @@ class ElectrodynamicResponse:
         logger.info("Dense induction operator built.")
 
     def E_df_operators(
-        self, *, include_Br: bool = True, include_Q_eff: bool = True, include_E_source: bool = True
+        self,
+        *,
+        include_Br: bool = True,
+        include_Q_eff: bool = True,
+        include_E_neutral_wind: bool = True,
     ) -> dict[str, LinearMap]:
         """Return named input/state to total E_df operators."""
         operators = {
@@ -790,15 +799,19 @@ class ElectrodynamicResponse:
             operators["E_df_from_Br"] = self.driving_E_to_E_df_operator @ self.Br_to_E_coeffs
         if include_Q_eff and self.Q_eff_to_E_coeffs is not None:
             operators["E_df_from_Q_eff"] = self.driving_E_to_E_df_operator @ self.Q_eff_to_E_coeffs
-        if include_E_source and self.E_source_to_E_coeffs is not None:
-            operators["E_df_from_E_source"] = (
-                self.driving_E_to_E_df_operator @ self.E_source_to_E_coeffs
+        if include_E_neutral_wind and self.E_neutral_wind_to_E_coeffs is not None:
+            operators["E_df_from_neutral_wind"] = (
+                self.driving_E_to_E_df_operator @ self.E_neutral_wind_to_E_coeffs
             )
 
         return operators
 
     def m_ind_rate_operators(
-        self, *, include_Br: bool = True, include_Q_eff: bool = True, include_E_source: bool = True
+        self,
+        *,
+        include_Br: bool = True,
+        include_Q_eff: bool = True,
+        include_E_neutral_wind: bool = True,
     ) -> dict[str, LinearMap]:
         """Return named input/state to d(m_ind)/dt operators."""
         faraday = (
@@ -809,7 +822,7 @@ class ElectrodynamicResponse:
             for key, operator in self.E_df_operators(
                 include_Br=include_Br,
                 include_Q_eff=include_Q_eff,
-                include_E_source=include_E_source,
+                include_E_neutral_wind=include_E_neutral_wind,
             ).items()
         }
 
@@ -818,7 +831,7 @@ class ElectrodynamicResponse:
         *,
         include_Br: bool = True,
         include_Q_eff: bool = True,
-        include_E_source: bool = True,
+        include_E_neutral_wind: bool = True,
         backend: MatrixBackend | None = None,
     ) -> dict[str, Any]:
         """Return E_df maps as explicit matrices."""
@@ -827,7 +840,7 @@ class ElectrodynamicResponse:
             for key, operator in self.E_df_operators(
                 include_Br=include_Br,
                 include_Q_eff=include_Q_eff,
-                include_E_source=include_E_source,
+                include_E_neutral_wind=include_E_neutral_wind,
             ).items()
         }
 
@@ -836,7 +849,7 @@ class ElectrodynamicResponse:
         *,
         include_Br: bool = True,
         include_Q_eff: bool = True,
-        include_E_source: bool = True,
+        include_E_neutral_wind: bool = True,
         backend: MatrixBackend | None = None,
     ) -> dict[str, Any]:
         """Return d(m_ind)/dt maps as explicit matrices."""
@@ -845,7 +858,7 @@ class ElectrodynamicResponse:
             for key, operator in self.m_ind_rate_operators(
                 include_Br=include_Br,
                 include_Q_eff=include_Q_eff,
-                include_E_source=include_E_source,
+                include_E_neutral_wind=include_E_neutral_wind,
             ).items()
         }
 

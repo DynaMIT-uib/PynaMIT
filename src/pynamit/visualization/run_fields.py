@@ -22,8 +22,8 @@ from pynamit.visualization.grid_evaluation import (
 from pynamit.visualization.map_coordinates import MapCoordinateContext
 from pynamit.visualization.saved_run import SavedRunView
 
-INPUT_ARTIFACT_KEYS = ("Br", "jr", "resistance", "u", "Q_eff", "E_source")
-TANGENTIAL_INPUT_KEYS = ("u", "Q_eff", "E_source")
+INPUT_ARTIFACT_KEYS = ("Br", "jr", "resistance", "u", "Q_eff", "E_neutral_wind")
+TANGENTIAL_INPUT_KEYS = ("u", "Q_eff", "E_neutral_wind")
 STATE_FIELD_NAMES = frozenset({"Br", "jr", "Jeq", "Phi", "W", "joule"})
 _DISPLAY_COORDINATE_SYSTEMS = frozenset({"model", "geographic"})
 
@@ -195,7 +195,7 @@ def _dataset_index_at_time(dataset, timestamp, *, fallback_start_time=None):
     target = pd.Timestamp(timestamp)
     if target.tz is not None:
         target = target.tz_convert(None)
-    position = int(np.searchsorted(times.asi8, target.value, side="right") - 1)
+    position = int(times.searchsorted(target, side="right") - 1)
     return max(0, min(position, len(times) - 1))
 
 
@@ -421,8 +421,8 @@ def compute_input_fields_at_time(
         "wind_phi": tangential["u"][1],
         "Q_eff_theta": tangential["Q_eff"][0],
         "Q_eff_phi": tangential["Q_eff"][1],
-        "E_source_theta": tangential["E_source"][0],
-        "E_source_phi": tangential["E_source"][1],
+        "E_neutral_wind_theta": tangential["E_neutral_wind"][0],
+        "E_neutral_wind_phi": tangential["E_neutral_wind"][1],
     }
 
 
@@ -473,7 +473,7 @@ class SavedCoefficientFieldView:
             raise ValueError(
                 "No saved input or output time series exists in "
                 f"{run_view.artifact_store.directory}. "
-                "Expected at least one of state, Br, jr, resistance, u, Q_eff, or E_source."
+                "Expected at least one of state, Br, jr, resistance, u, Q_eff, or E_neutral_wind."
             )
 
         return cls(

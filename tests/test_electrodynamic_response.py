@@ -86,16 +86,12 @@ def test_u_coeffs_to_E_coeffs_is_linear_map_on_jax():
     response.geometry = SimpleNamespace(
         horizontal_basis=SimpleNamespace(index_length=n),
         helmholtz_analysis_operator=as_linear_map(
-            jnp.asarray(helmholtz_analysis),
-            input_shape=(2, 4),
-            output_shape=(2, n),
+            jnp.asarray(helmholtz_analysis), input_shape=(2, 4), output_shape=(2, n)
         ),
         wind_motional_E_tensor=jnp.asarray(bu),
         horizontal_transform=SimpleNamespace(
             helmholtz_coeffs_to_gridded_vector_operator=as_linear_map(
-                jnp.asarray(helmholtz_synthesis),
-                input_shape=(2, n),
-                output_shape=(2, 4),
+                jnp.asarray(helmholtz_synthesis), input_shape=(2, n), output_shape=(2, 4)
             )
         ),
     )
@@ -139,9 +135,7 @@ def test_Q_eff_coeffs_to_E_coeffs_uses_resistance_tensor_operator():
         horizontal_basis=SimpleNamespace(index_length=n),
         model_grid=SimpleNamespace(size=n_grid),
         helmholtz_analysis_operator=as_linear_map(
-            helmholtz_analysis,
-            input_shape=(2, n_grid),
-            output_shape=(2, n),
+            helmholtz_analysis, input_shape=(2, n_grid), output_shape=(2, n)
         ),
     )
     response.Q_eff = SimpleNamespace(field_space=SimpleNamespace(representation=q_representation))
@@ -311,8 +305,7 @@ def test_m_imp_runtime_solve_uses_one_physical_rhs():
     response._interhemispheric_electric_field_constraint_cache = _dummy_constraint_map()
     response.project_surface_scalar_mean_free = lambda coeffs: coeffs
     response.config = SimpleNamespace(
-        enable_interhemispheric_coupling=True,
-        interhemispheric_electric_field_weight=weight,
+        enable_interhemispheric_coupling=True, interhemispheric_electric_field_weight=weight
     )
 
     captured_rhs = None
@@ -325,8 +318,8 @@ def test_m_imp_runtime_solve_uses_one_physical_rhs():
     response._solve_m_imp_response = solve_response
 
     expected_jr_rhs = radial_current_constraint @ jr_coeffs
-    expected_E_rhs = -weight * electric_field_difference.reshape(n, 2 * n) @ driving_E.reshape(
-        2 * n
+    expected_E_rhs = (
+        -weight * electric_field_difference.reshape(n, 2 * n) @ driving_E.reshape(2 * n)
     )
 
     np.testing.assert_allclose(
@@ -341,21 +334,23 @@ def test_m_ind_E_response_solves_only_poloidal_source_columns():
     n_surface = 4
     n_poloidal = 2
     n_constraint = 3
-    source = np.arange(2 * n_surface * n_poloidal, dtype=float).reshape(
-        2 * n_surface, n_poloidal
-    ) / 10.0
-    difference = np.arange(n_constraint * 2 * n_surface, dtype=float).reshape(
-        n_constraint, 2 * n_surface
-    ) / 20.0
-    m_imp_to_E = np.arange(2 * n_surface * n_surface, dtype=float).reshape(
-        2 * n_surface, n_surface
-    ) / 30.0
-    divergence_free = np.arange(n_surface * 2 * n_surface, dtype=float).reshape(
-        n_surface, 2 * n_surface
-    ) / 40.0
-    solved_m_imp = np.arange(n_surface * n_poloidal, dtype=float).reshape(
-        n_surface, n_poloidal
-    ) / 50.0
+    source = (
+        np.arange(2 * n_surface * n_poloidal, dtype=float).reshape(2 * n_surface, n_poloidal)
+        / 10.0
+    )
+    difference = (
+        np.arange(n_constraint * 2 * n_surface, dtype=float).reshape(n_constraint, 2 * n_surface)
+        / 20.0
+    )
+    m_imp_to_E = (
+        np.arange(2 * n_surface * n_surface, dtype=float).reshape(2 * n_surface, n_surface) / 30.0
+    )
+    divergence_free = (
+        np.arange(n_surface * 2 * n_surface, dtype=float).reshape(n_surface, 2 * n_surface) / 40.0
+    )
+    solved_m_imp = (
+        np.arange(n_surface * n_poloidal, dtype=float).reshape(n_surface, n_poloidal) / 50.0
+    )
     weight = 0.25
 
     response = object.__new__(ElectrodynamicResponse)
@@ -370,15 +365,13 @@ def test_m_ind_E_response_solves_only_poloidal_source_columns():
     )
     response._interhemispheric_electric_field_constraint_cache = _dummy_constraint_map()
     response._m_imp_problem_cache = SimpleNamespace(
-        num_data_terms=2,
-        A=[SimpleNamespace(), SimpleNamespace(output_shape=(n_constraint,))],
+        num_data_terms=2, A=[SimpleNamespace(), SimpleNamespace(output_shape=(n_constraint,))]
     )
     response._m_imp_to_E_coeffs_cache = as_linear_map(
         m_imp_to_E, input_shape=(n_surface,), output_shape=(2, n_surface)
     )
     response.config = SimpleNamespace(
-        enable_interhemispheric_coupling=True,
-        interhemispheric_electric_field_weight=weight,
+        enable_interhemispheric_coupling=True, interhemispheric_electric_field_weight=weight
     )
 
     captured_rhs = None
@@ -589,7 +582,7 @@ def test_model_operator_accessors_match_runtime_operator_chain():
     response._driving_E_to_total_E_operator = None
     response._driving_E_to_E_df_operator = None
     response.Q_eff = None
-    response.E_source = None
+    response.E_neutral_wind = None
     response.config = SimpleNamespace(enable_interhemispheric_coupling=True)
     response._interhemispheric_electric_field_constraint_cache = _dummy_constraint_map()
 
@@ -686,7 +679,7 @@ def test_model_matrix_accessors_accept_explicit_jax_backend():
     response._driving_E_to_E_df_operator = None
     response._m_ind_to_E_df_operator_cache = None
     response.Q_eff = None
-    response.E_source = None
+    response.E_neutral_wind = None
     response.config = SimpleNamespace(enable_interhemispheric_coupling=False)
     response._interhemispheric_electric_field_constraint_cache = None
 

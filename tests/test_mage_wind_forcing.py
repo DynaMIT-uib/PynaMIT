@@ -204,8 +204,8 @@ def test_q_eff_matches_height_independent_wind_forcing():
         np.testing.assert_allclose(E_from_q_eff, -wind_cross_b[1:, i], rtol=1e-12, atol=1e-18)
 
 
-def test_weighted_wind_E_source_reduces_to_set_u_for_height_independent_wind():
-    """Weighted-wind E_source should reduce to ordinary u forcing."""
+def test_weighted_wind_electric_field_reduces_to_set_u_for_height_independent_wind():
+    """Weighted-wind E should reduce to ordinary u forcing."""
     sigma_p = np.array([8.0, 4.0, 6.0])
     sigma_h = np.array([3.0, 1.5, 2.0])
     br = np.array([-0.91, -0.62, 0.73])
@@ -219,7 +219,7 @@ def test_weighted_wind_E_source_reduces_to_set_u_for_height_independent_wind():
     u_phi = np.array([-35.0, 20.0, 95.0])
     eta_p, eta_h = _pynamit_resistance_values(sigma_p, sigma_h)
 
-    e_source_theta, e_source_phi = electric_field_from_weighted_winds(
+    e_neutral_wind_theta, e_neutral_wind_phi = electric_field_from_weighted_winds(
         sigma_p=sigma_p,
         sigma_h=sigma_h,
         u_p_theta=u_theta,
@@ -236,12 +236,12 @@ def test_weighted_wind_E_source_reduces_to_set_u_for_height_independent_wind():
         )
     )
 
-    np.testing.assert_allclose(e_source_theta, -wind_cross_b[1], rtol=1e-12, atol=1e-18)
-    np.testing.assert_allclose(e_source_phi, -wind_cross_b[2], rtol=1e-12, atol=1e-18)
+    np.testing.assert_allclose(e_neutral_wind_theta, -wind_cross_b[1], rtol=1e-12, atol=1e-18)
+    np.testing.assert_allclose(e_neutral_wind_phi, -wind_cross_b[2], rtol=1e-12, atol=1e-18)
 
 
-def test_weighted_wind_E_source_matches_q_eff_away_from_equator():
-    """Weighted-wind E_source and A8 Q_eff should agree off-equator."""
+def test_weighted_wind_electric_field_matches_q_eff_away_from_equator():
+    """Weighted-wind E and A8 Q_eff should agree off-equator."""
     sigma_p = np.array([8.0, 4.0, 6.0])
     sigma_h = np.array([3.0, 1.5, 2.0])
     br = np.array([-0.91, -0.62, 0.73])
@@ -257,7 +257,7 @@ def test_weighted_wind_E_source_matches_q_eff_away_from_equator():
     u_h_phi = np.array([100.0, -30.0, 15.0])
     eta_p, eta_h = _pynamit_resistance_values(sigma_p, sigma_h)
 
-    e_source_theta, e_source_phi = electric_field_from_weighted_winds(
+    e_neutral_wind_theta, e_neutral_wind_phi = electric_field_from_weighted_winds(
         sigma_p=sigma_p,
         sigma_h=sigma_h,
         u_p_theta=u_p_theta,
@@ -285,5 +285,37 @@ def test_weighted_wind_E_source_matches_q_eff_away_from_equator():
         resistance = _pynamit_resistance_tensor(sigma_p[i], sigma_h[i], br[i], btheta[i], bphi[i])
         E_from_q_eff = resistance @ q_eff_input[:, i]
         np.testing.assert_allclose(
-            E_from_q_eff, np.array([e_source_theta[i], e_source_phi[i]]), rtol=1e-12, atol=1e-18
+            E_from_q_eff,
+            np.array([e_neutral_wind_theta[i], e_neutral_wind_phi[i]]),
+            rtol=1e-12,
+            atol=1e-18,
         )
+
+
+def test_weighted_wind_electric_field_is_regular_at_dip_equator():
+    """Equivalent E remains finite at the dip equator."""
+    epsilon = 1e-9
+    br = np.array([-epsilon, 0.0, epsilon])
+    btheta = np.sqrt(1.0 - br**2)
+    bphi = np.zeros_like(br)
+    field = _dummy_field(br, btheta, bphi)
+    sigma_p = np.full(3, 7.0)
+    sigma_h = np.full(3, 2.5)
+    eta_p, eta_h = _pynamit_resistance_values(sigma_p, sigma_h)
+
+    e_theta, e_phi = electric_field_from_weighted_winds(
+        sigma_p=sigma_p,
+        sigma_h=sigma_h,
+        u_p_theta=np.full(3, 80.0),
+        u_p_phi=np.full(3, -35.0),
+        u_h_theta=np.full(3, -20.0),
+        u_h_phi=np.full(3, 110.0),
+        field=field,
+        eta_p=eta_p,
+        eta_h=eta_h,
+    )
+
+    assert np.isfinite(e_theta).all()
+    assert np.isfinite(e_phi).all()
+    np.testing.assert_allclose(e_theta[[0, 2]], e_theta[1], rtol=0.0, atol=5e-12)
+    np.testing.assert_allclose(e_phi[[0, 2]], e_phi[1], rtol=0.0, atol=5e-12)

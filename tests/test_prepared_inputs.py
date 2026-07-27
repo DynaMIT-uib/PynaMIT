@@ -169,11 +169,16 @@ def test_input_manifest_records_geometry_bound_dataset_requirements(tmp_path):
     config = SimulationConfig(Nmax=4, Mmax=3, Ncs=8, RM=7.0e6, main_field_kind="igrf")
 
     write_input_manifest(
-        tmp_path, config.to_dataset(), input_datasets=("Br", "Q_eff", "E_source"), source="test"
+        tmp_path,
+        config.to_dataset(),
+        input_datasets=("Br", "Q_eff", "E_neutral_wind"),
+        source="test",
     )
 
     loaded = read_input_manifest(tmp_path)
-    assert loaded["input_contract"] == prepared_input_contract(config, ["Br", "Q_eff", "E_source"])
+    assert loaded["input_contract"] == prepared_input_contract(
+        config, ["Br", "Q_eff", "E_neutral_wind"]
+    )
     assert loaded["input_contract"]["geometry"]["RM"] == 7.0e6
     assert loaded["input_contract"]["geometry"]["main_field_kind"] == "igrf"
     assert loaded["input_contract"]["dataset_requirements"] == {"Br": ["RM"]}

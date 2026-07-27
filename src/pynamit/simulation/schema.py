@@ -27,7 +27,7 @@ INPUT_VARIABLES = {
     "resistance": ("etaP", "etaH"),
     "u": ("u",),
     "Q_eff": ("Q_eff",),
-    "E_source": ("E_source",),
+    "E_neutral_wind": ("E_neutral_wind",),
 }
 
 INPUT_FIELD_TYPES = {
@@ -36,7 +36,7 @@ INPUT_FIELD_TYPES = {
     "resistance": "scalar",
     "u": "tangential",
     "Q_eff": "tangential",
-    "E_source": "tangential",
+    "E_neutral_wind": "tangential",
 }
 
 OUTPUT_VARIABLES = {
@@ -146,12 +146,12 @@ def build_simulation_schema(config: SimulationConfig, *, operator_cache=None) ->
             "jr": cs_basis,
             # Boundary Br participates in radial continuation and is
             # therefore stored in the poloidal SH space even when its
-            # source samples are remapped through the CS grid.
+            # input samples are remapped through the CS grid.
             "Br": mean_free_sh_basis,
             "resistance": cs_basis,
             "u": cs_basis,
             "Q_eff": cs_basis,
-            "E_source": cs_basis,
+            "E_neutral_wind": cs_basis,
         }
         input_mean_free = {
             "jr": True,
@@ -159,7 +159,7 @@ def build_simulation_schema(config: SimulationConfig, *, operator_cache=None) ->
             "resistance": False,
             "u": True,
             "Q_eff": True,
-            "E_source": True,
+            "E_neutral_wind": True,
         }
         input_projection_bases = {
             "jr": cs_basis,
@@ -167,7 +167,7 @@ def build_simulation_schema(config: SimulationConfig, *, operator_cache=None) ->
             "resistance": cs_basis,
             "u": cs_basis,
             "Q_eff": cs_basis,
-            "E_source": cs_basis,
+            "E_neutral_wind": cs_basis,
         }
     else:
         projection_bases = {"SH": mean_free_sh_basis, "CS": cs_basis}
@@ -177,7 +177,7 @@ def build_simulation_schema(config: SimulationConfig, *, operator_cache=None) ->
             "resistance": (sh_basis if resistance_projection_basis == "SH" else cs_basis),
             "u": mean_free_sh_basis,
             "Q_eff": mean_free_sh_basis,
-            "E_source": mean_free_sh_basis,
+            "E_neutral_wind": mean_free_sh_basis,
         }
         input_mean_free = None
         input_projection_bases = {
@@ -186,7 +186,7 @@ def build_simulation_schema(config: SimulationConfig, *, operator_cache=None) ->
             "resistance": (sh_basis if resistance_projection_basis == "SH" else cs_basis),
             "u": projection_bases[projection_basis_kinds["u"]],
             "Q_eff": projection_bases[projection_basis_kinds["Q_eff"]],
-            "E_source": projection_bases[projection_basis_kinds["E_source"]],
+            "E_neutral_wind": projection_bases[projection_basis_kinds["E_neutral_wind"]],
         }
 
     input_field_spaces = field_spaces_from_bases(

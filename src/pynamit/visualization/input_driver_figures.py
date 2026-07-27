@@ -288,10 +288,10 @@ class InputDriverRenderer:
         )
         source_options = [
             {
-                "theta": fields["E_source_theta"],
-                "phi": fields["E_source_phi"],
+                "theta": fields["E_neutral_wind_theta"],
+                "phi": fields["E_neutral_wind_phi"],
                 "scale_factor": 1.0e3,
-                "title": r"Input direct $E_\mathrm{source}$",
+                "title": r"Input neutral-wind $E$",
                 "key_value": 10.0,
                 "key_label": "10 mV/m",
                 "scale": 90.0,
@@ -353,7 +353,7 @@ class InputDriverRenderer:
             axis.text(
                 0.5,
                 0.5,
-                "No tangential wind/source input stored",
+                "No tangential neutral-wind input stored",
                 transform=axis.transAxes,
                 ha="center",
                 va="center",

@@ -31,7 +31,7 @@ class _InputSpec:
 _INPUT_SPECS = {
     key: _InputSpec(
         variables=tuple(variables),
-        exclusive_group=_WIND_FORCING_GROUP if key in {"u", "Q_eff"} else None,
+        exclusive_group=_WIND_FORCING_GROUP if key in {"u", "Q_eff", "E_neutral_wind"} else None,
         reject_least_squares_for_cs_projection=(key == "resistance"),
     )
     for key, variables in INPUT_VARIABLES.items()
@@ -147,9 +147,10 @@ class InputPipeline:
             if other in self.simulation.run_data.input_series.datasets
         ]
         if present:
+            representations = ", ".join(repr(name) for name in sorted({key, *present}))
             raise ValueError(
-                "Neutral wind input 'u' and effective-current input 'Q_eff' are "
-                "mutually exclusive; use only one wind-forcing representation."
+                f"Wind-forcing representations {representations} are mutually "
+                "exclusive; use only one."
             )
 
     @staticmethod

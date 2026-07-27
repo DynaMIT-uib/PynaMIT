@@ -3,6 +3,13 @@
 from __future__ import annotations
 
 from pynamit.visualization.figure_specs import PynamitFigureSpec
+from pynamit.visualization.figure_styles import (
+    manual_color_control_units,
+    manual_color_display_value,
+    manual_color_limits,
+    manual_line_parameters,
+    map_line_keys,
+)
 
 
 def set_widget_value(widget, value):
@@ -13,6 +20,9 @@ def set_widget_value(widget, value):
 
 def current_figure_spec(app) -> PynamitFigureSpec:
     """Return the spec described by the current Panel controls."""
+    fill_key = app.fill.value if app.fill.value != "none" else "Br"
+    _, color_display_scale = manual_color_control_units(fill_key)
+
     return PynamitFigureSpec(
         run_directory=app.run_directory.value,
         data_directory=app.spec.data_directory,
@@ -51,6 +61,11 @@ def current_figure_spec(app) -> PynamitFigureSpec:
         curve_time_scale=float(app.time_scale.value),
         color_scale_mode=app.color_scale_mode.value,
         color_scale_percentile=float(app.color_scale_percentile.value),
+        manual_color_min=float(app.manual_color_min.value) / color_display_scale,
+        manual_color_max=float(app.manual_color_max.value) / color_display_scale,
+        line_first_abs_level=float(app.line_first_abs_level.value),
+        line_interval=float(app.line_interval.value),
+        line_levels_per_sign=int(app.line_levels_per_sign.value),
         geo_lat_min=float(app.geo_lat_min.value),
         geo_lat_max=float(app.geo_lat_max.value),
         local_time_min=float(app.local_time_min.value),
@@ -125,9 +140,29 @@ def apply_figure_spec_to_widgets(app, spec: PynamitFigureSpec) -> None:
     set_widget_value(app.show_low_lat_curve, bool(spec.show_low_latitude_curve))
     set_widget_value(
         app.color_scale_mode,
-        spec.color_scale_mode if spec.color_scale_mode in {"fixed", "percentile"} else "fixed",
+        spec.color_scale_mode if spec.color_scale_mode in {"manual", "percentile"} else "manual",
     )
     set_widget_value(app.color_scale_percentile, float(spec.color_scale_percentile))
+    fill_key = spec.fill if spec.fill != "none" else "Br"
+    if spec.manual_color_min is None:
+        color_min, color_max = manual_color_limits(fill_key)
+    else:
+        color_min, color_max = spec.manual_color_min, spec.manual_color_max
+    set_widget_value(app.manual_color_min, manual_color_display_value(fill_key, color_min))
+    set_widget_value(app.manual_color_max, manual_color_display_value(fill_key, color_max))
+    if spec.line_first_abs_level is None:
+        line_keys = map_line_keys(spec.lines)
+        line_start, line_interval, line_count = manual_line_parameters(
+            line_keys[0] if line_keys else "Phi"
+        )
+    else:
+        line_start = spec.line_first_abs_level
+        line_interval = spec.line_interval
+        line_count = spec.line_levels_per_sign
+    set_widget_value(app.line_first_abs_level, float(line_start))
+    set_widget_value(app.line_interval, float(line_interval))
+    set_widget_value(app.line_levels_per_sign, int(line_count))
+    app._sync_style_control_labels()
     set_widget_value(app.geo_lat_min, float(spec.geo_lat_min))
     set_widget_value(app.geo_lat_max, float(spec.geo_lat_max))
     set_widget_value(app.local_time_min, float(spec.local_time_min))

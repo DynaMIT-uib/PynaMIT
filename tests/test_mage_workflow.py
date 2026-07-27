@@ -29,7 +29,11 @@ from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.workflows.mage_preparation import (
     MAGE_FORCING_KIND,
     MAGE_FORCING_VERSION,
+    REMIX_CONDUCTANCE_FLOOR_MODEL,
+    REMIX_HALL_FLOOR_S,
+    REMIX_PEDERSEN_FLOOR_S,
     PreparationSettings,
+    _apply_remix_conductance_floor,
     _atomic_prepared_output,
     _centered_dipole_alignment_attrs,
     _combine_remix_hemispheres,
@@ -45,6 +49,7 @@ from pynamit.simulation.workflows.mage_preparation import (
     _pynamit_dipole_B0_T,
     _read_tiegcm_step,
     _remix_cell_center_coordinates,
+    _remix_conductance_domain_mask,
     _remix_upward_fac_source,
     _RemixGridInterpolator,
     _resolve_tiegcm_path,
@@ -174,6 +179,10 @@ def _write_projection_forcing(path: Path, *, hall_conductance=5.0) -> None:
         output.attrs["tiegcm_dynamo_reference_height_m"] = 90_000.0
         output.attrs["tiegcm_pedersen_lower_scale_m"] = 5_000.0
         output.attrs["tiegcm_hall_lower_scale_m"] = 3_000.0
+        output.attrs["remix_conductance_floor_model"] = REMIX_CONDUCTANCE_FLOOR_MODEL
+        output.attrs["remix_pedersen_floor_S"] = REMIX_PEDERSEN_FLOOR_S
+        output.attrs["remix_hall_floor_S"] = REMIX_HALL_FLOOR_S
+        output.attrs["remix_grid_equatorward_sm_latitude_deg"] = 35.0
         output.attrs["ionosphere_radius_m"] = 6.5e6
         output.attrs["time_axis"] = "tiegcm_mtime_nominal"
         output.attrs["source_time_tolerance_seconds"] = 0.1
@@ -244,6 +253,47 @@ def test_geographic_grid_in_sm_uses_kaiju_nearest_second():
     expected = kaiju_geopack_sm(dt.datetime(2011, 10, 24, 18, 0, 10)).geo2sm(latitude, longitude)
 
     np.testing.assert_allclose(observed, expected, rtol=0.0, atol=1e-13)
+
+
+def test_remix_hard_conductance_floor_applies_only_inside_saved_polar_domain():
+    """Preparation reproduces ReMIX's hard 2 S / 1 S polar minimum."""
+    event_time = dt.datetime(2011, 10, 24, 18, 28)
+    latitude, longitude = np.meshgrid(
+        np.array([-70.0, -20.0, 20.0, 70.0]), np.array([-135.0, -45.0, 45.0, 135.0]), indexing="ij"
+    )
+    minimum_latitude = 35.0
+    domain = _remix_conductance_domain_mask(latitude, longitude, event_time, minimum_latitude)
+    pedersen = np.full(latitude.shape, 0.25)
+    hall = np.full(latitude.shape, 0.1)
+    pedersen[0, 0] = 4.0
+    hall[-1, -1] = 3.0
+
+    floored_pedersen, floored_hall = _apply_remix_conductance_floor(
+        pedersen,
+        hall,
+        latitude=latitude,
+        longitude=longitude,
+        event_time=event_time,
+        equatorward_sm_latitude=minimum_latitude,
+    )
+
+    np.testing.assert_array_equal(
+        floored_pedersen[domain], np.maximum(pedersen[domain], REMIX_PEDERSEN_FLOOR_S)
+    )
+    np.testing.assert_array_equal(
+        floored_hall[domain], np.maximum(hall[domain], REMIX_HALL_FLOOR_S)
+    )
+    np.testing.assert_allclose(floored_pedersen[~domain], pedersen[~domain])
+    np.testing.assert_allclose(floored_hall[~domain], hall[~domain])
+
+
+@pytest.mark.parametrize("minimum_latitude", [0.0, 90.0, np.nan])
+def test_remix_conductance_domain_rejects_invalid_boundary(minimum_latitude):
+    """The floor domain must be a physical polar-cap boundary."""
+    with pytest.raises(ValueError, match="between 0 and 90"):
+        _remix_conductance_domain_mask(
+            np.array([60.0]), np.array([0.0]), dt.datetime(2011, 10, 24, 18, 28), minimum_latitude
+        )
 
 
 def _two_layer_tiegcm_dataset():
@@ -353,6 +403,7 @@ def test_prepared_time_axis_is_written_as_utf8_with_source_provenance(tmp_path):
             6.3781e6,
             -29_617.4,
             tmp_path / "tiegcm.nc",
+            35.0,
         )
 
     with h5py.File(output_path) as output:
@@ -381,6 +432,10 @@ def test_prepared_time_axis_is_written_as_utf8_with_source_provenance(tmp_path):
         )
         assert output.attrs["tiegcm_dynamo_bottom_ilev"] == -8.5
         assert output.attrs["tiegcm_dynamo_reference_height_m"] == 90_000.0
+        assert output.attrs["remix_conductance_floor_model"] == REMIX_CONDUCTANCE_FLOOR_MODEL
+        assert output.attrs["remix_pedersen_floor_S"] == REMIX_PEDERSEN_FLOOR_S
+        assert output.attrs["remix_hall_floor_S"] == REMIX_HALL_FLOOR_S
+        assert output.attrs["remix_grid_equatorward_sm_latitude_deg"] == 35.0
         assert not output.attrs["complete"]
         _, relative_seconds = _h5_time_vector_seconds(output["time"][:])
 
@@ -589,7 +644,7 @@ def test_invalid_forcing_does_not_remove_existing_projection(tmp_path):
             br_lambda=0.1,
             conductance_lambda=0.1,
             jr_lambda=0.1,
-            e_source_lambda=0.1,
+            e_neutral_wind_lambda=0.1,
             artifact_storage="netcdf",
         )
 
@@ -605,6 +660,30 @@ def test_prepared_forcing_rejects_incompatible_lower_dynamo_parameters(tmp_path)
 
     with h5py.File(forcing_path) as forcing:
         with pytest.raises(RuntimeError, match="lower-dynamo parameters.*hall"):
+            _validate_prepared_forcing(forcing)
+
+
+def test_prepared_forcing_rejects_incompatible_remix_conductance_floor(tmp_path):
+    """Projection requires the exact floor used by the MAGE case."""
+    forcing_path = tmp_path / "forcing.h5"
+    _write_projection_forcing(forcing_path)
+    with h5py.File(forcing_path, "r+") as forcing:
+        forcing.attrs["remix_pedersen_floor_S"] = 1.5
+
+    with h5py.File(forcing_path) as forcing:
+        with pytest.raises(RuntimeError, match="incompatible ReMIX conductance floors"):
+            _validate_prepared_forcing(forcing)
+
+
+def test_prepared_forcing_rejects_unfloored_polar_conductance(tmp_path):
+    """Validate the prepared values, not only floor metadata."""
+    forcing_path = tmp_path / "forcing.h5"
+    _write_projection_forcing(forcing_path)
+    with h5py.File(forcing_path, "r+") as forcing:
+        forcing["SH"][:, 0, :] = 0.5
+
+    with h5py.File(forcing_path) as forcing:
+        with pytest.raises(RuntimeError, match="Hall conductance violates.*hard floor"):
             _validate_prepared_forcing(forcing)
 
 
@@ -932,7 +1011,7 @@ def test_mage_step_limits_require_positive_integers(tmp_path, max_steps):
             br_lambda=0.1,
             conductance_lambda=0.1,
             jr_lambda=0.1,
-            e_source_lambda=0.1,
+            e_neutral_wind_lambda=0.1,
             artifact_storage="netcdf",
         )
 
@@ -1230,7 +1309,7 @@ def test_mage_projection_reuses_geometry_for_complete_input_series(tmp_path):
         br_lambda=0.1,
         conductance_lambda=0.1,
         jr_lambda=0.1,
-        e_source_lambda=0.1,
+        e_neutral_wind_lambda=0.1,
         artifact_storage="netcdf",
     )
 
@@ -1240,7 +1319,7 @@ def test_mage_projection_reuses_geometry_for_complete_input_series(tmp_path):
         (projection_directory / "pynamit_input_manifest.json").read_text(encoding="utf-8")
     )
     assert manifest["metadata"]["projection_regularization"]["Br_lambda"] == 0.1
-    for dataset in ("Br", "jr", "resistance", "E_source"):
+    for dataset in ("Br", "jr", "resistance", "E_neutral_wind"):
         assert (projection_directory / f"{dataset}.ncdf").is_file()
 
 
@@ -1265,7 +1344,7 @@ def test_mage_projection_rejects_incompatible_prepared_units(tmp_path):
             br_lambda=0.1,
             conductance_lambda=0.1,
             jr_lambda=0.1,
-            e_source_lambda=0.1,
+            e_neutral_wind_lambda=0.1,
             artifact_storage="netcdf",
         )
 
@@ -1293,7 +1372,7 @@ def test_projection_failure_preserves_last_complete_package(tmp_path):
     hall[1] = -1.0
     _write_projection_forcing(forcing_path, hall_conductance=hall)
 
-    with pytest.raises(ValueError, match="Hall conductance"):
+    with pytest.raises(RuntimeError, match="Hall conductance violates.*hard floor"):
         project_inputs(
             forcing_path=forcing_path,
             projection_directory=projection_directory,
@@ -1306,7 +1385,7 @@ def test_projection_failure_preserves_last_complete_package(tmp_path):
             br_lambda=0.1,
             conductance_lambda=0.1,
             jr_lambda=0.1,
-            e_source_lambda=0.1,
+            e_neutral_wind_lambda=0.1,
             artifact_storage="netcdf",
         )
 
@@ -1314,11 +1393,13 @@ def test_projection_failure_preserves_last_complete_package(tmp_path):
     assert not list(tmp_path.glob(".*-projecting-*"))
 
 
-def test_projection_accepts_zero_hall_with_positive_pedersen(tmp_path):
-    """Zero Hall conductance need not make the tensor singular."""
+def test_projection_accepts_subfloor_hall_equatorward_of_remix_domain(tmp_path):
+    """The ReMIX floor does not alter equatorward conductance."""
     forcing_path = tmp_path / "forcing.h5"
     projection_directory = tmp_path / "projection"
-    _write_projection_forcing(forcing_path, hall_conductance=0.0)
+    hall = np.full((2, 4, 4), 5.0)
+    hall[:, 1:3, :] = 0.0
+    _write_projection_forcing(forcing_path, hall_conductance=hall)
 
     project_inputs(
         forcing_path=forcing_path,
@@ -1332,7 +1413,7 @@ def test_projection_accepts_zero_hall_with_positive_pedersen(tmp_path):
         br_lambda=0.1,
         conductance_lambda=0.1,
         jr_lambda=0.1,
-        e_source_lambda=0.1,
+        e_neutral_wind_lambda=0.1,
         artifact_storage="netcdf",
     )
 

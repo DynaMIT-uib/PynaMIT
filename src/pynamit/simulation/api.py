@@ -60,7 +60,7 @@ class Simulation:
         resistance_projection_basis=None,
         u_projection_basis=None,
         Q_eff_projection_basis=None,
-        E_source_projection_basis=None,
+        E_neutral_wind_projection_basis=None,
         t0="2020-01-01 00:00:00",
         save_steady_states=True,
         integrator="euler",
@@ -132,9 +132,9 @@ class Simulation:
         Q_eff_projection_basis : {'SH', 'CS'}, optional
             Basis route used when projecting effective wind-current
             inputs. Defaults to ``u_projection_basis``.
-        E_source_projection_basis : {'SH', 'CS'}, optional
-            Basis route used when projecting direct electric-field
-            sources. Defaults to ``horizontal_basis_kind``.
+        E_neutral_wind_projection_basis : {'SH', 'CS'}, optional
+            Basis route used when projecting equivalent neutral-wind
+            electric fields. Defaults to ``horizontal_basis_kind``.
         t0 : str, optional
             Start time in UTC format.
         save_steady_states : bool, optional
@@ -202,7 +202,7 @@ class Simulation:
             resistance_projection_basis=resistance_projection_basis,
             u_projection_basis=u_projection_basis,
             Q_eff_projection_basis=Q_eff_projection_basis,
-            E_source_projection_basis=E_source_projection_basis,
+            E_neutral_wind_projection_basis=E_neutral_wind_projection_basis,
             horizontal_basis_kind=horizontal_basis_kind,
             area_weighted_least_squares=area_weighted_least_squares,
             t0=t0,
@@ -743,10 +743,10 @@ class Simulation:
             pinv_rtol=pinv_rtol,
         )
 
-    def set_E_source(
+    def set_E_neutral_wind(
         self,
-        E_source_theta=None,
-        E_source_phi=None,
+        E_neutral_wind_theta=None,
+        E_neutral_wind_phi=None,
         lat=None,
         lon=None,
         theta=None,
@@ -756,24 +756,26 @@ class Simulation:
         reg_lambda=None,
         pinv_rtol=1e-15,
         *,
-        E_source_cf=None,
-        E_source_df=None,
+        E_neutral_wind_cf=None,
+        E_neutral_wind_df=None,
     ):
-        """Set a direct electric-field source input.
+        """Set an equivalent neutral-wind electric-field input.
 
-        ``E_source`` is added to the non-induced electric field before
-        the imposed-current coupling is solved. It is an electric field
-        source in V/m, not an effective current, so it must not be
-        passed through ``set_Q_eff``. Independent electric sources may
-        be superposed with either neutral-wind representation.
+        ``E_neutral_wind`` is added to the non-induced electric field
+        before the imposed-current coupling is solved. It is an electric
+        field in V/m, not an effective current. Use this route for
+        externally prepared neutral-wind electrodynamics, such as
+        separate Pedersen- and Hall-weighted winds. It is an alternative
+        to ``set_neutral_wind`` and ``set_Q_eff``; use only one of the
+        three representations.
 
         Parameters
         ----------
-        E_source_theta : array-like
-            Southward electric-field source component in V/m.
-        E_source_phi : array-like
-            Eastward electric-field source component in V/m.
-        E_source_cf, E_source_df : array-like, optional
+        E_neutral_wind_theta : array-like
+            Southward neutral-wind electric-field component in V/m.
+        E_neutral_wind_phi : array-like
+            Eastward neutral-wind electric-field component in V/m.
+        E_neutral_wind_cf, E_neutral_wind_df : array-like, optional
             Curl-free and divergence-free Helmholtz coefficients in the
             input storage basis.
         lat, lon : array-like, optional
@@ -781,22 +783,23 @@ class Simulation:
         theta, phi : array-like, optional
             Colatitude/azimuth coordinates in degrees.
         time : array-like, optional
-            Time points for the E-source data.
+            Time points for the neutral-wind electric-field data.
         sqrt_weights : array-like, optional
-            sqrt_weights for the E-source data points.
+            Square-root weights for the neutral-wind electric-field
+            samples.
         reg_lambda : float, optional
             Regularization parameter.
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
         """
         self._input_pipeline.set_tangential_input(
-            "E_source",
-            theta_component=E_source_theta,
-            phi_component=E_source_phi,
-            cf_coefficients=E_source_cf,
-            df_coefficients=E_source_df,
-            sample_label="E_source samples",
-            coefficient_label="E_source coefficients",
+            "E_neutral_wind",
+            theta_component=E_neutral_wind_theta,
+            phi_component=E_neutral_wind_phi,
+            cf_coefficients=E_neutral_wind_cf,
+            df_coefficients=E_neutral_wind_df,
+            sample_label="neutral-wind electric-field samples",
+            coefficient_label="neutral-wind electric-field coefficients",
             lat=lat,
             lon=lon,
             theta=theta,

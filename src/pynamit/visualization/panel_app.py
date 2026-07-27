@@ -18,6 +18,13 @@ from pynamit.visualization.figure_specs import (
     figure_spec_from_run_defaults,
     publication_script_for_spec,
 )
+from pynamit.visualization.figure_styles import (
+    manual_color_control_units,
+    manual_color_display_value,
+    manual_color_limits,
+    manual_line_parameters,
+    map_line_keys,
+)
 from pynamit.visualization.panel_spec_binding import (
     apply_figure_spec_to_widgets,
     current_figure_spec,
@@ -28,6 +35,40 @@ PANEL_PLOT_TYPE_OPTIONS = {label: key for key, label in PLOT_TYPE_OPTIONS.items(
 MAP_PLOT_TYPES = {"global", "hemispheres"}
 GROUND_PLOT_TYPES = {"ground_curve_map", "ground_timeseries"}
 MOVIE_PLOT_TYPES = MAP_PLOT_TYPES | {"input_summary"}
+PANEL_LINE_UNITS = {"Phi": "kV", "W": "kV", "Jeq": "A"}
+
+
+def _manual_color_values(spec):
+    """Return manual limits for the selected fill."""
+    field_key = spec.fill if spec.fill != "none" else "Br"
+    if spec.manual_color_min is not None:
+        minimum, maximum = float(spec.manual_color_min), float(spec.manual_color_max)
+    else:
+        minimum, maximum = manual_color_limits(field_key)
+    return (
+        manual_color_display_value(field_key, minimum),
+        manual_color_display_value(field_key, maximum),
+    )
+
+
+def _manual_line_values(spec):
+    """Return manual parameters for the selected overlay."""
+    if spec.line_first_abs_level is not None:
+        return (
+            float(spec.line_first_abs_level),
+            float(spec.line_interval),
+            int(spec.line_levels_per_sign),
+        )
+    line_keys = map_line_keys(spec.lines)
+    return manual_line_parameters(line_keys[0] if line_keys else "Phi")
+
+
+def _absolute_output_path(value):
+    """Return one user-entered output path as an absolute path."""
+    text = str(value).strip()
+    if not text:
+        raise ValueError("Output path cannot be empty.")
+    return Path(text).expanduser().resolve()
 
 
 def _panel():
@@ -70,6 +111,7 @@ class PynamitPanelApp:
         self.view = None
         self.figure = None
         self._busy = False
+        self._syncing_style_controls = False
         self._loaded_run_directory = None
 
         self._build_run_widgets()
@@ -180,7 +222,9 @@ class PynamitPanelApp:
         self.sim_use_br = pn.widgets.Checkbox(label="Br", value=True, width=70)
         self.sim_use_u = pn.widgets.Checkbox(label="u", value=True, width=70)
         self.sim_use_q_eff = pn.widgets.Checkbox(label="Q_eff", value=True, width=90)
-        self.sim_use_e_source = pn.widgets.Checkbox(label="E_source", value=True, width=110)
+        self.sim_use_e_neutral_wind = pn.widgets.Checkbox(
+            label="Neutral-wind E", value=True, width=130
+        )
         self.run_simulation_button = pn.widgets.Button(
             label="Run from inputs", color="primary", width=150
         )
@@ -285,6 +329,8 @@ class PynamitPanelApp:
 
     def _build_visualization_widgets(self):
         pn = self.pn
+        color_min, color_max = _manual_color_values(self.spec)
+        line_start, line_interval, line_count = _manual_line_values(self.spec)
         self.show_reference_line = pn.widgets.Checkbox(
             label="Reference line", value=self.spec.show_reference_line, width=130
         )
@@ -319,10 +365,10 @@ class PynamitPanelApp:
         )
         self.color_scale_mode = pn.widgets.Select(
             label="Color scale",
-            options={"Fixed": "fixed", "Percentile": "percentile"},
+            options={"Manual": "manual", "Percentile": "percentile"},
             value=self.spec.color_scale_mode
-            if self.spec.color_scale_mode in {"fixed", "percentile"}
-            else "fixed",
+            if self.spec.color_scale_mode in {"manual", "percentile"}
+            else "manual",
             width=130,
         )
         self.color_scale_percentile = pn.widgets.FloatInput(
@@ -331,6 +377,21 @@ class PynamitPanelApp:
             start=0.0,
             end=100.0,
             width=110,
+        )
+        self.manual_color_min = pn.widgets.FloatInput(
+            label="Color min", value=color_min, width=150
+        )
+        self.manual_color_max = pn.widgets.FloatInput(
+            label="Color max", value=color_max, width=150
+        )
+        self.line_first_abs_level = pn.widgets.FloatInput(
+            label="First |line|", value=line_start, start=0.0, width=150
+        )
+        self.line_interval = pn.widgets.FloatInput(
+            label="Line spacing", value=line_interval, start=0.0, width=150
+        )
+        self.line_levels_per_sign = pn.widgets.IntInput(
+            label="Lines / sign", value=line_count, start=1, width=130
         )
         self.geo_lat_min = pn.widgets.FloatInput(
             label="Geo lat min", value=self.spec.geo_lat_min, width=130
@@ -347,20 +408,75 @@ class PynamitPanelApp:
         self.zoom_window = pn.widgets.Checkbox(
             label="Zoom window", value=self.spec.zoom_window, width=130
         )
+        self._sync_style_control_labels()
+
+    def _sync_style_control_labels(self):
+        """Show units for the selected fill and line fields."""
+        fill_key = self.fill.value if self.fill.value != "none" else "Br"
+        line_keys = map_line_keys(self.lines.value)
+        line_key = line_keys[0] if line_keys else "Phi"
+        color_units, _ = manual_color_control_units(fill_key)
+        line_units = PANEL_LINE_UNITS[line_key]
+        self.manual_color_min.name = f"Color min ({color_units})"
+        self.manual_color_max.name = f"Color max ({color_units})"
+        self.line_first_abs_level.name = f"First |line| ({line_units})"
+        self.line_interval.name = f"Line spacing ({line_units})"
+
+    def _reset_manual_color_controls(self):
+        """Load the selected filled field's existing preset."""
+        field_key = self.fill.value if self.fill.value != "none" else "Br"
+        minimum, maximum = manual_color_limits(field_key)
+        set_widget_value(self.manual_color_min, manual_color_display_value(field_key, minimum))
+        set_widget_value(self.manual_color_max, manual_color_display_value(field_key, maximum))
+
+    def _reset_manual_line_controls(self):
+        """Load the selected line field's existing preset."""
+        line_keys = map_line_keys(self.lines.value)
+        start, interval, count = manual_line_parameters(line_keys[0] if line_keys else "Phi")
+        set_widget_value(self.line_first_abs_level, start)
+        set_widget_value(self.line_interval, interval)
+        set_widget_value(self.line_levels_per_sign, count)
 
     def _build_output_widgets(self):
         pn = self.pn
+        self._pending_overwrite = None
         self.redraw_button = pn.widgets.Button(label="Redraw", color="primary", width=95)
         self.save_button = pn.widgets.Button(label="Save figure", color="warning", width=120)
         self.save_movie_button = pn.widgets.Button(label="Save movie", color="warning", width=120)
         self.output_filename = pn.widgets.TextInput(
-            label="Output", value="pynamit_figure.png", width=260
+            label="Figure path",
+            value=str(_absolute_output_path("pynamit_figure.png")),
+            min_width=360,
         )
         self.movie_filename = pn.widgets.TextInput(
-            label="Movie", value=self.spec.movie_filename, width=260
+            label="Movie path",
+            value=str(_absolute_output_path(self.spec.movie_filename)),
+            min_width=360,
         )
         self.movie_fps = pn.widgets.FloatInput(
             label="FPS", value=self.spec.movie_fps, start=0.1, width=90
+        )
+        self.overwrite_message = pn.pane.Str(
+            "",
+            styles={"overflow-wrap": "anywhere", "white-space": "pre-wrap"},
+            sizing_mode="stretch_width",
+        )
+        self.confirm_overwrite_button = pn.widgets.Button(
+            label="Overwrite", color="danger", width=110
+        )
+        self.cancel_overwrite_button = pn.widgets.Button(label="Cancel", width=90)
+        self.overwrite_modal = pn.Modal(
+            pn.Column(
+                pn.pane.Markdown("### Replace existing file?"),
+                self.overwrite_message,
+                self._control_row(self.cancel_overwrite_button, self.confirm_overwrite_button),
+                sizing_mode="stretch_width",
+            ),
+            open=False,
+            background_close=False,
+            show_close_button=False,
+            width=620,
+            max_width=620,
         )
         self.script_download = pn.widgets.FileDownload(
             label="Download .py",
@@ -393,6 +509,8 @@ class PynamitPanelApp:
         self.redraw_button.on_click(self._redraw)
         self.save_button.on_click(self._save_figure)
         self.save_movie_button.on_click(self._save_movie)
+        self.confirm_overwrite_button.on_click(self._confirm_overwrite)
+        self.cancel_overwrite_button.on_click(self._cancel_overwrite)
         self.app_mode.param.watch(self._mode_changed, "value")
         for widget in (
             self.plot_type,
@@ -429,6 +547,11 @@ class PynamitPanelApp:
             self.show_low_lat_curve,
             self.color_scale_mode,
             self.color_scale_percentile,
+            self.manual_color_min,
+            self.manual_color_max,
+            self.line_first_abs_level,
+            self.line_interval,
+            self.line_levels_per_sign,
             self.geo_lat_min,
             self.geo_lat_max,
             self.local_time_min,
@@ -453,7 +576,7 @@ class PynamitPanelApp:
             "Br": self.sim_use_br,
             "u": self.sim_use_u,
             "Q_eff": self.sim_use_q_eff,
-            "E_source": self.sim_use_e_source,
+            "E_neutral_wind": self.sim_use_e_neutral_wind,
         }
 
     def _available_simulation_inputs(self, input_directory):
@@ -492,8 +615,8 @@ class PynamitPanelApp:
             selected.append("u")
         if self.sim_use_q_eff.value:
             selected.append("Q_eff")
-        if self.sim_use_e_source.value:
-            selected.append("E_source")
+        if self.sim_use_e_neutral_wind.value:
+            selected.append("E_neutral_wind")
         return tuple(selected)
 
     def _prepare_inputs(self, event=None):
@@ -614,6 +737,9 @@ class PynamitPanelApp:
             if self.time_range.value == (0, 0):
                 self.time_range.value = (0, min(int(self.time_range.end), 60))
             apply_figure_spec_to_widgets(self, self.spec)
+            set_widget_value(
+                self.movie_filename, str(_absolute_output_path(self.movie_filename.value))
+            )
             self._loaded_run_directory = expanded_run_directory
             self._set_status(f"Loaded `{Path(self.spec.run_directory).expanduser()}`.")
             should_redraw = True
@@ -625,6 +751,18 @@ class PynamitPanelApp:
             self._redraw()
 
     def _control_changed(self, event=None):
+        if self._syncing_style_controls:
+            return
+        if event is not None and event.obj in {self.fill, self.lines}:
+            self._syncing_style_controls = True
+            try:
+                if event.obj is self.fill:
+                    self._reset_manual_color_controls()
+                if event.obj is self.lines:
+                    self._reset_manual_line_controls()
+                self._sync_style_control_labels()
+            finally:
+                self._syncing_style_controls = False
         if self._busy:
             return
         if self.app_mode.value != "visualize":
@@ -662,7 +800,14 @@ class PynamitPanelApp:
         if self.figure is None:
             return
         try:
-            path = Path(self.output_filename.value).expanduser()
+            path = self._output_widget_path(self.output_filename)
+            self._save_or_confirm_overwrite(path, self._write_figure)
+        except Exception:
+            self._set_status(traceback.format_exc(limit=6), error=True)
+
+    def _write_figure(self, path):
+        """Write the active figure to one confirmed path."""
+        try:
             path.parent.mkdir(parents=True, exist_ok=True)
             self.figure.savefig(path, dpi=300, bbox_inches="tight")
             self._set_status(f"Saved figure to [{path}]({path})")
@@ -672,20 +817,63 @@ class PynamitPanelApp:
     def _save_movie(self, event=None):
         if self._busy:
             return
+        try:
+            path = self._output_widget_path(self.movie_filename)
+            self._save_or_confirm_overwrite(path, self._write_movie)
+        except Exception:
+            self._set_status(traceback.format_exc(limit=8), error=True)
+
+    def _write_movie(self, path):
+        """Render a movie to one confirmed path."""
         self._busy = True
+        self.save_movie_button.loading = True
         try:
             spec = current_figure_spec(self)
             path = save_pynamit_movie(
-                spec,
-                self.movie_filename.value,
-                fps=float(self.movie_fps.value),
-                dpi=int(spec.movie_dpi),
+                spec, path, fps=float(self.movie_fps.value), dpi=int(spec.movie_dpi)
             )
             self._set_status(f"Saved movie to [{path}]({path})")
         except Exception:
             self._set_status(traceback.format_exc(limit=8), error=True)
         finally:
+            self.save_movie_button.loading = False
             self._busy = False
+
+    def _output_widget_path(self, widget):
+        """Normalize an output widget to its absolute path."""
+        path = _absolute_output_path(widget.value)
+        set_widget_value(widget, str(path))
+        return path
+
+    def _save_or_confirm_overwrite(self, path, save):
+        """Save a new file or confirm its replacement."""
+        if path.exists():
+            if not path.is_file():
+                raise IsADirectoryError(f"Output path is not a file: {path}")
+            self._pending_overwrite = (path, save)
+            self.overwrite_message.object = f"{path}\n\nThis file already exists. Overwrite it?"
+            self.overwrite_modal.open = True
+            self._set_status(f"`{path}` already exists. Confirm or cancel the overwrite.")
+            return
+        save(path)
+
+    def _confirm_overwrite(self, event=None):
+        """Run the pending save after overwrite confirmation."""
+        pending = self._pending_overwrite
+        self._pending_overwrite = None
+        self.overwrite_modal.open = False
+        if pending is None:
+            return
+        path, save = pending
+        save(path)
+
+    def _cancel_overwrite(self, event=None):
+        """Cancel without touching the existing file."""
+        pending = self._pending_overwrite
+        self._pending_overwrite = None
+        self.overwrite_modal.open = False
+        if pending is not None:
+            self._set_status(f"Save cancelled; existing file left unchanged: `{pending[0]}`.")
 
     def _download_script(self):
         spec = current_figure_spec(self)
@@ -753,7 +941,7 @@ class PynamitPanelApp:
                 self.sim_use_br,
                 self.sim_use_u,
                 self.sim_use_q_eff,
-                self.sim_use_e_source,
+                self.sim_use_e_neutral_wind,
             ),
             self._control_row(self.run_simulation_button),
             title="Simulation Run",
@@ -806,6 +994,10 @@ class PynamitPanelApp:
                 self.color_scale_mode,
                 self.color_scale_percentile,
             ),
+            self._control_row(self.manual_color_min, self.manual_color_max),
+            self._control_row(
+                self.line_first_abs_level, self.line_interval, self.line_levels_per_sign
+            ),
             self._control_row(self.min_abs_lat),
             self._control_row(self.show_reference_line, self.reference_time),
             title="Visualization",
@@ -850,13 +1042,17 @@ class PynamitPanelApp:
         plot_area = pn.Column(
             self.plot_pane, min_width=320, sizing_mode="stretch_both", styles={"flex": "4 1 760px"}
         )
-        return pn.FlexBox(
-            controls,
-            plot_area,
-            flex_direction="row",
-            flex_wrap="wrap",
-            align_items="flex-start",
-            gap="14px",
+        return pn.Column(
+            pn.FlexBox(
+                controls,
+                plot_area,
+                flex_direction="row",
+                flex_wrap="wrap",
+                align_items="flex-start",
+                gap="14px",
+                sizing_mode="stretch_both",
+            ),
+            self.overwrite_modal,
             sizing_mode="stretch_both",
         )
 
@@ -934,6 +1130,15 @@ class PynamitPanelApp:
         self.color_scale_percentile.visible = (
             has_color_scale and self.color_scale_mode.value == "percentile"
         )
+        show_manual_color = (
+            is_map and self.fill.value != "none" and self.color_scale_mode.value == "manual"
+        )
+        self.manual_color_min.visible = show_manual_color
+        self.manual_color_max.visible = show_manual_color
+        show_line_controls = is_map and self.lines.value != "none"
+        self.line_first_abs_level.visible = show_line_controls
+        self.line_interval.visible = show_line_controls
+        self.line_levels_per_sign.visible = show_line_controls
 
         can_make_movie = plot_type in MOVIE_PLOT_TYPES
         self.movie_filename.visible = can_make_movie

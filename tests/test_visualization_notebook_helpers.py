@@ -43,6 +43,7 @@ from pynamit.visualization.plot_helpers import (
     format_contour_interval,
     get_ticks_from_levels,
     style_global_axis,
+    symmetric_contour_levels,
     symmetric_contour_levels_without_zero,
 )
 
@@ -237,6 +238,13 @@ def test_plot_helper_functions_match_notebook_behaviour():
     assert contour_kwargs_for_display(
         {"levels": levels, "symbol": "x", "units": "T", "scale": 1.0}
     ) == {"levels": levels}
+
+
+def test_symmetric_contour_levels_use_explicit_start_spacing_and_count():
+    """Manual controls create a zero-free sequence on both signs."""
+    levels = symmetric_contour_levels(4.0, 4.0, 3)
+
+    np.testing.assert_allclose(levels, [-12.0, -8.0, -4.0, 4.0, 8.0, 12.0])
 
 
 def test_percentile_color_scale_handles_diverging_data_symmetrically():

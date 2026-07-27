@@ -46,7 +46,7 @@ _INPUT_PROJECTION_SETTING_KEYS = (
     "resistance_projection_basis",
     "u_projection_basis",
     "Q_eff_projection_basis",
-    "E_source_projection_basis",
+    "E_neutral_wind_projection_basis",
     "horizontal_basis_kind",
     "area_weighted_least_squares",
 )
@@ -431,12 +431,12 @@ def _validate_and_select_prepared_inputs(
     )
     if not selected_inputs:
         raise ValueError(f"No prepared input datasets found in {input_directory!r}.")
-    active_wind_forcings = sorted(set(selected_inputs) & {"u", "Q_eff"})
+    active_wind_forcings = sorted(set(selected_inputs) & {"u", "Q_eff", "E_neutral_wind"})
     if len(active_wind_forcings) > 1:
         raise ValueError(
             "Prepared input selection contains mutually exclusive wind-forcing "
-            f"representations {active_wind_forcings}; enable only one of 'u' or "
-            "'Q_eff' for a run."
+            f"representations {active_wind_forcings}; enable only one of 'u', "
+            "'Q_eff', or 'E_neutral_wind' for a run."
         )
     return input_directory, input_store, input_settings, selected_inputs, manifest
 
@@ -707,7 +707,7 @@ def prepare_pynamit_inputs(
     if use_Q_eff:
         notes.append(
             "Q_eff was derived from neutral wind through the current model operators; "
-            "prefer direct E_source inputs for externally prepared weighted winds."
+            "prefer E_neutral_wind for externally prepared conductivity-weighted winds."
         )
     write_input_manifest(
         input_directory,

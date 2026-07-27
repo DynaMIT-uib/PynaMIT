@@ -67,7 +67,7 @@ def test_simulation_config_normalizes_projection_defaults():
     assert config.resistance_projection_basis == "SH"
     assert config.u_projection_basis == "CS"
     assert config.Q_eff_projection_basis == "CS"
-    assert config.E_source_projection_basis == "SH"
+    assert config.E_neutral_wind_projection_basis == "SH"
 
 
 def test_simulation_config_cs_mode_requires_cs_projection_routes():
@@ -80,7 +80,7 @@ def test_simulation_config_cs_mode_requires_cs_projection_routes():
     assert config.resistance_projection_basis == "CS"
     assert config.u_projection_basis == "CS"
     assert config.Q_eff_projection_basis == "CS"
-    assert config.E_source_projection_basis == "CS"
+    assert config.E_neutral_wind_projection_basis == "CS"
 
     with pytest.raises(ValueError, match="jr_projection_basis"):
         SimulationConfig(horizontal_basis_kind="CS", jr_projection_basis="SH")

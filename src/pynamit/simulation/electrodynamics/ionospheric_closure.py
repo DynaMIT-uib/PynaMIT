@@ -98,7 +98,14 @@ def _cross_spherical(a_r, a_theta, a_phi, b_r, b_theta, b_phi):
 def _current_from_weighted_winds(
     *, sigma_p, sigma_h, u_p_theta, u_p_phi, u_h_theta, u_h_phi, field
 ):
-    """Return the 3D current driven by conductivity-weighted winds."""
+    """Return the height-integrated 3D wind-current source.
+
+    ``u_p`` and ``u_h`` are the separate conductivity-weighted column
+    means. With the thin-sheet approximation that the main field is
+    constant through the dynamo region, multiplying them by ``sigma_p``
+    and ``sigma_h`` reconstructs the wind moments in Appendix A,
+    Eqs. (A3)-(A4), of Laundal et al. (2025).
+    """
     sigma_p = np.asarray(sigma_p, dtype=float).reshape(-1)
     sigma_h = np.asarray(sigma_h, dtype=float).reshape(-1)
     u_p_theta = np.asarray(u_p_theta, dtype=float).reshape(-1)
@@ -127,13 +134,21 @@ def _current_from_weighted_winds(
 def electric_field_from_weighted_winds(
     *, sigma_p, sigma_h, u_p_theta, u_p_phi, u_h_theta, u_h_phi, field, eta_p, eta_h
 ):
-    """Return the field from Pedersen/Hall-weighted winds.
+    """Return equivalent E from height-integrated neutral-wind current.
 
     ``u_p`` and ``u_h`` are winds averaged separately with Pedersen and
-    Hall conductivity. The resulting three-dimensional wind-current
-    source is projected perpendicular to the main field and passed
-    through the sheet-resistance closure. Returned components follow
-    PynaMIT's ``E_source`` convention.
+    Hall conductivity. Together with their conductances, they represent
+    the two height integrals of the neutral-wind current in Appendix A
+    of Laundal et al. (2025). The resulting three-dimensional source is
+    inverted in the plane perpendicular to the main field and only then
+    projected onto the spherical sheet.
+
+    This is algebraically equivalent to applying the thin-sheet
+    resistance tensor to ``-Q_eff`` away from the dip equator. It avoids
+    explicitly forming ``Q_eff``, whose infinite-parallel-conductance
+    expression divides by the radial direction cosine and is singular
+    at the dip equator. Returned components follow PynaMIT's
+    ``E_neutral_wind`` convention.
     """
     q_r, q_theta, q_phi = _current_from_weighted_winds(
         sigma_p=sigma_p,

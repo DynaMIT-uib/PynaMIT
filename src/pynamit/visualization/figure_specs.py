@@ -33,7 +33,7 @@ PLOT_TYPE_OPTIONS = {
 GROUND_COMPONENT_OPTIONS = {"Magnitude", "North", "East", "Down", "AbsNorth", "AbsEast", "AbsDown"}
 GROUND_QUANTITY_OPTIONS = {"b", "dbdt"}
 CURVE_SCALE_MODE_OPTIONS = {"auto", "manual"}
-COLOR_SCALE_MODE_OPTIONS = {"fixed", "percentile"}
+COLOR_SCALE_MODE_OPTIONS = {"manual", "percentile"}
 
 RUN_PLOT_DEFAULT_FILENAMES = (
     "pynamit_plot_defaults.json",
@@ -62,7 +62,7 @@ class PynamitFigureSpec:
     include_station_data: bool = True
     show_station_labels: bool = True
     show_inductive: bool = True
-    show_noninductive: bool = False
+    show_noninductive: bool = True
     show_difference: bool = True
     show_reference_line: bool = True
     reference_time_of_day_utc: str = "18:31:00"
@@ -81,8 +81,13 @@ class PynamitFigureSpec:
     curve_scale_mode: str = "manual"
     curve_scale_value: float = 10.0
     curve_time_scale: float = 1.0
-    color_scale_mode: str = "fixed"
+    color_scale_mode: str = "manual"
     color_scale_percentile: float = 99.8
+    manual_color_min: float | None = None
+    manual_color_max: float | None = None
+    line_first_abs_level: float | None = None
+    line_interval: float | None = None
+    line_levels_per_sign: int | None = None
     geo_lat_min: float = -90.0
     geo_lat_max: float = 90.0
     local_time_min: float = 0.0
@@ -95,6 +100,8 @@ class PynamitFigureSpec:
 
     def __post_init__(self):
         """Normalize and validate renderer-facing options."""
+        if self.color_scale_mode == "fixed":
+            self.color_scale_mode = "manual"
         self.time_range = self._validate_time_range(self.time_range)
         self._validate_integer("time_index", self.time_index, minimum=0)
         self._validate_choice("plot_type", self.plot_type, PLOT_TYPE_OPTIONS)
@@ -122,6 +129,21 @@ class PynamitFigureSpec:
         self._validate_finite("sim_time_offset_seconds", self.sim_time_offset_seconds)
         self._validate_finite("data_time_offset_seconds", self.data_time_offset_seconds)
         self._validate_range("color_scale_percentile", self.color_scale_percentile, 0, 100)
+        self._validate_optional_pair(
+            "manual_color_min", self.manual_color_min, "manual_color_max", self.manual_color_max
+        )
+        if self.manual_color_min is not None and self.manual_color_min >= self.manual_color_max:
+            raise ValueError("manual_color_min must be less than manual_color_max.")
+        line_values = (self.line_first_abs_level, self.line_interval, self.line_levels_per_sign)
+        if any(value is not None for value in line_values):
+            if not all(value is not None for value in line_values):
+                raise ValueError(
+                    "line_first_abs_level, line_interval, and line_levels_per_sign "
+                    "must be set together."
+                )
+            self._validate_positive("line_first_abs_level", self.line_first_abs_level)
+            self._validate_positive("line_interval", self.line_interval)
+            self._validate_integer("line_levels_per_sign", self.line_levels_per_sign, minimum=1)
 
     @staticmethod
     def _validate_choice(name, value, options):
@@ -173,6 +195,14 @@ class PynamitFigureSpec:
     def _validate_finite(name, value):
         if not math.isfinite(float(value)):
             raise ValueError(f"{name} must be finite; got {value!r}.")
+
+    @classmethod
+    def _validate_optional_pair(cls, first_name, first, second_name, second):
+        if (first is None) != (second is None):
+            raise ValueError(f"{first_name} and {second_name} must be set together.")
+        if first is not None:
+            cls._validate_finite(first_name, first)
+            cls._validate_finite(second_name, second)
 
     def to_dict(self):
         """Return a JSON-compatible dictionary."""

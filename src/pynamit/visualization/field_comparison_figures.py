@@ -12,7 +12,13 @@ from pynamit.visualization.figure_context import (
     figure_time_string,
     get_saved_field_view,
 )
-from pynamit.visualization.figure_styles import FIELD_DIFF_KWARGS, FIELD_PLOT_KWARGS, map_line_keys
+from pynamit.visualization.figure_styles import (
+    FIELD_DIFF_KWARGS,
+    FIELD_PLOT_KWARGS,
+    manual_color_levels,
+    manual_line_levels,
+    map_line_keys,
+)
 from pynamit.visualization.hemisphere import (
     hemisphere_masks_for_latitude,
     make_hemisphere_polarplot,
@@ -187,26 +193,41 @@ class FieldComparisonRenderer:
         plot_kwargs = {key: dict(value) for key, value in FIELD_PLOT_KWARGS.items()}
         diff_kwargs = {key: dict(value) for key, value in FIELD_DIFF_KWARGS.items()}
         filled_key = None if str(self.spec.fill) == "none" else str(self.spec.fill)
-        if filled_key is not None and self.spec.color_scale_mode == "percentile":
-            percentile_fields = []
-            if self.spec.show_inductive:
-                percentile_fields.append(fields[f"{filled_key}_state"])
-            if self.spec.show_noninductive:
-                percentile_fields.append(fields[f"{filled_key}_steady"])
-            plot_kwargs[filled_key]["levels"] = percentile_contour_levels(
-                percentile_fields,
-                FIELD_PLOT_KWARGS[filled_key]["levels"],
-                percentile=self.spec.color_scale_percentile,
-                strictly_positive=filled_key == "joule",
-            )
-            if self.spec.show_difference:
-                diff_field = fields[f"{filled_key}_state"] - fields[f"{filled_key}_steady"]
-                diff_kwargs[filled_key]["levels"] = percentile_contour_levels(
-                    [diff_field],
-                    FIELD_DIFF_KWARGS[filled_key]["levels"],
+        if filled_key is not None:
+            if self.spec.color_scale_mode == "percentile":
+                percentile_fields = []
+                if self.spec.show_inductive:
+                    percentile_fields.append(fields[f"{filled_key}_state"])
+                if self.spec.show_noninductive:
+                    percentile_fields.append(fields[f"{filled_key}_steady"])
+                plot_kwargs[filled_key]["levels"] = percentile_contour_levels(
+                    percentile_fields,
+                    FIELD_PLOT_KWARGS[filled_key]["levels"],
                     percentile=self.spec.color_scale_percentile,
-                    strictly_positive=False,
+                    strictly_positive=filled_key == "joule",
                 )
+                if self.spec.show_difference:
+                    diff_field = fields[f"{filled_key}_state"] - fields[f"{filled_key}_steady"]
+                    diff_kwargs[filled_key]["levels"] = percentile_contour_levels(
+                        [diff_field],
+                        FIELD_DIFF_KWARGS[filled_key]["levels"],
+                        percentile=self.spec.color_scale_percentile,
+                        strictly_positive=False,
+                    )
+            elif self.spec.manual_color_min is not None:
+                plot_kwargs[filled_key]["levels"] = manual_color_levels(
+                    filled_key, self.spec.manual_color_min, self.spec.manual_color_max
+                )
+
+        line_keys = map_line_keys(self.spec.lines)
+        if self.spec.line_first_abs_level is not None:
+            levels = manual_line_levels(
+                self.spec.line_first_abs_level,
+                self.spec.line_interval,
+                self.spec.line_levels_per_sign,
+            )
+            for key in line_keys:
+                plot_kwargs[key]["levels"] = levels
 
         panel_specs = self._panel_specs()
         fig, axes_groups, colorbar_axes = self._create_axes(panel_specs, timestamp)
@@ -274,9 +295,17 @@ class FieldComparisonRenderer:
         axes_groups = []
         for row_index, hemisphere in enumerate(rows):
             axes = [
-                make_hemisphere_polarplot(fig.add_subplot(grid[row_index, col]))
+                make_hemisphere_polarplot(
+                    fig.add_subplot(grid[row_index, col]),
+                    min_abs_latitude=self.spec.hemisphere_min_abs_latitude,
+                )
                 for col in range(n_panels)
             ]
+            for axis in axes:
+                axis.writeLATlabels(
+                    color="black", backgroundcolor=(0, 0, 0, 0), north=hemisphere == "north"
+                )
+                axis.writeLTlabels()
             if row_index == 0:
                 for axis, (_, title) in zip(axes, panel_specs, strict=True):
                     axis.ax.set_title(title, fontsize=14)
@@ -337,24 +366,34 @@ class FieldComparisonRenderer:
 
         if main_mappable is not None and filled_key is not None:
             kwargs = plot_kwargs[filled_key]
-            colorbar = fig.colorbar(
-                main_mappable, cax=cax_state, ticks=get_ticks_from_levels(kwargs)
-            )
+            ticks = get_ticks_from_levels(kwargs)
+            if self.spec.color_scale_mode == "manual" and self.spec.manual_color_min is not None:
+                ticks = np.linspace(self.spec.manual_color_min, self.spec.manual_color_max, 5)
+            colorbar = fig.colorbar(main_mappable, cax=cax_state, ticks=ticks)
             colorbar.set_label(f"{kwargs.get('symbol', filled_key)} ({kwargs.get('units', '')})")
         else:
             self._draw_line_legend(cax_state, overlay_keys, plot_kwargs, "State lines")
 
-        if diff_mappable is not None and filled_key is not None:
+        if self.spec.show_difference and diff_mappable is not None and filled_key is not None:
             kwargs = diff_kwargs[filled_key]
             colorbar = fig.colorbar(
                 diff_mappable, cax=cax_diff, ticks=get_ticks_from_levels(kwargs)
             )
             colorbar.set_label(f"{kwargs.get('symbol', filled_key)} ({kwargs.get('units', '')})")
-        else:
+        elif self.spec.show_difference:
             self._draw_line_legend(cax_diff, overlay_keys, diff_kwargs, "Difference lines")
+        else:
+            cax_diff.cla()
+            cax_diff.axis("off")
 
         if filled_key is not None:
-            self._draw_map_line_legend(cax_lines, overlay_keys, plot_kwargs, diff_kwargs)
+            self._draw_map_line_legend(
+                cax_lines,
+                overlay_keys,
+                plot_kwargs,
+                diff_kwargs,
+                include_difference=self.spec.show_difference,
+            )
         else:
             cax_lines.cla()
             cax_lines.axis("off")
@@ -364,7 +403,9 @@ class FieldComparisonRenderer:
         draw_line_contour_legend(axis, overlay_keys, kwargs_source, title=title)
 
     @staticmethod
-    def _draw_map_line_legend(axis, overlay_keys, plot_kwargs, diff_kwargs):
+    def _draw_map_line_legend(
+        axis, overlay_keys, plot_kwargs, diff_kwargs, *, include_difference=True
+    ):
         axis.cla()
         axis.axis("off")
         if not overlay_keys:
@@ -374,15 +415,16 @@ class FieldComparisonRenderer:
         )
         for y_pos, key in zip(y_positions, overlay_keys, strict=True):
             kwargs = plot_kwargs[key]
-            field_diff_kwargs = diff_kwargs[key]
             state_interval = kwargs["levels"][1] - kwargs["levels"][0]
-            diff_interval = field_diff_kwargs["levels"][1] - field_diff_kwargs["levels"][0]
             units = kwargs.get("units", "")
             label = (
                 f"{kwargs.get('symbol', key)} lines: "
-                f"{format_contour_interval(state_interval, units)}; "
-                f"diff {format_contour_interval(diff_interval, units)}"
+                f"{format_contour_interval(state_interval, units)}"
             )
+            if include_difference:
+                field_diff_kwargs = diff_kwargs[key]
+                diff_interval = field_diff_kwargs["levels"][1] - field_diff_kwargs["levels"][0]
+                label += f"; diff {format_contour_interval(diff_interval, units)}"
             axis.text(
                 0.5,
                 y_pos,

@@ -4,7 +4,8 @@ The expensive height integration and source-coordinate transformations
 are done here once. The output HDF5 contains the fields used by the
 projection step on fixed, Earth-attached geographic grids:
 
-- ``SP`` and ``SH``: Pedersen and Hall conductance in S.
+- ``SP`` and ``SH``: Pedersen and Hall conductance in S, with the
+  ReMIX 2 S / 1 S hard minimum applied inside its saved polar domain.
 - ``u_p_theta``/``u_p_phi``: Pedersen-weighted model-basis wind in m/s.
 - ``u_h_theta``/``u_h_phi``: Hall-weighted model-basis wind in m/s.
 - radial current derived from REMIX FAC and the GAMERA inner-boundary
@@ -44,11 +45,14 @@ from pynamit.math.constants import RE
 # Prepared-forcing contract
 IONOSPHERE_RADIUS_M = 6.5e6
 MAGE_FORCING_KIND = "pynamit_mage_forcing"
-MAGE_FORCING_VERSION = 11
+MAGE_FORCING_VERSION = 12
 MAGE_TIME_AXIS = "tiegcm_mtime_nominal"
 MAGE_SOURCE_TIME_TOLERANCE_SECONDS = 0.1
 
 # Source-model conventions
+REMIX_CONDUCTANCE_FLOOR_MODEL = "hard_minimum_on_saved_sm_polar_domain"
+REMIX_PEDERSEN_FLOOR_S = 2.0
+REMIX_HALL_FLOOR_S = 1.0
 TIEGCM_DYNAMO_BOTTOM_ILEV = -8.5
 TIEGCM_DYNAMO_REFERENCE_HEIGHT_M = 90_000.0
 TIEGCM_PEDERSEN_LOWER_SCALE_M = 5_000.0
@@ -257,7 +261,15 @@ def _column_conductance_and_winds(
     wind_east: np.ndarray,
     wind_north: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Integrate conductance and wind moments over a radial column."""
+    """Integrate conductance and wind moments over a radial column.
+
+    The returned winds are the compact representation
+    ``integral(sigma * u * dr) / integral(sigma * dr)``. Pedersen and
+    Hall columns are handled separately because their altitude profiles
+    differ. Multiplying each returned wind by its conductance therefore
+    reconstructs the corresponding Appendix-A wind moment without
+    storing four additional current-like arrays.
+    """
     conductance = np.sum(layer_conductance, axis=0) + lower_conductance
     # TIEGCM holds the lowest resolved wind constant through its lower
     # extension. Its moment is exact without six additional wind arrays.
@@ -350,7 +362,7 @@ def _lower_dynamo_conductances(
 
 
 def _integrate_tiegcm_step(dataset: Any, step: int) -> dict[str, np.ndarray]:
-    """Height-integrate TIEGCM conductivities and weighted winds."""
+    """Height-integrate conductivity and neutral-wind moments."""
     pedersen_conductivity = _read_tiegcm_step(dataset, "SIGMA_PED", step)
     hall_conductivity = _read_tiegcm_step(dataset, "SIGMA_HAL", step)
     geopotential_height_m = _read_tiegcm_step(dataset, "Z", step) / 100.0
@@ -1175,6 +1187,52 @@ def _geographic_grid_in_sm(
     return kaiju_geopack_sm(_kaiju_sm_transform_time(event_time)).geo2sm(latitude, longitude)
 
 
+def _remix_conductance_domain_mask(
+    latitude: np.ndarray,
+    longitude: np.ndarray,
+    event_time: dt.datetime,
+    equatorward_sm_latitude: float,
+) -> np.ndarray:
+    """Return the GEO footprint of the saved ReMIX domain."""
+    boundary_latitude = float(equatorward_sm_latitude)
+    if not np.isfinite(boundary_latitude) or not 0.0 < boundary_latitude < 90.0:
+        raise ValueError("ReMIX equatorward SM latitude must be between 0 and 90 degrees.")
+    sm_latitude, _ = _geographic_grid_in_sm(latitude, longitude, event_time)
+    tolerance = max(1e-12, 16.0 * np.finfo(float).eps * boundary_latitude)
+    return np.abs(sm_latitude) >= boundary_latitude - tolerance
+
+
+def _apply_remix_conductance_floor(
+    pedersen_conductance: np.ndarray,
+    hall_conductance: np.ndarray,
+    *,
+    latitude: np.ndarray,
+    longitude: np.ndarray,
+    event_time: dt.datetime,
+    equatorward_sm_latitude: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Apply ReMIX hard conductance minima inside its saved domain."""
+    pedersen, hall, latitude, longitude = np.broadcast_arrays(
+        np.asarray(pedersen_conductance, dtype=float),
+        np.asarray(hall_conductance, dtype=float),
+        np.asarray(latitude, dtype=float),
+        np.asarray(longitude, dtype=float),
+    )
+    if np.any(~np.isfinite(pedersen)) or np.any(pedersen < 0.0):
+        raise ValueError("Pedersen conductance must be finite and non-negative.")
+    if np.any(~np.isfinite(hall)) or np.any(hall < 0.0):
+        raise ValueError("Hall conductance must be finite and non-negative.")
+
+    domain = _remix_conductance_domain_mask(
+        latitude, longitude, event_time, equatorward_sm_latitude
+    )
+    floored_pedersen = np.array(pedersen, copy=True)
+    floored_hall = np.array(hall, copy=True)
+    floored_pedersen[domain] = np.maximum(floored_pedersen[domain], REMIX_PEDERSEN_FLOOR_S)
+    floored_hall[domain] = np.maximum(floored_hall[domain], REMIX_HALL_FLOOR_S)
+    return floored_pedersen.astype(np.float32), floored_hall.astype(np.float32)
+
+
 def _combine_remix_hemispheres(south: np.ndarray, north: np.ndarray) -> np.ndarray:
     """Merge hemispheres and set the uncovered low latitudes to zero."""
     output = np.array(south, copy=True)
@@ -1318,6 +1376,13 @@ class _RemixRadialCurrentReader:
         """Return the exact timestamp of one ReMIX history."""
         return self._history(step)[1]
 
+    @property
+    def equatorward_sm_latitude(self) -> float:
+        """Return the saved ReMIX grid's equatorward SM latitude."""
+        if self._unsigned_latitude is None:
+            raise RuntimeError("ReMIX reader must be used as a context manager.")
+        return float(np.min(np.abs(self._unsigned_latitude)))
+
     @staticmethod
     def _fac(history: h5py.Group, hemisphere: str) -> np.ndarray:
         """Read one parallel-positive ReMIX FAC field."""
@@ -1421,8 +1486,16 @@ def _create_output_datasets(
         "outward radial current from upward-positive REMIX FAC times abs(source unit_br); "
         "zero outside REMIX coverage"
     )
-    for name in ("SH", "SP"):
-        output[name].attrs["units"] = "S"
+    output["SP"].attrs["units"] = "S"
+    output["SP"].attrs["description"] = (
+        "radially integrated TIEGCM Pedersen conductance with ReMIX's hard 2 S minimum "
+        "inside the saved time-dependent SM polar domain"
+    )
+    output["SH"].attrs["units"] = "S"
+    output["SH"].attrs["description"] = (
+        "radially integrated TIEGCM Hall conductance with ReMIX's hard 1 S minimum "
+        "inside the saved time-dependent SM polar domain"
+    )
     for name in ("u_p_theta", "u_p_phi", "u_h_theta", "u_h_phi"):
         output[name].attrs["units"] = "m s-1"
     output["delta_Br"].attrs["units"] = "nT"
@@ -1482,6 +1555,7 @@ def _write_static_datasets(
     length_scale_m: float,
     mag_m0_nT: float,
     tiegcm_path: Path,
+    remix_equatorward_sm_latitude: float,
 ) -> None:
     """Write static datasets and metadata."""
     output.attrs["kind"] = MAGE_FORCING_KIND
@@ -1512,6 +1586,10 @@ def _write_static_datasets(
     output.attrs["tiegcm_dynamo_reference_height_m"] = TIEGCM_DYNAMO_REFERENCE_HEIGHT_M
     output.attrs["tiegcm_pedersen_lower_scale_m"] = TIEGCM_PEDERSEN_LOWER_SCALE_M
     output.attrs["tiegcm_hall_lower_scale_m"] = TIEGCM_HALL_LOWER_SCALE_M
+    output.attrs["remix_conductance_floor_model"] = REMIX_CONDUCTANCE_FLOOR_MODEL
+    output.attrs["remix_pedersen_floor_S"] = REMIX_PEDERSEN_FLOOR_S
+    output.attrs["remix_hall_floor_S"] = REMIX_HALL_FLOOR_S
+    output.attrs["remix_grid_equatorward_sm_latitude_deg"] = float(remix_equatorward_sm_latitude)
     output.attrs["tiegcm_vertical_grid"] = (
         "SIGMA_PED/SIGMA_HAL and UN/VN at lev[:-1], with dz=diff(ZG at ilev); "
         "terminal fill-only lev omitted; below the first saved interface, conductivity is "
@@ -1524,8 +1602,11 @@ def _write_static_datasets(
     output.attrs["tiegcm_source_coordinate_system"] = "geographic"
     output.attrs["ionosphere_radius_m"] = IONOSPHERE_RADIUS_M
     output.attrs["wind_weighting"] = (
-        "Pedersen datasets u_p_theta/u_p_phi; Hall datasets u_h_theta/u_h_phi; "
-        "components are geographic south/east on the native TIEGCM grid"
+        "u_p = integral(sigma_P*u*dr)/SP and u_h = integral(sigma_H*u*dr)/SH; "
+        "components are geographic south/east on the native TIEGCM grid. Where a "
+        "ReMIX hard minimum raises a conductance, its unresolved background is assumed "
+        "to scale the corresponding TIEGCM vertical conductivity profile, so the "
+        "conductivity-weighted mean wind is unchanged"
     )
     output.attrs["remix_tag"] = settings.tag
     output.attrs["fac_convention"] = "upward"
@@ -1656,6 +1737,14 @@ def prepare_forcing(settings: PreparationSettings) -> Path:
         # Model%doBackground is true, and root Bx0/By0/Bz0 as Gr%B0.
         # PynaMIT needs the perturbation.
         with _RemixRadialCurrentReader(remix_file) as radial_current_reader:
+            remix_equatorward_sm_latitude = radial_current_reader.equatorward_sm_latitude
+            print(
+                "Applying ReMIX hard conductance floors inside "
+                f"|SM latitude| >= {remix_equatorward_sm_latitude:.6g} degrees: "
+                f"Pedersen {REMIX_PEDERSEN_FLOOR_S:g} S, "
+                f"Hall {REMIX_HALL_FLOOR_S:g} S",
+                flush=True,
+            )
             gamera_steps = [gsph.s0 + out_step + 1 for out_step in range(n_steps)]
             remix_times = [
                 radial_current_reader.source_time(gamera_step) for gamera_step in gamera_steps
@@ -1686,6 +1775,7 @@ def prepare_forcing(settings: PreparationSettings) -> Path:
                     length_scale_m,
                     mag_m0_nT,
                     tiegcm_path,
+                    remix_equatorward_sm_latitude,
                 )
                 _create_output_datasets(
                     output, n_steps, ionosphere_lat.shape, boundary_lat.shape, settings.compression
@@ -1701,7 +1791,16 @@ def prepare_forcing(settings: PreparationSettings) -> Path:
                         flush=True,
                     )
 
-                    for key, values in _integrate_tiegcm_step(tiegcm, out_step).items():
+                    integrated = _integrate_tiegcm_step(tiegcm, out_step)
+                    integrated["SP"], integrated["SH"] = _apply_remix_conductance_floor(
+                        integrated["SP"],
+                        integrated["SH"],
+                        latitude=ionosphere_lat,
+                        longitude=ionosphere_lon,
+                        event_time=gamera_time,
+                        equatorward_sm_latitude=remix_equatorward_sm_latitude,
+                    )
+                    for key, values in integrated.items():
                         output[key][out_step] = values
 
                     output["jr"][out_step] = radial_current_reader.read(
@@ -1729,6 +1828,9 @@ __all__ = [
     "MAGE_SOURCE_TIME_TOLERANCE_SECONDS",
     "MAGE_TIME_AXIS",
     "PreparationSettings",
+    "REMIX_CONDUCTANCE_FLOOR_MODEL",
+    "REMIX_HALL_FLOOR_S",
+    "REMIX_PEDERSEN_FLOOR_S",
     "TIEGCM_DYNAMO_BOTTOM_ILEV",
     "TIEGCM_DYNAMO_REFERENCE_HEIGHT_M",
     "TIEGCM_HALL_LOWER_SCALE_M",

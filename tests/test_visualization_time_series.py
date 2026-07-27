@@ -49,6 +49,23 @@ def test_numeric_saved_times_use_mage_event_time_origin():
     np.testing.assert_array_equal(index.values, expected.values)
 
 
+def test_saved_field_time_lookup_handles_mixed_datetime_resolutions():
+    """Dataset lookup must normalize datetime resolutions."""
+    from pynamit.visualization.run_fields import _dataset_index_at_time
+
+    dataset = xr.Dataset(
+        coords={
+            "time": np.array(
+                ["2011-10-24T18:00:10", "2011-10-24T18:00:20", "2011-10-24T18:00:30"],
+                dtype="datetime64[us]",
+            )
+        }
+    )
+
+    assert _dataset_index_at_time(dataset, pd.Timestamp("2011-10-24T18:00:20")) == 1
+    assert _dataset_index_at_time(dataset, pd.Timestamp("2011-10-24T18:00:25")) == 1
+
+
 def test_resample_series_to_times_sorts_masks_duplicates_and_bounds():
     """Scalar resampling should match the notebook behavior."""
     index = pd.to_datetime(

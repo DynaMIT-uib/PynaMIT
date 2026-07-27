@@ -44,13 +44,40 @@ The active MAGE workflow has three stages:
    saved winds are held constant. The extension uses the source grid's own
    vertical spacing (six added layers for this high-resolution file).
    Pedersen- and Hall-weighted winds include those same radial layer
-   integrals. The MAGE-specific
+   integrals. This is the thin-sheet reduction derived in Appendix A of
+   Laundal et al. (2025): the separately weighted winds compactly represent
+   `integral(sigma_P u dr)` and `integral(sigma_H u dr)`. Projection converts
+   these wind-current moments to the equivalent `E_neutral_wind` field
+   without explicitly constructing `Q_eff`; the two formulations agree away
+   from the dip equator, while the E formulation remains regular at the
+   equator.
+
+   Preparation also reproduces ReMIX's mandatory hard minimum:
+   2 S Pedersen and 1 S Hall inside the saved ReMIX SM polar domain. The
+   domain is transformed onto the fixed GEO grid at every GAMERA source time;
+   equatorward conductance remains the unfloored TIEGCM radial integral.
+   These values are part of this MAGE case rather than an experiment option,
+   and the prepared schema records both floors and the source grid's
+   equatorward boundary. The added background conductance inherits the
+   corresponding conductivity-weighted neutral wind, equivalent to assuming
+   that it scales the associated TIEGCM vertical conductivity profile.
+
+   The case XML sets ReMIX `doStarlight=T`, but the coupled `doGCM=T` branch
+   replaces ReMIX's internally calculated EUV conductance with the GCM input
+   and then applies these hard minima. Consequently the faithful treatment
+   here is the hard 2/1 S background, not an additional quadratic
+   `sqrt(Sigma**2 + floor**2)` correction.
+
+   The MAGE-specific
    `gzigm1`/`gzigm2` diagnostics are intentionally not a second input path:
    TIEGCM forms them as Pedersen/Hall conductivity integrals along modified-
    apex field lines for its equipotential-field-line dynamo, then regrids the
-   results to geographic coordinates. They are therefore not the local
-   radial-column conductances used by PynaMIT's spherical thin sheet, and
-   combining them with radial-column weighted winds would be inconsistent.
+   results to geographic coordinates. ReMIX used those effective field-line
+   quantities, whereas PynaMIT's spherical thin-sheet law requires the local
+   radial-column conductance derived in Appendix A. The resulting difference
+   from the archived ReMIX potential is therefore expected rather than an
+   interpolation error; substituting the saved ReMIX conductance is useful as
+   a diagnostic, but would change the constitutive model.
    ReMIX's parallel-positive FAC is converted explicitly to a common
    upward-positive convention using Kaiju's northern and southern grid
    orientations, then to PynaMIT's outward radial current with the local
@@ -140,8 +167,9 @@ hundreds of GiB without helping its forward continuation. The fixed geometric
 and basis constructions, together with the existing PFAC sidecar, are the
 high-value persistent cache boundary.
 
-The projected `E_source` stream is the direct wind-driven electric-field term,
-not the total model electric field. PynaMIT adds boundary, induced, and imposed
+The projected `E_neutral_wind` stream is the equivalent electric-field
+contribution derived from Pedersen- and Hall-weighted neutral winds, not the
+total model electric field. PynaMIT adds boundary, induced, and imposed
 responses when it solves the electrodynamic closure. Prescribed `delta_Br` at
 the GAMERA boundary is always continued consistently to the ionosphere;
 `magnetic_boundary_shielding` is a separate optional image response applied

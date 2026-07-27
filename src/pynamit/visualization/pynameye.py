@@ -91,7 +91,7 @@ class PynamEye:
         steady_state : bool, optional
             Whether to use steady state data.
         """
-        optional_datasets = ["Br", "u", "Q_eff", "E_source"]
+        optional_datasets = ["Br", "u", "Q_eff", "E_neutral_wind"]
         if steady_state:
             optional_datasets.append("steady_state")
         self.run_view = SavedRunView.from_directory(
@@ -377,7 +377,7 @@ class PynamEye:
         self.t = t
         self.time = self.t0 + datetime.timedelta(seconds=t)
 
-        for key in ["state", "steady_state", "Br", "u", "Q_eff", "E_source", "resistance"]:
+        for key in ["state", "steady_state", "Br", "u", "Q_eff", "E_neutral_wind", "resistance"]:
             self._ensure_dataset_covers_time(key)
 
         if steady_state and "steady_state" in self.datasets:
