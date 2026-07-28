@@ -7,6 +7,9 @@ import pytest
 
 from pynamit.math import JAX_AVAILABLE, einsum_linear_map, get_array_module, set_backend, use_jax
 from pynamit.math.linear_map import LinearMap, as_linear_map
+from pynamit.simulation.electrodynamics.ionospheric_closure import (
+    resistance_from_log_conductance_coordinates,
+)
 from pynamit.simulation.response import ElectrodynamicResponse
 
 
@@ -457,18 +460,18 @@ def test_interhemispheric_constraint_uses_geometry_operator_without_dense_proper
     np.testing.assert_allclose(constraint.to_matrix(backend="numpy"), expected)
 
 
-def test_resistance_tensor_uses_synthesis_operator_without_matrix():
-    """Resistance synthesis should avoid grid-evaluation matrices."""
+def test_resistance_tensor_uses_conductance_synthesis_operator_without_matrix():
+    """Avoid grid-evaluation matrices during log synthesis."""
     n_grid = 4
     n_coeffs = 3
     synthesis = np.arange(n_grid * n_coeffs, dtype=float).reshape(n_grid, n_coeffs) / 10.0
-    etaP = np.array([1.0, 2.0, 3.0])
-    etaH = np.array([4.0, 5.0, 6.0])
+    log_magnitude = np.array([0.1, 0.2, 0.3])
+    log_ratio = np.array([-0.4, 0.5, 0.6])
     bP = np.arange(2 * 2 * n_grid, dtype=float).reshape(2, 2, n_grid) / 20.0
     bH = np.arange(2 * 2 * n_grid, dtype=float).reshape(2, 2, n_grid) / 30.0
     model_grid = object()
 
-    class ResistanceBasis:
+    class ConductanceBasis:
         def coefficients_are_compatible_with(self, _basis):
             return False
 
@@ -477,19 +480,27 @@ def test_resistance_tensor_uses_synthesis_operator_without_matrix():
             return as_linear_map(synthesis, input_shape=(n_coeffs,), output_shape=(n_grid,))
 
         def get_scalar_evaluation_matrix(self, _grid):
-            raise AssertionError("resistance tensor should use the operator API")
+            raise AssertionError("conductance synthesis should use the operator API")
 
-    resistance_basis = ResistanceBasis()
+    conductance_basis = ConductanceBasis()
     response = object.__new__(ElectrodynamicResponse)
     response.geometry = SimpleNamespace(
         model_grid=model_grid, pedersen_geometry_tensor=bP, hall_geometry_tensor=bH
     )
-    field_space = SimpleNamespace(representation=resistance_basis)
-    response.etaP = SimpleNamespace(array=etaP, field_space=field_space)
-    response.etaH = SimpleNamespace(array=etaH, field_space=field_space)
+    field_space = SimpleNamespace(representation=conductance_basis)
+    response.log_conductance_magnitude = SimpleNamespace(
+        array=log_magnitude, field_space=field_space
+    )
+    response.log_hall_to_pedersen_ratio = SimpleNamespace(array=log_ratio, field_space=field_space)
     response._resistance_tensor_on_grid = None
 
-    resistance_on_grid = synthesis @ np.stack([etaP, etaH], axis=1)
+    log_coordinates_on_grid = synthesis @ np.stack([log_magnitude, log_ratio], axis=1)
+    resistance_on_grid = np.stack(
+        resistance_from_log_conductance_coordinates(
+            log_coordinates_on_grid[:, 0], log_coordinates_on_grid[:, 1]
+        ),
+        axis=1,
+    )
     expected = np.einsum(
         "sijk,sk->ijk", np.stack([bP, bH], axis=0), resistance_on_grid.T, optimize=True
     )
@@ -497,13 +508,13 @@ def test_resistance_tensor_uses_synthesis_operator_without_matrix():
     np.testing.assert_allclose(response.resistance_tensor_on_grid, expected)
 
 
-def test_resistance_tensor_rejects_incompatible_storage_bases():
-    """Pedersen and Hall must share one coefficient space."""
+def test_resistance_tensor_rejects_incompatible_conductance_storage_bases():
+    """Require one space for both conductance coordinates."""
     n_grid = 4
     n_coeffs = 3
     synthesis = np.ones((n_grid, n_coeffs))
 
-    class ResistanceBasis:
+    class ConductanceBasis:
         def __init__(self, name):
             self.name = name
 
@@ -519,13 +530,13 @@ def test_resistance_tensor_rejects_incompatible_storage_bases():
         pedersen_geometry_tensor=np.ones((2, 2, n_grid)),
         hall_geometry_tensor=0.0,
     )
-    response.etaP = SimpleNamespace(
+    response.log_conductance_magnitude = SimpleNamespace(
         array=np.ones(n_coeffs),
-        field_space=SimpleNamespace(representation=ResistanceBasis("pedersen")),
+        field_space=SimpleNamespace(representation=ConductanceBasis("magnitude")),
     )
-    response.etaH = SimpleNamespace(
+    response.log_hall_to_pedersen_ratio = SimpleNamespace(
         array=np.ones(n_coeffs),
-        field_space=SimpleNamespace(representation=ResistanceBasis("hall")),
+        field_space=SimpleNamespace(representation=ConductanceBasis("ratio")),
     )
     response._resistance_tensor_on_grid = None
 

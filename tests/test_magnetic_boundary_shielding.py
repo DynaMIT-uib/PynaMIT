@@ -52,9 +52,7 @@ def test_optional_m_ind_shielding_cancels_field_at_outer_boundary():
     irregular_to_boundary = np.asarray(
         solid_harmonics.irregular_reference_shift(inner_radius, boundary_radius)
     )
-    shielded_scale = shielded_m_ind_poloidal_scale(
-        solid_harmonics, boundary_radius, inner_radius
-    )
+    shielded_scale = shielded_m_ind_poloidal_scale(solid_harmonics, boundary_radius, inner_radius)
 
     unshielded_part = irregular_to_boundary * shielded_scale
     image_at_inner = -regular_to_inner * irregular_to_boundary * shielded_scale
@@ -63,17 +61,16 @@ def test_optional_m_ind_shielding_cancels_field_at_outer_boundary():
     )
     np.testing.assert_allclose(unshielded_part + image_part, 0.0, atol=1e-15)
     np.testing.assert_allclose(
-        shielded_scale,
-        1.0 / (1.0 - regular_to_inner * irregular_to_boundary),
+        shielded_scale, 1.0 / (1.0 - regular_to_inner * irregular_to_boundary)
     )
 
 
 def test_magnetic_boundary_shielding():
     """Test 2D simulation with magnetosphere boundary currents."""
     # Arrange.
-    expected_coeff_norm = 9.215777844127273e-09
-    expected_coeff_max = 1.5650387484970313e-09
-    expected_coeff_min = -3.860308906912494e-09
+    expected_coeff_norm = 8.926095845024424e-09
+    expected_coeff_max = 1.7074556078183185e-09
+    expected_coeff_min = -3.79978329062667e-09
     expected_n_coeffs = 228
 
     # Act.

@@ -1336,7 +1336,7 @@ def test_mage_projection_reuses_geometry_for_complete_input_series(tmp_path):
         (projection_directory / "pynamit_input_manifest.json").read_text(encoding="utf-8")
     )
     assert manifest["metadata"]["projection_regularization"]["Br_lambda"] == 0.1
-    for dataset in ("Br", "jr", "resistance", "E_neutral_wind"):
+    for dataset in ("Br", "jr", "conductance", "E_neutral_wind"):
         assert (projection_directory / f"{dataset}.ncdf").is_file()
 
 

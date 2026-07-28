@@ -141,24 +141,24 @@ def test_input_manifest_records_projection_settings(tmp_path):
     config = SimulationConfig(Nmax=4, Mmax=3, Ncs=8, horizontal_basis_kind="CS")
 
     manifest = write_input_manifest(
-        tmp_path, config.to_dataset(), input_datasets=("resistance", "jr"), source="test"
+        tmp_path, config.to_dataset(), input_datasets=("conductance", "jr"), source="test"
     )
 
     loaded = read_input_manifest(tmp_path)
     assert loaded == manifest
     assert loaded["kind"] == "pynamit_prepared_inputs"
-    assert loaded["version"] == 3
+    assert loaded["version"] == 4
     assert "input_datasets" not in loaded
     assert "input_projection_settings" not in loaded
     assert "t0" not in loaded["input_contract"]["coefficient_space"]
     assert loaded["input_contract"]["coefficient_space"] == input_projection_settings(config)
     assert loaded["input_contract"]["geometry"] == input_geometry_settings(config)
     assert loaded["input_contract"]["geometry"]["input_time_origin"] == config.t0
-    assert loaded["input_contract"]["input_datasets"] == ["resistance", "jr"]
+    assert loaded["input_contract"]["input_datasets"] == ["conductance", "jr"]
     assert loaded["input_contract"]["dataset_requirements"] == {}
     assert (
         validate_input_manifest(
-            tmp_path, config.to_dataset(), available_inputs=("resistance", "jr")
+            tmp_path, config.to_dataset(), available_inputs=("conductance", "jr")
         )
         == loaded
     )
@@ -182,7 +182,7 @@ def test_input_manifest_records_geometry_bound_dataset_requirements(tmp_path):
     assert loaded["input_contract"]["geometry"]["RM"] == 7.0e6
     assert loaded["input_contract"]["geometry"]["main_field_kind"] == "igrf"
     assert loaded["input_contract"]["dataset_requirements"] == {"Br": ["RM"]}
-    assert input_dataset_requirements(("resistance", "u")) == {}
+    assert input_dataset_requirements(("conductance", "u")) == {}
 
 
 def test_input_manifest_validation_catches_stale_dataset_lists(tmp_path):
@@ -195,10 +195,10 @@ def test_input_manifest_validation_catches_stale_dataset_lists(tmp_path):
 
     with pytest.raises(ValueError, match="stored but not listed"):
         validate_input_manifest(
-            tmp_path, config.to_dataset(), available_inputs=("jr", "resistance")
+            tmp_path, config.to_dataset(), available_inputs=("jr", "conductance")
         )
     validate_input_manifest(
-        tmp_path, config.to_dataset(), available_inputs=("jr", "resistance"), allow_unlisted=True
+        tmp_path, config.to_dataset(), available_inputs=("jr", "conductance"), allow_unlisted=True
     )
 
 
@@ -303,8 +303,8 @@ def test_prepare_and_run_from_inputs_smoke(tmp_path):
     assert run.run_data.run_directory == str(run_directory.resolve())
     assert run.config.fac_integration_radii[-1] == pytest.approx(run.config.RM)
     assert "state" in run.run_data.output_series.datasets
-    assert "resistance" in run.run_data.input_series.datasets
-    assert (run_directory / "resistance.ncdf").exists()
+    assert "conductance" in run.run_data.input_series.datasets
+    assert (run_directory / "conductance.ncdf").exists()
     assert (run_directory / RUN_MANIFEST_FILENAME).exists()
     run_manifest = json.loads((run_directory / RUN_MANIFEST_FILENAME).read_text(encoding="utf-8"))
     assert run_manifest["version"] == 2
@@ -314,7 +314,7 @@ def test_prepare_and_run_from_inputs_smoke(tmp_path):
     selected_run = run_pynamit_from_inputs(
         input_directory,
         run_directory=selected_run_directory,
-        enabled_inputs=("resistance",),
+        enabled_inputs=("conductance",),
         final_time=0.0,
         dt=0.01,
         RM=2 * RE,
@@ -322,7 +322,7 @@ def test_prepare_and_run_from_inputs_smoke(tmp_path):
         artifact_storage="netcdf",
     )
 
-    assert set(selected_run.run_data.input_series.datasets) == {"resistance"}
+    assert set(selected_run.run_data.input_series.datasets) == {"conductance"}
     assert not (selected_run_directory / "jr.ncdf").exists()
 
 
@@ -345,7 +345,7 @@ def test_run_from_inputs_rejects_changed_input_identity(tmp_path):
         run_pynamit_from_inputs(
             input_directory,
             run_directory=run_directory,
-            enabled_inputs=("resistance",),
+            enabled_inputs=("conductance",),
             final_time=0.0,
             RM=2 * RE,
             artifact_storage="netcdf",
@@ -476,20 +476,20 @@ def test_loading_prepared_inputs_transfers_run_ownership(tmp_path):
     simulation.set_u(u_cf=np.zeros(wind_length), u_df=np.zeros(wind_length), time=0.0)
 
     loaded = load_prepared_inputs_into_simulation(
-        simulation, input_directory, artifact_storage="netcdf", enabled_inputs=("resistance",)
+        simulation, input_directory, artifact_storage="netcdf", enabled_inputs=("conductance",)
     )
 
-    assert loaded == ["resistance"]
-    assert set(simulation.run_data.input_series.datasets) == {"resistance"}
-    assert (run_directory / "resistance.ncdf").exists()
+    assert loaded == ["conductance"]
+    assert set(simulation.run_data.input_series.datasets) == {"conductance"}
+    assert (run_directory / "conductance.ncdf").exists()
     assert not (run_directory / "u.ncdf").exists()
     assert (
-        simulation.run_data.input_series.datasets["resistance"]
-        is not prepared.run_data.input_series.datasets["resistance"]
+        simulation.run_data.input_series.datasets["conductance"]
+        is not prepared.run_data.input_series.datasets["conductance"]
     )
 
-    ArtifactStore(input_directory).remove_artifact("resistance")
-    assert simulation.run_data.input_series.get_entry("resistance", 0.0) is not None
+    ArtifactStore(input_directory).remove_artifact("conductance")
+    assert simulation.run_data.input_series.get_entry("conductance", 0.0) is not None
 
 
 def test_run_from_inputs_errors_on_requested_missing_dataset(tmp_path):

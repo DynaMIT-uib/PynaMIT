@@ -132,7 +132,7 @@ class SimulationRunner:
     def __init__(self, simulation: Simulation):
         self.simulation = simulation
         self._cached_exponential_operator = None
-        self._cached_exponential_resistance_fingerprint = None
+        self._cached_exponential_conductance_fingerprint = None
         self._cached_exponential_dt = None
         self._cached_exponential_propagator = None
 
@@ -422,16 +422,18 @@ class SimulationRunner:
             return None
 
         operator = self.simulation.response.m_ind_feedback_matrix
-        resistance_fingerprint = getattr(self.simulation.response, "resistance_fingerprint", None)
+        conductance_fingerprint = getattr(
+            self.simulation.response, "conductance_fingerprint", None
+        )
         dt = float(dt)
         same_closure = (
-            resistance_fingerprint == self._cached_exponential_resistance_fingerprint
-            if resistance_fingerprint is not None
+            conductance_fingerprint == self._cached_exponential_conductance_fingerprint
+            if conductance_fingerprint is not None
             else operator is self._cached_exponential_operator
         )
         if not same_closure or dt != self._cached_exponential_dt:
             self._cached_exponential_operator = operator
-            self._cached_exponential_resistance_fingerprint = resistance_fingerprint
+            self._cached_exponential_conductance_fingerprint = conductance_fingerprint
             self._cached_exponential_dt = dt
             self._cached_exponential_propagator = induction.exponential_propagator(
                 self.simulation.response, dt, m_ind_feedback_matrix=operator

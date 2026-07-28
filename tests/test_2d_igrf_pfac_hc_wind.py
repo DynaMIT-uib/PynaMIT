@@ -9,9 +9,9 @@ from pynamit.simulation.workflows.standard import run_pynamit
 def test_2d_igrf_pfac_hc_wind():
     """Test 2D simulation with IGRF, PFAC, HC, and wind."""
     # Arrange.
-    expected_coeff_norm = 8.02198350603864e-09
-    expected_coeff_max = 2.375397746710546e-09
-    expected_coeff_min = -3.219908089330983e-09
+    expected_coeff_norm = 8.723217185945117e-09
+    expected_coeff_max = 2.982615152101009e-09
+    expected_coeff_min = -3.282793887360878e-09
     expected_n_coeffs = 228
 
     # Act.

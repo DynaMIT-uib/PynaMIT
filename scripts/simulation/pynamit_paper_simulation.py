@@ -198,7 +198,7 @@ def run_paper_simulation(settings: PaperSimulationSettings = SETTINGS) -> pynami
     simulation = run_pynamit_from_inputs(
         input_directory,
         run_directory=run_directory,
-        enabled_inputs=("resistance", "u"),
+        enabled_inputs=("conductance", "u"),
         final_time=settings.simulation_time,
         dt=settings.dt,
         saving_sample_interval=settings.saving_sample_interval,
@@ -224,7 +224,7 @@ def run_paper_simulation(settings: PaperSimulationSettings = SETTINGS) -> pynami
         simulation,
         input_directory,
         artifact_storage=settings.artifact_storage,
-        enabled_inputs=("resistance", "u", "jr"),
+        enabled_inputs=("conductance", "u", "jr"),
     )
 
     final_time = 2.0 * float(settings.simulation_time)
@@ -247,7 +247,7 @@ def run_paper_simulation(settings: PaperSimulationSettings = SETTINGS) -> pynami
         {
             "kind": "pynamit_paper_run",
             "paper_two_phase_run": {
-                "phase_1_inputs": ["resistance", "u"],
+                "phase_1_inputs": ["conductance", "u"],
                 "phase_1_final_time": settings.simulation_time,
                 "phase_2_inputs": loaded_inputs,
                 "phase_2_final_time": final_time,

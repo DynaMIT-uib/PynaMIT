@@ -571,7 +571,7 @@ class PynamitPanelApp:
 
     def _simulation_input_widgets(self):
         return {
-            "resistance": self.sim_use_conductance,
+            "conductance": self.sim_use_conductance,
             "jr": self.sim_use_jr,
             "Br": self.sim_use_br,
             "u": self.sim_use_u,
@@ -606,7 +606,7 @@ class PynamitPanelApp:
     def _selected_simulation_inputs(self):
         selected = []
         if self.sim_use_conductance.value:
-            selected.append("resistance")
+            selected.append("conductance")
         if self.sim_use_jr.value:
             selected.append("jr")
         if self.sim_use_br.value:

@@ -22,7 +22,7 @@ from pynamit.visualization.grid_evaluation import (
 from pynamit.visualization.map_coordinates import MapCoordinateContext
 from pynamit.visualization.saved_run import SavedRunView
 
-INPUT_ARTIFACT_KEYS = ("Br", "jr", "resistance", "u", "Q_eff", "E_neutral_wind")
+INPUT_ARTIFACT_KEYS = ("Br", "jr", "conductance", "u", "Q_eff", "E_neutral_wind")
 TANGENTIAL_INPUT_KEYS = ("u", "Q_eff", "E_neutral_wind")
 STATE_FIELD_NAMES = frozenset({"Br", "jr", "Jeq", "Phi", "W", "joule"})
 _DISPLAY_COORDINATE_SYSTEMS = frozenset({"model", "geographic"})
@@ -258,7 +258,7 @@ def compute_state_comparison_fields_at_index(
     index,
     datasets,
     evaluator,
-    resistance_evaluator,
+    conductance_evaluator,
     state_evaluation_context,
     sheet_current_maps,
     *,
@@ -287,14 +287,20 @@ def compute_state_comparison_fields_at_index(
             )
             br_mag = datasets["Br"][br_var].isel(time=br_index).values
     etaP = None
-    if "joule" in field_names and "resistance" in datasets:
-        etaP_var = _dataset_var_name(datasets["resistance"], "etaP")
-        if etaP_var is not None:
-            resistance_index = _dataset_index_at_time(
-                datasets["resistance"], target_time, fallback_start_time=fallback_start_time
+    if "joule" in field_names and "conductance" in datasets:
+        log_magnitude_var = _dataset_var_name(datasets["conductance"], "log_conductance_magnitude")
+        log_ratio_var = _dataset_var_name(datasets["conductance"], "log_hall_to_pedersen_ratio")
+        if log_magnitude_var is not None and log_ratio_var is not None:
+            conductance_index = _dataset_index_at_time(
+                datasets["conductance"], target_time, fallback_start_time=fallback_start_time
             )
-            etaP_coeffs = datasets["resistance"][etaP_var].isel(time=resistance_index).values
-            etaP = resistance_evaluator.scalar_coeffs_to_grid.dot(etaP_coeffs)
+            log_magnitude = conductance_evaluator.scalar_coeffs_to_grid.dot(
+                datasets["conductance"][log_magnitude_var].isel(time=conductance_index).values
+            )
+            log_ratio = conductance_evaluator.scalar_coeffs_to_grid.dot(
+                datasets["conductance"][log_ratio_var].isel(time=conductance_index).values
+            )
+            etaP = evaluate_conductance_values(log_magnitude, log_ratio)["etaP"]
 
     result = {}
     for dataset_key in output_keys:
@@ -373,26 +379,26 @@ def compute_input_fields_at_time(
         scalar_shape,
         fallback_start_time=fallback_start_time,
     )
-    if "resistance" in datasets:
-        eta_p = _input_scalar_grid_at_time(
+    if "conductance" in datasets:
+        log_magnitude = _input_scalar_grid_at_time(
             datasets,
-            "resistance",
-            "etaP",
+            "conductance",
+            "log_conductance_magnitude",
             timestamp,
-            input_evaluators["resistance"],
+            input_evaluators["conductance"],
             scalar_shape,
             fallback_start_time=fallback_start_time,
         ).reshape(-1)
-        eta_h = _input_scalar_grid_at_time(
+        log_ratio = _input_scalar_grid_at_time(
             datasets,
-            "resistance",
-            "etaH",
+            "conductance",
+            "log_hall_to_pedersen_ratio",
             timestamp,
-            input_evaluators["resistance"],
+            input_evaluators["conductance"],
             scalar_shape,
             fallback_start_time=fallback_start_time,
         ).reshape(-1)
-        conductance = evaluate_conductance_values(eta_p, eta_h)
+        conductance = evaluate_conductance_values(log_magnitude, log_ratio)
         sigma_p = conductance["SigmaP"].reshape(scalar_shape)
         sigma_h = conductance["SigmaH"].reshape(scalar_shape)
     else:
@@ -473,7 +479,8 @@ class SavedCoefficientFieldView:
             raise ValueError(
                 "No saved input or output time series exists in "
                 f"{run_view.artifact_store.directory}. "
-                "Expected at least one of state, Br, jr, resistance, u, Q_eff, or E_neutral_wind."
+                "Expected at least one of state, Br, jr, conductance, u, Q_eff, "
+                "or E_neutral_wind."
             )
 
         return cls(
@@ -685,10 +692,10 @@ class SavedCoefficientFieldView:
         else:
             evaluation.state_evaluation_context = state_evaluation_context
             evaluation.sheet_current_maps = sheet_current_maps
-        resistance_evaluator = self.input_evaluators["resistance"]
+        conductance_evaluator = self.input_evaluators.get("conductance") if needs_joule else None
         if evaluation is not None:
-            resistance_evaluator = (
-                self._geographic_input_evaluators(evaluation, keys=("resistance",))["resistance"]
+            conductance_evaluator = (
+                self._geographic_input_evaluators(evaluation, keys=("conductance",))["conductance"]
                 if needs_joule
                 else None
             )
@@ -696,7 +703,7 @@ class SavedCoefficientFieldView:
             index,
             self.run_view.datasets,
             evaluator,
-            resistance_evaluator,
+            conductance_evaluator,
             state_evaluation_context,
             sheet_current_maps,
             target_time=timestamp,

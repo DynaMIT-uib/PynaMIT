@@ -22,9 +22,7 @@ from pynamit.sphere import (
 INPUT_VARIABLES = {
     "jr": ("jr",),
     "Br": ("Br",),
-    # The artifact key names the physical input category; its canonical
-    # stored variables are the two resistance-tensor coefficients.
-    "resistance": ("etaP", "etaH"),
+    "conductance": ("log_conductance_magnitude", "log_hall_to_pedersen_ratio"),
     "u": ("u",),
     "Q_eff": ("Q_eff",),
     "E_neutral_wind": ("E_neutral_wind",),
@@ -33,7 +31,7 @@ INPUT_VARIABLES = {
 INPUT_FIELD_TYPES = {
     "jr": "scalar",
     "Br": "scalar",
-    "resistance": "scalar",
+    "conductance": "scalar",
     "u": "tangential",
     "Q_eff": "tangential",
     "E_neutral_wind": "tangential",
@@ -139,7 +137,7 @@ def build_simulation_schema(config: SimulationConfig, *, operator_cache=None) ->
     projection_basis_kinds = {
         key: getattr(config, f"{key}_projection_basis") for key in PROJECTION_BASIS_KEYS
     }
-    resistance_projection_basis = projection_basis_kinds["resistance"]
+    conductance_projection_basis = projection_basis_kinds["conductance"]
 
     if horizontal_basis_kind == "CS":
         input_bases = {
@@ -148,7 +146,7 @@ def build_simulation_schema(config: SimulationConfig, *, operator_cache=None) ->
             # therefore stored in the poloidal SH space even when its
             # input samples are remapped through the CS grid.
             "Br": mean_free_sh_basis,
-            "resistance": cs_basis,
+            "conductance": cs_basis,
             "u": cs_basis,
             "Q_eff": cs_basis,
             "E_neutral_wind": cs_basis,
@@ -156,7 +154,7 @@ def build_simulation_schema(config: SimulationConfig, *, operator_cache=None) ->
         input_mean_free = {
             "jr": True,
             "Br": True,
-            "resistance": False,
+            "conductance": False,
             "u": True,
             "Q_eff": True,
             "E_neutral_wind": True,
@@ -164,7 +162,7 @@ def build_simulation_schema(config: SimulationConfig, *, operator_cache=None) ->
         input_projection_bases = {
             "jr": cs_basis,
             "Br": cs_basis,
-            "resistance": cs_basis,
+            "conductance": cs_basis,
             "u": cs_basis,
             "Q_eff": cs_basis,
             "E_neutral_wind": cs_basis,
@@ -174,7 +172,7 @@ def build_simulation_schema(config: SimulationConfig, *, operator_cache=None) ->
         input_bases = {
             "jr": mean_free_sh_basis,
             "Br": mean_free_sh_basis,
-            "resistance": (sh_basis if resistance_projection_basis == "SH" else cs_basis),
+            "conductance": (sh_basis if conductance_projection_basis == "SH" else cs_basis),
             "u": mean_free_sh_basis,
             "Q_eff": mean_free_sh_basis,
             "E_neutral_wind": mean_free_sh_basis,
@@ -183,7 +181,7 @@ def build_simulation_schema(config: SimulationConfig, *, operator_cache=None) ->
         input_projection_bases = {
             "jr": projection_bases[projection_basis_kinds["jr"]],
             "Br": projection_bases[projection_basis_kinds["Br"]],
-            "resistance": (sh_basis if resistance_projection_basis == "SH" else cs_basis),
+            "conductance": (sh_basis if conductance_projection_basis == "SH" else cs_basis),
             "u": projection_bases[projection_basis_kinds["u"]],
             "Q_eff": projection_bases[projection_basis_kinds["Q_eff"]],
             "E_neutral_wind": projection_bases[projection_basis_kinds["E_neutral_wind"]],

@@ -34,7 +34,7 @@ from pynamit.storage.field_time_series import TIME_TOLERANCE_SECONDS
 
 INPUT_MANIFEST_FILENAME = "pynamit_input_manifest.json"
 RUN_MANIFEST_FILENAME = "pynamit_run_manifest.json"
-_INPUT_MANIFEST_VERSION = 3
+_INPUT_MANIFEST_VERSION = 4
 
 _INPUT_PROJECTION_SETTING_KEYS = (
     "Nmax",
@@ -43,7 +43,7 @@ _INPUT_PROJECTION_SETTING_KEYS = (
     "RI",
     "jr_projection_basis",
     "Br_projection_basis",
-    "resistance_projection_basis",
+    "conductance_projection_basis",
     "u_projection_basis",
     "Q_eff_projection_basis",
     "E_neutral_wind_projection_basis",
@@ -591,7 +591,7 @@ def prepare_pynamit_inputs(
     use_jr=True,
     jr_projection_basis=None,
     Br_projection_basis=None,
-    resistance_projection_basis=None,
+    conductance_projection_basis=None,
     u_projection_basis=None,
     Q_eff_projection_basis=None,
     jr_lambda=None,
@@ -632,7 +632,7 @@ def prepare_pynamit_inputs(
         t0=event_time.isoformat(sep=" "),
         jr_projection_basis=jr_projection_basis,
         Br_projection_basis=Br_projection_basis,
-        resistance_projection_basis=resistance_projection_basis,
+        conductance_projection_basis=conductance_projection_basis,
         u_projection_basis=u_projection_basis,
         Q_eff_projection_basis=Q_eff_projection_basis,
         horizontal_basis_kind=horizontal_basis_kind,

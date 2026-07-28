@@ -116,7 +116,7 @@ plt_lat, plt_lon = np.meshgrid(plt_lat, plt_lon)
 plt_grid = pynamit.Grid(lat=plt_lat, lon=plt_lon)
 plt_evaluator = pynamit.SphericalTransform(simulation.geometry.horizontal_basis, plt_grid)
 conductance_plt_evaluator = pynamit.SphericalTransform(
-    simulation.run_data.schema.input_field_spaces["resistance"].representation, plt_grid
+    simulation.run_data.schema.input_field_spaces["conductance"].representation, plt_grid
 )
 
 time = file["time"][:]

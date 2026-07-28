@@ -16,7 +16,7 @@ def _final_state_coefficients(simulation):
 
 
 def test_2d_igrf_pfac_hc_wind_cs_resistance_basis():
-    """CS-stored resistance stays close to the SH baseline."""
+    """CS-stored conductance stays close to the SH baseline."""
     common_kwargs = dict(
         final_time=0.1,
         dt=1e-2,
@@ -32,16 +32,22 @@ def test_2d_igrf_pfac_hc_wind_cs_resistance_basis():
     )
 
     sh_resistance = run_pynamit(**common_kwargs)
-    cs_resistance = run_pynamit(resistance_projection_basis="CS", **common_kwargs)
+    cs_resistance = run_pynamit(conductance_projection_basis="CS", **common_kwargs)
 
     sh_coeffs = _final_state_coefficients(sh_resistance)
     cs_coeffs = _final_state_coefficients(cs_resistance)
     relative_difference = np.linalg.norm(cs_coeffs - sh_coeffs) / np.linalg.norm(sh_coeffs)
 
-    assert "CS_etaP" in cs_resistance.run_data.input_series.datasets["resistance"]
-    assert "CS_etaH" in cs_resistance.run_data.input_series.datasets["resistance"]
     assert (
-        cs_resistance.run_data.schema.input_field_spaces["resistance"].representation
+        "CS_log_conductance_magnitude"
+        in cs_resistance.run_data.input_series.datasets["conductance"]
+    )
+    assert (
+        "CS_log_hall_to_pedersen_ratio"
+        in cs_resistance.run_data.input_series.datasets["conductance"]
+    )
+    assert (
+        cs_resistance.run_data.schema.input_field_spaces["conductance"].representation
         is cs_resistance.run_data.schema.cs_basis
     )
     assert cs_coeffs.shape == sh_coeffs.shape

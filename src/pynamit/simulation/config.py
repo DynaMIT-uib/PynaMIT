@@ -14,7 +14,7 @@ from pynamit.geomagnetism.main_field import normalize_main_field_kind
 from pynamit.math.constants import RE
 from pynamit.math.least_squares_solver import LeastSquaresSolver, get_default_least_squares_solver
 
-INDEPENDENT_PROJECTION_BASIS_KEYS = ("jr", "Br", "resistance", "u", "E_neutral_wind")
+INDEPENDENT_PROJECTION_BASIS_KEYS = ("jr", "Br", "conductance", "u", "E_neutral_wind")
 PROJECTION_BASIS_KEYS = INDEPENDENT_PROJECTION_BASIS_KEYS + ("Q_eff",)
 PROJECTION_BASIS_SETTING_NAMES = tuple(f"{key}_projection_basis" for key in PROJECTION_BASIS_KEYS)
 INTEGRATORS = {
@@ -249,7 +249,7 @@ class SimulationConfig:
     main_field_B0: float | None = None
     jr_projection_basis: str | None = None
     Br_projection_basis: str | None = None
-    resistance_projection_basis: str | None = None
+    conductance_projection_basis: str | None = None
     u_projection_basis: str | None = None
     Q_eff_projection_basis: str | None = None
     E_neutral_wind_projection_basis: str | None = None
@@ -465,7 +465,7 @@ class SimulationConfig:
             "main_field_B0": self.stored_main_field_B0,
             "jr_projection_basis": self.jr_projection_basis,
             "Br_projection_basis": self.Br_projection_basis,
-            "resistance_projection_basis": self.resistance_projection_basis,
+            "conductance_projection_basis": self.conductance_projection_basis,
             "u_projection_basis": self.u_projection_basis,
             "Q_eff_projection_basis": self.Q_eff_projection_basis,
             "E_neutral_wind_projection_basis": self.E_neutral_wind_projection_basis,

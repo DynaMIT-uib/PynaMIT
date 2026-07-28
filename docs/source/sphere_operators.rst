@@ -88,8 +88,18 @@ Laplace physics.
 Regularization
 --------------
 
-Current least-squares regularization is a degree-weighted spectral
-penalty and therefore requires harmonic degree metadata.  The transform
-constructs those penalties using the Helmholtz selector operators, but
-the weighting policy itself is not part of the shared surface-basis
-interface.
+Least-squares input projection uses surface-smoothness penalties and
+therefore requires harmonic degree metadata.  With the real Schmidt
+normalization used by PynaMIT, ``q_n = 1 / (2 n + 1)`` and
+``mu_n = n (n + 1)``.  Scalar fields use
+``L_n = sqrt(q_n mu_n)``, the square root of surface-gradient energy.
+Tangential fields represented as
+``F = -grad(phi) + rhat cross grad(psi)`` use
+``L_n = sqrt(q_n) mu_n`` for *both* potentials, corresponding to equal
+surface divergence/curl smoothness.  The degree-zero scalar mode is
+unpenalized, so a dimensionless logarithmic field is invariant to its
+fixed reference scale.
+
+These projection penalties are deliberately distinct from the optional
+``m_imp`` inverse-problem regularization.  The latter acts on a physical
+magnetic state rather than on generic sampled input fields.

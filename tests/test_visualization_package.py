@@ -98,11 +98,13 @@ def test_saved_field_view_loads_projected_input_package_without_state(tmp_path):
         artifact_storage="netcdf",
     )
     resistance_shape = simulation.run_data.schema.input_field_spaces[
-        "resistance"
+        "conductance"
     ].coefficient_shape
-    eta_p = np.ones(resistance_shape)
-    eta_h = np.zeros(resistance_shape)
-    simulation.set_resistance(etaP_coefficients=eta_p, etaH_coefficients=eta_h, time=0.0)
+    simulation.set_conductance(
+        log_magnitude_coefficients=np.zeros(resistance_shape),
+        log_ratio_coefficients=np.zeros(resistance_shape),
+        time=0.0,
+    )
 
     jr_shape = simulation.run_data.schema.input_field_spaces["jr"].coefficient_shape
     simulation.set_jr(jr_coefficients=np.zeros(jr_shape), time=0.0)
@@ -115,7 +117,7 @@ def test_saved_field_view_loads_projected_input_package_without_state(tmp_path):
     assert view.has_output_state is False
     assert view.n_time == 1
     assert "state" not in view.run_view.datasets
-    assert {"Br", "jr", "resistance"}.issubset(view.run_view.datasets)
+    assert {"Br", "jr", "conductance"}.issubset(view.run_view.datasets)
     assert view.state_evaluator is None
     assert view.run_view.geometry is None
     assert view.state_evaluation_context is None
@@ -139,11 +141,11 @@ def test_saved_field_view_loads_without_boundary_br(tmp_path):
         artifact_storage="netcdf",
     )
     resistance_shape = simulation.run_data.schema.input_field_spaces[
-        "resistance"
+        "conductance"
     ].coefficient_shape
-    simulation.set_resistance(
-        etaP_coefficients=np.ones(resistance_shape),
-        etaH_coefficients=np.zeros(resistance_shape),
+    simulation.set_conductance(
+        log_magnitude_coefficients=np.zeros(resistance_shape),
+        log_ratio_coefficients=np.zeros(resistance_shape),
         time=0.0,
     )
     jr_shape = simulation.run_data.schema.input_field_spaces["jr"].coefficient_shape
@@ -166,7 +168,7 @@ def test_saved_field_view_loads_without_boundary_br(tmp_path):
     assert view.state_evaluation_context is not None
     assert view.sheet_current_maps is None
     assert "Br" not in view.run_view.datasets
-    assert set(view.available_inputs) == {"jr", "resistance"}
+    assert set(view.available_inputs) == {"jr", "conductance"}
     assert set(fields) == {"Br_state", "Br_steady"}
     assert fields["Br_state"].shape == view.lat.shape
     assert np.all(np.isnan(input_fields["Br"]))
@@ -193,8 +195,16 @@ def test_saved_state_joule_uses_pedersen_dissipation():
         },
         coords={"time": [0.0]},
     )
+    eta_p = np.array([2.0, 3.0])
     conductance = xr.Dataset(
-        {"SH_etaP": (("time", "coefficient"), [[2.0, 3.0]])}, coords={"time": [0.0]}
+        {
+            "SH_log_conductance_magnitude": (
+                ("time", "coefficient"),
+                [np.log(1.0 / (np.sqrt(2.0) * eta_p))],
+            ),
+            "SH_log_hall_to_pedersen_ratio": (("time", "coefficient"), [np.zeros(2)]),
+        },
+        coords={"time": [0.0]},
     )
     zero_map = np.zeros((2, 2))
     state_evaluation_context = {
@@ -214,7 +224,7 @@ def test_saved_state_joule_uses_pedersen_dissipation():
 
     fields = run_fields.compute_state_comparison_fields_at_index(
         0,
-        {"state": state, "resistance": conductance},
+        {"state": state, "conductance": conductance},
         IdentityEvaluator(),
         IdentityEvaluator(),
         state_evaluation_context,
@@ -225,7 +235,7 @@ def test_saved_state_joule_uses_pedersen_dissipation():
 
     steady_fields = run_fields.compute_state_comparison_fields_at_index(
         0,
-        {"steady_state": state, "resistance": conductance},
+        {"steady_state": state, "conductance": conductance},
         IdentityEvaluator(),
         IdentityEvaluator(),
         state_evaluation_context,
@@ -248,11 +258,11 @@ def test_saved_field_view_supports_steady_state_only_output(tmp_path):
         artifact_storage="netcdf",
     )
     resistance_shape = simulation.run_data.schema.input_field_spaces[
-        "resistance"
+        "conductance"
     ].coefficient_shape
-    simulation.set_resistance(
-        etaP_coefficients=np.ones(resistance_shape),
-        etaH_coefficients=np.zeros(resistance_shape),
+    simulation.set_conductance(
+        log_magnitude_coefficients=np.zeros(resistance_shape),
+        log_ratio_coefficients=np.zeros(resistance_shape),
         time=0.0,
     )
     jr_shape = simulation.run_data.schema.input_field_spaces["jr"].coefficient_shape
@@ -348,11 +358,11 @@ def test_saved_field_view_keeps_model_and_geographic_evaluation_grids_separate(t
         artifact_storage="netcdf",
     )
     resistance_shape = simulation.run_data.schema.input_field_spaces[
-        "resistance"
+        "conductance"
     ].coefficient_shape
-    simulation.set_resistance(
-        etaP_coefficients=np.ones(resistance_shape),
-        etaH_coefficients=np.zeros(resistance_shape),
+    simulation.set_conductance(
+        log_magnitude_coefficients=np.zeros(resistance_shape),
+        log_ratio_coefficients=np.zeros(resistance_shape),
         time=0.0,
     )
     jr_shape = simulation.run_data.schema.input_field_spaces["jr"].coefficient_shape

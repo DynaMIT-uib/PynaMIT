@@ -205,11 +205,14 @@ def test_basis_evaluator_is_spherical_transform_alias():
 
 
 def test_spherical_transform_regularization_uses_diagonal_operators():
-    """Degree regularization stays structured in least-squares."""
+    """Keep surface smoothness structured in least-squares."""
     basis = SHBasis(4, 2, mean_free=True)
     transform = SphericalTransform(basis, _regular_grid(), reg_lambda=1.0)
-    n = np.asarray(basis.n)
-    helmholtz_weights = np.stack([n * (n + 1) / (2 * n + 1), (n + 1) / 2], axis=0)
+    n = np.asarray(basis.n, dtype=float)
+    q = 1.0 / (2.0 * n + 1.0)
+    mu = n * (n + 1.0)
+    scalar_weights = np.sqrt(q * mu)
+    helmholtz_weights = np.broadcast_to(np.sqrt(q) * mu, (2, basis.index_length))
     helmholtz_coeffs = np.vstack(
         [np.linspace(0.0, 1.0, basis.index_length), np.linspace(1.0, 2.0, basis.index_length)]
     )
@@ -218,7 +221,7 @@ def test_spherical_transform_regularization_uses_diagonal_operators():
     scalar_regularization = transform.scalar_least_squares_problem.regularization_matrices[0]
     helmholtz_regularization = transform.helmholtz_least_squares_problem.regularization_matrices[0]
 
-    np.testing.assert_allclose(scalar_regularization.diagonal(backend="numpy"), n)
+    np.testing.assert_allclose(scalar_regularization.diagonal(backend="numpy"), scalar_weights)
     np.testing.assert_allclose(
         helmholtz_regularization.diagonal(backend="numpy"), helmholtz_weights.reshape(-1)
     )
@@ -227,7 +230,76 @@ def test_spherical_transform_regularization_uses_diagonal_operators():
         helmholtz_weights * helmholtz_coeffs,
     )
     np.testing.assert_allclose(
-        transform.apply_scalar_regularization(scalar_coeffs), n * scalar_coeffs
+        transform.apply_scalar_regularization(scalar_coeffs), scalar_weights * scalar_coeffs
+    )
+
+
+def test_surface_smoothness_regularization_matches_parseval_weights():
+    """Regularizer norms reproduce analytic Schmidt-basis energies."""
+    basis = SHBasis(5, 3, mean_free=False)
+    transform = SphericalTransform(basis, _regular_grid(), reg_lambda=1.0)
+    rng = np.random.default_rng(17)
+    scalar = rng.normal(size=basis.index_length)
+    helmholtz = rng.normal(size=(2, basis.index_length))
+    n = np.asarray(basis.n, dtype=float)
+    q = 1.0 / (2.0 * n + 1.0)
+    mu = n * (n + 1.0)
+
+    scalar_penalty = np.linalg.norm(transform.apply_scalar_regularization(scalar)) ** 2
+    vector_penalty = np.linalg.norm(transform.apply_helmholtz_regularization(helmholtz)) ** 2
+
+    np.testing.assert_allclose(scalar_penalty, np.sum(q * mu * scalar**2))
+    np.testing.assert_allclose(vector_penalty, np.sum(q * mu**2 * helmholtz**2))
+    assert transform.scalar_regularization_operator.diagonal(backend="numpy")[0] == 0.0
+    np.testing.assert_allclose(
+        transform.helmholtz_regularization_operator.diagonal(backend="numpy").reshape(
+            2, basis.index_length
+        )[0],
+        transform.helmholtz_regularization_operator.diagonal(backend="numpy").reshape(
+            2, basis.index_length
+        )[1],
+    )
+
+
+def test_schmidt_surface_norms_match_gauss_legendre_quadrature():
+    """Match analytic regularizer normalization to the SH basis."""
+    latitude_nodes, latitude_weights = np.polynomial.legendre.leggauss(16)
+    theta = np.rad2deg(np.arccos(latitude_nodes))
+    phi = np.linspace(0.0, 360.0, 33, endpoint=False)
+    theta_grid, phi_grid = np.meshgrid(theta, phi, indexing="ij")
+    solid_angle = np.broadcast_to(
+        latitude_weights[:, None] * (2.0 * np.pi / phi.size), theta_grid.shape
+    )
+    grid = Grid(
+        theta=theta_grid.reshape(-1),
+        phi=phi_grid.reshape(-1),
+        area_weights=solid_angle.reshape(-1),
+    )
+    basis = SHBasis(5, 5, mean_free=False)
+    values = np.asarray(basis.get_scalar_evaluation_matrix(grid))
+    gradient = np.asarray(basis.get_surface_gradient_matrix(grid))
+    normalized_area = solid_angle.reshape(-1) / (4.0 * np.pi)
+    q = 1.0 / (2.0 * basis.n + 1.0)
+    mu = basis.n * (basis.n + 1.0)
+
+    value_norms = np.sum(normalized_area[:, None] * values**2, axis=0)
+    gradient_norms = np.sum(normalized_area[None, :, None] * gradient**2, axis=(0, 1))
+
+    np.testing.assert_allclose(value_norms, q, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(gradient_norms, q * mu, rtol=1e-12, atol=1e-12)
+
+
+def test_scalar_smoothness_is_invariant_to_log_reference_mode():
+    """A logarithmic reference change affects only the free mean."""
+    basis = SHBasis(5, 3, mean_free=False)
+    transform = SphericalTransform(basis, _regular_grid(), reg_lambda=1.0)
+    coefficients = np.linspace(-1.0, 1.0, basis.index_length)
+    shifted = coefficients.copy()
+    shifted[np.asarray(basis.n) == 0] += 7.5
+
+    np.testing.assert_allclose(
+        transform.apply_scalar_regularization(shifted),
+        transform.apply_scalar_regularization(coefficients),
     )
 
 

@@ -10,9 +10,9 @@ from pynamit.simulation.workflows.standard import run_pynamit
 def test_magnetic_boundary():
     """Test 2D simulation with magnetosphere boundary currents."""
     # Arrange.
-    expected_coeff_norm = 9.215784632046766e-09
-    expected_coeff_max = 1.5650719301179843e-09
-    expected_coeff_min = -3.860313634933096e-09
+    expected_coeff_norm = 8.926113869533255e-09
+    expected_coeff_max = 1.7074891599813138e-09
+    expected_coeff_min = -3.799785413624074e-09
     expected_n_coeffs = 228
 
     # Act.

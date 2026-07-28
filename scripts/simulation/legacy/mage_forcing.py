@@ -55,7 +55,7 @@ simulation = pynamit.Simulation(
 state_field_space = pynamit.FieldSpace.from_representation(
     simulation.geometry.horizontal_basis, field_type="scalar"
 )
-conductance_field_space = simulation.run_data.schema.input_field_spaces["resistance"]
+conductance_field_space = simulation.run_data.schema.input_field_spaces["conductance"]
 
 mage_dir = "./mage_data/"
 mage_tag = "msphere"

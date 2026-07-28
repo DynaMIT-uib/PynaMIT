@@ -42,7 +42,7 @@ def evaluate_projected_input(
     source : Simulation or FieldTimeSeries
         Object containing projected input coefficient time series.
     key : str
-        Input key, for example ``"jr"``, ``"Br"``, ``"resistance"``,
+        Input key, for example ``"jr"``, ``"Br"``, ``"conductance"``,
         ``"u"``, ``"Q_eff"``, or ``"E_neutral_wind"``.
     time : float
         Time value to select from the input time series.
@@ -88,8 +88,13 @@ def evaluate_projected_input(
         field = FieldCoefficients(field_space, coeffs=coeffs)
         values[var] = evaluator.synthesize_scalar(field)
 
-    if include_derived and key == "resistance" and {"etaP", "etaH"} <= set(values):
-        values.update(evaluate_conductance_values(values["etaP"], values["etaH"]))
+    conductance_coordinates = {"log_conductance_magnitude", "log_hall_to_pedersen_ratio"}
+    if include_derived and key == "conductance" and conductance_coordinates <= set(values):
+        values.update(
+            evaluate_conductance_values(
+                values["log_conductance_magnitude"], values["log_hall_to_pedersen_ratio"]
+            )
+        )
 
     return values
 

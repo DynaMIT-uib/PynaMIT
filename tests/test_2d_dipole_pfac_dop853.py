@@ -8,9 +8,9 @@ from pynamit.simulation.workflows.standard import run_pynamit
 def test_2d_dipole_pfac_dop853(pynamit_approx):
     """Test 2D simulation with dipole, PFAC and DOP853."""
     # Arrange.
-    expected_coeff_norm = 1.1342052545869681e-08
-    expected_coeff_max = 8.006258968163613e-10
-    expected_coeff_min = -5.063807785683825e-09
+    expected_coeff_norm = 1.1342051127900787e-08
+    expected_coeff_max = 8.006258968159642e-10
+    expected_coeff_min = -5.0638077856849875e-09
     expected_n_coeffs = 240
 
     # Act.

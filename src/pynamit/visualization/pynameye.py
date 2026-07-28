@@ -62,8 +62,8 @@ class PynamEye:
         Global grid used for evaluations.
     transforms : dict
         Spherical transforms for different regions.
-    resistance_transforms : dict
-        Spherical transforms for stored resistance across regions.
+    conductance_transforms : dict
+        Spherical transforms for stored log conductance across regions.
     ...additional attributes as needed...
     """
 
@@ -96,7 +96,7 @@ class PynamEye:
             optional_datasets.append("steady_state")
         self.run_view = SavedRunView.from_directory(
             run_directory,
-            required_datasets=("resistance", "state"),
+            required_datasets=("conductance", "state"),
             optional_datasets=optional_datasets,
             build_geometry=True,
         )
@@ -144,7 +144,7 @@ class PynamEye:
         self.input_field_spaces = self.schema.input_field_spaces
         self.output_field_spaces = self.schema.output_field_spaces
 
-        self.resistance_field_space = self.input_field_spaces["resistance"]
+        self.conductance_field_space = self.input_field_spaces["conductance"]
         self.scalar_field_space = self.output_field_spaces["state"]["m_imp"]
         self.tangential_field_space = FieldSpace.from_representation(
             self.basis, field_type="tangential", mean_free=self.scalar_field_space.mean_free
@@ -153,7 +153,7 @@ class PynamEye:
 
         # Set up global grid and spherical transforms.
         self.transforms = {}
-        self.resistance_transforms = {}
+        self.conductance_transforms = {}
         self.poloidal_transforms = {}
         lat, lon = np.linspace(-89.9, 89.9, Nlat), np.linspace(-180, 180, Nlon)
         self.lat, self.lon = np.meshgrid(lat, lon)
@@ -196,7 +196,7 @@ class PynamEye:
             self.polar_grid = Grid(lat=self.mlat, lon=self.mlon)
             self._add_transforms("north", self.polar_grid)
             self.transforms["south"] = self.transforms["north"]
-            self.resistance_transforms["south"] = self.resistance_transforms["north"]
+            self.conductance_transforms["south"] = self.conductance_transforms["north"]
             self.poloidal_transforms["south"] = self.poloidal_transforms["north"]
 
         self._e_from_b_cache_ready = False
@@ -214,8 +214,8 @@ class PynamEye:
     def _add_transforms(self, region, grid):
         """Add region transforms."""
         self.transforms[region] = SphericalTransform(self.basis, grid)
-        self.resistance_transforms[region] = SphericalTransform(
-            self.resistance_field_space.representation, grid
+        self.conductance_transforms[region] = SphericalTransform(
+            self.conductance_field_space.representation, grid
         )
         self.poloidal_transforms[region] = self.geometry.poloidal_transform_for(
             self.transforms[region]
@@ -267,8 +267,8 @@ class PynamEye:
             # Reuse the exact numerical geometry from the saved run.
             self.state_grid = self.geometry.model_grid
             self.transforms["num"] = self.geometry.horizontal_transform
-            self.resistance_transforms["num"] = SphericalTransform(
-                self.resistance_field_space.representation, self.state_grid
+            self.conductance_transforms["num"] = SphericalTransform(
+                self.conductance_field_space.representation, self.state_grid
             )
             self.poloidal_transforms["num"] = self.geometry.poloidal_transform
             self._num_pedersen_geometry = self.geometry.pedersen_geometry_tensor
@@ -289,7 +289,9 @@ class PynamEye:
         )
 
         closure_values = evaluate_conductance_coefficients(
-            self.resistance_transforms["num"], self.m_etaP, self.m_etaH
+            self.conductance_transforms["num"],
+            self.m_log_conductance_magnitude,
+            self.m_log_hall_to_pedersen_ratio,
         )
         etaP_on_grid = closure_values["etaP"]
         etaH_on_grid = closure_values["etaH"]
@@ -377,7 +379,7 @@ class PynamEye:
         self.t = t
         self.time = self.t0 + datetime.timedelta(seconds=t)
 
-        for key in ["state", "steady_state", "Br", "u", "Q_eff", "E_neutral_wind", "resistance"]:
+        for key in ["state", "steady_state", "Br", "u", "Q_eff", "E_neutral_wind", "conductance"]:
             self._ensure_dataset_covers_time(key)
 
         if steady_state and "steady_state" in self.datasets:
@@ -394,11 +396,15 @@ class PynamEye:
         self.m_W = self.W_coeffs * self.RI
         self.m_Phi = self.Phi_coeffs * self.RI
 
-        self.m_etaP = self._select_values(
-            self.datasets["resistance"], self.input_field_spaces["resistance"], "etaP"
+        self.m_log_conductance_magnitude = self._select_values(
+            self.datasets["conductance"],
+            self.input_field_spaces["conductance"],
+            "log_conductance_magnitude",
         )
-        self.m_etaH = self._select_values(
-            self.datasets["resistance"], self.input_field_spaces["resistance"], "etaH"
+        self.m_log_hall_to_pedersen_ratio = self._select_values(
+            self.datasets["conductance"],
+            self.input_field_spaces["conductance"],
+            "log_hall_to_pedersen_ratio",
         )
         if "Br" in self.datasets:
             self.m_Br = self._select_values(
@@ -648,7 +654,9 @@ class PynamEye:
             Br_to_JS=current_maps["Br_to_JS"],
         )
         closure_values = evaluate_conductance_coefficients(
-            self.resistance_transforms[region], self.m_etaP, self.m_etaH
+            self.conductance_transforms[region],
+            self.m_log_conductance_magnitude,
+            self.m_log_hall_to_pedersen_ratio,
         )
         if region not in self._pedersen_geometry_cache:
             field = MagneticFieldEvaluation(self.main_field, self.transforms[region].grid, self.RI)
@@ -681,7 +689,9 @@ class PynamEye:
         self._fill_plot_defaults(kwargs, self.conductance_defaults)
 
         conductance = evaluate_conductance_coefficients(
-            self.resistance_transforms[region], self.m_etaP, self.m_etaH
+            self.conductance_transforms[region],
+            self.m_log_conductance_magnitude,
+            self.m_log_hall_to_pedersen_ratio,
         )
 
         if hp == "h":

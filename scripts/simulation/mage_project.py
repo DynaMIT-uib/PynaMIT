@@ -32,7 +32,7 @@ class ProjectionSettings:
     boundary_radius: float | None = None
     max_steps: int | None = None
     br_lambda: float = 0.1
-    conductance_lambda: float = 3.0
+    conductance_lambda: float = 0.1
     jr_lambda: float = 0.1
     e_neutral_wind_lambda: float = 0.1
     artifact_storage: str = "auto"

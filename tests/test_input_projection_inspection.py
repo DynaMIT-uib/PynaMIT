@@ -45,16 +45,23 @@ def test_evaluate_projected_conductance_returns_physical_conductance(tmp_path):
     simulation = pynamit.Simulation(
         run_directory=tmp_path, Nmax=2, Mmax=1, Ncs=8, enable_pfac_coupling=False
     )
-    coeff_shape = simulation.run_data.schema.input_field_spaces["resistance"].coefficient_shape
-    etaP = np.zeros(coeff_shape)
-    etaH = np.zeros(coeff_shape)
-    etaP[0] = 2.0
-    etaH[0] = 1.0
-    simulation.set_resistance(etaP_coefficients=etaP, etaH_coefficients=etaH, time=0.0)
+    coeff_shape = simulation.run_data.schema.input_field_spaces["conductance"].coefficient_shape
+    log_magnitude = np.zeros(coeff_shape)
+    log_ratio = np.zeros(coeff_shape)
+    simulation.set_conductance(
+        log_magnitude_coefficients=log_magnitude, log_ratio_coefficients=log_ratio, time=0.0
+    )
 
-    values = evaluate_projected_input(simulation, "resistance", 0.0)
+    values = evaluate_projected_input(simulation, "conductance", 0.0)
 
-    assert {"etaP", "etaH", "SigmaP", "SigmaH"} <= set(values)
+    assert {
+        "log_conductance_magnitude",
+        "log_hall_to_pedersen_ratio",
+        "etaP",
+        "etaH",
+        "SigmaP",
+        "SigmaH",
+    } <= set(values)
     np.testing.assert_allclose(
         values["SigmaP"], values["etaP"] / (values["etaP"] ** 2 + values["etaH"] ** 2)
     )

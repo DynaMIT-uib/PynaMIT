@@ -8,9 +8,9 @@ from pynamit.simulation.workflows.standard import run_pynamit
 
 def test_2d_igrf_pfac_hc_wind_Q_eff():
     """Test wind driving represented through the Q_eff input path."""
-    expected_coeff_norm = 8.02198350603864e-09
-    expected_coeff_max = 2.375397746710546e-09
-    expected_coeff_min = -3.219908089330983e-09
+    expected_coeff_norm = 8.723217185945579e-09
+    expected_coeff_max = 2.9826151521101914e-09
+    expected_coeff_min = -3.282793887371255e-09
     expected_n_coeffs = 228
 
     simulation = run_pynamit(

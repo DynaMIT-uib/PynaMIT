@@ -11,6 +11,7 @@ import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 
+from pynamit.simulation.electrodynamics.ionospheric_closure import CONDUCTANCE_REFERENCE_S
 from pynamit.sphere import Grid
 from pynamit.sphere.spherical_transform import SphericalTransform, grid_sqrt_area_weights
 from pynamit.visualization.input_projection import evaluate_projected_input
@@ -27,7 +28,7 @@ _FIELD_DETAILS = {
     "etaP": {
         "label": r"$\eta_P$ [$\Omega$]",
         "units": "ohm",
-        "series": "resistance",
+        "series": "conductance",
         "component": "etaP",
         "grid": "ionosphere",
         "positive": True,
@@ -35,7 +36,7 @@ _FIELD_DETAILS = {
     "etaH": {
         "label": r"$\eta_H$ [$\Omega$]",
         "units": "ohm",
-        "series": "resistance",
+        "series": "conductance",
         "component": "etaH",
         "grid": "ionosphere",
         "positive": True,
@@ -43,7 +44,7 @@ _FIELD_DETAILS = {
     "SigmaP": {
         "label": r"$\Sigma_P$ [S]",
         "units": "S",
-        "series": "resistance",
+        "series": "conductance",
         "component": "SigmaP",
         "grid": "ionosphere",
         "positive": True,
@@ -51,7 +52,7 @@ _FIELD_DETAILS = {
     "SigmaH": {
         "label": r"$\Sigma_H$ [S]",
         "units": "S",
-        "series": "resistance",
+        "series": "conductance",
         "component": "SigmaH",
         "grid": "ionosphere",
         "positive": True,
@@ -269,6 +270,8 @@ def _error_metrics(raw, projected, weights) -> dict[str, float | int]:
         "max_absolute_error": float(np.max(np.abs(residual))),
         "minimum_input": float(np.min(raw)),
         "minimum_projected": float(np.min(projected)),
+        "maximum_input": float(np.max(raw)),
+        "maximum_projected": float(np.max(projected)),
         "negative_projected_count": int(np.count_nonzero(projected < 0.0)),
         "negative_projected_area_fraction": float(np.sum(weights[projected < 0.0])),
     }
@@ -365,15 +368,16 @@ def _comparison_report(
         aggregate[field] = {"units": details["units"], **aggregate_metrics}
 
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
         "prepared_forcing": str(Path(forcing_path).expanduser().resolve()),
         "projected_directory": str(Path(projected_directory).expanduser().resolve()),
         "residual_definition": "projected_minus_prepared",
         "metric_weighting": "projection_surface_area",
         "conductance_representation": {
-            "fitted": ["etaP", "etaH"],
-            "derived": ["SigmaP", "SigmaH"],
+            "fitted": ["log_conductance_magnitude", "log_hall_to_pedersen_ratio"],
+            "derived": ["SigmaP", "SigmaH", "etaP", "etaH"],
+            "reference_conductance_S": CONDUCTANCE_REFERENCE_S,
         },
         "selected_steps": [
             {

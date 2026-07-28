@@ -21,6 +21,7 @@ from pynamit.geomagnetism import MagneticFieldEvaluation, MainField, decimal_yea
 from pynamit.math.constants import RE
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     electric_field_from_weighted_winds,
+    resistance_from_log_conductance_coordinates,
 )
 from pynamit.simulation.workflows.mage_preparation import (
     CONDUCTANCE_FLOOR_MODEL,
@@ -591,9 +592,9 @@ class _MageInputProjector:
         self._magnetosphere_sqrt_weights = grid_sqrt_area_weights(magnetosphere_grid)
         self._ionosphere_sqrt_weights = grid_sqrt_area_weights(ionosphere_grid)
         self._ionosphere_tangential_sqrt_weights = np.tile(self._ionosphere_sqrt_weights, (2, 1))
-        resistance_space = simulation.run_data.schema.input_field_spaces["resistance"]
-        self._resistance_evaluator = (
-            resistance_space.representation.get_scalar_evaluation_operator(ionosphere_grid)
+        conductance_space = simulation.run_data.schema.input_field_spaces["conductance"]
+        self._conductance_evaluator = (
+            conductance_space.representation.get_scalar_evaluation_operator(ionosphere_grid)
         )
 
     def project_step(self, h5_file: Any, step: int, input_time: float) -> None:
@@ -659,15 +660,18 @@ class _MageInputProjector:
         return sigma_p, sigma_h
 
     def _projected_resistance(self, input_time: float) -> tuple[np.ndarray, np.ndarray]:
-        """Evaluate the fitted sheet resistance on the forcing grid."""
+        """Reconstruct fitted sheet resistance on the forcing grid."""
         input_series = self._simulation.run_data.input_series
-        resistance_entry = input_series.get_entry("resistance", input_time)
-        if resistance_entry is None:
+        conductance_entry = input_series.get_entry("conductance", input_time)
+        if conductance_entry is None:
             raise RuntimeError("Conductance must be set before computing wind-driven E.")
-        return (
-            np.asarray(self._resistance_evaluator.matvec(resistance_entry["etaP"])).reshape(-1),
-            np.asarray(self._resistance_evaluator.matvec(resistance_entry["etaH"])).reshape(-1),
-        )
+        log_magnitude = np.asarray(
+            self._conductance_evaluator.matvec(conductance_entry["log_conductance_magnitude"])
+        ).reshape(-1)
+        log_ratio = np.asarray(
+            self._conductance_evaluator.matvec(conductance_entry["log_hall_to_pedersen_ratio"])
+        ).reshape(-1)
+        return resistance_from_log_conductance_coordinates(log_magnitude, log_ratio)
 
     def _project_wind_source(
         self, h5_file: Any, step: int, input_time: float, sigma_p: np.ndarray, sigma_h: np.ndarray

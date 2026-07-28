@@ -51,7 +51,7 @@ def test_projection_basis_settings_resolve_defaults_and_inheritance():
     assert resolved == {
         "jr_projection_basis": "SH",
         "Br_projection_basis": "SH",
-        "resistance_projection_basis": "SH",
+        "conductance_projection_basis": "SH",
         "u_projection_basis": "CS",
         "E_neutral_wind_projection_basis": "SH",
         "Q_eff_projection_basis": "CS",
@@ -86,7 +86,7 @@ def test_sh_schema_uses_mean_free_sh_inputs_and_outputs():
     assert schema.input_field_spaces["Br"].representation is schema.mean_free_sh_basis
     assert schema.input_field_spaces["u"].representation is schema.mean_free_sh_basis
     assert schema.input_field_spaces["Q_eff"].representation is schema.mean_free_sh_basis
-    assert schema.input_field_spaces["resistance"].representation is schema.sh_basis
+    assert schema.input_field_spaces["conductance"].representation is schema.sh_basis
     assert all(
         space.representation is schema.horizontal_basis
         for space in schema.output_field_spaces["state"].values()
@@ -96,7 +96,7 @@ def test_sh_schema_uses_mean_free_sh_inputs_and_outputs():
     assert schema.input_field_spaces["Br"].mean_free
     assert schema.input_field_spaces["u"].mean_free
     assert schema.input_field_spaces["Q_eff"].mean_free
-    assert not schema.input_field_spaces["resistance"].mean_free
+    assert not schema.input_field_spaces["conductance"].mean_free
     assert all(space.mean_free for space in schema.output_field_spaces["state"].values())
 
 
@@ -128,7 +128,7 @@ def test_schema_respects_input_projection_basis_for_sh_mode():
         _settings(
             jr_projection_basis="CS",
             Br_projection_basis="CS",
-            resistance_projection_basis="CS",
+            conductance_projection_basis="CS",
             u_projection_basis="CS",
             Q_eff_projection_basis="CS",
             E_neutral_wind_projection_basis="CS",
@@ -136,18 +136,18 @@ def test_schema_respects_input_projection_basis_for_sh_mode():
     )
 
     assert schema.input_field_spaces["jr"].representation is schema.mean_free_sh_basis
-    assert schema.input_field_spaces["resistance"].representation is schema.cs_basis
+    assert schema.input_field_spaces["conductance"].representation is schema.cs_basis
     assert all(basis is schema.cs_basis for basis in schema.input_projection_bases.values())
 
 
-def test_sh_schema_can_store_resistance_on_cs_grid():
-    """CS resistance projection basis keeps SH state storage."""
-    schema = build_simulation_schema(_settings(resistance_projection_basis="CS"))
+def test_sh_schema_can_store_conductance_on_cs_grid():
+    """CS conductance projection basis keeps SH state storage."""
+    schema = build_simulation_schema(_settings(conductance_projection_basis="CS"))
 
     assert schema.horizontal_basis is schema.mean_free_sh_basis
-    assert schema.input_field_spaces["resistance"].representation is schema.cs_basis
-    assert schema.input_projection_bases["resistance"] is schema.cs_basis
-    assert not schema.input_field_spaces["resistance"].mean_free
+    assert schema.input_field_spaces["conductance"].representation is schema.cs_basis
+    assert schema.input_projection_bases["conductance"] is schema.cs_basis
+    assert not schema.input_field_spaces["conductance"].mean_free
 
 
 def test_field_spaces_from_bases_rejects_invalid_field_type():

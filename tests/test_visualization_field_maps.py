@@ -3,6 +3,11 @@
 import numpy as np
 import scipy.sparse
 
+from pynamit.simulation.electrodynamics.ionospheric_closure import (
+    conductance_from_log_coordinates,
+    conductance_to_log_coordinates,
+    conductance_to_resistance,
+)
 from pynamit.visualization.field_maps import (
     evaluate_conductance_coefficients,
     evaluate_conductance_values,
@@ -26,27 +31,37 @@ class ScalingTransform:
 
 
 def test_conductance_values_include_resistance_and_conductance():
-    """Resistance values are returned with conductance."""
-    values = evaluate_conductance_values(np.array([2.0, 0.0]), np.array([1.0, 0.0]))
+    """Expose conductance and reciprocal resistance."""
+    pedersen = np.array([2.0, 4.0])
+    hall = np.array([1.0, 2.0])
+    log_magnitude, log_ratio = conductance_to_log_coordinates(pedersen, hall)
+    values = evaluate_conductance_values(log_magnitude, log_ratio)
+    etaP, etaH = conductance_to_resistance(pedersen, hall)
 
-    np.testing.assert_allclose(values["etaP"], np.array([2.0, 0.0]))
-    np.testing.assert_allclose(values["etaH"], np.array([1.0, 0.0]))
-    np.testing.assert_allclose(values["SigmaP"][0], 0.4)
-    np.testing.assert_allclose(values["SigmaH"][0], 0.2)
-    assert np.isnan(values["SigmaP"][1])
-    assert np.isnan(values["SigmaH"][1])
+    np.testing.assert_allclose(values["log_conductance_magnitude"], log_magnitude)
+    np.testing.assert_allclose(values["log_hall_to_pedersen_ratio"], log_ratio)
+    np.testing.assert_allclose(values["etaP"], etaP)
+    np.testing.assert_allclose(values["etaH"], etaH)
+    np.testing.assert_allclose(values["SigmaP"], pedersen)
+    np.testing.assert_allclose(values["SigmaH"], hall)
 
 
 def test_conductance_coefficients_use_transform_before_conversion():
-    """Coefficient evaluation uses direct conductance conversion."""
+    """Synthesize both canonical fields before physical conversion."""
+    log_magnitude_coeffs = np.array([0.1, 0.2])
+    log_ratio_coeffs = np.array([-0.3, 0.4])
     values = evaluate_conductance_coefficients(
-        ScalingTransform(), np.array([1.0, 2.0]), np.array([0.5, 1.0])
+        ScalingTransform(), log_magnitude_coeffs, log_ratio_coeffs
     )
+    expected_log_magnitude = 2.0 * log_magnitude_coeffs
+    expected_log_ratio = 2.0 * log_ratio_coeffs
+    sigmaP, sigmaH = conductance_from_log_coordinates(expected_log_magnitude, expected_log_ratio)
+    etaP, etaH = conductance_to_resistance(sigmaP, sigmaH)
 
-    np.testing.assert_allclose(values["etaP"], np.array([2.0, 4.0]))
-    np.testing.assert_allclose(values["etaH"], np.array([1.0, 2.0]))
-    np.testing.assert_allclose(values["SigmaP"], np.array([0.4, 0.2]))
-    np.testing.assert_allclose(values["SigmaH"], np.array([0.2, 0.1]))
+    np.testing.assert_allclose(values["etaP"], etaP)
+    np.testing.assert_allclose(values["etaH"], etaH)
+    np.testing.assert_allclose(values["SigmaP"], sigmaP)
+    np.testing.assert_allclose(values["SigmaH"], sigmaH)
 
 
 def test_tangential_and_wind_coefficients_share_component_convention():

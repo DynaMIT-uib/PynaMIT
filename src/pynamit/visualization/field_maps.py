@@ -5,7 +5,10 @@ from __future__ import annotations
 import numpy as np
 
 from pynamit.math.linear_map import as_linear_map
-from pynamit.simulation.electrodynamics.ionospheric_closure import resistance_to_conductance
+from pynamit.simulation.electrodynamics.ionospheric_closure import (
+    conductance_from_log_coordinates,
+    conductance_to_resistance,
+)
 
 
 def _coefficient_array(coeffs):
@@ -19,19 +22,27 @@ def _apply_linear_map(linear_map, coeffs):
     return as_linear_map(linear_map).matvec(coeffs)
 
 
-def evaluate_conductance_values(etaP, etaH):
-    """Return resistance and physical conductance values on one grid."""
-    etaP = np.asarray(etaP, dtype=float)
-    etaH = np.asarray(etaH, dtype=float)
-    sigmaP, sigmaH = resistance_to_conductance(etaP, etaH)
-    return {"etaP": etaP, "etaH": etaH, "SigmaP": sigmaP, "SigmaH": sigmaH}
+def evaluate_conductance_values(log_magnitude, log_ratio):
+    """Return canonical and physical closure values on one grid."""
+    log_magnitude = np.asarray(log_magnitude, dtype=float)
+    log_ratio = np.asarray(log_ratio, dtype=float)
+    sigmaP, sigmaH = conductance_from_log_coordinates(log_magnitude, log_ratio)
+    etaP, etaH = conductance_to_resistance(sigmaP, sigmaH)
+    return {
+        "log_conductance_magnitude": log_magnitude,
+        "log_hall_to_pedersen_ratio": log_ratio,
+        "etaP": etaP,
+        "etaH": etaH,
+        "SigmaP": sigmaP,
+        "SigmaH": sigmaH,
+    }
 
 
-def evaluate_conductance_coefficients(transform, etaP_coeffs, etaH_coeffs):
-    """Evaluate resistance coefficients and derived conductance."""
-    etaP = transform.synthesize_scalar(etaP_coeffs)
-    etaH = transform.synthesize_scalar(etaH_coeffs)
-    return evaluate_conductance_values(etaP, etaH)
+def evaluate_conductance_coefficients(transform, log_magnitude_coeffs, log_ratio_coeffs):
+    """Evaluate canonical coordinates and physical conductance."""
+    log_magnitude = transform.synthesize_scalar(log_magnitude_coeffs)
+    log_ratio = transform.synthesize_scalar(log_ratio_coeffs)
+    return evaluate_conductance_values(log_magnitude, log_ratio)
 
 
 def evaluate_tangential_coefficients(transform, coeffs, *, include_magnitude=True):

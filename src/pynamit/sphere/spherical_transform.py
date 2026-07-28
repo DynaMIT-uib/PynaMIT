@@ -27,7 +27,7 @@ from pynamit.math.tensor_operations import weighted_tensor_pinv
 from pynamit.sphere.core import SurfaceOperators, is_sh_basis
 from pynamit.sphere.grid import Grid
 
-_LEAST_SQUARES_CACHE_VERSION = 1
+_LEAST_SQUARES_CACHE_VERSION = 2
 _WEIGHTED_PRODUCT_WORK_BYTES = 512 * 1024**2
 
 
@@ -53,6 +53,33 @@ def resolve_sqrt_weights(grid, sqrt_weights=None, area_weighted=False, vector=Fa
     weights = grid_sqrt_area_weights(grid)
     xp = get_array_module(weights)
     return xp.tile(weights, (2, 1)) if vector else weights
+
+
+def _scalar_surface_smoothness_weights(degree):
+    """Return scalar surface-gradient-energy square-root weights.
+
+    The real Schmidt basis used here has angular norm
+    ``q_n = 1 / (2 n + 1)``.  The squared surface-gradient norm of a
+    degree-``n`` scalar coefficient is therefore
+    ``q_n n (n + 1)``.
+    """
+    degree = np.asarray(degree, dtype=float)
+    angular_norm = 1.0 / (2.0 * degree + 1.0)
+    laplacian_eigenvalue = degree * (degree + 1.0)
+    return np.sqrt(angular_norm * laplacian_eigenvalue)
+
+
+def _helmholtz_surface_smoothness_weights(degree):
+    """Return equal curl-free/divergence-free field-smoothness weights.
+
+    For ``F = -grad(phi) + rhat x grad(psi)``, penalizing the surface
+    divergence and curl of ``F`` gives the same degree weight for both
+    Helmholtz potentials: ``sqrt(q_n) n (n + 1)``.
+    """
+    degree = np.asarray(degree, dtype=float)
+    angular_norm = 1.0 / (2.0 * degree + 1.0)
+    laplacian_eigenvalue = degree * (degree + 1.0)
+    return np.sqrt(angular_norm) * laplacian_eigenvalue
 
 
 def _representation_signature(representation):
@@ -548,7 +575,7 @@ class SphericalTransform:
 
     @property
     def scalar_regularization_operator(self):
-        """Degree-weighted regularization operator for scalar fields."""
+        """Surface-gradient smoothness operator for scalar fields."""
         if not hasattr(self, "_scalar_regularization_operator"):
             if self.reg_lambda is None:
                 self._scalar_regularization_operator = None
@@ -558,7 +585,7 @@ class SphericalTransform:
                         "Degree-weighted scalar regularization requires basis.n."
                     )
                 self._scalar_regularization_operator = diagonal_linear_map(
-                    np.asarray(self.basis.n),
+                    _scalar_surface_smoothness_weights(self.basis.n),
                     input_shape=(self.basis.index_length,),
                     output_shape=(self.basis.index_length,),
                 )
@@ -566,7 +593,7 @@ class SphericalTransform:
 
     @property
     def helmholtz_regularization_operator(self):
-        """Degree-weighted Helmholtz regularization operator."""
+        """Return equal-component Helmholtz-field smoothness."""
         if not hasattr(self, "_helmholtz_regularization_operator"):
             if self.reg_lambda is None:
                 self._helmholtz_regularization_operator = None
@@ -575,8 +602,10 @@ class SphericalTransform:
                     raise NotImplementedError(
                         "Degree-weighted Helmholtz regularization requires basis.n."
                     )
-                n = np.asarray(self.basis.n)
-                weights = np.stack([n * (n + 1) / (2 * n + 1), (n + 1) / 2], axis=0)
+                weights = np.broadcast_to(
+                    _helmholtz_surface_smoothness_weights(self.basis.n),
+                    (2, self.basis.index_length),
+                )
                 self._helmholtz_regularization_operator = diagonal_linear_map(
                     weights.reshape(-1),
                     input_shape=(2, self.basis.index_length),

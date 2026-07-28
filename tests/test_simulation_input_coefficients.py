@@ -5,6 +5,7 @@ import numpy as np
 from pynamit.fields import FieldCoefficients
 from pynamit.math.constants import RE
 from pynamit.simulation.api import Simulation
+from pynamit.simulation.electrodynamics.ionospheric_closure import conductance_to_log_coordinates
 
 
 def _small_simulation(tmp_path, **kwargs):
@@ -27,14 +28,14 @@ def test_simulation_reuses_input_transforms_for_shared_representations(tmp_path)
     assert pipeline.projection_transforms == {}
     transforms = {
         key: pipeline.projection_transform_for(key)
-        for key in ("jr", "Br", "u", "Q_eff", "E_neutral_wind", "resistance")
+        for key in ("jr", "Br", "u", "Q_eff", "E_neutral_wind", "conductance")
     }
 
     assert transforms["jr"] is transforms["Br"]
     assert transforms["jr"] is transforms["u"]
     assert transforms["jr"] is transforms["Q_eff"]
     assert transforms["jr"] is transforms["E_neutral_wind"]
-    assert transforms["resistance"] is not transforms["jr"]
+    assert transforms["conductance"] is not transforms["jr"]
     assert transforms["jr"].grid is simulation.geometry.model_grid
 
 
@@ -113,13 +114,13 @@ def test_state_update_uses_field_coefficients_for_wind(tmp_path):
 def test_nonwind_response_keeps_wind_operator_lazy(tmp_path):
     """A zero wind contribution should not build the wind operator."""
     simulation = _small_simulation(tmp_path)
-    resistance_shape = simulation.run_data.schema.input_field_spaces[
-        "resistance"
+    conductance_shape = simulation.run_data.schema.input_field_spaces[
+        "conductance"
     ].coefficient_shape
     current_shape = simulation.run_data.schema.input_field_spaces["jr"].coefficient_shape
-    simulation.set_resistance(
-        etaP_coefficients=np.ones(resistance_shape),
-        etaH_coefficients=np.zeros(resistance_shape),
+    simulation.set_conductance(
+        log_magnitude_coefficients=np.zeros(conductance_shape),
+        log_ratio_coefficients=np.zeros(conductance_shape),
         time=0.0,
     )
     simulation.set_jr(jr_coefficients=np.zeros(current_shape), time=0.0)
@@ -147,14 +148,14 @@ def test_set_Q_eff_accepts_helmholtz_input_basis_coefficients(tmp_path):
 
 
 def test_calculate_Q_eff_uses_canonical_input_series_owner(tmp_path):
-    """Wind-equivalent Q_eff reads resistance through RunData."""
+    """Wind-equivalent Q_eff reads conductance through RunData."""
     simulation = _small_simulation(tmp_path)
-    resistance_shape = simulation.run_data.schema.input_field_spaces[
-        "resistance"
+    conductance_shape = simulation.run_data.schema.input_field_spaces[
+        "conductance"
     ].coefficient_shape
-    simulation.set_resistance(
-        etaP_coefficients=np.ones(resistance_shape),
-        etaH_coefficients=np.zeros(resistance_shape),
+    simulation.set_conductance(
+        log_magnitude_coefficients=np.zeros(conductance_shape),
+        log_ratio_coefficients=np.zeros(conductance_shape),
         time=0.0,
     )
     grid = simulation.geometry.model_grid
@@ -243,20 +244,26 @@ def test_state_update_uses_field_coefficients_for_Q_eff(tmp_path):
     np.testing.assert_allclose(simulation.response.Q_eff.array, np.vstack([cf_coeffs, df_coeffs]))
 
 
-def test_set_resistance_accepts_input_basis_coefficients(tmp_path):
-    """EtaP and etaH resistance coefficients are stored directly."""
+def test_set_conductance_accepts_canonical_input_basis_coefficients(tmp_path):
+    """Store dimensionless magnitude/ratio coefficients directly."""
     simulation = _small_simulation(tmp_path)
-    n_coeffs = simulation.run_data.schema.input_field_spaces["resistance"].index_length
-    etaP_coeffs = np.arange(n_coeffs, dtype=float) + 1.0
-    etaH_coeffs = np.arange(n_coeffs, dtype=float) - 2.0
+    n_coeffs = simulation.run_data.schema.input_field_spaces["conductance"].index_length
+    log_magnitude_coeffs = np.arange(n_coeffs, dtype=float) + 1.0
+    log_ratio_coeffs = np.arange(n_coeffs, dtype=float) - 2.0
 
-    simulation.set_resistance(
-        etaP_coefficients=etaP_coeffs, etaH_coefficients=etaH_coeffs, time=5.0
+    simulation.set_conductance(
+        log_magnitude_coefficients=log_magnitude_coeffs,
+        log_ratio_coefficients=log_ratio_coeffs,
+        time=5.0,
     )
 
-    dataset = simulation.run_data.input_series.datasets["resistance"]
-    np.testing.assert_allclose(dataset["SH_etaP"].isel(time=0).values, etaP_coeffs)
-    np.testing.assert_allclose(dataset["SH_etaH"].isel(time=0).values, etaH_coeffs)
+    dataset = simulation.run_data.input_series.datasets["conductance"]
+    np.testing.assert_allclose(
+        dataset["SH_log_conductance_magnitude"].isel(time=0).values, log_magnitude_coeffs
+    )
+    np.testing.assert_allclose(
+        dataset["SH_log_hall_to_pedersen_ratio"].isel(time=0).values, log_ratio_coeffs
+    )
     np.testing.assert_allclose(dataset.time.values, [5.0])
 
 
@@ -293,91 +300,97 @@ def test_tangential_inputs_reject_mixed_samples_and_coefficients(tmp_path):
         )
 
 
-def test_set_resistance_can_store_native_cs_grid_values(tmp_path):
-    """CS resistance basis stores native grid values."""
-    simulation = _small_simulation(tmp_path, resistance_projection_basis="CS")
+def test_set_conductance_can_store_native_cs_grid_values(tmp_path):
+    """CS conductance basis stores native log-coordinate values."""
+    simulation = _small_simulation(tmp_path, conductance_projection_basis="CS")
     grid = simulation.geometry.model_grid
-    etaP = np.linspace(0.1, 0.3, grid.size)
-    etaH = np.linspace(-0.2, 0.2, grid.size)
+    pedersen = np.linspace(1.0, 3.0, grid.size)
+    hall = np.linspace(0.5, 2.0, grid.size)
+    log_magnitude, log_ratio = conductance_to_log_coordinates(pedersen, hall)
 
-    simulation.set_resistance(etaP, etaH, lat=grid.lat, lon=grid.lon, time=6.0)
+    simulation.set_conductance(hall, pedersen, lat=grid.lat, lon=grid.lon, time=6.0)
 
-    dataset = simulation.run_data.input_series.datasets["resistance"]
-    np.testing.assert_allclose(dataset["CS_etaP"].isel(time=0).values, etaP)
-    np.testing.assert_allclose(dataset["CS_etaH"].isel(time=0).values, etaH)
+    dataset = simulation.run_data.input_series.datasets["conductance"]
+    np.testing.assert_allclose(
+        dataset["CS_log_conductance_magnitude"].isel(time=0).values, log_magnitude
+    )
+    np.testing.assert_allclose(
+        dataset["CS_log_hall_to_pedersen_ratio"].isel(time=0).values, log_ratio
+    )
     np.testing.assert_allclose(dataset.time.values, [6.0])
 
     simulation.response.activate_inputs_at_time(simulation.run_data.input_series, time=6.0)
-    np.testing.assert_allclose(simulation.response.etaP.array, etaP)
-    np.testing.assert_allclose(simulation.response.etaH.array, etaH)
+    np.testing.assert_allclose(simulation.response.log_conductance_magnitude.array, log_magnitude)
+    np.testing.assert_allclose(simulation.response.log_hall_to_pedersen_ratio.array, log_ratio)
     np.testing.assert_allclose(
-        simulation.response._resistance_synthesis_operator().to_matrix(backend="numpy"),
+        simulation.response._conductance_synthesis_operator().to_matrix(backend="numpy"),
         np.eye(grid.size),
         atol=1e-12,
     )
 
 
-def test_identical_resistance_history_retains_closure_caches(tmp_path):
+def test_identical_conductance_history_retains_closure_caches(tmp_path):
     """Repeated coefficient values do not rebuild the same closure."""
     simulation = _small_simulation(tmp_path)
-    field_space = simulation.run_data.schema.input_field_spaces["resistance"]
-    eta_p = np.ones((2, *field_space.coefficient_shape))
-    eta_h = np.zeros_like(eta_p)
-    simulation.set_resistance(etaP_coefficients=eta_p, etaH_coefficients=eta_h, time=[0.0, 1.0])
+    field_space = simulation.run_data.schema.input_field_spaces["conductance"]
+    log_magnitude = np.zeros((2, *field_space.coefficient_shape))
+    log_ratio = np.zeros_like(log_magnitude)
+    simulation.set_conductance(
+        log_magnitude_coefficients=log_magnitude, log_ratio_coefficients=log_ratio, time=[0.0, 1.0]
+    )
 
     response = simulation.response
     response.activate_inputs_at_time(simulation.run_data.input_series, time=0.0)
     sentinel = object()
     response._m_ind_feedback_matrix = sentinel
-    first_fingerprint = response.resistance_fingerprint
+    first_fingerprint = response.conductance_fingerprint
     response.activate_inputs_at_time(simulation.run_data.input_series, time=1.0)
 
-    assert response.resistance_fingerprint == first_fingerprint
+    assert response.conductance_fingerprint == first_fingerprint
     assert response._m_ind_feedback_matrix is sentinel
 
 
-def test_set_resistance_cs_basis_remaps_non_model_grid(tmp_path):
-    """CS resistance basis can remap values from another grid."""
-    simulation = _small_simulation(tmp_path, resistance_projection_basis="CS")
+def test_set_conductance_cs_basis_remaps_non_model_grid(tmp_path):
+    """CS conductance basis can remap values from another grid."""
+    simulation = _small_simulation(tmp_path, conductance_projection_basis="CS")
     grid = simulation.geometry.model_grid
-    etaP = np.ones(grid.size)
-    etaH = np.zeros(grid.size)
+    pedersen = np.ones(grid.size)
+    hall = np.full(grid.size, 0.5)
 
-    simulation.set_resistance(
-        etaP, etaH, lat=grid.lat + np.linspace(0.0, 1e-3, grid.size), lon=grid.lon, time=6.0
+    simulation.set_conductance(
+        hall, pedersen, lat=grid.lat + np.linspace(0.0, 1e-3, grid.size), lon=grid.lon, time=6.0
     )
 
-    dataset = simulation.run_data.input_series.datasets["resistance"]
-    assert "CS_etaP" in dataset
-    assert "CS_etaH" in dataset
-    assert np.all(np.isfinite(dataset["CS_etaP"].isel(time=0).values))
-    assert np.all(np.isfinite(dataset["CS_etaH"].isel(time=0).values))
+    dataset = simulation.run_data.input_series.datasets["conductance"]
+    assert "CS_log_conductance_magnitude" in dataset
+    assert "CS_log_hall_to_pedersen_ratio" in dataset
+    assert np.all(np.isfinite(dataset["CS_log_conductance_magnitude"].isel(time=0).values))
+    assert np.all(np.isfinite(dataset["CS_log_hall_to_pedersen_ratio"].isel(time=0).values))
 
 
-def test_set_resistance_cs_basis_rejects_least_squares_options(tmp_path):
-    """CS resistance storage rejects least-squares controls."""
-    simulation = _small_simulation(tmp_path, resistance_projection_basis="CS")
+def test_set_conductance_cs_basis_rejects_least_squares_options(tmp_path):
+    """CS conductance storage rejects least-squares controls."""
+    simulation = _small_simulation(tmp_path, conductance_projection_basis="CS")
     grid = simulation.geometry.model_grid
-    etaP = np.ones(grid.size)
-    etaH = np.zeros(grid.size)
+    pedersen = np.ones(grid.size)
+    hall = np.full(grid.size, 0.5)
 
     with np.testing.assert_raises_regex(ValueError, "reg_lambda"):
-        simulation.set_resistance(etaP, etaH, lat=grid.lat, lon=grid.lon, reg_lambda=1e-3)
+        simulation.set_conductance(hall, pedersen, lat=grid.lat, lon=grid.lon, reg_lambda=1e-3)
 
 
-def test_set_conductance_delegates_resistance_conversion(tmp_path, monkeypatch):
-    """Conductance inputs are converted once before delegation."""
+def test_set_conductance_projects_dimensionless_log_coordinates(tmp_path, monkeypatch):
+    """Store conductance samples in canonical coordinates."""
     simulation = _small_simulation(tmp_path)
     hall = np.array([[3, 4]])
     pedersen = np.array([[4, 3]])
     recorded = {}
 
-    def record_set_resistance(etaP, etaH, **kwargs):
-        recorded["etaP"] = etaP
-        recorded["etaH"] = etaH
+    def record_set_scalar_input(key, **kwargs):
+        recorded["key"] = key
         recorded["kwargs"] = kwargs
 
-    monkeypatch.setattr(simulation, "set_resistance", record_set_resistance)
+    monkeypatch.setattr(simulation._input_pipeline, "set_scalar_input", record_set_scalar_input)
 
     simulation.set_conductance(
         hall,
@@ -390,11 +403,14 @@ def test_set_conductance_delegates_resistance_conversion(tmp_path, monkeypatch):
         pinv_rtol=1e-10,
     )
 
-    denominator = hall**2 + pedersen**2
-    np.testing.assert_allclose(recorded["etaP"], pedersen / denominator)
-    np.testing.assert_allclose(recorded["etaH"], hall / denominator)
-    assert recorded["etaP"].dtype.kind == "f"
-    assert recorded["etaH"].dtype.kind == "f"
+    expected_magnitude, expected_ratio = conductance_to_log_coordinates(pedersen, hall)
+    assert recorded["key"] == "conductance"
+    np.testing.assert_allclose(
+        recorded["kwargs"]["samples"]["log_conductance_magnitude"], expected_magnitude
+    )
+    np.testing.assert_allclose(
+        recorded["kwargs"]["samples"]["log_hall_to_pedersen_ratio"], expected_ratio
+    )
     assert recorded["kwargs"]["time"] == 7.0
     assert recorded["kwargs"]["reg_lambda"] == 1e-3
     assert recorded["kwargs"]["pinv_rtol"] == 1e-10

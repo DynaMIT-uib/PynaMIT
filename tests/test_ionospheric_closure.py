@@ -6,11 +6,14 @@ import pytest
 from pynamit.math.linear_map import as_linear_map
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     Q_eff_on_grid_from_wind,
+    conductance_from_log_coordinates,
+    conductance_to_log_coordinates,
     conductance_to_resistance,
     electric_field_on_grid,
     hall_geometry_tensor,
     joule_heating_from_current,
     pedersen_geometry_tensor,
+    resistance_from_log_conductance_coordinates,
     resistance_tensor_on_grid,
     resistance_to_conductance,
     solve_Q_eff_coefficients,
@@ -28,6 +31,67 @@ def test_pedersen_hall_inversion_is_reversible():
 
     np.testing.assert_allclose(sigmaP, pedersen)
     np.testing.assert_allclose(sigmaH, hall)
+
+
+def test_log_conductance_coordinates_preserve_positive_tensor_and_reciprocal_pair():
+    """Magnitude/ratio reconstruct conductance and resistance."""
+    pedersen = np.array([1.0, 2.0, 8.0])
+    hall = np.array([0.5, 3.0, 16.0])
+
+    log_magnitude, log_ratio = conductance_to_log_coordinates(pedersen, hall)
+    reconstructed = conductance_from_log_coordinates(log_magnitude, log_ratio)
+    resistance = resistance_from_log_conductance_coordinates(log_magnitude, log_ratio)
+    expected_resistance = conductance_to_resistance(pedersen, hall)
+
+    np.testing.assert_allclose(reconstructed[0], pedersen)
+    np.testing.assert_allclose(reconstructed[1], hall)
+    np.testing.assert_allclose(resistance[0], expected_resistance[0])
+    np.testing.assert_allclose(resistance[1], expected_resistance[1])
+    np.testing.assert_allclose(log_ratio, np.log(hall / pedersen))
+
+
+def test_log_conductance_reference_only_shifts_magnitude():
+    """A unit-reference change adds a magnitude-coordinate shift."""
+    pedersen = np.array([1.0, 2.0])
+    hall = np.array([3.0, 4.0])
+
+    unit_magnitude, unit_ratio = conductance_to_log_coordinates(pedersen, hall)
+    scaled_magnitude, scaled_ratio = conductance_to_log_coordinates(
+        pedersen, hall, reference_conductance=2.5
+    )
+
+    np.testing.assert_allclose(scaled_magnitude, unit_magnitude - np.log(2.5))
+    np.testing.assert_allclose(scaled_ratio, unit_ratio)
+    reconstructed = conductance_from_log_coordinates(
+        scaled_magnitude, scaled_ratio, reference_conductance=2.5
+    )
+    np.testing.assert_allclose(reconstructed[0], pedersen)
+    np.testing.assert_allclose(reconstructed[1], hall)
+
+
+@pytest.mark.parametrize("reference", [0.0, -1.0, np.nan, np.inf])
+def test_log_conductance_coordinates_require_a_physical_reference(reference):
+    """Every conversion rejects a nonphysical logarithm reference."""
+    with pytest.raises(ValueError, match="reference_conductance"):
+        conductance_to_log_coordinates(1.0, 1.0, reference_conductance=reference)
+    with pytest.raises(ValueError, match="reference_conductance"):
+        conductance_from_log_coordinates(0.0, 0.0, reference_conductance=reference)
+    with pytest.raises(ValueError, match="reference_conductance"):
+        resistance_from_log_conductance_coordinates(0.0, 0.0, reference_conductance=reference)
+
+
+@pytest.mark.parametrize(
+    ("pedersen", "hall", "message"),
+    [
+        ([0.0, 1.0], [1.0, 1.0], "Pedersen"),
+        ([1.0, 1.0], [0.0, 1.0], "Hall"),
+        ([1.0, np.nan], [1.0, 1.0], "Pedersen"),
+    ],
+)
+def test_log_conductance_coordinates_require_positive_finite_inputs(pedersen, hall, message):
+    """Log coordinates reject values outside their physical domain."""
+    with pytest.raises(ValueError, match=message):
+        conductance_to_log_coordinates(pedersen, hall)
 
 
 def test_pedersen_hall_inversion_broadcasts_and_marks_zero_pair_invalid():

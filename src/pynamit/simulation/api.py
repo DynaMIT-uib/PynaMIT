@@ -57,7 +57,7 @@ class Simulation:
         interhemispheric_electric_field_weight=1e-5,
         jr_projection_basis=None,
         Br_projection_basis=None,
-        resistance_projection_basis=None,
+        conductance_projection_basis=None,
         u_projection_basis=None,
         Q_eff_projection_basis=None,
         E_neutral_wind_projection_basis=None,
@@ -121,11 +121,11 @@ class Simulation:
         Br_projection_basis : {'SH', 'CS'}, optional
             Basis route used when projecting radial magnetic-field
             inputs. Defaults to ``horizontal_basis_kind``.
-        resistance_projection_basis : {'SH', 'CS'}, optional
-            Conductance storage/projection basis. ``'SH'`` stores fitted
-            resistance coefficients. ``'CS'`` stores grid-basis
-            resistance values; matching CS-grid inputs are a no-op.
-            Defaults to ``horizontal_basis_kind``.
+        conductance_projection_basis : {'SH', 'CS'}, optional
+            Basis used to store the dimensionless log conductance
+            magnitude and log Hall/Pedersen ratio. ``'CS'`` makes
+            matching model-grid inputs a no-op. Defaults to
+            ``horizontal_basis_kind``.
         u_projection_basis : {'SH', 'CS'}, optional
             Basis route used when projecting neutral-wind inputs.
             Defaults to ``horizontal_basis_kind``.
@@ -199,7 +199,7 @@ class Simulation:
             main_field_B0=main_field_B0,
             jr_projection_basis=jr_projection_basis,
             Br_projection_basis=Br_projection_basis,
-            resistance_projection_basis=resistance_projection_basis,
+            conductance_projection_basis=conductance_projection_basis,
             u_projection_basis=u_projection_basis,
             Q_eff_projection_basis=Q_eff_projection_basis,
             E_neutral_wind_projection_basis=E_neutral_wind_projection_basis,
@@ -519,11 +519,8 @@ class Simulation:
         sqrt_weights=None,
         reg_lambda=None,
         pinv_rtol=1e-15,
-        *,
-        etaP_coefficients=None,
-        etaH_coefficients=None,
     ):
-        """Set etaP and etaH resistance inputs.
+        """Set resistance samples through canonical conductance.
 
         Parameters
         ----------
@@ -533,8 +530,6 @@ class Simulation:
         etaH : array-like
             Hall resistance values, inverse-conductance tensor
             component.
-        etaP_coefficients, etaH_coefficients : array-like, optional
-            Resistance coefficients in the input storage basis.
         lat, lon : array-like, optional
             Latitude/longitude coordinates in degrees.
         theta, phi : array-like, optional
@@ -548,12 +543,11 @@ class Simulation:
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
         """
-        self._input_pipeline.set_scalar_input(
-            "resistance",
-            samples={"etaP": etaP, "etaH": etaH},
-            coefficients={"etaP": etaP_coefficients, "etaH": etaH_coefficients},
-            sample_label="resistance samples",
-            coefficient_label="resistance coefficients",
+        self._input_pipeline.require_complete_values("resistance samples", etaP=etaP, etaH=etaH)
+        pedersen, hall = ionospheric_closure.resistance_to_conductance(etaP, etaH)
+        self.set_conductance(
+            hall,
+            pedersen,
             lat=lat,
             lon=lon,
             theta=theta,
@@ -566,8 +560,8 @@ class Simulation:
 
     def set_conductance(
         self,
-        hall,
-        pedersen,
+        hall=None,
+        pedersen=None,
         lat=None,
         lon=None,
         theta=None,
@@ -576,13 +570,17 @@ class Simulation:
         sqrt_weights=None,
         reg_lambda=None,
         pinv_rtol=1e-15,
+        *,
+        log_magnitude_coefficients=None,
+        log_ratio_coefficients=None,
     ):
-        """Set Hall and Pedersen conductance values.
+        """Set positive dimensionless magnitude/ratio conductance.
 
-        Direct coefficient storage uses ``set_resistance`` with
-        ``etaP_coefficients`` and ``etaH_coefficients``.
-        Conductance values are converted pointwise to the stored
-        resistance variables before projection.
+        Sampled Pedersen/Hall values are converted to
+        ``log(hypot(SigmaP, SigmaH) / 1 S)`` and
+        ``log(SigmaH / SigmaP)`` before projection. This guarantees
+        positive reconstructed conductance and treats the reciprocal
+        resistance tensor symmetrically.
 
         Parameters
         ----------
@@ -590,6 +588,10 @@ class Simulation:
             Hall conductance.
         pedersen : array-like
             Pedersen conductance.
+        log_magnitude_coefficients, log_ratio_coefficients
+            : array-like, optional
+            Canonical conductance coordinates already represented in
+            the configured input storage basis.
         lat, lon : array-like, optional
             Latitude/longitude coordinates in degrees.
         theta, phi : array-like, optional
@@ -603,11 +605,32 @@ class Simulation:
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
         """
-        etaP, etaH = ionospheric_closure.conductance_to_resistance(pedersen, hall)
+        coefficients_supplied = (
+            log_magnitude_coefficients is not None or log_ratio_coefficients is not None
+        )
+        if coefficients_supplied:
+            log_magnitude = None
+            log_ratio = None
+        else:
+            self._input_pipeline.require_complete_values(
+                "conductance samples", pedersen=pedersen, hall=hall
+            )
+            log_magnitude, log_ratio = ionospheric_closure.conductance_to_log_coordinates(
+                pedersen, hall
+            )
 
-        self.set_resistance(
-            etaP,
-            etaH,
+        self._input_pipeline.set_scalar_input(
+            "conductance",
+            samples={
+                "log_conductance_magnitude": log_magnitude,
+                "log_hall_to_pedersen_ratio": log_ratio,
+            },
+            coefficients={
+                "log_conductance_magnitude": log_magnitude_coefficients,
+                "log_hall_to_pedersen_ratio": log_ratio_coefficients,
+            },
+            sample_label="conductance samples",
+            coefficient_label="log-conductance coefficients",
             lat=lat,
             lon=lon,
             theta=theta,
@@ -865,7 +888,7 @@ class Simulation:
         pinv_rtol=1e-15,
     ):
         """Return model-grid Q_eff equivalent to wind forcing."""
-        if "resistance" not in self.run_data.input_series.datasets:
+        if "conductance" not in self.run_data.input_series.datasets:
             raise RuntimeError(
                 "Ionospheric resistance or conductance must be set before "
                 "calculating Q_eff from wind."

@@ -64,7 +64,7 @@ def test_simulation_config_normalizes_projection_defaults():
     assert config.horizontal_basis_kind == "SH"
     assert config.jr_projection_basis == "SH"
     assert config.Br_projection_basis == "SH"
-    assert config.resistance_projection_basis == "SH"
+    assert config.conductance_projection_basis == "SH"
     assert config.u_projection_basis == "CS"
     assert config.Q_eff_projection_basis == "CS"
     assert config.E_neutral_wind_projection_basis == "SH"
@@ -77,7 +77,7 @@ def test_simulation_config_cs_mode_requires_cs_projection_routes():
     assert config.horizontal_basis_kind == "CS"
     assert config.jr_projection_basis == "CS"
     assert config.Br_projection_basis == "CS"
-    assert config.resistance_projection_basis == "CS"
+    assert config.conductance_projection_basis == "CS"
     assert config.u_projection_basis == "CS"
     assert config.Q_eff_projection_basis == "CS"
     assert config.E_neutral_wind_projection_basis == "CS"
@@ -127,7 +127,7 @@ def test_simulation_config_from_minimal_settings_accepts_missing_defaults():
     assert config.Mmax == 2
     assert config.Ncs == 4
     assert config.horizontal_basis_kind == "SH"
-    assert config.resistance_projection_basis == "SH"
+    assert config.conductance_projection_basis == "SH"
 
 
 def test_simulation_config_preserves_decimal_main_field_epoch():

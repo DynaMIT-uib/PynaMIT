@@ -19,7 +19,17 @@ from pynamit.simulation.geometry import SimulationGeometry
 
 logger = logging.getLogger(__name__)
 
-_ACTIVE_INPUT_NAMES = frozenset({"u", "Q_eff", "E_neutral_wind", "Br", "jr", "etaP", "etaH"})
+_ACTIVE_INPUT_NAMES = frozenset(
+    {
+        "u",
+        "Q_eff",
+        "E_neutral_wind",
+        "Br",
+        "jr",
+        "log_conductance_magnitude",
+        "log_hall_to_pedersen_ratio",
+    }
+)
 
 
 class ElectrodynamicResponse:
@@ -58,8 +68,8 @@ class ElectrodynamicResponse:
         self.E_neutral_wind: FieldCoefficients | None = None
         self.Br: FieldCoefficients | None = None
         self.jr: FieldCoefficients | None = None
-        self.etaP: FieldCoefficients | None = None
-        self.etaH: FieldCoefficients | None = None
+        self.log_conductance_magnitude: FieldCoefficients | None = None
+        self.log_hall_to_pedersen_ratio: FieldCoefficients | None = None
 
         # Initialize closure-dependent caches.
         self._invalidate_closure_caches()
@@ -157,7 +167,7 @@ class ElectrodynamicResponse:
 
     def _invalidate_closure_caches(self) -> None:
         """Invalidate resistance-dependent cached properties."""
-        self._resistance_fingerprint_cache: str | None = None
+        self._conductance_fingerprint_cache: str | None = None
         self._resistance_tensor_on_grid: np.ndarray | None = None
         self._m_ind_to_E_coeffs_cache: LinearMap | None = None
         self._m_imp_to_E_coeffs_cache: LinearMap | None = None
@@ -187,62 +197,71 @@ class ElectrodynamicResponse:
     # ----- Cached Physical Properties (dependent on resistance) -----
 
     @property
-    def resistance_fingerprint(self) -> str:
-        """Return exact active-resistance identity."""
-        if self.etaP is None or self.etaH is None:
+    def conductance_fingerprint(self) -> str:
+        """Return the exact identity of the active conductance field."""
+        if self.log_conductance_magnitude is None or self.log_hall_to_pedersen_ratio is None:
             raise RuntimeError(
                 "Resistance or conductance must be set before it can be fingerprinted."
             )
-        if self._resistance_fingerprint_cache is None:
-            self._resistance_fingerprint_cache = content_fingerprint(
+        if self._conductance_fingerprint_cache is None:
+            self._conductance_fingerprint_cache = content_fingerprint(
                 {
-                    "field_space": self.etaP.field_space.signature,
-                    "etaP": np.asarray(self.etaP.array),
-                    "etaH": np.asarray(self.etaH.array),
+                    "field_space": self.log_conductance_magnitude.field_space.signature,
+                    "log_conductance_magnitude": np.asarray(self.log_conductance_magnitude.array),
+                    "log_hall_to_pedersen_ratio": np.asarray(
+                        self.log_hall_to_pedersen_ratio.array
+                    ),
                 }
             )
-        return self._resistance_fingerprint_cache
+        return self._conductance_fingerprint_cache
 
     @property
     def resistance_tensor_on_grid(self) -> np.ndarray:
         """Resistance tensor on the spatial grid."""
         if self._resistance_tensor_on_grid is None:
-            if self.etaP is None or self.etaH is None:
+            if self.log_conductance_magnitude is None or self.log_hall_to_pedersen_ratio is None:
                 raise RuntimeError(
                     "Resistance or conductance must be set before accessing "
                     "closure-dependent properties."
                 )
-            eta_stacked = xp.stack(
-                [xp.asarray(self.etaP.array), xp.asarray(self.etaH.array)], axis=0
+            log_coordinates = xp.stack(
+                [
+                    xp.asarray(self.log_conductance_magnitude.array),
+                    xp.asarray(self.log_hall_to_pedersen_ratio.array),
+                ],
+                axis=0,
             )
-            resistance_synthesis = self._resistance_synthesis_operator()
-            resistance_on_grid = xp.asarray(
-                resistance_synthesis.matmat(xp.swapaxes(eta_stacked, 0, 1))
+            conductance_synthesis = self._conductance_synthesis_operator()
+            log_coordinates_on_grid = xp.asarray(
+                conductance_synthesis.matmat(xp.swapaxes(log_coordinates, 0, 1))
             )
-            resistance_on_grid = xp.swapaxes(resistance_on_grid, 0, 1)
+            log_coordinates_on_grid = xp.swapaxes(log_coordinates_on_grid, 0, 1)
+            etaP, etaH = ionospheric_closure.resistance_from_log_conductance_coordinates(
+                log_coordinates_on_grid[0], log_coordinates_on_grid[1]
+            )
             self._resistance_tensor_on_grid = ionospheric_closure.resistance_tensor_on_grid(
-                resistance_on_grid[0],
-                resistance_on_grid[1],
+                etaP,
+                etaH,
                 self.geometry.pedersen_geometry_tensor,
                 self.geometry.hall_geometry_tensor,
             )
         return self._resistance_tensor_on_grid
 
-    def _resistance_storage_basis(self):
-        """Return the shared resistance storage basis."""
-        basis = self.etaP.field_space.representation
-        hall_basis = self.etaH.field_space.representation
-        if hall_basis is not basis:
-            compatible = getattr(hall_basis, "coefficients_are_compatible_with", None)
+    def _conductance_storage_basis(self):
+        """Return the shared log-conductance storage basis."""
+        basis = self.log_conductance_magnitude.field_space.representation
+        ratio_basis = self.log_hall_to_pedersen_ratio.field_space.representation
+        if ratio_basis is not basis:
+            compatible = getattr(ratio_basis, "coefficients_are_compatible_with", None)
             if not callable(compatible) or not compatible(basis):
                 raise ValueError(
-                    "Pedersen and Hall resistance storage bases must be coefficient-compatible."
+                    "Conductance log-coordinate storage bases must be coefficient-compatible."
                 )
         return basis
 
-    def _resistance_synthesis_operator(self) -> LinearMap:
-        """Return stored-resistance synthesis to the model grid."""
-        basis = self._resistance_storage_basis()
+    def _conductance_synthesis_operator(self) -> LinearMap:
+        """Return log-conductance synthesis to the model grid."""
+        basis = self._conductance_storage_basis()
 
         get_operator = getattr(basis, "get_scalar_evaluation_operator", None)
         if callable(get_operator):
@@ -252,7 +271,7 @@ class ElectrodynamicResponse:
         if callable(get_matrix):
             return as_linear_map(get_matrix(self.geometry.model_grid))
 
-        raise ValueError("Resistance storage basis cannot be evaluated on the state/model grid.")
+        raise ValueError("Conductance storage basis cannot be evaluated on the state/model grid.")
 
     def _sheet_current_source_to_E_coeffs_operator(self, source_to_JS: LinearMap) -> LinearMap:
         """Map a magnetic source through derived sheet current to E."""
@@ -610,10 +629,12 @@ class ElectrodynamicResponse:
         self, input_series: Any, time: float, interpolation: bool = False
     ) -> None:
         """Update inputs active at the requested simulation time."""
-        previous_resistance_fingerprint = (
-            None if self.etaP is None or self.etaH is None else self.resistance_fingerprint
+        previous_conductance_fingerprint = (
+            None
+            if (self.log_conductance_magnitude is None or self.log_hall_to_pedersen_ratio is None)
+            else self.conductance_fingerprint
         )
-        resistance_updated = False
+        conductance_updated = False
         for key in input_series.datasets:
             updated_input = input_series.get_entry_if_changed(key, time, interpolation)
             if updated_input is None:
@@ -634,20 +655,20 @@ class ElectrodynamicResponse:
                     variable,
                     FieldCoefficients(field_space, coeffs=coefficients, name=variable),
                 )
-            resistance_updated |= key == "resistance"
+            conductance_updated |= key == "conductance"
 
-        if resistance_updated:
-            self._resistance_fingerprint_cache = None
-            active_resistance_fingerprint = self.resistance_fingerprint
-            if active_resistance_fingerprint == previous_resistance_fingerprint:
-                logger.info("Resistance coefficients unchanged: retaining closure caches.")
+        if conductance_updated:
+            self._conductance_fingerprint_cache = None
+            active_conductance_fingerprint = self.conductance_fingerprint
+            if active_conductance_fingerprint == previous_conductance_fingerprint:
+                logger.info("Conductance coefficients unchanged: retaining closure caches.")
                 return
 
-            logger.info("Resistance updated: invalidating caches and problem definition.")
+            logger.info("Conductance updated: invalidating closure caches and problem definition.")
             preconditioner_to_keep = self._m_imp_preconditioner_cache
             preconditioner_ready_to_keep = self._m_imp_preconditioner_ready
             self._invalidate_closure_caches()
-            self._resistance_fingerprint_cache = active_resistance_fingerprint
+            self._conductance_fingerprint_cache = active_conductance_fingerprint
             if self.config.reuse_preconditioner and preconditioner_ready_to_keep:
                 logger.info("...reusing preconditioner due to configuration.")
                 self._m_imp_preconditioner_cache = preconditioner_to_keep

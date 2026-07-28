@@ -7,6 +7,16 @@ import numpy as np
 from pynamit.math.backend import get_array_module
 from pynamit.math.linear_map import as_linear_map, pointwise_matrix_linear_map
 
+CONDUCTANCE_REFERENCE_S = 1.0
+
+
+def _validate_reference_conductance(reference_conductance):
+    """Return one finite, strictly positive conductance reference."""
+    reference_conductance = float(reference_conductance)
+    if not np.isfinite(reference_conductance) or reference_conductance <= 0.0:
+        raise ValueError("reference_conductance must be finite and strictly positive.")
+    return reference_conductance
+
 
 def _invert_pedersen_hall_pair(pedersen, hall):
     """Invert a Pedersen/Hall tensor pair pointwise."""
@@ -30,6 +40,66 @@ def conductance_to_resistance(sigmaP, sigmaH):
 def resistance_to_conductance(etaP, etaH):
     """Convert Pedersen/Hall resistance to physical conductance."""
     return _invert_pedersen_hall_pair(etaP, etaH)
+
+
+def conductance_to_log_coordinates(
+    sigmaP, sigmaH, *, reference_conductance=CONDUCTANCE_REFERENCE_S
+):
+    """Return dimensionless log-magnitude and log Hall/Pedersen ratio.
+
+    Both conductance components must be strictly positive. The fixed
+    reference only makes the magnitude logarithm dimensionless; with
+    the default one-siemens reference it does not alter numeric input
+    values before taking the logarithm.
+    """
+    sigmaP, sigmaH = np.broadcast_arrays(
+        np.asarray(sigmaP, dtype=float), np.asarray(sigmaH, dtype=float)
+    )
+    reference_conductance = _validate_reference_conductance(reference_conductance)
+    if np.any(~np.isfinite(sigmaP)) or np.any(sigmaP <= 0.0):
+        raise ValueError("Pedersen conductance must be finite and strictly positive.")
+    if np.any(~np.isfinite(sigmaH)) or np.any(sigmaH <= 0.0):
+        raise ValueError("Hall conductance must be finite and strictly positive.")
+
+    magnitude = np.hypot(sigmaP, sigmaH)
+    return np.log(magnitude / reference_conductance), np.log(sigmaH / sigmaP)
+
+
+def conductance_from_log_coordinates(
+    log_magnitude, log_ratio, *, reference_conductance=CONDUCTANCE_REFERENCE_S
+):
+    """Reconstruct positive conductance from log coordinates."""
+    reference_conductance = _validate_reference_conductance(reference_conductance)
+    xp = get_array_module(log_magnitude, log_ratio)
+    log_magnitude = xp.asarray(log_magnitude)
+    log_ratio = xp.asarray(log_ratio)
+    log_pedersen = (
+        xp.log(reference_conductance) + log_magnitude - 0.5 * xp.logaddexp(0.0, 2.0 * log_ratio)
+    )
+    sigmaP = xp.exp(log_pedersen)
+    sigmaH = xp.exp(log_pedersen + log_ratio)
+    return sigmaP, sigmaH
+
+
+def resistance_from_log_conductance_coordinates(
+    log_magnitude, log_ratio, *, reference_conductance=CONDUCTANCE_REFERENCE_S
+):
+    """Reconstruct positive resistance from log conductance.
+
+    Conductance and resistance have reciprocal magnitudes and the same
+    Hall/Pedersen ratio. Working directly in log coordinates avoids a
+    second pointwise inversion and remains stable for large ratios.
+    """
+    reference_conductance = _validate_reference_conductance(reference_conductance)
+    xp = get_array_module(log_magnitude, log_ratio)
+    log_magnitude = xp.asarray(log_magnitude)
+    log_ratio = xp.asarray(log_ratio)
+    log_pedersen = (
+        -xp.log(reference_conductance) - log_magnitude - 0.5 * xp.logaddexp(0.0, 2.0 * log_ratio)
+    )
+    etaP = xp.exp(log_pedersen)
+    etaH = xp.exp(log_pedersen + log_ratio)
+    return etaP, etaH
 
 
 def pedersen_geometry_tensor(btheta, bphi, br):
@@ -254,13 +324,17 @@ def solve_Q_eff_coefficients(Q_eff_to_E, E_wind_coeffs, *, reg_lambda=None, pinv
 
 
 __all__ = [
+    "CONDUCTANCE_REFERENCE_S",
     "Q_eff_on_grid_from_wind",
+    "conductance_from_log_coordinates",
+    "conductance_to_log_coordinates",
     "conductance_to_resistance",
     "electric_field_from_weighted_winds",
     "electric_field_on_grid",
     "hall_geometry_tensor",
     "joule_heating_from_current",
     "pedersen_geometry_tensor",
+    "resistance_from_log_conductance_coordinates",
     "resistance_to_conductance",
     "resistance_tensor_on_grid",
     "solve_Q_eff_coefficients",

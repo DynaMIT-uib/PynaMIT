@@ -36,7 +36,7 @@ def run_pynamit(
     run_steady_state=True,
     jr_projection_basis=None,
     Br_projection_basis=None,
-    resistance_projection_basis=None,
+    conductance_projection_basis=None,
     u_projection_basis=None,
     Q_eff_projection_basis=None,
     integrator="euler",
@@ -107,10 +107,10 @@ def run_pynamit(
     Br_projection_basis : {'SH', 'CS'}, optional
         Basis route used when projecting radial magnetic-field inputs.
         Defaults to ``horizontal_basis_kind``.
-    resistance_projection_basis : {'SH', 'CS'}, optional
-        Conductance storage/projection basis. ``'CS'`` stores
-        resistance values on the cubed-sphere grid; matching model-grid
-        inputs are a no-op. Defaults to ``horizontal_basis_kind``.
+    conductance_projection_basis : {'SH', 'CS'}, optional
+        Basis used to store the dimensionless log conductance magnitude
+        and log Hall/Pedersen ratio. ``'CS'`` makes matching model-grid
+        inputs a no-op. Defaults to ``horizontal_basis_kind``.
     u_projection_basis : {'SH', 'CS'}, optional
         Basis route used when projecting neutral-wind inputs. Defaults
         to ``horizontal_basis_kind``.
@@ -180,7 +180,7 @@ def run_pynamit(
         main_field_B0=main_field_B0,
         jr_projection_basis=jr_projection_basis,
         Br_projection_basis=Br_projection_basis,
-        resistance_projection_basis=resistance_projection_basis,
+        conductance_projection_basis=conductance_projection_basis,
         u_projection_basis=u_projection_basis,
         Q_eff_projection_basis=Q_eff_projection_basis,
         jr_lambda=jr_lambda,

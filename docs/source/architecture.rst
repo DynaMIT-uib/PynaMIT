@@ -513,13 +513,24 @@ poloidal inputs and when the horizontal and poloidal SH spaces coincide; large
 CS surface-to-surface maps remain structured until an explicit matrix is
 requested.
 
-The persisted input artifact is named ``resistance`` because its canonical
-variables are the Pedersen and Hall resistance coefficients ``etaP`` and
-``etaH``. ``set_conductance`` remains the physical convenience API: it accepts
-``sigmaP`` and ``sigmaH`` in siemens, performs the pointwise tensor inversion,
-and then projects the resulting resistance. ``set_resistance`` accepts the
-canonical stored variables directly. Visualization converts resistance back
-to conductance when a figure actually displays conductance.
+The persisted input artifact is named ``conductance``. Its canonical scalar
+fields are
+``log_conductance_magnitude = log(hypot(SigmaP, SigmaH) / 1 S)`` and
+``log_hall_to_pedersen_ratio = log(SigmaH / SigmaP)``. The fixed one-siemens
+reference makes the first logarithm dimensionless without changing numeric
+values already expressed in siemens. Both components are required to be
+strictly positive. Fitting these two unconstrained coordinates guarantees
+positive reconstructed Pedersen and Hall conductance. It also treats the
+reciprocal resistance naturally: conductance and resistance have opposite
+log magnitudes and the same Hall/Pedersen ratio.
+
+``set_conductance`` is the canonical physical input API and can also accept
+already projected log-coordinate coefficients. ``set_resistance`` remains a
+sample-level convenience for physical resistance values; it converts them to
+conductance before crossing the same storage boundary. The response
+synthesizes the two log fields once per active input, reconstructs the
+resistance tensor on the model grid, and caches every closure-dependent
+operator under an exact fingerprint of the canonical coefficients.
 
 The shared surface convention is
 ``F = -grad(phi) + rhat x grad(psi)``. Stored ``Phi`` and ``W`` are the

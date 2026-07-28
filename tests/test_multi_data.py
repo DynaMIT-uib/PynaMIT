@@ -9,9 +9,9 @@ from pynamit.simulation.workflows.standard import run_pynamit
 def test_multi_data():
     """Test simulation with multiple data points."""
     # Arrange.
-    expected_coeff_norm = 2.5686566061400986e-08
-    expected_coeff_max = 6.133350112801935e-09
-    expected_coeff_min = -8.876382135048725e-09
+    expected_coeff_norm = 2.808363039271334e-08
+    expected_coeff_max = 8.167618918853933e-09
+    expected_coeff_min = -9.667516359188621e-09
     expected_n_coeffs = 228
 
     # Act.
@@ -28,7 +28,7 @@ def test_multi_data():
         use_wind=True,
         steady_state_initialization=True,
         jr_projection_basis="SH",
-        resistance_projection_basis="SH",
+        conductance_projection_basis="SH",
         u_projection_basis="SH",
         integrator="exponential",
         multi_data=True,

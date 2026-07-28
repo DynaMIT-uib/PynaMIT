@@ -106,7 +106,7 @@ hall_aurora, pedersen_aurora = conductance.hardy_EUV(
 )
 simulation.set_conductance(hall_aurora, pedersen_aurora, lat=conductance_lat, lon=conductance_lon)
 
-simulation.input_selection("resistance")
+simulation.input_selection("conductance")
 simulation.input_selection("jr")
 simulation.input_selection("u")
 

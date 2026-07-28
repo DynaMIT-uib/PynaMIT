@@ -24,7 +24,7 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
         use_wind=False,
         run_directory=str(tmp_path / "run"),
         jr_projection_basis="CS",
-        resistance_projection_basis="CS",
+        conductance_projection_basis="CS",
         u_projection_basis="CS",
         least_squares_solver="normal_pinv",
         horizontal_basis_kind="CS",
@@ -35,7 +35,7 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
     assert isinstance(simulation.geometry.solid_harmonics.basis.root_basis, SHBasis)
     assert simulation.run_data.schema.horizontal_basis is simulation.geometry.horizontal_basis
     assert simulation.geometry.solid_harmonics.basis is not simulation.geometry.horizontal_basis
-    assert not simulation.run_data.schema.input_field_spaces["resistance"].mean_free
+    assert not simulation.run_data.schema.input_field_spaces["conductance"].mean_free
     state_spaces = simulation.run_data.schema.output_field_spaces["state"]
     assert state_spaces["m_ind"].representation is simulation.geometry.poloidal_basis
     assert state_spaces["m_imp"].representation is simulation.geometry.horizontal_basis
@@ -72,9 +72,9 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
 
     plot_grid = Grid(theta=geometry.model_grid.theta[:10], phi=geometry.model_grid.phi[:10])
     plot_transform = SphericalTransform(simulation.geometry.horizontal_basis, plot_grid)
-    assert geometry.poloidal_transform_for(
+    assert geometry.poloidal_transform_for(plot_transform) is geometry.poloidal_transform_for(
         plot_transform
-    ) is geometry.poloidal_transform_for(plot_transform)
+    )
     assert geometry.m_ind_to_gridded_JS(plot_transform).shape == (
         2,
         plot_grid.size,

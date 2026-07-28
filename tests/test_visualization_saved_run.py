@@ -62,12 +62,13 @@ def test_pynameye_uses_saved_run_view(tmp_path):
         artifact_storage="netcdf",
     )
     resistance_shape = simulation.run_data.schema.input_field_spaces[
-        "resistance"
+        "conductance"
     ].coefficient_shape
-    etaP = np.zeros(resistance_shape)
-    etaH = np.zeros(resistance_shape)
-    etaP[0] = 1.0
-    simulation.set_resistance(etaP_coefficients=etaP, etaH_coefficients=etaH, time=0.0)
+    simulation.set_conductance(
+        log_magnitude_coefficients=np.zeros(resistance_shape),
+        log_ratio_coefficients=np.zeros(resistance_shape),
+        time=0.0,
+    )
 
     wind_shape = simulation.run_data.schema.input_field_spaces["u"].coefficient_shape
     u_cf = np.linspace(0.0, 1.0, wind_shape[1])
@@ -116,12 +117,12 @@ def test_pynameye_reuses_earth_fixed_geographic_mapping(tmp_path):
         artifact_storage="netcdf",
     )
     resistance_shape = simulation.run_data.schema.input_field_spaces[
-        "resistance"
+        "conductance"
     ].coefficient_shape
     times = np.array([0.0, 3600.0])
-    simulation.set_resistance(
-        etaP_coefficients=np.ones((2, *resistance_shape)),
-        etaH_coefficients=np.zeros((2, *resistance_shape)),
+    simulation.set_conductance(
+        log_magnitude_coefficients=np.zeros((2, *resistance_shape)),
+        log_ratio_coefficients=np.zeros((2, *resistance_shape)),
         time=times,
     )
     jr_shape = simulation.run_data.schema.input_field_spaces["jr"].coefficient_shape
@@ -155,12 +156,12 @@ def test_pynameye_joule_uses_total_boundary_driven_current(tmp_path):
         artifact_storage="netcdf",
     )
     resistance_shape = simulation.run_data.schema.input_field_spaces[
-        "resistance"
+        "conductance"
     ].coefficient_shape
-    etaP = np.zeros(resistance_shape)
-    etaP[0] = 1.0
-    simulation.set_resistance(
-        etaP_coefficients=etaP, etaH_coefficients=np.zeros(resistance_shape), time=0.0
+    simulation.set_conductance(
+        log_magnitude_coefficients=np.zeros(resistance_shape),
+        log_ratio_coefficients=np.zeros(resistance_shape),
+        time=0.0,
     )
     br_shape = simulation.run_data.schema.input_field_spaces["Br"].coefficient_shape
     Br = np.zeros(br_shape)
@@ -201,12 +202,13 @@ def test_pynameye_wind_plot_uses_wind_projection_basis(tmp_path):
         u_projection_basis="CS",
     )
     resistance_shape = simulation.run_data.schema.input_field_spaces[
-        "resistance"
+        "conductance"
     ].coefficient_shape
-    etaP = np.zeros(resistance_shape)
-    etaH = np.zeros(resistance_shape)
-    etaP[0] = 1.0
-    simulation.set_resistance(etaP_coefficients=etaP, etaH_coefficients=etaH, time=0.0)
+    simulation.set_conductance(
+        log_magnitude_coefficients=np.zeros(resistance_shape),
+        log_ratio_coefficients=np.zeros(resistance_shape),
+        time=0.0,
+    )
 
     wind_shape = simulation.run_data.schema.input_field_spaces["u"].coefficient_shape
     u_cf = np.zeros(wind_shape[1])

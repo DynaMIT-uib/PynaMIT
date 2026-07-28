@@ -11,9 +11,9 @@ def test_steady_state_init():
     """Test simulation with steady state initialization."""
     # Arrange.
     # HWM winds are rotated from geographic into dipole coordinates.
-    expected_coeff_norm = 1.2967819752378423e-08
-    expected_coeff_max = 3.3676216912049642e-09
-    expected_coeff_min = -5.214459389211052e-09
+    expected_coeff_norm = 1.3348885792521104e-08
+    expected_coeff_max = 4.556847574222238e-09
+    expected_coeff_min = -5.482384396922763e-09
     expected_n_coeffs = 228
 
     # Act.
@@ -30,7 +30,7 @@ def test_steady_state_init():
         use_wind=True,
         steady_state_initialization=True,
         jr_projection_basis="SH",
-        resistance_projection_basis="SH",
+        conductance_projection_basis="SH",
         u_projection_basis="SH",
     )
 
@@ -76,7 +76,7 @@ def test_impose_steady_state_at_current_time(tmp_path, monkeypatch):
         use_wind=True,
         steady_state_initialization=False,
         jr_projection_basis="SH",
-        resistance_projection_basis="SH",
+        conductance_projection_basis="SH",
         u_projection_basis="SH",
     )
 
@@ -147,7 +147,7 @@ def test_impose_steady_state_matches_steady_state_initialization(tmp_path, monke
         interhemispheric_coupling_latitude=50,
         use_wind=True,
         jr_projection_basis="SH",
-        resistance_projection_basis="SH",
+        conductance_projection_basis="SH",
         u_projection_basis="SH",
     )
 
@@ -171,9 +171,7 @@ def test_impose_steady_state_matches_steady_state_initialization(tmp_path, monke
         # Phi and W vanish at exact equilibrium, so independently
         # composed operator paths need an absolute roundoff floor.
         np.testing.assert_allclose(
-            np.asarray(imposed_entry[key]),
-            np.asarray(initialized_entry[key]),
-            atol=1e-15,
+            np.asarray(imposed_entry[key]), np.asarray(initialized_entry[key]), atol=1e-15
         )
 
 

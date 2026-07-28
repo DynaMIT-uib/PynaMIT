@@ -32,7 +32,7 @@ _INPUT_SPECS = {
     key: _InputSpec(
         variables=tuple(variables),
         exclusive_group=_WIND_FORCING_GROUP if key in {"u", "Q_eff", "E_neutral_wind"} else None,
-        reject_least_squares_for_cs_projection=(key == "resistance"),
+        reject_least_squares_for_cs_projection=(key == "conductance"),
     )
     for key, variables in INPUT_VARIABLES.items()
 }

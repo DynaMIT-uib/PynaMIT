@@ -27,7 +27,7 @@ def test_2d_igrf_pfac_hc_wind_grid():
         interhemispheric_coupling_latitude=50,
         use_wind=True,
         jr_projection_basis="CS",
-        resistance_projection_basis="CS",
+        conductance_projection_basis="CS",
         u_projection_basis="CS",
         steady_state_initialization=False,
     )
@@ -44,7 +44,7 @@ def test_2d_igrf_pfac_hc_wind_grid():
     actual_coeff_max = np.max(coeff_array)
     actual_coeff_min = np.min(coeff_array)
     actual_n_coeffs = coeff_array.shape[0]
-    resistance = simulation.run_data.input_series.datasets["resistance"]
+    resistance = simulation.run_data.input_series.datasets["conductance"]
 
     print("actual_coeff_norm: ", actual_coeff_norm)
     print("actual_coeff_max: ", actual_coeff_max)
@@ -56,5 +56,5 @@ def test_2d_igrf_pfac_hc_wind_grid():
     assert actual_coeff_max == pytest.approx(expected_coeff_max, abs=0.0, rel=1e-5)
     assert actual_coeff_min == pytest.approx(expected_coeff_min, abs=0.0, rel=1e-5)
     assert actual_n_coeffs == pytest.approx(expected_n_coeffs, abs=0.0, rel=1e-5)
-    assert "CS_etaP" in resistance
-    assert "CS_etaH" in resistance
+    assert "CS_log_conductance_magnitude" in resistance
+    assert "CS_log_hall_to_pedersen_ratio" in resistance

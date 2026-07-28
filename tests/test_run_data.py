@@ -49,9 +49,7 @@ def test_run_data_owns_schema_artifacts_and_field_series(tmp_path):
     n_magnetic = state_spaces["m_ind"].coefficient_length
     n_surface = state_spaces["m_imp"].coefficient_length
     data.save_pfac_matrix_if_missing(
-        xr.DataArray(
-            np.zeros((n_magnetic, n_surface)), dims=("row", "col"), name="PFAC_matrix"
-        )
+        xr.DataArray(np.zeros((n_magnetic, n_surface)), dims=("row", "col"), name="PFAC_matrix")
     )
     data.input_series.add_entry(
         "jr", {"jr": np.arange(data.schema.input_field_spaces["jr"].coefficient_length)}, time=0.0
@@ -156,11 +154,11 @@ def test_simulation_persists_only_active_pfac_matrix(
         artifact_storage="netcdf",
     )
     resistance_shape = simulation.run_data.schema.input_field_spaces[
-        "resistance"
+        "conductance"
     ].coefficient_shape
-    simulation.set_resistance(
-        etaP_coefficients=np.ones(resistance_shape),
-        etaH_coefficients=np.zeros(resistance_shape),
+    simulation.set_conductance(
+        log_magnitude_coefficients=np.zeros(resistance_shape),
+        log_ratio_coefficients=np.zeros(resistance_shape),
         time=0.0,
     )
     jr_shape = simulation.run_data.schema.input_field_spaces["jr"].coefficient_shape

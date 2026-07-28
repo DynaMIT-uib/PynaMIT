@@ -52,7 +52,7 @@ def test_horizontal_basis_kind_is_persisted(tmp_path):
     assert simulation.run_data.schema.input_field_spaces["jr"].mean_free
     assert simulation.run_data.schema.input_field_spaces["Br"].mean_free
     assert simulation.run_data.schema.input_field_spaces["u"].mean_free
-    assert not simulation.run_data.schema.input_field_spaces["resistance"].mean_free
+    assert not simulation.run_data.schema.input_field_spaces["conductance"].mean_free
     assert all(
         field_space.mean_free
         for field_space in simulation.run_data.schema.output_field_spaces["state"].values()
@@ -99,8 +99,8 @@ def test_cs_runtime_m_imp_solve_does_not_build_dense_response_matrix(tmp_path):
         backend="numpy",
     )
     n = simulation.geometry.horizontal_basis.index_length
-    simulation.set_resistance(
-        etaP_coefficients=np.ones(n), etaH_coefficients=np.zeros(n), time=0.0
+    simulation.set_conductance(
+        log_magnitude_coefficients=np.zeros(n), log_ratio_coefficients=np.zeros(n), time=0.0
     )
     simulation.set_jr(jr_coefficients=np.linspace(-1.0, 1.0, n), time=0.0)
     response = simulation.response
@@ -131,9 +131,9 @@ def test_cs_reduced_induction_response_matches_full_E_response(tmp_path):
     )
     grid = simulation.geometry.model_grid
     phase = np.linspace(0.0, 2.0 * np.pi, grid.size, endpoint=False)
-    simulation.set_resistance(
-        0.25 + 0.05 * np.cos(phase),
-        0.04 * np.sin(2.0 * phase),
+    simulation.set_conductance(
+        1.0 + 0.1 * np.sin(2.0 * phase),
+        2.0 + 0.2 * np.cos(phase),
         lat=grid.lat,
         lon=grid.lon,
         time=0.0,
@@ -142,9 +142,9 @@ def test_cs_reduced_induction_response_matches_full_E_response(tmp_path):
     response.activate_inputs_at_time(simulation.run_data.input_series, 0.0)
 
     reduced = response.m_ind_to_E_df_operator.to_matrix(backend="numpy")
-    full = (
-        response.driving_E_to_E_df_operator @ response.m_ind_to_E_coeffs
-    ).to_matrix(backend="numpy")
+    full = (response.driving_E_to_E_df_operator @ response.m_ind_to_E_coeffs).to_matrix(
+        backend="numpy"
+    )
 
     assert reduced.shape == (
         simulation.geometry.horizontal_basis.index_length,
@@ -189,7 +189,7 @@ def test_cs_horizontal_basis_runs_with_split_state_spaces(tmp_path):
         enable_pfac_coupling=False,
         use_wind=False,
         jr_projection_basis="CS",
-        resistance_projection_basis="CS",
+        conductance_projection_basis="CS",
         u_projection_basis="CS",
         run_directory=str(tmp_path / "run"),
         horizontal_basis_kind="CS",
@@ -215,7 +215,7 @@ def test_cs_horizontal_basis_runs_with_pfac(tmp_path):
         enable_pfac_coupling=True,
         use_wind=False,
         jr_projection_basis="CS",
-        resistance_projection_basis="CS",
+        conductance_projection_basis="CS",
         u_projection_basis="CS",
         run_directory=str(tmp_path / "run"),
         horizontal_basis_kind="CS",
@@ -279,7 +279,7 @@ def test_cs_horizontal_basis_supports_connected_hemispheres(tmp_path):
         enable_interhemispheric_coupling=True,
         use_wind=False,
         jr_projection_basis="CS",
-        resistance_projection_basis="CS",
+        conductance_projection_basis="CS",
         u_projection_basis="CS",
         run_directory=str(tmp_path / "run"),
         horizontal_basis_kind="CS",
@@ -346,7 +346,7 @@ def test_cs_horizontal_basis_combines_pfac_rm_and_connected_terms(tmp_path):
         use_wind=False,
         jr_projection_basis="CS",
         Br_projection_basis="CS",
-        resistance_projection_basis="CS",
+        conductance_projection_basis="CS",
         u_projection_basis="CS",
         run_directory=str(tmp_path / "run"),
         horizontal_basis_kind="CS",
@@ -395,9 +395,7 @@ def test_surface_to_poloidal_projection_matches_grid_least_squares(tmp_path):
     radial_coeffs = rng.standard_normal(simulation.geometry.solid_harmonics.basis.index_length)
     cs_coeffs = geometry.poloidal_transform.scalar_coeffs_to_grid @ radial_coeffs
 
-    np.testing.assert_allclose(
-        surface_to_poloidal @ cs_coeffs, radial_coeffs, atol=1e-10
-    )
+    np.testing.assert_allclose(surface_to_poloidal @ cs_coeffs, radial_coeffs, atol=1e-10)
 
 
 def test_surface_to_poloidal_supports_area_weighted_projection(tmp_path):
