@@ -10,7 +10,7 @@ from pynamit.geomagnetism import MainField
 from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.geometry import SimulationGeometry, build_main_field
 from pynamit.simulation.schema import SimulationSchema, build_simulation_schema
-from pynamit.storage import ArtifactStore, FieldTimeSeries
+from pynamit.storage import ArrayCache, ArtifactStore, FieldTimeSeries
 
 
 @dataclass
@@ -22,6 +22,7 @@ class SavedRunView:
     config: SimulationConfig
     schema: SimulationSchema
     main_field: MainField
+    operator_cache: ArrayCache | None = None
     pfac_matrix: xr.DataArray | None = None
     geometry: SimulationGeometry | None = None
 
@@ -35,6 +36,7 @@ class SavedRunView:
         require_pfac_matrix=False,
         build_geometry=False,
         artifact_storage="auto",
+        operator_cache_directory=None,
         print_info=False,
     ) -> SavedRunView:
         """Load one saved run for visualization."""
@@ -52,7 +54,10 @@ class SavedRunView:
                 datasets[key] = dataset
 
         config = SimulationConfig.from_settings(datasets["settings"])
-        schema = build_simulation_schema(config)
+        operator_cache = (
+            None if operator_cache_directory is None else ArrayCache(operator_cache_directory)
+        )
+        schema = build_simulation_schema(config, operator_cache=operator_cache)
         main_field = build_main_field(config)
 
         pfac_matrix = None
@@ -67,6 +72,7 @@ class SavedRunView:
             config=config,
             schema=schema,
             main_field=main_field,
+            operator_cache=operator_cache,
             pfac_matrix=pfac_matrix,
         )
         if build_geometry:
@@ -93,6 +99,7 @@ class SavedRunView:
                 config=self.config,
                 pfac_matrix=self.pfac_matrix,
                 solid_harmonics=self.schema.solid_harmonics,
+                operator_cache=self.operator_cache,
             )
         return self.geometry
 

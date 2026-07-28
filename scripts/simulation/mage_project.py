@@ -36,6 +36,9 @@ class ProjectionSettings:
     jr_lambda: float = 0.1
     e_neutral_wind_lambda: float = 0.1
     artifact_storage: str = "auto"
+    write_diagnostics: bool = True
+    diagnostic_steps: tuple[int, ...] | None = None
+    diagnostic_fields: tuple[str, ...] = ("etaP", "etaH", "SigmaP", "SigmaH", "jr", "Br")
 
 
 SETTINGS = ProjectionSettings()
@@ -72,7 +75,7 @@ def main(settings: ProjectionSettings = SETTINGS) -> None:
             f"[{index}/{len(resolutions)}] Projecting {resolution_name} to {projection_directory}",
             flush=True,
         )
-        project_inputs(
+        projected_directory = project_inputs(
             forcing_path=settings.forcing_path,
             projection_directory=projection_directory,
             dipole_B0_override=settings.dipole_B0,
@@ -88,6 +91,16 @@ def main(settings: ProjectionSettings = SETTINGS) -> None:
             artifact_storage=settings.artifact_storage,
             operator_cache_directory=operator_cache_directory,
         )
+        if settings.write_diagnostics:
+            from pynamit.visualization import write_input_projection_diagnostics
+
+            write_input_projection_diagnostics(
+                settings.forcing_path,
+                projected_directory,
+                timesteps=settings.diagnostic_steps,
+                fields=settings.diagnostic_fields,
+                operator_cache_directory=operator_cache_directory,
+            )
 
 
 if __name__ == "__main__":

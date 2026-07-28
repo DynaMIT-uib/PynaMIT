@@ -23,19 +23,18 @@ from pynamit.simulation.electrodynamics.ionospheric_closure import (
     electric_field_from_weighted_winds,
 )
 from pynamit.simulation.workflows.mage_preparation import (
+    CONDUCTANCE_FLOOR_MODEL,
+    HALL_CONDUCTANCE_FLOOR_S,
     IONOSPHERE_RADIUS_M,
     MAGE_FORCING_KIND,
     MAGE_FORCING_VERSION,
     MAGE_SOURCE_TIME_TOLERANCE_SECONDS,
     MAGE_TIME_AXIS,
-    REMIX_CONDUCTANCE_FLOOR_MODEL,
-    REMIX_HALL_FLOOR_S,
-    REMIX_PEDERSEN_FLOOR_S,
+    PEDERSEN_CONDUCTANCE_FLOOR_S,
     TIEGCM_DYNAMO_BOTTOM_ILEV,
     TIEGCM_DYNAMO_REFERENCE_HEIGHT_M,
     TIEGCM_HALL_LOWER_SCALE_M,
     TIEGCM_PEDERSEN_LOWER_SCALE_M,
-    _remix_conductance_domain_mask,
 )
 from pynamit.simulation.workflows.prepared_inputs import (
     clear_prepared_input_package,
@@ -83,9 +82,9 @@ _MAGE_REQUIRED_ATTRIBUTES = (
     "tiegcm_dynamo_reference_height_m",
     "tiegcm_pedersen_lower_scale_m",
     "tiegcm_hall_lower_scale_m",
-    "remix_conductance_floor_model",
-    "remix_pedersen_floor_S",
-    "remix_hall_floor_S",
+    "conductance_floor_model",
+    "pedersen_conductance_floor_S",
+    "hall_conductance_floor_S",
     "remix_grid_equatorward_sm_latitude_deg",
     "ionosphere_radius_m",
 )
@@ -211,13 +210,11 @@ def _validate_prepared_forcing(h5_file: Any) -> None:
             "Prepared forcing uses incompatible TIEGCM lower-dynamo parameters: "
             f"{invalid_dynamo_parameters}."
         )
-    if h5_file.attrs["remix_conductance_floor_model"] != REMIX_CONDUCTANCE_FLOOR_MODEL:
-        raise RuntimeError(
-            "Prepared forcing does not use the required ReMIX hard conductance floor."
-        )
+    if h5_file.attrs["conductance_floor_model"] != CONDUCTANCE_FLOOR_MODEL:
+        raise RuntimeError("Prepared forcing does not use the required global conductance floor.")
     expected_floors = {
-        "remix_pedersen_floor_S": REMIX_PEDERSEN_FLOOR_S,
-        "remix_hall_floor_S": REMIX_HALL_FLOOR_S,
+        "pedersen_conductance_floor_S": PEDERSEN_CONDUCTANCE_FLOOR_S,
+        "hall_conductance_floor_S": HALL_CONDUCTANCE_FLOOR_S,
     }
     invalid_floors = [
         name
@@ -226,12 +223,12 @@ def _validate_prepared_forcing(h5_file: Any) -> None:
     ]
     if invalid_floors:
         raise RuntimeError(
-            f"Prepared forcing uses incompatible ReMIX conductance floors: {invalid_floors}."
+            f"Prepared forcing uses incompatible conductance floors: {invalid_floors}."
         )
     equatorward_sm_latitude = float(h5_file.attrs["remix_grid_equatorward_sm_latitude_deg"])
     if not np.isfinite(equatorward_sm_latitude) or not 0.0 < equatorward_sm_latitude < 90.0:
         raise RuntimeError(
-            "Prepared forcing ReMIX floor-domain latitude must be between 0 and 90 degrees."
+            "Prepared forcing ReMIX grid boundary must be between 0 and 90 degrees SM latitude."
         )
     if h5_file.attrs["gamera_background_reference"] != "cell_volume_average_split_B0":
         raise RuntimeError(
@@ -287,34 +284,22 @@ def _validate_prepared_forcing(h5_file: Any) -> None:
     )
     _validate_time_series_shapes(h5_file, _MAGE_IONOSPHERE_DATASETS, n_steps, ionosphere_shape)
     _validate_time_series_shapes(h5_file, _MAGE_BOUNDARY_DATASETS, n_steps, boundary_shape)
-    _validate_remix_conductance_floor(h5_file, n_steps, equatorward_sm_latitude)
+    _validate_conductance_floor(h5_file, n_steps)
 
 
-def _validate_remix_conductance_floor(
-    h5_file: Any, n_steps: int, equatorward_sm_latitude: float
-) -> None:
-    """Require polar conductance to satisfy the ReMIX hard floor."""
-    latitude = np.asarray(h5_file["ionosphere_lat"][:], dtype=float)
-    longitude = np.asarray(h5_file["ionosphere_lon"][:], dtype=float)
+def _validate_conductance_floor(h5_file: Any, n_steps: int) -> None:
+    """Require every global sheet sample to satisfy its hard floor."""
     tolerance = 8.0 * np.finfo(np.float32).eps
     for step in range(n_steps):
-        event_time = _parse_h5_time(h5_file["gamera_source_time"][step])
-        domain = _remix_conductance_domain_mask(
-            latitude, longitude, event_time, equatorward_sm_latitude
-        )
-        if not np.any(domain):
-            raise RuntimeError(
-                "Prepared forcing grid does not sample the saved ReMIX polar domain."
-            )
         pedersen = np.asarray(h5_file["SP"][step], dtype=float)
         hall = np.asarray(h5_file["SH"][step], dtype=float)
-        if np.any(pedersen[domain] < REMIX_PEDERSEN_FLOOR_S - tolerance):
+        if np.any(pedersen < PEDERSEN_CONDUCTANCE_FLOOR_S - tolerance):
             raise RuntimeError(
-                f"Prepared Pedersen conductance violates the ReMIX hard floor at step {step}."
+                f"Prepared Pedersen conductance violates the global hard floor at step {step}."
             )
-        if np.any(hall[domain] < REMIX_HALL_FLOOR_S - tolerance):
+        if np.any(hall < HALL_CONDUCTANCE_FLOOR_S - tolerance):
             raise RuntimeError(
-                f"Prepared Hall conductance violates the ReMIX hard floor at step {step}."
+                f"Prepared Hall conductance violates the global hard floor at step {step}."
             )
 
 
@@ -835,15 +820,12 @@ def project_inputs(
             print("PynaMIT model and prepared forcing coordinates: Earth-fixed GEO", flush=True)
             print(f"RM: {boundary_radius:.6g} m", flush=True)
             print(
-                "Neutral-wind forcing: equivalent E from Pedersen/Hall-weighted winds",
-                flush=True,
+                "Neutral-wind forcing: equivalent E from Pedersen/Hall-weighted winds", flush=True
             )
             print(
-                "ReMIX conductance floors: "
-                f"Pedersen {REMIX_PEDERSEN_FLOOR_S:g} S, "
-                f"Hall {REMIX_HALL_FLOOR_S:g} S inside "
-                f"|SM latitude| >= "
-                f"{float(file.attrs['remix_grid_equatorward_sm_latitude_deg']):.6g} degrees",
+                "Global sheet-conductance floors: "
+                f"Pedersen {PEDERSEN_CONDUCTANCE_FLOOR_S:g} S, "
+                f"Hall {HALL_CONDUCTANCE_FLOOR_S:g} S",
                 flush=True,
             )
             print("REMIX FAC source convention: upward positive", flush=True)
@@ -952,13 +934,14 @@ def project_inputs(
                     "fac_to_radial_current": "jr = FAC_upward * abs(source unit_br)",
                     "least_squares_weighting": "surface_area",
                     "conductance_floor": {
-                        "model": str(file.attrs["remix_conductance_floor_model"]),
-                        "pedersen_S": float(file.attrs["remix_pedersen_floor_S"]),
-                        "hall_S": float(file.attrs["remix_hall_floor_S"]),
-                        "grid_equatorward_sm_latitude_deg": float(
-                            file.attrs["remix_grid_equatorward_sm_latitude_deg"]
-                        ),
+                        "model": str(file.attrs["conductance_floor_model"]),
+                        "pedersen_S": float(file.attrs["pedersen_conductance_floor_S"]),
+                        "hall_S": float(file.attrs["hall_conductance_floor_S"]),
+                        "domain": "global",
                     },
+                    "remix_fac_equatorward_sm_latitude_deg": float(
+                        file.attrs["remix_grid_equatorward_sm_latitude_deg"]
+                    ),
                     "projection_regularization": {
                         "Br_lambda": br_lambda,
                         "conductance_lambda": conductance_lambda,

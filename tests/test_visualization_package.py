@@ -37,6 +37,7 @@ def test_input_projection_comparison_recipe_is_importable():
     diagnostics = importlib.import_module("pynamit.visualization.input_projection_comparison")
 
     assert callable(diagnostics.plot_input_projection_comparison)
+    assert callable(diagnostics.write_input_projection_diagnostics)
 
 
 def test_projected_input_inspector_is_visualization_api():
@@ -45,6 +46,21 @@ def test_projected_input_inspector_is_visualization_api():
     input_projection = importlib.import_module("pynamit.visualization.input_projection")
 
     assert visualization.evaluate_projected_input is input_projection.evaluate_projected_input
+
+
+def test_projection_diagnostics_are_visualization_api():
+    """Projection-comparison entry points are exported lazily."""
+    visualization = importlib.import_module("pynamit.visualization")
+    diagnostics = importlib.import_module("pynamit.visualization.input_projection_comparison")
+
+    assert (
+        visualization.plot_input_projection_comparison
+        is diagnostics.plot_input_projection_comparison
+    )
+    assert (
+        visualization.write_input_projection_diagnostics
+        is diagnostics.write_input_projection_diagnostics
+    )
 
 
 def test_saved_run_view_is_visualization_api():

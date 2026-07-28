@@ -4,24 +4,23 @@ _LAZY_EXPORTS = {
     "PynamEye": ("pynamit.visualization.pynameye", "PynamEye"),
     "PynamitFigureSpec": ("pynamit.visualization.figure_specs", "PynamitFigureSpec"),
     "PynamitPanelApp": ("pynamit.visualization.panel_app", "PynamitPanelApp"),
-    "SavedCoefficientFieldView": (
-        "pynamit.visualization.run_fields",
-        "SavedCoefficientFieldView",
-    ),
+    "SavedCoefficientFieldView": ("pynamit.visualization.run_fields", "SavedCoefficientFieldView"),
     "SavedRunView": ("pynamit.visualization.saved_run", "SavedRunView"),
-    "build_pynamit_panel_app": (
-        "pynamit.visualization.panel_app",
-        "build_pynamit_panel_app",
-    ),
+    "build_pynamit_panel_app": ("pynamit.visualization.panel_app", "build_pynamit_panel_app"),
     "evaluate_projected_input": (
         "pynamit.visualization.input_projection",
         "evaluate_projected_input",
     ),
-    "render_pynamit_figure": (
-        "pynamit.visualization.figure_builder",
-        "render_pynamit_figure",
+    "plot_input_projection_comparison": (
+        "pynamit.visualization.input_projection_comparison",
+        "plot_input_projection_comparison",
     ),
+    "render_pynamit_figure": ("pynamit.visualization.figure_builder", "render_pynamit_figure"),
     "save_pynamit_movie": ("pynamit.visualization.figure_builder", "save_pynamit_movie"),
+    "write_input_projection_diagnostics": (
+        "pynamit.visualization.input_projection_comparison",
+        "write_input_projection_diagnostics",
+    ),
 }
 
 
