@@ -16,6 +16,7 @@ from pynamit.simulation.electrodynamics.ionospheric_closure import (
     resistance_from_log_conductance_coordinates,
     resistance_tensor_on_grid,
     resistance_to_conductance,
+    resistance_to_log_conductance_coordinates,
     solve_Q_eff_coefficients,
     wind_motional_E_tensor,
 )
@@ -50,6 +51,57 @@ def test_log_conductance_coordinates_preserve_positive_tensor_and_reciprocal_pai
     np.testing.assert_allclose(log_ratio, np.log(hall / pedersen))
 
 
+def test_resistance_maps_directly_to_the_same_log_conductance_coordinates():
+    """Match direct resistance and reciprocal conductance routes."""
+    etaP = np.array([0.4, 0.2, 0.01])
+    etaH = np.array([0.3, 0.1, 0.02])
+    pedersen, hall = resistance_to_conductance(etaP, etaH)
+
+    direct = resistance_to_log_conductance_coordinates(etaP, etaH)
+    via_conductance = conductance_to_log_coordinates(pedersen, hall)
+
+    np.testing.assert_allclose(direct[0], via_conductance[0])
+    np.testing.assert_allclose(direct[1], via_conductance[1])
+    reconstructed = resistance_from_log_conductance_coordinates(*direct)
+    np.testing.assert_allclose(reconstructed[0], etaP)
+    np.testing.assert_allclose(reconstructed[1], etaH)
+
+
+def test_log_coordinate_maps_remain_finite_across_extreme_ratios():
+    """Log differences avoid overflow in component ratios."""
+    etaP = np.array([1e-300, 1e300])
+    etaH = np.array([1e300, 1e-300])
+
+    log_magnitude, log_ratio = resistance_to_log_conductance_coordinates(etaP, etaH)
+
+    assert np.all(np.isfinite(log_magnitude))
+    assert np.all(np.isfinite(log_ratio))
+    reconstructed = resistance_from_log_conductance_coordinates(log_magnitude, log_ratio)
+    np.testing.assert_allclose(reconstructed[0], etaP, rtol=1e-13)
+    np.testing.assert_allclose(reconstructed[1], etaH, rtol=1e-13)
+
+    log_magnitude, log_ratio = conductance_to_log_coordinates(etaP, etaH)
+    assert np.all(np.isfinite(log_magnitude))
+    assert np.all(np.isfinite(log_ratio))
+    reconstructed = conductance_from_log_coordinates(log_magnitude, log_ratio)
+    np.testing.assert_allclose(reconstructed[0], etaP, rtol=1e-13)
+    np.testing.assert_allclose(reconstructed[1], etaH, rtol=1e-13)
+
+
+@pytest.mark.parametrize(
+    ("eta_p", "eta_h", "message"),
+    [
+        ([0.0, 1.0], [1.0, 1.0], "Pedersen"),
+        ([1.0, 1.0], [0.0, 1.0], "Hall"),
+        ([1.0, np.nan], [1.0, 1.0], "Pedersen"),
+    ],
+)
+def test_log_conductance_coordinates_require_positive_resistance(eta_p, eta_h, message):
+    """Resistance log coordinates require positive finite components."""
+    with pytest.raises(ValueError, match=message):
+        resistance_to_log_conductance_coordinates(eta_p, eta_h)
+
+
 def test_log_conductance_reference_only_shifts_magnitude():
     """A unit-reference change adds a magnitude-coordinate shift."""
     pedersen = np.array([1.0, 2.0])
@@ -78,6 +130,8 @@ def test_log_conductance_coordinates_require_a_physical_reference(reference):
         conductance_from_log_coordinates(0.0, 0.0, reference_conductance=reference)
     with pytest.raises(ValueError, match="reference_conductance"):
         resistance_from_log_conductance_coordinates(0.0, 0.0, reference_conductance=reference)
+    with pytest.raises(ValueError, match="reference_conductance"):
+        resistance_to_log_conductance_coordinates(1.0, 1.0, reference_conductance=reference)
 
 
 @pytest.mark.parametrize(

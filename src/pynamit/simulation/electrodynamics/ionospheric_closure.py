@@ -62,7 +62,27 @@ def conductance_to_log_coordinates(
         raise ValueError("Hall conductance must be finite and strictly positive.")
 
     magnitude = np.hypot(sigmaP, sigmaH)
-    return np.log(magnitude / reference_conductance), np.log(sigmaH / sigmaP)
+    return (np.log(magnitude) - np.log(reference_conductance), np.log(sigmaH) - np.log(sigmaP))
+
+
+def resistance_to_log_conductance_coordinates(
+    etaP, etaH, *, reference_conductance=CONDUCTANCE_REFERENCE_S
+):
+    """Map positive resistance directly to log-conductance coordinates.
+
+    Pedersen/Hall conductance and resistance have reciprocal magnitudes
+    and the same Hall/Pedersen ratio. This direct mapping avoids
+    constructing the intermediate conductance components.
+    """
+    etaP, etaH = np.broadcast_arrays(np.asarray(etaP, dtype=float), np.asarray(etaH, dtype=float))
+    reference_conductance = _validate_reference_conductance(reference_conductance)
+    if np.any(~np.isfinite(etaP)) or np.any(etaP <= 0.0):
+        raise ValueError("Pedersen resistance must be finite and strictly positive.")
+    if np.any(~np.isfinite(etaH)) or np.any(etaH <= 0.0):
+        raise ValueError("Hall resistance must be finite and strictly positive.")
+
+    magnitude = np.hypot(etaP, etaH)
+    return (-np.log(magnitude) - np.log(reference_conductance), np.log(etaH) - np.log(etaP))
 
 
 def conductance_from_log_coordinates(
@@ -335,6 +355,7 @@ __all__ = [
     "joule_heating_from_current",
     "pedersen_geometry_tensor",
     "resistance_from_log_conductance_coordinates",
+    "resistance_to_log_conductance_coordinates",
     "resistance_to_conductance",
     "resistance_tensor_on_grid",
     "solve_Q_eff_coefficients",

@@ -5,7 +5,10 @@ import numpy as np
 from pynamit.fields import FieldCoefficients
 from pynamit.math.constants import RE
 from pynamit.simulation.api import Simulation
-from pynamit.simulation.electrodynamics.ionospheric_closure import conductance_to_log_coordinates
+from pynamit.simulation.electrodynamics.ionospheric_closure import (
+    conductance_to_log_coordinates,
+    resistance_to_log_conductance_coordinates,
+)
 
 
 def _small_simulation(tmp_path, **kwargs):
@@ -411,6 +414,44 @@ def test_set_conductance_projects_dimensionless_log_coordinates(tmp_path, monkey
     np.testing.assert_allclose(
         recorded["kwargs"]["samples"]["log_hall_to_pedersen_ratio"], expected_ratio
     )
+    assert recorded["kwargs"]["time"] == 7.0
+    assert recorded["kwargs"]["reg_lambda"] == 1e-3
+    assert recorded["kwargs"]["pinv_rtol"] == 1e-10
+
+
+def test_set_resistance_projects_direct_log_conductance_coordinates(tmp_path, monkeypatch):
+    """Map resistance samples directly onto canonical coordinates."""
+    simulation = _small_simulation(tmp_path)
+    eta_p = np.array([[0.4, 0.2]])
+    eta_h = np.array([[0.3, 0.1]])
+    recorded = {}
+
+    def record_set_scalar_input(key, **kwargs):
+        recorded["key"] = key
+        recorded["kwargs"] = kwargs
+
+    monkeypatch.setattr(simulation._input_pipeline, "set_scalar_input", record_set_scalar_input)
+
+    simulation.set_resistance(
+        eta_p,
+        eta_h,
+        lat=np.array([60.0, 61.0]),
+        lon=np.array([10.0, 11.0]),
+        time=7.0,
+        sqrt_weights=np.ones(2),
+        reg_lambda=1e-3,
+        pinv_rtol=1e-10,
+    )
+
+    expected_magnitude, expected_ratio = resistance_to_log_conductance_coordinates(eta_p, eta_h)
+    assert recorded["key"] == "conductance"
+    np.testing.assert_allclose(
+        recorded["kwargs"]["samples"]["log_conductance_magnitude"], expected_magnitude
+    )
+    np.testing.assert_allclose(
+        recorded["kwargs"]["samples"]["log_hall_to_pedersen_ratio"], expected_ratio
+    )
+    assert recorded["kwargs"]["sample_label"] == "resistance samples"
     assert recorded["kwargs"]["time"] == 7.0
     assert recorded["kwargs"]["reg_lambda"] == 1e-3
     assert recorded["kwargs"]["pinv_rtol"] == 1e-10

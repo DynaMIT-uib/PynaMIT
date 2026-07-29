@@ -520,16 +520,14 @@ class Simulation:
         reg_lambda=None,
         pinv_rtol=1e-15,
     ):
-        """Set resistance samples through canonical conductance.
+        """Set positive resistance through canonical coordinates.
 
         Parameters
         ----------
         etaP : array-like
-            Pedersen resistance values, inverse-conductance tensor
-            component.
+            Strictly positive Pedersen resistance values.
         etaH : array-like
-            Hall resistance values, inverse-conductance tensor
-            component.
+            Strictly positive Hall resistance values.
         lat, lon : array-like, optional
             Latitude/longitude coordinates in degrees.
         theta, phi : array-like, optional
@@ -544,10 +542,13 @@ class Simulation:
             Relative tolerance for the pseudo-inverse.
         """
         self._input_pipeline.require_complete_values("resistance samples", etaP=etaP, etaH=etaH)
-        pedersen, hall = ionospheric_closure.resistance_to_conductance(etaP, etaH)
-        self.set_conductance(
-            hall,
-            pedersen,
+        log_magnitude, log_ratio = ionospheric_closure.resistance_to_log_conductance_coordinates(
+            etaP, etaH
+        )
+        self._store_conductance_coordinates(
+            log_magnitude,
+            log_ratio,
+            sample_label="resistance samples",
             lat=lat,
             lon=lon,
             theta=theta,
@@ -619,6 +620,40 @@ class Simulation:
                 pedersen, hall
             )
 
+        self._store_conductance_coordinates(
+            log_magnitude,
+            log_ratio,
+            log_magnitude_coefficients=log_magnitude_coefficients,
+            log_ratio_coefficients=log_ratio_coefficients,
+            sample_label="conductance samples",
+            lat=lat,
+            lon=lon,
+            theta=theta,
+            phi=phi,
+            time=time,
+            sqrt_weights=sqrt_weights,
+            reg_lambda=reg_lambda,
+            pinv_rtol=pinv_rtol,
+        )
+
+    def _store_conductance_coordinates(
+        self,
+        log_magnitude,
+        log_ratio,
+        *,
+        log_magnitude_coefficients=None,
+        log_ratio_coefficients=None,
+        sample_label,
+        lat=None,
+        lon=None,
+        theta=None,
+        phi=None,
+        time=None,
+        sqrt_weights=None,
+        reg_lambda=None,
+        pinv_rtol=1e-15,
+    ):
+        """Store canonical conductance samples or coefficients."""
         self._input_pipeline.set_scalar_input(
             "conductance",
             samples={
@@ -629,7 +664,7 @@ class Simulation:
                 "log_conductance_magnitude": log_magnitude_coefficients,
                 "log_hall_to_pedersen_ratio": log_ratio_coefficients,
             },
-            sample_label="conductance samples",
+            sample_label=sample_label,
             coefficient_label="log-conductance coefficients",
             lat=lat,
             lon=lon,

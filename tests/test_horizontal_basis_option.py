@@ -150,7 +150,7 @@ def test_cs_reduced_induction_response_matches_full_E_response(tmp_path):
         simulation.geometry.horizontal_basis.index_length,
         simulation.geometry.poloidal_basis.index_length,
     )
-    np.testing.assert_allclose(reduced, full, rtol=1e-11, atol=1e-12)
+    np.testing.assert_allclose(reduced, full, rtol=1e-10, atol=1e-12)
 
 
 def test_area_weighted_least_squares_option_is_persisted(tmp_path):

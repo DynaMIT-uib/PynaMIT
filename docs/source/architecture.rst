@@ -526,8 +526,10 @@ log magnitudes and the same Hall/Pedersen ratio.
 
 ``set_conductance`` is the canonical physical input API and can also accept
 already projected log-coordinate coefficients. ``set_resistance`` remains a
-sample-level convenience for physical resistance values; it converts them to
-conductance before crossing the same storage boundary. The response
+sample-level convenience for physical resistance values. It maps the
+reciprocal resistance magnitude and unchanged Hall/Pedersen ratio directly
+onto the same canonical log coordinates, without constructing intermediate
+conductance components. The response
 synthesizes the two log fields once per active input, reconstructs the
 resistance tensor on the model grid, and caches every closure-dependent
 operator under an exact fingerprint of the canonical coefficients.
