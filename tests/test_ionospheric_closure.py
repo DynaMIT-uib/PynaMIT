@@ -178,6 +178,19 @@ def test_geometry_tensors_encode_horizontal_ohms_law():
     )
 
 
+def test_resistance_tensor_combines_pedersen_and_hall_parts():
+    """The sheet resistance is etaP P plus etaH H pointwise."""
+    etaP = np.array([2.0, 3.0])
+    etaH = np.array([5.0, -7.0])
+    pedersen = np.array([[[2.0, 4.0], [1.0, 0.0]], [[1.0, 0.0], [3.0, 5.0]]])
+    hall = np.array([[[0.0, 0.0], [1.0, 2.0]], [[-1.0, -2.0], [0.0, 0.0]]])
+
+    resistance = resistance_tensor_on_grid(etaP, etaH, pedersen, hall)
+
+    expected = etaP * pedersen + etaH * hall
+    np.testing.assert_allclose(resistance, expected)
+
+
 def test_grid_electric_field_combines_resistive_and_wind_terms():
     """Direct closure evaluation follows E = R J - u cross B."""
     current = np.array([[1.0, 2.0], [3.0, 4.0]])

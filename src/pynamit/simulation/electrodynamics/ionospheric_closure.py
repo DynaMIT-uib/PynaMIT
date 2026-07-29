@@ -156,9 +156,11 @@ def wind_motional_E_tensor(Br):
 def resistance_tensor_on_grid(etaP, etaH, pedersen_geometry, hall_geometry):
     """Return the horizontal resistance tensor on the model grid."""
     xp = get_array_module(etaP, etaH, pedersen_geometry, hall_geometry)
-    resistance = xp.stack([xp.asarray(etaP), xp.asarray(etaH)], axis=0)
-    geometry = xp.stack([xp.asarray(pedersen_geometry), xp.asarray(hall_geometry)], axis=0)
-    return xp.einsum("sijk,sk->ijk", geometry, resistance, optimize=True)
+    etaP = xp.asarray(etaP)
+    etaH = xp.asarray(etaH)
+    pedersen_geometry = xp.asarray(pedersen_geometry)
+    hall_geometry = xp.asarray(hall_geometry)
+    return etaP * pedersen_geometry + etaH * hall_geometry
 
 
 def electric_field_on_grid(sheet_current, resistance_tensor, *, wind=None, wind_to_E=None):
