@@ -24,7 +24,7 @@ def _load_period_dataset(period, name):
     return dataset
 
 
-state_data_list = [_load_period_dataset(p, "state") for p in periods]
+dynamic_data_list = [_load_period_dataset(p, "dynamic") for p in periods]
 settings_list = [_load_period_dataset(p, "settings") for p in periods]
 
 RI = settings_list[0].RI
@@ -47,32 +47,35 @@ glat, glon = glat.flatten(), glon.flatten()
 ground_grid = pynamit.Grid(lat=glat, lon=glon)
 ground_evaluator = pynamit.SphericalTransform(sh_basis, ground_grid)
 
-m_ind_to_Bh_ground = -(sh_basis.n + 1) * (RE / RI) ** sh_basis.n
-m_ind_to_Br_ground = sh_basis.n * (sh_basis.n + 1) * (RE / RI) ** (sh_basis.n - 1)
+induced_Br_to_Bh_ground = -((RE / RI) ** sh_basis.n) / sh_basis.n
+induced_Br_to_Br_ground = (RE / RI) ** (sh_basis.n - 1)
 
 
 fig, axes = plt.subplots(ncols=Ncols, nrows=Nrows, sharex=True)
 
-for state_data in state_data_list:
+for dynamic_data in dynamic_data_list:
     # Calculate the time series.
-    m_ind = state_data.SH_m_ind.values.T
+    induced_Br = dynamic_data.SH_induced_Br.values.T
 
-    Br = (ground_evaluator.scalar_coeffs_to_grid * m_ind_to_Br_ground.reshape((1, -1))).dot(m_ind)
+    Br = (ground_evaluator.scalar_coeffs_to_grid * induced_Br_to_Br_ground.reshape((1, -1))).dot(
+        induced_Br
+    )
     Bh = (
-        -ground_evaluator.scalar_coeffs_to_gridded_gradient * m_ind_to_Bh_ground.reshape((1, -1))
-    ).dot(m_ind)
+        -ground_evaluator.scalar_coeffs_to_gridded_gradient
+        * induced_Br_to_Bh_ground.reshape((1, -1))
+    ).dot(induced_Br)
     Btheta, Bphi = np.split(Bh, 2, axis=0)
 
     ii, jj = np.unravel_index(np.arange(len(glat)), mlt.shape)
     for i in range(len(glat)):
-        axes[jj[i], ii[i]].plot(state_data.time.values, Br[i] * 1e9, label="$B_r$")
+        axes[jj[i], ii[i]].plot(dynamic_data.time.values, Br[i] * 1e9, label="$B_r$")
         # ax.plot(
-        #    state_data.time.values,
+        #    dynamic_data.time.values,
         #    Btheta[i] * 1e9,
         #    label="$B_\\theta$"
         # )
         # ax.plot(
-        #    state_data.time.values,
+        #    dynamic_data.time.values,
         #    Bphi[i] * 1e9,
         #    label="$B_\phi$"
         # )
@@ -92,13 +95,10 @@ for state_data in state_data_list:
 
 fig, axes = plt.subplots(ncols=5, nrows=5, sharex=True)
 
-for state_data in state_data_list:
-    # calculate the time series:
-    m_ind = state_data.SH_m_ind.values.T
-
+for dynamic_data in dynamic_data_list:
     for i in range(25):
         axes.flatten()[i].plot(
-            state_data.time.values, state_data["SH_m_imp"].values[:, i], label="$B_r$"
+            dynamic_data.time.values, dynamic_data["SH_boundary_jr"].values[:, i], label="$j_r$"
         )
 
 
@@ -110,16 +110,18 @@ fig, axesA = plt.subplots(ncols=Ncols, nrows=Nrows, sharex=True)
 fig, axesphi = plt.subplots(ncols=Ncols, nrows=Nrows, sharex=True)
 
 
-for p, state_data in zip(periods, state_data_list, strict=True):
-    sd = state_data.sel(time=slice(200, None))
+for p, dynamic_data in zip(periods, dynamic_data_list, strict=True):
+    sd = dynamic_data.sel(time=slice(200, None))
     t = sd.time.values
 
     G_fourier = np.vstack(
         (np.ones_like(t), np.cos(t / p * 2 * np.pi), np.sin(t / p * 2 * np.pi))
     ).T
 
-    m_ind = sd.SH_m_ind.values.T
-    Br = (ground_evaluator.scalar_coeffs_to_grid * m_ind_to_Br_ground.reshape((1, -1))).dot(m_ind)
+    induced_Br = sd.SH_induced_Br.values.T
+    Br = (ground_evaluator.scalar_coeffs_to_grid * induced_Br_to_Br_ground.reshape((1, -1))).dot(
+        induced_Br
+    )
 
     # Fit the wave parameters.
     m = np.linalg.lstsq(G_fourier, Br.T)[0]
@@ -134,12 +136,12 @@ for p, state_data in zip(periods, state_data_list, strict=True):
         axesphi[jj[i], ii[i]].scatter(p, phi[i], color="black")
 
         # ax.plot(
-        #    state_data.time.values,
+        #    dynamic_data.time.values,
         #    Btheta[i] * 1e9,
         #    label="$B_\\theta$"
         # )
         # ax.plot(
-        #    state_data.time.values,
+        #    dynamic_data.time.values,
         #    Bphi[i] * 1e9,
         #    label="$B_\phi$"
         # )

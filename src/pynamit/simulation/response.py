@@ -24,8 +24,8 @@ _ACTIVE_INPUT_NAMES = frozenset(
         "u",
         "Q_eff",
         "E_neutral_wind",
-        "Br",
-        "jr",
+        "boundary_Br",
+        "boundary_jr",
         "log_conductance_magnitude",
         "log_hall_to_pedersen_ratio",
     }
@@ -37,8 +37,9 @@ class ElectrodynamicResponse:
 
     The model stores inputs active at one simulation time and assembles
     their resistance-dependent response operators. The runner holds
-    the evolving ``m_ind`` trajectory and passes it into response
-    calculations.
+    the evolving ``induced_Br`` trajectory and passes it into response
+    calculations. Poloidal and toroidal magnetic potentials remain
+    private numerical coordinates.
     Time integration belongs to
     ``electrodynamics.induction``; run scheduling belongs to
     ``SimulationRunner``.
@@ -52,7 +53,7 @@ class ElectrodynamicResponse:
             raise TypeError("ElectrodynamicResponse requires a validated SimulationConfig.")
         self.config = config
         self.geometry = geometry
-        self._m_imp_solver = LeastSquaresSolver(
+        self._toroidal_potential_solver = LeastSquaresSolver(
             solver=config.least_squares_solver, preconditioner=config.least_squares_preconditioner
         )
 
@@ -66,8 +67,8 @@ class ElectrodynamicResponse:
         self.u: FieldCoefficients | None = None
         self.Q_eff: FieldCoefficients | None = None
         self.E_neutral_wind: FieldCoefficients | None = None
-        self.Br: FieldCoefficients | None = None
-        self.jr: FieldCoefficients | None = None
+        self.boundary_Br: FieldCoefficients | None = None
+        self.boundary_jr: FieldCoefficients | None = None
         self.log_conductance_magnitude: FieldCoefficients | None = None
         self.log_hall_to_pedersen_ratio: FieldCoefficients | None = None
 
@@ -110,8 +111,7 @@ class ElectrodynamicResponse:
             get_operator = getattr(representation, "get_helmholtz_synthesis_operator", None)
             if not callable(get_operator):
                 raise ValueError(
-                    "Q_eff storage basis cannot evaluate tangential fields on "
-                    "the state/model grid."
+                    "Q_eff storage basis cannot evaluate tangential fields on the model grid."
                 )
             self._Q_eff_synthesis_operator_cache = get_operator(self.geometry.model_grid)
         return self._Q_eff_synthesis_operator_cache
@@ -145,8 +145,7 @@ class ElectrodynamicResponse:
         get_operator = getattr(representation, "get_helmholtz_synthesis_operator", None)
         if not callable(get_operator):
             raise ValueError(
-                "E_neutral_wind storage basis cannot evaluate tangential "
-                "fields on the state/model grid."
+                "E_neutral_wind storage basis cannot evaluate tangential fields on the model grid."
             )
         source_synthesis = get_operator(self.geometry.model_grid)
         grid_to_coeffs = self.geometry.helmholtz_analysis_operator
@@ -169,30 +168,38 @@ class ElectrodynamicResponse:
         """Invalidate resistance-dependent cached properties."""
         self._conductance_fingerprint_cache: str | None = None
         self._resistance_tensor_on_grid: np.ndarray | None = None
-        self._m_ind_to_E_coeffs_cache: LinearMap | None = None
-        self._m_imp_to_E_coeffs_cache: LinearMap | None = None
-        self._Br_to_E_coeffs_cache: LinearMap | None = None
+        self._induced_poloidal_potential_to_E_coeffs_cache: LinearMap | None = None
+        self._induced_Br_to_E_coeffs_cache: LinearMap | None = None
+        self._toroidal_potential_to_E_coeffs_cache: LinearMap | None = None
+        self._boundary_Br_to_E_coeffs_cache: LinearMap | None = None
         self._Q_eff_to_E_coeffs_cache: LinearMap | None = None
-        self._runtime_m_ind_to_E_coeffs_cache: LinearMap | None = None
-        self._runtime_m_imp_to_E_coeffs_cache: LinearMap | None = None
-        self._runtime_Br_to_E_coeffs_cache: LinearMap | None = None
+        self._runtime_induced_poloidal_potential_to_E_coeffs_cache: LinearMap | None = None
+        self._runtime_induced_Br_to_E_coeffs_cache: LinearMap | None = None
+        self._runtime_toroidal_potential_to_E_coeffs_cache: LinearMap | None = None
+        self._runtime_boundary_Br_to_E_coeffs_cache: LinearMap | None = None
         self._runtime_Q_eff_to_E_coeffs_cache: LinearMap | None = None
         self._interhemispheric_electric_field_constraint_cache: LinearMap | None = None
-        self._m_ind_feedback_matrix: np.ndarray | None = None
-        self._m_ind_feedback_operator: LinearMap | None = None
-        self._m_ind_to_E_df_operator_cache: LinearMap | None = None
-        self._noninductive_E_df_to_steady_m_ind_matrix: np.ndarray | None = None
-        self._noninductive_E_df_to_steady_m_ind_operator: LinearMap | None = None
-        self._jr_to_m_imp_matrix: np.ndarray | None = None
-        self._driving_E_to_m_imp_matrix: np.ndarray | None = None
-        self._jr_to_m_imp_operator: LinearMap | None = None
-        self._driving_E_to_m_imp_operator: LinearMap | None = None
+        self._induced_poloidal_potential_feedback_matrix: np.ndarray | None = None
+        self._induced_poloidal_potential_feedback_operator: LinearMap | None = None
+        self._induced_poloidal_potential_to_E_df_operator_cache: LinearMap | None = None
+        self._induced_Br_to_E_df_operator_cache: LinearMap | None = None
+        self._noninductive_E_df_to_equilibrium_induced_poloidal_potential_matrix: (
+            np.ndarray | None
+        ) = None
+        self._noninductive_E_df_to_equilibrium_induced_poloidal_potential_operator: (
+            LinearMap | None
+        ) = None
+        self._noninductive_E_df_to_equilibrium_induced_Br_operator: LinearMap | None = None
+        self._boundary_jr_to_toroidal_potential_matrix: np.ndarray | None = None
+        self._driving_E_to_toroidal_potential_matrix: np.ndarray | None = None
+        self._boundary_jr_to_toroidal_potential_operator: LinearMap | None = None
+        self._driving_E_to_toroidal_potential_operator: LinearMap | None = None
         self._driving_E_to_total_E_operator: LinearMap | None = None
         self._driving_E_to_E_df_operator: LinearMap | None = None
-        self._m_imp_problem_cache: LeastSquaresProblem | None = None
-        self._m_imp_response_solver_cache = None
-        self._m_imp_preconditioner_cache: LinearMap | None = None
-        self._m_imp_preconditioner_ready = False
+        self._toroidal_potential_problem_cache: LeastSquaresProblem | None = None
+        self._toroidal_potential_response_solver_cache = None
+        self._toroidal_potential_preconditioner_cache: LinearMap | None = None
+        self._toroidal_potential_preconditioner_ready = False
 
     # ----- Cached Physical Properties (dependent on resistance) -----
 
@@ -224,20 +231,19 @@ class ElectrodynamicResponse:
                     "Resistance or conductance must be set before accessing "
                     "closure-dependent properties."
                 )
-            log_coordinates = xp.stack(
+            log_coordinate_coefficients = xp.stack(
                 [
                     xp.asarray(self.log_conductance_magnitude.array),
                     xp.asarray(self.log_hall_to_pedersen_ratio.array),
                 ],
-                axis=0,
+                axis=1,
             )
             conductance_synthesis = self._conductance_synthesis_operator()
             log_coordinates_on_grid = xp.asarray(
-                conductance_synthesis.matmat(xp.swapaxes(log_coordinates, 0, 1))
+                conductance_synthesis.matmat(log_coordinate_coefficients)
             )
-            log_coordinates_on_grid = xp.swapaxes(log_coordinates_on_grid, 0, 1)
             etaP, etaH = ionospheric_closure.resistance_from_log_conductance_coordinates(
-                log_coordinates_on_grid[0], log_coordinates_on_grid[1]
+                log_coordinates_on_grid[:, 0], log_coordinates_on_grid[:, 1]
             )
             self._resistance_tensor_on_grid = ionospheric_closure.resistance_tensor_on_grid(
                 etaP,
@@ -271,7 +277,7 @@ class ElectrodynamicResponse:
         if callable(get_matrix):
             return as_linear_map(get_matrix(self.geometry.model_grid))
 
-        raise ValueError("Conductance storage basis cannot be evaluated on the state/model grid.")
+        raise ValueError("Conductance storage basis cannot be evaluated on the model grid.")
 
     def _sheet_current_source_to_E_coeffs_operator(self, source_to_JS: LinearMap) -> LinearMap:
         """Map a magnetic source through derived sheet current to E."""
@@ -280,32 +286,50 @@ class ElectrodynamicResponse:
         )
 
     @property
-    def m_ind_to_E_coeffs(self) -> LinearMap:
-        """Linear map from m_ind coefficients to E coefficients."""
-        if self._m_ind_to_E_coeffs_cache is None:
-            self._m_ind_to_E_coeffs_cache = self._sheet_current_source_to_E_coeffs_operator(
-                self.geometry.m_ind_to_gridded_JS_operator()
+    def induced_poloidal_potential_to_E_coeffs(self) -> LinearMap:
+        """Map private induced-potential coordinates to E."""
+        if self._induced_poloidal_potential_to_E_coeffs_cache is None:
+            potential_to_sheet_current = (
+                self.geometry.induced_Br_to_gridded_JS_operator()
+                @ self.geometry.induced_poloidal_potential_to_Br_operator
             )
-        return self._m_ind_to_E_coeffs_cache
+            self._induced_poloidal_potential_to_E_coeffs_cache = (
+                self._sheet_current_source_to_E_coeffs_operator(potential_to_sheet_current)
+            )
+        return self._induced_poloidal_potential_to_E_coeffs_cache
 
     @property
-    def m_imp_to_E_coeffs(self) -> LinearMap:
-        """Linear map from m_imp coefficients to E coefficients."""
-        if self._m_imp_to_E_coeffs_cache is None:
-            self._m_imp_to_E_coeffs_cache = self._sheet_current_source_to_E_coeffs_operator(
-                self.geometry.m_imp_to_gridded_JS_operator()
+    def induced_Br_to_E_coeffs(self) -> LinearMap:
+        """Map physical induced ``Br(RI)`` coefficients to E."""
+        if self._induced_Br_to_E_coeffs_cache is None:
+            self._induced_Br_to_E_coeffs_cache = (
+                self.induced_poloidal_potential_to_E_coeffs
+                @ self.geometry.induced_Br_to_poloidal_potential_operator
             )
-        return self._m_imp_to_E_coeffs_cache
+        return self._induced_Br_to_E_coeffs_cache
 
     @property
-    def Br_to_E_coeffs(self) -> LinearMap | None:
-        """Linear map from Br coefficients to E coefficients."""
-        if self._Br_to_E_coeffs_cache is None:
-            Br_to_JS = self.geometry.Br_to_gridded_JS_operator()
-            if Br_to_JS is None:
+    def toroidal_potential_to_E_coeffs(self) -> LinearMap:
+        """Map private toroidal-potential coefficients to E."""
+        if self._toroidal_potential_to_E_coeffs_cache is None:
+            self._toroidal_potential_to_E_coeffs_cache = (
+                self._sheet_current_source_to_E_coeffs_operator(
+                    self.geometry.toroidal_potential_to_gridded_JS_operator()
+                )
+            )
+        return self._toroidal_potential_to_E_coeffs_cache
+
+    @property
+    def boundary_Br_to_E_coeffs(self) -> LinearMap | None:
+        """Map prescribed outer-boundary Br to E coefficients."""
+        if self._boundary_Br_to_E_coeffs_cache is None:
+            boundary_Br_to_JS = self.geometry.boundary_Br_to_gridded_JS_operator()
+            if boundary_Br_to_JS is None:
                 return None
-            self._Br_to_E_coeffs_cache = self._sheet_current_source_to_E_coeffs_operator(Br_to_JS)
-        return self._Br_to_E_coeffs_cache
+            self._boundary_Br_to_E_coeffs_cache = self._sheet_current_source_to_E_coeffs_operator(
+                boundary_Br_to_JS
+            )
+        return self._boundary_Br_to_E_coeffs_cache
 
     def _optimize_repeated_E_operator(
         self, op: LinearMap | None, *, compact_input: bool
@@ -319,31 +343,44 @@ class ElectrodynamicResponse:
         return op
 
     @property
-    def _runtime_m_ind_to_E_coeffs(self) -> LinearMap:
-        """Runtime map from m_ind to E coefficients."""
-        if self._runtime_m_ind_to_E_coeffs_cache is None:
-            self._runtime_m_ind_to_E_coeffs_cache = self._optimize_repeated_E_operator(
-                self.m_ind_to_E_coeffs, compact_input=True
+    def _runtime_induced_poloidal_potential_to_E_coeffs(self) -> LinearMap:
+        """Private runtime map from induced poloidal potential to E."""
+        if self._runtime_induced_poloidal_potential_to_E_coeffs_cache is None:
+            self._runtime_induced_poloidal_potential_to_E_coeffs_cache = (
+                self._optimize_repeated_E_operator(
+                    self.induced_poloidal_potential_to_E_coeffs, compact_input=True
+                )
             )
-        return self._runtime_m_ind_to_E_coeffs_cache
+        return self._runtime_induced_poloidal_potential_to_E_coeffs_cache
 
     @property
-    def _runtime_m_imp_to_E_coeffs(self) -> LinearMap:
-        """Runtime map from m_imp to E coefficients."""
-        if self._runtime_m_imp_to_E_coeffs_cache is None:
-            self._runtime_m_imp_to_E_coeffs_cache = self._optimize_repeated_E_operator(
-                self.m_imp_to_E_coeffs, compact_input=False
+    def _runtime_induced_Br_to_E_coeffs(self) -> LinearMap:
+        """Runtime map from physical induced Br to E coefficients."""
+        if self._runtime_induced_Br_to_E_coeffs_cache is None:
+            self._runtime_induced_Br_to_E_coeffs_cache = self._optimize_repeated_E_operator(
+                self.induced_Br_to_E_coeffs, compact_input=True
             )
-        return self._runtime_m_imp_to_E_coeffs_cache
+        return self._runtime_induced_Br_to_E_coeffs_cache
 
     @property
-    def _runtime_Br_to_E_coeffs(self) -> LinearMap | None:
+    def _runtime_toroidal_potential_to_E_coeffs(self) -> LinearMap:
+        """Runtime map from toroidal potential to E coefficients."""
+        if self._runtime_toroidal_potential_to_E_coeffs_cache is None:
+            self._runtime_toroidal_potential_to_E_coeffs_cache = (
+                self._optimize_repeated_E_operator(
+                    self.toroidal_potential_to_E_coeffs, compact_input=False
+                )
+            )
+        return self._runtime_toroidal_potential_to_E_coeffs_cache
+
+    @property
+    def _runtime_boundary_Br_to_E_coeffs(self) -> LinearMap | None:
         """Runtime map from Br coefficients to E coefficients."""
-        if self._runtime_Br_to_E_coeffs_cache is None:
-            self._runtime_Br_to_E_coeffs_cache = self._optimize_repeated_E_operator(
-                self.Br_to_E_coeffs, compact_input=True
+        if self._runtime_boundary_Br_to_E_coeffs_cache is None:
+            self._runtime_boundary_Br_to_E_coeffs_cache = self._optimize_repeated_E_operator(
+                self.boundary_Br_to_E_coeffs, compact_input=True
             )
-        return self._runtime_Br_to_E_coeffs_cache
+        return self._runtime_boundary_Br_to_E_coeffs_cache
 
     @property
     def _runtime_Q_eff_to_E_coeffs(self) -> LinearMap | None:
@@ -361,22 +398,22 @@ class ElectrodynamicResponse:
             outer_map = self.geometry.interhemispheric_electric_field_difference_operator
             if outer_map is not None:
                 self._interhemispheric_electric_field_constraint_cache = (
-                    outer_map @ self.m_imp_to_E_coeffs
+                    outer_map @ self.toroidal_potential_to_E_coeffs
                 )
         return self._interhemispheric_electric_field_constraint_cache
 
     # ----- Solver Setup and Execution -----
     @property
-    def _m_imp_problem(self) -> LeastSquaresProblem:
-        """The least-squares problem definition for `m_imp`."""
-        if self._m_imp_problem_cache is None:
-            logger.info("Defining new least-squares problem for m_imp.")
+    def _toroidal_potential_problem(self) -> LeastSquaresProblem:
+        """Return the toroidal-potential least-squares problem."""
+        if self._toroidal_potential_problem_cache is None:
+            logger.info("Defining new toroidal-potential least-squares problem.")
             operators, data_shapes = [], []
 
-            # Radial current (jr) must match imposed field.
+            # Boundary radial current must match the prescribed field.
             radial_current_operator = (
                 self.geometry.radial_current_constraint_operator
-                @ self.geometry.m_imp_to_jr_operator
+                @ self.geometry.toroidal_potential_to_boundary_jr_operator
             )
             operators.append(radial_current_operator)
             data_shapes.append(radial_current_operator.output_shape)
@@ -400,45 +437,50 @@ class ElectrodynamicResponse:
 
             # Add Tikhonov regularization if lambda is set.
             reg_ops, reg_weights = [], []
-            if self.config.m_imp_regularization_lambda > 0:
+            if self.config.toroidal_potential_regularization_lambda > 0:
                 n = self.geometry.horizontal_basis.index_length
                 reg_ops.append(identity_linear_map((n,)))
-                reg_weights.append(self.config.m_imp_regularization_lambda)
+                reg_weights.append(self.config.toroidal_potential_regularization_lambda)
 
-            self._m_imp_problem_cache = LeastSquaresProblem(
+            self._toroidal_potential_problem_cache = LeastSquaresProblem(
                 A=operators,
                 solution_shape=self.geometry.horizontal_basis.index_length,
                 data_shapes=data_shapes,
                 regularization_matrices=reg_ops,
                 regularization_weights=reg_weights,
             )
-        return self._m_imp_problem_cache
+        return self._toroidal_potential_problem_cache
 
     @property
-    def _m_imp_preconditioner(self) -> LinearMap | None:
-        """Preconditioner for the m_imp least-squares problem."""
-        if self._m_imp_solver.solver not in ("lsmr", "cgls"):
+    def _toroidal_potential_preconditioner(self) -> LinearMap | None:
+        """Return the toroidal-potential preconditioner."""
+        if self._toroidal_potential_solver.solver not in ("lsmr", "cgls"):
             return None
-        if not self._m_imp_preconditioner_ready:
-            logger.info("Building new preconditioner for m_imp solver.")
-            self._m_imp_preconditioner_cache = self._m_imp_solver.build_preconditioner(
-                problem=self._m_imp_problem
+        if not self._toroidal_potential_preconditioner_ready:
+            logger.info("Building new toroidal-potential solver preconditioner.")
+            self._toroidal_potential_preconditioner_cache = (
+                self._toroidal_potential_solver.build_preconditioner(
+                    problem=self._toroidal_potential_problem
+                )
             )
-            self._m_imp_preconditioner_ready = True
-        return self._m_imp_preconditioner_cache
+            self._toroidal_potential_preconditioner_ready = True
+        return self._toroidal_potential_preconditioner_cache
 
-    def _solve_m_imp_response(self, rhs_entries):
-        """Solve imposed-potential response right-hand sides."""
-        if self._m_imp_response_solver_cache is None:
-            self._m_imp_response_solver_cache = self._m_imp_solver.build_response_solver(
-                self._m_imp_problem, preconditioner=self._m_imp_preconditioner
+    def _solve_toroidal_potential_response(self, rhs_entries):
+        """Solve toroidal-potential response right-hand sides."""
+        if self._toroidal_potential_response_solver_cache is None:
+            self._toroidal_potential_response_solver_cache = (
+                self._toroidal_potential_solver.build_response_solver(
+                    self._toroidal_potential_problem,
+                    preconditioner=self._toroidal_potential_preconditioner,
+                )
             )
-        return self._m_imp_response_solver_cache(rhs_entries)
+        return self._toroidal_potential_response_solver_cache(rhs_entries)
 
-    def _build_jr_to_m_imp_matrix(self) -> None:
-        """Construct the explicit radial-current response matrix."""
-        logger.info("Building dense jr-to-m_imp response matrix.")
-        problem = self._m_imp_problem
+    def _build_boundary_jr_to_toroidal_potential_matrix(self) -> None:
+        """Construct the current-to-private-potential response."""
+        logger.info("Building dense boundary-jr to toroidal-potential response matrix.")
+        problem = self._toroidal_potential_problem
 
         radial_current_matrix = self.geometry.radial_current_constraint_operator.to_matrix(
             backend="numpy"
@@ -448,21 +490,25 @@ class ElectrodynamicResponse:
         )
         rhs_entries = [None] * problem.num_data_terms
         rhs_entries[0] = radial_current_rhs
-        jr_to_m_imp = self._solve_m_imp_response(rhs_entries)
-        self._jr_to_m_imp_matrix = to_jax(jr_to_m_imp) if use_jax() else jr_to_m_imp
+        boundary_jr_to_toroidal_potential = self._solve_toroidal_potential_response(rhs_entries)
+        self._boundary_jr_to_toroidal_potential_matrix = (
+            to_jax(boundary_jr_to_toroidal_potential)
+            if use_jax()
+            else boundary_jr_to_toroidal_potential
+        )
 
-    def _build_driving_E_to_m_imp_matrix(self) -> None:
+    def _build_driving_E_to_toroidal_potential_matrix(self) -> None:
         """Construct the explicit interhemispheric E-response matrix."""
         if (
             not self.config.enable_interhemispheric_coupling
             or self._interhemispheric_electric_field_constraint is None
         ):
-            self._driving_E_to_m_imp_matrix = None
+            self._driving_E_to_toroidal_potential_matrix = None
             return
 
-        logger.info("Building dense driving-E-to-m_imp response matrix.")
+        logger.info("Building dense driving-E-to-toroidal-potential response matrix.")
         n = self.geometry.horizontal_basis.index_length
-        problem = self._m_imp_problem
+        problem = self._toroidal_potential_problem
         electric_field_rhs = (
             -self.geometry.interhemispheric_electric_field_difference_matrix.reshape(
                 problem.A[1].output_shape + (2 * n,)
@@ -471,21 +517,27 @@ class ElectrodynamicResponse:
         electric_field_rhs *= self.config.interhemispheric_electric_field_weight
         rhs_entries = [None] * problem.num_data_terms
         rhs_entries[1] = electric_field_rhs
-        driving_E_to_m_imp = self._solve_m_imp_response(rhs_entries).reshape((n, 2, n))
-        self._driving_E_to_m_imp_matrix = (
-            to_jax(driving_E_to_m_imp) if use_jax() else driving_E_to_m_imp
+        driving_E_to_toroidal_potential = self._solve_toroidal_potential_response(
+            rhs_entries
+        ).reshape((n, 2, n))
+        self._driving_E_to_toroidal_potential_matrix = (
+            to_jax(driving_E_to_toroidal_potential)
+            if use_jax()
+            else driving_E_to_toroidal_potential
         )
 
-    def _m_imp_rhs_entries(
-        self, jr_coeffs: np.ndarray | None, driving_E: np.ndarray
+    def _toroidal_potential_rhs_entries(
+        self, boundary_jr_coeffs: np.ndarray | None, driving_E: np.ndarray
     ) -> list[np.ndarray | None] | None:
-        """Assemble physical right-hand sides for one m_imp solve."""
-        problem = self._m_imp_problem
+        """Assemble the physical right-hand sides for one solve."""
+        problem = self._toroidal_potential_problem
         rhs_entries = [None] * problem.num_data_terms
         has_rhs = False
 
-        if jr_coeffs is not None:
-            rhs_entries[0] = self.geometry.radial_current_constraint_operator.matvec(jr_coeffs)
+        if boundary_jr_coeffs is not None:
+            rhs_entries[0] = self.geometry.radial_current_constraint_operator.matvec(
+                boundary_jr_coeffs
+            )
             has_rhs = True
 
         if (
@@ -505,32 +557,32 @@ class ElectrodynamicResponse:
     # ----- Response Operators -----
 
     @property
-    def jr_to_m_imp_operator(self) -> LinearMap:
-        """Linear map from radial current to imposed potential."""
-        if self._jr_to_m_imp_operator is None:
-            if self._jr_to_m_imp_matrix is None:
-                self._build_jr_to_m_imp_matrix()
-            self._jr_to_m_imp_operator = as_linear_map(
-                self._jr_to_m_imp_matrix,
+    def boundary_jr_to_toroidal_potential_operator(self) -> LinearMap:
+        """Map boundary current to the private toroidal potential."""
+        if self._boundary_jr_to_toroidal_potential_operator is None:
+            if self._boundary_jr_to_toroidal_potential_matrix is None:
+                self._build_boundary_jr_to_toroidal_potential_matrix()
+            self._boundary_jr_to_toroidal_potential_operator = as_linear_map(
+                self._boundary_jr_to_toroidal_potential_matrix,
                 input_shape=(self.geometry.horizontal_basis.index_length,),
                 output_shape=(self.geometry.horizontal_basis.index_length,),
             )
-        return self._jr_to_m_imp_operator
+        return self._boundary_jr_to_toroidal_potential_operator
 
     @property
-    def driving_E_to_m_imp_operator(self) -> LinearMap | None:
-        """Map driving E to imposed potential."""
-        if self._driving_E_to_m_imp_operator is None:
-            if self._driving_E_to_m_imp_matrix is None:
-                self._build_driving_E_to_m_imp_matrix()
-            if self._driving_E_to_m_imp_matrix is None:
+    def driving_E_to_toroidal_potential_operator(self) -> LinearMap | None:
+        """Map driving E to the private toroidal potential."""
+        if self._driving_E_to_toroidal_potential_operator is None:
+            if self._driving_E_to_toroidal_potential_matrix is None:
+                self._build_driving_E_to_toroidal_potential_matrix()
+            if self._driving_E_to_toroidal_potential_matrix is None:
                 return None
-            self._driving_E_to_m_imp_operator = as_linear_map(
-                self._driving_E_to_m_imp_matrix,
+            self._driving_E_to_toroidal_potential_operator = as_linear_map(
+                self._driving_E_to_toroidal_potential_matrix,
                 input_shape=(2, self.geometry.horizontal_basis.index_length),
                 output_shape=(self.geometry.horizontal_basis.index_length,),
             )
-        return self._driving_E_to_m_imp_operator
+        return self._driving_E_to_toroidal_potential_operator
 
     @property
     def driving_E_to_total_E_operator(self) -> LinearMap:
@@ -546,29 +598,29 @@ class ElectrodynamicResponse:
             self._driving_E_to_E_df_operator = self._create_driving_E_to_E_df_operator()
         return self._driving_E_to_E_df_operator
 
-    def _m_imp_feedback_maps(self) -> tuple[LinearMap, LinearMap] | None:
-        """Return maps for electric-field feedback through m_imp."""
+    def _toroidal_potential_feedback_maps(self) -> tuple[LinearMap, LinearMap] | None:
+        """Return the toroidal-potential feedback maps."""
         if (
             not self.config.enable_interhemispheric_coupling
             or self._interhemispheric_electric_field_constraint is None
         ):
             return None
 
-        driving_E_to_m_imp = self.driving_E_to_m_imp_operator
-        if driving_E_to_m_imp is None:
+        driving_E_to_toroidal_potential = self.driving_E_to_toroidal_potential_operator
+        if driving_E_to_toroidal_potential is None:
             return None
 
-        return self.m_imp_to_E_coeffs, driving_E_to_m_imp
+        return self.toroidal_potential_to_E_coeffs, driving_E_to_toroidal_potential
 
     def _create_driving_E_to_total_E_operator(self) -> LinearMap:
         """Construct the driving-E to total-E map."""
         identity = identity_linear_map((2, self.geometry.horizontal_basis.index_length))
-        feedback = self._m_imp_feedback_maps()
+        feedback = self._toroidal_potential_feedback_maps()
         if feedback is None:
             return identity
 
-        m_imp_to_E, driving_E_to_m_imp = feedback
-        return identity + (m_imp_to_E @ driving_E_to_m_imp)
+        toroidal_potential_to_E, driving_E_to_toroidal_potential = feedback
+        return identity + (toroidal_potential_to_E @ driving_E_to_toroidal_potential)
 
     def _create_driving_E_to_E_df_operator(self) -> LinearMap:
         """Construct the driving-E to divergence-free E map."""
@@ -578,13 +630,13 @@ class ElectrodynamicResponse:
         )
 
     def _create_driving_source_to_E_df_operator(self, source_to_driving_E: LinearMap) -> LinearMap:
-        """Complete a driving source through m_imp and extract E_df."""
+        """Complete a source and extract its E_df."""
         total_E_from_source = source_to_driving_E
         if (
             self.config.enable_interhemispheric_coupling
             and self._interhemispheric_electric_field_constraint is not None
         ):
-            problem = self._m_imp_problem
+            problem = self._toroidal_potential_problem
             electric_field_rhs_operator = (
                 -self.config.interhemispheric_electric_field_weight
                 * self.geometry.interhemispheric_electric_field_difference_operator
@@ -595,32 +647,49 @@ class ElectrodynamicResponse:
             )
             rhs_entries = [None] * problem.num_data_terms
             rhs_entries[1] = electric_field_rhs
-            m_imp_from_source = as_linear_map(
-                self._solve_m_imp_response(rhs_entries),
+            toroidal_potential_from_source = as_linear_map(
+                self._solve_toroidal_potential_response(rhs_entries),
                 input_shape=source_to_driving_E.input_shape,
                 output_shape=(self.geometry.horizontal_basis.index_length,),
             )
-            total_E_from_source = source_to_driving_E + self.m_imp_to_E_coeffs @ m_imp_from_source
+            total_E_from_source = (
+                source_to_driving_E
+                + self.toroidal_potential_to_E_coeffs @ toroidal_potential_from_source
+            )
         return self.geometry.helmholtz_divergence_free_potential_operator @ total_E_from_source
 
     @property
-    def m_ind_to_E_df_operator(self) -> LinearMap:
-        """Map poloidal state to its full divergence-free E response."""
-        if self._m_ind_to_E_df_operator_cache is None:
-            self._m_ind_to_E_df_operator_cache = self._create_driving_source_to_E_df_operator(
-                self.m_ind_to_E_coeffs
+    def induced_poloidal_potential_to_E_df_operator(self) -> LinearMap:
+        """Map private induced potential to full divergence-free E."""
+        if self._induced_poloidal_potential_to_E_df_operator_cache is None:
+            self._induced_poloidal_potential_to_E_df_operator_cache = (
+                self._create_driving_source_to_E_df_operator(
+                    self.induced_poloidal_potential_to_E_coeffs
+                )
             )
-        return self._m_ind_to_E_df_operator_cache
+        return self._induced_poloidal_potential_to_E_df_operator_cache
 
-    def _solve_for_m_imp(self, jr_coeffs: np.ndarray | None, driving_E: np.ndarray) -> np.ndarray:
-        """Solve for the imposed potential coefficients `m_imp`."""
-        jr_coeffs = None if jr_coeffs is None else xp.asarray(jr_coeffs)
+    @property
+    def induced_Br_to_E_df_operator(self) -> LinearMap:
+        """Map physical induced Br to full divergence-free E."""
+        if self._induced_Br_to_E_df_operator_cache is None:
+            self._induced_Br_to_E_df_operator_cache = (
+                self.induced_poloidal_potential_to_E_df_operator
+                @ self.geometry.induced_Br_to_poloidal_potential_operator
+            )
+        return self._induced_Br_to_E_df_operator_cache
+
+    def _solve_for_toroidal_potential(
+        self, boundary_jr_coeffs: np.ndarray | None, driving_E: np.ndarray
+    ) -> np.ndarray:
+        """Solve the private toroidal-potential response."""
+        boundary_jr_coeffs = None if boundary_jr_coeffs is None else xp.asarray(boundary_jr_coeffs)
         driving_E = xp.asarray(driving_E)
-        rhs_entries = self._m_imp_rhs_entries(jr_coeffs, driving_E)
+        rhs_entries = self._toroidal_potential_rhs_entries(boundary_jr_coeffs, driving_E)
         if rhs_entries is None:
             return xp.zeros(self.geometry.horizontal_basis.index_length)
 
-        solution = self._solve_m_imp_response(rhs_entries)
+        solution = self._solve_toroidal_potential_response(rhs_entries)
         return self.project_surface_scalar_mean_free(solution)
 
     # ----- Active Input Update -----
@@ -641,7 +710,7 @@ class ElectrodynamicResponse:
                 continue
 
             field_space = input_series.get_field_space(key)
-            if key == "Br" and self.geometry.RM is None:
+            if key == "boundary_Br" and self.geometry.RM is None:
                 raise ValueError("Br input can only be set if RM is not None.")
 
             unknown_variables = set(updated_input) - _ACTIVE_INPUT_NAMES
@@ -665,14 +734,14 @@ class ElectrodynamicResponse:
                 return
 
             logger.info("Conductance updated: invalidating closure caches and problem definition.")
-            preconditioner_to_keep = self._m_imp_preconditioner_cache
-            preconditioner_ready_to_keep = self._m_imp_preconditioner_ready
+            preconditioner_to_keep = self._toroidal_potential_preconditioner_cache
+            preconditioner_ready_to_keep = self._toroidal_potential_preconditioner_ready
             self._invalidate_closure_caches()
             self._conductance_fingerprint_cache = active_conductance_fingerprint
             if self.config.reuse_preconditioner and preconditioner_ready_to_keep:
                 logger.info("...reusing preconditioner due to configuration.")
-                self._m_imp_preconditioner_cache = preconditioner_to_keep
-                self._m_imp_preconditioner_ready = True
+                self._toroidal_potential_preconditioner_cache = preconditioner_to_keep
+                self._toroidal_potential_preconditioner_ready = True
 
     # ----- Response Calculation -----
 
@@ -687,20 +756,26 @@ class ElectrodynamicResponse:
         return op.matvec(coeffs_arr.reshape(-1)).reshape(output_shape)
 
     def _complete_electric_response(
-        self, driving_E: np.ndarray, jr_coeffs: np.ndarray | None
+        self, driving_E: np.ndarray, boundary_jr_coeffs: np.ndarray | None
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Add the m_imp response required by the model constraints."""
+        """Complete E and return the resulting boundary current."""
         driving_E = self.project_helmholtz_mean_free(driving_E)
-        m_imp = self._solve_for_m_imp(jr_coeffs, driving_E)
-        E_from_m_imp = self._apply_operator(
-            self._runtime_m_imp_to_E_coeffs,
-            m_imp,
+        toroidal_potential = self._solve_for_toroidal_potential(boundary_jr_coeffs, driving_E)
+        E_from_toroidal_potential = self._apply_operator(
+            self._runtime_toroidal_potential_to_E_coeffs,
+            toroidal_potential,
             (2, self.geometry.horizontal_basis.index_length),
         )
-        return self.project_helmholtz_mean_free(driving_E + E_from_m_imp), m_imp
+        solved_boundary_jr = self.geometry.toroidal_potential_to_boundary_jr_operator.matvec(
+            toroidal_potential
+        )
+        return (
+            self.project_helmholtz_mean_free(driving_E + E_from_toroidal_potential),
+            solved_boundary_jr,
+        )
 
     def calculate_noninductive_response(self) -> tuple[np.ndarray, np.ndarray]:
-        """Return E and imposed-potential responses without m_ind."""
+        """Return E and boundary-jr responses without induced Br."""
         E_shape = (2, self.geometry.horizontal_basis.index_length)
         active_wind_forcings = [
             name for name in ("u", "Q_eff", "E_neutral_wind") if getattr(self, name) is not None
@@ -720,104 +795,133 @@ class ElectrodynamicResponse:
             driving_E += self._apply_operator(
                 self.E_neutral_wind_to_E_coeffs, xp.asarray(self.E_neutral_wind.array), E_shape
             )
-        if self.Br is not None:
+        if self.boundary_Br is not None:
             driving_E += self._apply_operator(
-                self._runtime_Br_to_E_coeffs, xp.asarray(self.Br.array), E_shape
+                self._runtime_boundary_Br_to_E_coeffs, xp.asarray(self.boundary_Br.array), E_shape
             )
         if self.Q_eff is not None:
             driving_E += self._apply_operator(
                 self._runtime_Q_eff_to_E_coeffs, xp.asarray(self.Q_eff.array), E_shape
             )
 
-        jr_coeffs = None if self.jr is None else xp.asarray(self.jr.array)
-        return self._complete_electric_response(driving_E, jr_coeffs)
+        boundary_jr_coeffs = (
+            None if self.boundary_jr is None else xp.asarray(self.boundary_jr.array)
+        )
+        return self._complete_electric_response(driving_E, boundary_jr_coeffs)
 
-    def calculate_inductive_response(self, m_ind: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """Return E and imposed-potential responses caused by m_ind."""
+    def calculate_induced_response(self, induced_Br: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Return E and boundary-jr responses caused by induced Br."""
         E_shape = (2, self.geometry.horizontal_basis.index_length)
         driving_E = self._apply_operator(
-            self._runtime_m_ind_to_E_coeffs, xp.asarray(m_ind), E_shape
+            self._runtime_induced_Br_to_E_coeffs, xp.asarray(induced_Br), E_shape
         )
         return self._complete_electric_response(driving_E, None)
 
     # ----- Induction Operators -----
 
     @property
-    def m_ind_feedback_matrix(self) -> np.ndarray:
-        """Return induced-state feedback before Faraday scaling."""
-        if self._m_ind_feedback_matrix is None:
-            self._build_m_ind_feedback_matrix()
-        return self._m_ind_feedback_matrix
+    def induced_poloidal_potential_feedback_matrix(self) -> np.ndarray:
+        """Return private feedback before Faraday scaling."""
+        if self._induced_poloidal_potential_feedback_matrix is None:
+            self._build_induced_poloidal_potential_feedback_matrix()
+        return self._induced_poloidal_potential_feedback_matrix
 
     @property
-    def m_ind_feedback_operator(self) -> LinearMap:
-        """Map induced state to Faraday-driving W in poloidal space."""
-        if self._m_ind_feedback_operator is None:
-            self._m_ind_feedback_operator = self._create_m_ind_feedback_operator()
-        return self._m_ind_feedback_operator
-
-    @property
-    def noninductive_E_df_to_steady_m_ind_matrix(self) -> np.ndarray:
-        """Return the explicit steady-state response matrix."""
-        if self._noninductive_E_df_to_steady_m_ind_matrix is None:
-            self._noninductive_E_df_to_steady_m_ind_matrix = (
-                self.noninductive_E_df_to_steady_m_ind_operator.to_matrix()
+    def induced_poloidal_potential_feedback_operator(self) -> LinearMap:
+        """Map private induced potential to Faraday-driving W."""
+        if self._induced_poloidal_potential_feedback_operator is None:
+            self._induced_poloidal_potential_feedback_operator = (
+                self._create_induced_poloidal_potential_feedback_operator()
             )
-        return self._noninductive_E_df_to_steady_m_ind_matrix
+        return self._induced_poloidal_potential_feedback_operator
 
     @property
-    def noninductive_E_df_to_steady_m_ind_operator(self) -> LinearMap:
-        """Linear map from non-inductive E_df to steady m_ind."""
-        if self._noninductive_E_df_to_steady_m_ind_operator is None:
-            if self._noninductive_E_df_to_steady_m_ind_matrix is not None:
-                self._noninductive_E_df_to_steady_m_ind_operator = as_linear_map(
-                    self._noninductive_E_df_to_steady_m_ind_matrix
-                )
-                return self._noninductive_E_df_to_steady_m_ind_operator
+    def noninductive_E_df_to_equilibrium_induced_poloidal_potential_matrix(self) -> np.ndarray:
+        """Return the private equilibrium potential response."""
+        if self._noninductive_E_df_to_equilibrium_induced_poloidal_potential_matrix is None:
+            operator = self.noninductive_E_df_to_equilibrium_induced_poloidal_potential_operator
+            self._noninductive_E_df_to_equilibrium_induced_poloidal_potential_matrix = (
+                operator.to_matrix()
+            )
+        return self._noninductive_E_df_to_equilibrium_induced_poloidal_potential_matrix
 
-            array_module = get_array_module(self.m_ind_feedback_matrix)
+    @property
+    def noninductive_E_df_to_equilibrium_induced_poloidal_potential_operator(self) -> LinearMap:
+        """Map non-inductive E_df to private equilibrium potential."""
+        if self._noninductive_E_df_to_equilibrium_induced_poloidal_potential_operator is None:
+            if (
+                self._noninductive_E_df_to_equilibrium_induced_poloidal_potential_matrix
+                is not None
+            ):
+                self._noninductive_E_df_to_equilibrium_induced_poloidal_potential_operator = (
+                    as_linear_map(
+                        self._noninductive_E_df_to_equilibrium_induced_poloidal_potential_matrix
+                    )
+                )
+                return self._noninductive_E_df_to_equilibrium_induced_poloidal_potential_operator
+
+            array_module = get_array_module(self.induced_poloidal_potential_feedback_matrix)
             feedback_pinv = block_after_jax_linalg(
-                array_module.linalg.pinv(self.m_ind_feedback_matrix, rtol=1e-15)
+                array_module.linalg.pinv(
+                    self.induced_poloidal_potential_feedback_matrix, rtol=1e-15
+                )
             )
             poloidal_size = self.geometry.poloidal_basis.index_length
-            steady_poloidal_response = as_linear_map(
+            equilibrium_poloidal_response = as_linear_map(
                 -feedback_pinv, input_shape=(poloidal_size,), output_shape=(poloidal_size,)
             )
-            self._noninductive_E_df_to_steady_m_ind_operator = (
-                steady_poloidal_response @ self.geometry.surface_to_poloidal_operator
+            self._noninductive_E_df_to_equilibrium_induced_poloidal_potential_operator = (
+                equilibrium_poloidal_response @ self.geometry.surface_to_poloidal_operator
             )
-        return self._noninductive_E_df_to_steady_m_ind_operator
+        return self._noninductive_E_df_to_equilibrium_induced_poloidal_potential_operator
 
-    def _create_m_ind_feedback_operator(self) -> LinearMap:
-        """Construct induced-state feedback in poloidal space."""
-        return self.geometry.surface_to_poloidal_operator @ self.m_ind_to_E_df_operator
+    @property
+    def noninductive_E_df_to_equilibrium_induced_Br_operator(self) -> LinearMap:
+        """Map non-inductive E_df to equilibrium induced Br."""
+        if self._noninductive_E_df_to_equilibrium_induced_Br_operator is None:
+            self._noninductive_E_df_to_equilibrium_induced_Br_operator = (
+                self.geometry.induced_poloidal_potential_to_Br_operator
+                @ self.noninductive_E_df_to_equilibrium_induced_poloidal_potential_operator
+            )
+        return self._noninductive_E_df_to_equilibrium_induced_Br_operator
 
-    def _build_m_ind_feedback_matrix(self) -> None:
-        """Construct the dense induced-state feedback matrix."""
-        logger.info("Building dense induced-state feedback matrix...")
-        self._m_ind_feedback_matrix = self.m_ind_feedback_operator.to_matrix()
+    def _create_induced_poloidal_potential_feedback_operator(self) -> LinearMap:
+        """Construct private potential-coordinate feedback."""
+        return (
+            self.geometry.surface_to_poloidal_operator
+            @ self.induced_poloidal_potential_to_E_df_operator
+        )
+
+    def _build_induced_poloidal_potential_feedback_matrix(self) -> None:
+        """Construct the dense private induction feedback matrix."""
+        logger.info("Building dense induction feedback matrix...")
+        self._induced_poloidal_potential_feedback_matrix = (
+            self.induced_poloidal_potential_feedback_operator.to_matrix()
+        )
         logger.info("Dense induction operator built.")
 
     def E_df_operators(
         self,
         *,
-        include_Br: bool = True,
+        include_boundary_Br: bool = True,
         include_Q_eff: bool = True,
         include_E_neutral_wind: bool = True,
     ) -> dict[str, LinearMap]:
-        """Return named input/state to total E_df operators."""
+        """Return physical-source maps to total divergence-free E."""
         operators = {
             "E_df_from_u": self.driving_E_to_E_df_operator @ self.u_coeffs_to_E_coeffs,
-            "E_df_from_jr": (
+            "E_df_from_boundary_jr": (
                 self.geometry.helmholtz_divergence_free_potential_operator
-                @ self.m_imp_to_E_coeffs
-                @ self.jr_to_m_imp_operator
+                @ self.toroidal_potential_to_E_coeffs
+                @ self.boundary_jr_to_toroidal_potential_operator
             ),
-            "E_df_from_m_ind": self.m_ind_to_E_df_operator,
+            "E_df_from_induced_Br": self.induced_Br_to_E_df_operator,
         }
 
-        if include_Br and self.Br_to_E_coeffs is not None:
-            operators["E_df_from_Br"] = self.driving_E_to_E_df_operator @ self.Br_to_E_coeffs
+        if include_boundary_Br and self.boundary_Br_to_E_coeffs is not None:
+            operators["E_df_from_boundary_Br"] = (
+                self.driving_E_to_E_df_operator @ self.boundary_Br_to_E_coeffs
+            )
         if include_Q_eff and self.Q_eff_to_E_coeffs is not None:
             operators["E_df_from_Q_eff"] = self.driving_E_to_E_df_operator @ self.Q_eff_to_E_coeffs
         if include_E_neutral_wind and self.E_neutral_wind_to_E_coeffs is not None:
@@ -827,21 +931,23 @@ class ElectrodynamicResponse:
 
         return operators
 
-    def m_ind_rate_operators(
+    def induced_Br_rate_operators(
         self,
         *,
-        include_Br: bool = True,
+        include_boundary_Br: bool = True,
         include_Q_eff: bool = True,
         include_E_neutral_wind: bool = True,
     ) -> dict[str, LinearMap]:
-        """Return named input/state to d(m_ind)/dt operators."""
+        """Return named physical-source maps to ``d(induced_Br)/dt``."""
         faraday = (
-            float(self.geometry.faraday_rate_scale) * self.geometry.surface_to_poloidal_operator
+            float(self.geometry.induced_poloidal_potential_faraday_rate_scale)
+            * self.geometry.induced_poloidal_potential_to_Br_operator
+            @ self.geometry.surface_to_poloidal_operator
         )
         return {
-            key.replace("E_df_from_", "d_m_ind_dt_from_"): faraday @ operator
+            key.replace("E_df_from_", "d_induced_Br_dt_from_"): faraday @ operator
             for key, operator in self.E_df_operators(
-                include_Br=include_Br,
+                include_boundary_Br=include_boundary_Br,
                 include_Q_eff=include_Q_eff,
                 include_E_neutral_wind=include_E_neutral_wind,
             ).items()
@@ -850,7 +956,7 @@ class ElectrodynamicResponse:
     def E_df_matrices(
         self,
         *,
-        include_Br: bool = True,
+        include_boundary_Br: bool = True,
         include_Q_eff: bool = True,
         include_E_neutral_wind: bool = True,
         backend: MatrixBackend | None = None,
@@ -859,25 +965,25 @@ class ElectrodynamicResponse:
         return {
             key: operator.to_matrix(backend=backend)
             for key, operator in self.E_df_operators(
-                include_Br=include_Br,
+                include_boundary_Br=include_boundary_Br,
                 include_Q_eff=include_Q_eff,
                 include_E_neutral_wind=include_E_neutral_wind,
             ).items()
         }
 
-    def m_ind_rate_matrices(
+    def induced_Br_rate_matrices(
         self,
         *,
-        include_Br: bool = True,
+        include_boundary_Br: bool = True,
         include_Q_eff: bool = True,
         include_E_neutral_wind: bool = True,
         backend: MatrixBackend | None = None,
     ) -> dict[str, Any]:
-        """Return d(m_ind)/dt maps as explicit matrices."""
+        """Return ``d(induced_Br)/dt`` maps as explicit matrices."""
         return {
             key: operator.to_matrix(backend=backend)
-            for key, operator in self.m_ind_rate_operators(
-                include_Br=include_Br,
+            for key, operator in self.induced_Br_rate_operators(
+                include_boundary_Br=include_boundary_Br,
                 include_Q_eff=include_Q_eff,
                 include_E_neutral_wind=include_E_neutral_wind,
             ).items()

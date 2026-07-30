@@ -20,8 +20,8 @@ from pynamit.sphere import (
 )
 
 INPUT_VARIABLES = {
-    "jr": ("jr",),
-    "Br": ("Br",),
+    "boundary_jr": ("boundary_jr",),
+    "boundary_Br": ("boundary_Br",),
     "conductance": ("log_conductance_magnitude", "log_hall_to_pedersen_ratio"),
     "u": ("u",),
     "Q_eff": ("Q_eff",),
@@ -29,8 +29,8 @@ INPUT_VARIABLES = {
 }
 
 INPUT_FIELD_TYPES = {
-    "jr": "scalar",
-    "Br": "scalar",
+    "boundary_jr": "scalar",
+    "boundary_Br": "scalar",
     "conductance": "scalar",
     "u": "tangential",
     "Q_eff": "tangential",
@@ -38,14 +38,14 @@ INPUT_FIELD_TYPES = {
 }
 
 OUTPUT_VARIABLES = {
-    "state": ("m_ind", "m_imp", "Phi", "W"),
-    "steady_state": ("m_ind", "m_imp", "Phi", "W"),
+    "dynamic": ("induced_Br", "boundary_jr", "Phi", "W"),
+    "equilibrium": ("induced_Br", "boundary_jr", "Phi", "W"),
 }
 
 INPUT_DATASET_KEYS = tuple(INPUT_VARIABLES)
 OUTPUT_DATASET_KEYS = tuple(OUTPUT_VARIABLES)
 RUN_ARTIFACT_NAMES = frozenset(
-    {"settings", "PFAC_matrix", *INPUT_DATASET_KEYS, *OUTPUT_DATASET_KEYS}
+    {"settings", "gap_Br_response", *INPUT_DATASET_KEYS, *OUTPUT_DATASET_KEYS}
 )
 
 
@@ -141,27 +141,27 @@ def build_simulation_schema(config: SimulationConfig, *, operator_cache=None) ->
 
     if horizontal_basis_kind == "CS":
         input_bases = {
-            "jr": cs_basis,
+            "boundary_jr": cs_basis,
             # Boundary Br participates in radial continuation and is
             # therefore stored in the poloidal SH space even when its
             # input samples are remapped through the CS grid.
-            "Br": mean_free_sh_basis,
+            "boundary_Br": mean_free_sh_basis,
             "conductance": cs_basis,
             "u": cs_basis,
             "Q_eff": cs_basis,
             "E_neutral_wind": cs_basis,
         }
         input_mean_free = {
-            "jr": True,
-            "Br": True,
+            "boundary_jr": True,
+            "boundary_Br": True,
             "conductance": False,
             "u": True,
             "Q_eff": True,
             "E_neutral_wind": True,
         }
         input_projection_bases = {
-            "jr": cs_basis,
-            "Br": cs_basis,
+            "boundary_jr": cs_basis,
+            "boundary_Br": cs_basis,
             "conductance": cs_basis,
             "u": cs_basis,
             "Q_eff": cs_basis,
@@ -170,8 +170,8 @@ def build_simulation_schema(config: SimulationConfig, *, operator_cache=None) ->
     else:
         projection_bases = {"SH": mean_free_sh_basis, "CS": cs_basis}
         input_bases = {
-            "jr": mean_free_sh_basis,
-            "Br": mean_free_sh_basis,
+            "boundary_jr": mean_free_sh_basis,
+            "boundary_Br": mean_free_sh_basis,
             "conductance": (sh_basis if conductance_projection_basis == "SH" else cs_basis),
             "u": mean_free_sh_basis,
             "Q_eff": mean_free_sh_basis,
@@ -179,8 +179,8 @@ def build_simulation_schema(config: SimulationConfig, *, operator_cache=None) ->
         }
         input_mean_free = None
         input_projection_bases = {
-            "jr": projection_bases[projection_basis_kinds["jr"]],
-            "Br": projection_bases[projection_basis_kinds["Br"]],
+            "boundary_jr": projection_bases[projection_basis_kinds["boundary_jr"]],
+            "boundary_Br": projection_bases[projection_basis_kinds["boundary_Br"]],
             "conductance": (sh_basis if conductance_projection_basis == "SH" else cs_basis),
             "u": projection_bases[projection_basis_kinds["u"]],
             "Q_eff": projection_bases[projection_basis_kinds["Q_eff"]],
@@ -190,18 +190,27 @@ def build_simulation_schema(config: SimulationConfig, *, operator_cache=None) ->
     input_field_spaces = field_spaces_from_bases(
         input_bases, INPUT_FIELD_TYPES, mean_free_by_key=input_mean_free
     )
-    poloidal_state_space = FieldSpace.from_representation(
+    poloidal_output_space = FieldSpace.from_representation(
         mean_free_sh_basis, field_type="scalar", mean_free=True
     )
-    surface_state_space = FieldSpace.from_representation(
+    surface_output_space = FieldSpace.from_representation(
         horizontal_basis, field_type="scalar", mean_free=True
+    )
+    boundary_current_output_space = FieldSpace.from_representation(
+        horizontal_basis,
+        field_type="scalar",
+        # In CS space the discrete Laplacian's exact range is not
+        # identical to the area-mean projector. Preserve the current
+        # produced by the private toroidal potential exactly so it can
+        # be inverted without changing the derived sheet current.
+        mean_free=False,
     )
     output_field_spaces = {
         key: {
-            "m_ind": poloidal_state_space,
-            "m_imp": surface_state_space,
-            "Phi": surface_state_space,
-            "W": surface_state_space,
+            "induced_Br": poloidal_output_space,
+            "boundary_jr": boundary_current_output_space,
+            "Phi": surface_output_space,
+            "W": surface_output_space,
         }
         for key in OUTPUT_VARIABLES
     }

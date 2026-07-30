@@ -133,7 +133,7 @@ for period in PERIODS:
         "Imposing steady state before simulating period {} s".format(period),
         flush=True,
     )
-    simulation.impose_steady_state()
+    simulation.impose_equilibrium()
 
     print(datetime.datetime.now(), "Starting simulation", flush=True)
     simulation.evolve_to_time(last_simulation_time + simulation_duration)  # , dt = 5e-3)

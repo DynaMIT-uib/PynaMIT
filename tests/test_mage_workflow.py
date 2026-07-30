@@ -560,10 +560,10 @@ def test_mage_projection_validates_sweep_before_projecting(monkeypatch, tmp_path
     assert not calls
 
 
-def test_mage_run_defaults_to_steady_state_initialization_and_output():
-    """MAGE starts from and records the steady-state response."""
-    assert MAGE_RUN_SETTINGS.steady_state_initialization is True
-    assert MAGE_RUN_SETTINGS.run_steady_state is True
+def test_mage_run_defaults_to_equilibrium_initialization_and_output():
+    """MAGE starts from and records instantaneous equilibrium."""
+    assert MAGE_RUN_SETTINGS.equilibrium_initialization is True
+    assert MAGE_RUN_SETTINGS.run_equilibrium is True
     assert MAGE_RUN_SETTINGS.magnetic_boundary_shielding is False
     assert MAGE_RUN_SETTINGS.final_time is None
 
@@ -592,7 +592,7 @@ def test_mage_run_resolves_every_projected_resolution(tmp_path):
         store = ArtifactStore(directory, preferred_dataset_storage="netcdf")
         config = SimulationConfig(Nmax=resolution, Mmax=resolution, Ncs=resolution, RM=7.0e6)
         store.save_dataset(config.to_dataset(), "settings")
-        store.save_dataset(xr.Dataset(coords={"time": [0.0, 10.0]}), "Br")
+        store.save_dataset(xr.Dataset(coords={"time": [0.0, 10.0]}), "boundary_Br")
 
     settings = RunSettings(
         resolutions_directory=resolutions_directory,
@@ -618,7 +618,7 @@ def test_mage_projection_uses_kaiju_dipole_by_default():
 
 def test_mage_projection_replaces_stale_pynamit_input_artifacts(tmp_path):
     """Reprojection must not retain old forcing or source artifacts."""
-    stale_artifacts = (tmp_path / "jr.ncdf", tmp_path / "state.ncdf")
+    stale_artifacts = (tmp_path / "boundary_jr.ncdf", tmp_path / "dynamic.ncdf")
     for path in stale_artifacts:
         path.write_text("stale", encoding="utf-8")
     (tmp_path / "u.zarr").mkdir()
@@ -641,7 +641,7 @@ def test_invalid_forcing_does_not_remove_existing_projection(tmp_path):
     forcing_path = tmp_path / "incomplete.h5"
     projection_directory = tmp_path / "projection"
     projection_directory.mkdir()
-    existing_input = projection_directory / "jr.ncdf"
+    existing_input = projection_directory / "boundary_jr.ncdf"
     existing_input.write_text("existing", encoding="utf-8")
     with h5py.File(forcing_path, "w") as output:
         output.attrs["kind"] = MAGE_FORCING_KIND
@@ -658,9 +658,9 @@ def test_invalid_forcing_does_not_remove_existing_projection(tmp_path):
             mmax=1,
             ncs=4,
             max_steps=None,
-            br_lambda=0.1,
+            boundary_Br_lambda=0.1,
             conductance_lambda=0.1,
-            jr_lambda=0.1,
+            boundary_jr_lambda=0.1,
             e_neutral_wind_lambda=0.1,
             artifact_storage="netcdf",
         )
@@ -1025,9 +1025,9 @@ def test_mage_step_limits_require_positive_integers(tmp_path, max_steps):
             mmax=1,
             ncs=4,
             max_steps=max_steps,
-            br_lambda=0.1,
+            boundary_Br_lambda=0.1,
             conductance_lambda=0.1,
-            jr_lambda=0.1,
+            boundary_jr_lambda=0.1,
             e_neutral_wind_lambda=0.1,
             artifact_storage="netcdf",
         )
@@ -1323,9 +1323,9 @@ def test_mage_projection_reuses_geometry_for_complete_input_series(tmp_path):
         mmax=1,
         ncs=4,
         max_steps=None,
-        br_lambda=0.1,
+        boundary_Br_lambda=0.1,
         conductance_lambda=0.1,
-        jr_lambda=0.1,
+        boundary_jr_lambda=0.1,
         e_neutral_wind_lambda=0.1,
         artifact_storage="netcdf",
     )
@@ -1335,8 +1335,8 @@ def test_mage_projection_reuses_geometry_for_complete_input_series(tmp_path):
     manifest = json.loads(
         (projection_directory / "pynamit_input_manifest.json").read_text(encoding="utf-8")
     )
-    assert manifest["metadata"]["projection_regularization"]["Br_lambda"] == 0.1
-    for dataset in ("Br", "jr", "conductance", "E_neutral_wind"):
+    assert manifest["metadata"]["projection_regularization"]["boundary_Br_lambda"] == 0.1
+    for dataset in ("boundary_Br", "boundary_jr", "conductance", "E_neutral_wind"):
         assert (projection_directory / f"{dataset}.ncdf").is_file()
 
 
@@ -1354,9 +1354,9 @@ def test_projection_diagnostics_write_figure_and_area_weighted_metrics(monkeypat
         mmax=1,
         ncs=4,
         max_steps=1,
-        br_lambda=0.1,
+        boundary_Br_lambda=0.1,
         conductance_lambda=0.1,
-        jr_lambda=0.1,
+        boundary_jr_lambda=0.1,
         e_neutral_wind_lambda=0.1,
         artifact_storage="netcdf",
     )
@@ -1400,9 +1400,9 @@ def test_mage_projection_rejects_incompatible_prepared_units(tmp_path):
             mmax=1,
             ncs=4,
             max_steps=None,
-            br_lambda=0.1,
+            boundary_Br_lambda=0.1,
             conductance_lambda=0.1,
-            jr_lambda=0.1,
+            boundary_jr_lambda=0.1,
             e_neutral_wind_lambda=0.1,
             artifact_storage="netcdf",
         )
@@ -1425,7 +1425,7 @@ def test_projection_failure_preserves_last_complete_package(tmp_path):
     forcing_path = tmp_path / "forcing.h5"
     projection_directory = tmp_path / "projection"
     projection_directory.mkdir()
-    existing_input = projection_directory / "jr.ncdf"
+    existing_input = projection_directory / "boundary_jr.ncdf"
     existing_input.write_text("existing", encoding="utf-8")
     hall = np.ones((2, 4, 4)) * 5.0
     hall[1] = -1.0
@@ -1441,9 +1441,9 @@ def test_projection_failure_preserves_last_complete_package(tmp_path):
             mmax=1,
             ncs=4,
             max_steps=None,
-            br_lambda=0.1,
+            boundary_Br_lambda=0.1,
             conductance_lambda=0.1,
-            jr_lambda=0.1,
+            boundary_jr_lambda=0.1,
             e_neutral_wind_lambda=0.1,
             artifact_storage="netcdf",
         )
@@ -1470,9 +1470,9 @@ def test_projection_rejects_subfloor_hall_anywhere_on_global_sheet(tmp_path):
             mmax=1,
             ncs=4,
             max_steps=1,
-            br_lambda=0.1,
+            boundary_Br_lambda=0.1,
             conductance_lambda=0.1,
-            jr_lambda=0.1,
+            boundary_jr_lambda=0.1,
             e_neutral_wind_lambda=0.1,
             artifact_storage="netcdf",
         )

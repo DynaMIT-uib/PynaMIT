@@ -58,15 +58,15 @@ def _polar_comparison_coordinates(lat, lon, coordinate_context, minimum_latitude
 def _field_panel_spec(field_key, fields_dict, plot_kwargs, diff_kwargs, panel_keys):
     """Return one field's styles and values by panel."""
     styles, fields = {}, {}
-    if any(key in {"state", "diff"} for key in panel_keys):
-        styles["state"] = plot_kwargs[field_key]
-        fields["state"] = fields_dict[f"{field_key}_state"]
-    if any(key in {"steady", "diff"} for key in panel_keys):
-        styles["steady"] = plot_kwargs[field_key]
-        fields["steady"] = fields_dict[f"{field_key}_steady"]
+    if any(key in {"dynamic", "diff"} for key in panel_keys):
+        styles["dynamic"] = plot_kwargs[field_key]
+        fields["dynamic"] = fields_dict[f"{field_key}_dynamic"]
+    if any(key in {"equilibrium", "diff"} for key in panel_keys):
+        styles["equilibrium"] = plot_kwargs[field_key]
+        fields["equilibrium"] = fields_dict[f"{field_key}_equilibrium"]
     if "diff" in panel_keys:
         styles["diff"] = diff_kwargs[field_key]
-        fields["diff"] = fields["state"] - fields["steady"]
+        fields["diff"] = fields["dynamic"] - fields["equilibrium"]
     return styles, fields
 
 
@@ -89,9 +89,9 @@ def _draw_field_comparison_artists(
     plot_kwargs,
     diff_kwargs,
     hemisphere_min_abs_latitude=50.0,
-    panel_keys=("state", "steady", "diff"),
+    panel_keys=("dynamic", "equilibrium", "diff"),
 ):
-    """Draw state, steady-state, and difference fields."""
+    """Draw dynamic, equilibrium, and difference fields."""
     new_artists, main_mappable, diff_mappable = [], None, None
     filled_key = None if str(filled_key) == "none" else str(filled_key)
     overlay_keys = list(overlay_keys)
@@ -125,7 +125,7 @@ def _draw_field_comparison_artists(
 
         for panel_index, axis in enumerate(axes):
             panel_key = panel_keys[panel_index] if panel_index < len(panel_keys) else "empty"
-            if panel_key not in {"state", "steady", "diff"}:
+            if panel_key not in {"dynamic", "equilibrium", "diff"}:
                 continue
 
             if filled_key is not None:
@@ -136,7 +136,7 @@ def _draw_field_comparison_artists(
                 artist = axis.contourf(*plot_args, **transform_args, **display_kwargs)
                 set_contour_edges_to_face(artist)
                 new_artists.append(artist)
-                if panel_key in {"state", "steady"}:
+                if panel_key in {"dynamic", "equilibrium"}:
                     main_mappable = artist
                 if panel_key == "diff":
                     diff_mappable = artist
@@ -160,25 +160,25 @@ class FieldComparisonRenderer:
 
     def render(self):
         """Render inductive/non-inductive map panels."""
-        has_state = "state" in self.view.run_view.datasets
-        has_steady = "steady_state" in self.view.run_view.datasets
-        if self.spec.show_inductive and not has_state:
+        has_dynamic = "dynamic" in self.view.run_view.datasets
+        has_equilibrium = "equilibrium" in self.view.run_view.datasets
+        if self.spec.show_inductive and not has_dynamic:
             raise ValueError(
-                "This run has no inductive state output. Disable Inductive plots, "
-                "or rerun with run_inductive=True."
+                "This run has no inductive dynamic output. Disable Inductive plots, "
+                "or rerun with run_dynamic=True."
             )
-        if self.spec.show_noninductive and not has_steady:
+        if self.spec.show_noninductive and not has_equilibrium:
             raise ValueError(
-                "This run has no steady_state output. Disable Non-inductive plots, "
-                "or rerun with run_steady_state=True."
+                "This run has no equilibrium output. Disable Non-inductive plots, "
+                "or rerun with run_equilibrium=True."
             )
-        if self.spec.show_difference and not (has_state and has_steady):
-            raise ValueError("Difference plots require both state and steady_state outputs.")
+        if self.spec.show_difference and not (has_dynamic and has_equilibrium):
+            raise ValueError("Difference plots require both dynamic and equilibrium outputs.")
         field_names = set(map_line_keys(self.spec.lines))
         if self.spec.fill != "none":
             field_names.add(self.spec.fill)
         display_coordinate_system = "geographic" if self.spec.plot_type == "global" else "model"
-        fields = self.view.state_comparison_grid_fields(
+        fields = self.view.solution_comparison_grid_fields(
             self.spec.time_index,
             field_names=field_names,
             coordinate_system=display_coordinate_system,
@@ -197,9 +197,9 @@ class FieldComparisonRenderer:
             if self.spec.color_scale_mode == "percentile":
                 percentile_fields = []
                 if self.spec.show_inductive:
-                    percentile_fields.append(fields[f"{filled_key}_state"])
+                    percentile_fields.append(fields[f"{filled_key}_dynamic"])
                 if self.spec.show_noninductive:
-                    percentile_fields.append(fields[f"{filled_key}_steady"])
+                    percentile_fields.append(fields[f"{filled_key}_equilibrium"])
                 plot_kwargs[filled_key]["levels"] = percentile_contour_levels(
                     percentile_fields,
                     FIELD_PLOT_KWARGS[filled_key]["levels"],
@@ -207,7 +207,9 @@ class FieldComparisonRenderer:
                     strictly_positive=filled_key == "joule",
                 )
                 if self.spec.show_difference:
-                    diff_field = fields[f"{filled_key}_state"] - fields[f"{filled_key}_steady"]
+                    diff_field = (
+                        fields[f"{filled_key}_dynamic"] - fields[f"{filled_key}_equilibrium"]
+                    )
                     diff_kwargs[filled_key]["levels"] = percentile_contour_levels(
                         [diff_field],
                         FIELD_DIFF_KWARGS[filled_key]["levels"],
@@ -262,9 +264,9 @@ class FieldComparisonRenderer:
     def _panel_specs(self):
         panels = []
         if self.spec.show_inductive:
-            panels.append(("state", "Inductive"))
+            panels.append(("dynamic", "Inductive"))
         if self.spec.show_noninductive:
-            panels.append(("steady", "Non-inductive"))
+            panels.append(("equilibrium", "Non-inductive"))
         if self.spec.show_difference:
             panels.append(("diff", "Difference"))
         return panels or [("empty", "No data selected")]
@@ -362,17 +364,17 @@ class FieldComparisonRenderer:
     ):
         overlay_keys = map_line_keys(self.spec.lines)
         filled_key = None if str(self.spec.fill) == "none" else str(self.spec.fill)
-        cax_state, cax_diff, cax_lines = colorbar_axes
+        cax_dynamic, cax_diff, cax_lines = colorbar_axes
 
         if main_mappable is not None and filled_key is not None:
             kwargs = plot_kwargs[filled_key]
             ticks = get_ticks_from_levels(kwargs)
             if self.spec.color_scale_mode == "manual" and self.spec.manual_color_min is not None:
                 ticks = np.linspace(self.spec.manual_color_min, self.spec.manual_color_max, 5)
-            colorbar = fig.colorbar(main_mappable, cax=cax_state, ticks=ticks)
+            colorbar = fig.colorbar(main_mappable, cax=cax_dynamic, ticks=ticks)
             colorbar.set_label(f"{kwargs.get('symbol', filled_key)} ({kwargs.get('units', '')})")
         else:
-            self._draw_line_legend(cax_state, overlay_keys, plot_kwargs, "State lines")
+            self._draw_line_legend(cax_dynamic, overlay_keys, plot_kwargs, "Lines")
 
         if self.spec.show_difference and diff_mappable is not None and filled_key is not None:
             kwargs = diff_kwargs[filled_key]
@@ -415,11 +417,11 @@ class FieldComparisonRenderer:
         )
         for y_pos, key in zip(y_positions, overlay_keys, strict=True):
             kwargs = plot_kwargs[key]
-            state_interval = kwargs["levels"][1] - kwargs["levels"][0]
+            dynamic_interval = kwargs["levels"][1] - kwargs["levels"][0]
             units = kwargs.get("units", "")
             label = (
                 f"{kwargs.get('symbol', key)} lines: "
-                f"{format_contour_interval(state_interval, units)}"
+                f"{format_contour_interval(dynamic_interval, units)}"
             )
             if include_difference:
                 field_diff_kwargs = diff_kwargs[key]

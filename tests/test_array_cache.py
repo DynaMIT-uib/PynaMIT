@@ -140,8 +140,8 @@ def test_transform_reuses_persisted_helmholtz_factor(tmp_path, monkeypatch):
     np.testing.assert_array_equal(observed, expected)
 
 
-def test_pfac_cache_excludes_transient_shell_evaluations(tmp_path, monkeypatch):
-    """PFAC excludes one-use quadrature operators."""
+def test_gap_Br_cache_excludes_transient_shell_evaluations(tmp_path, monkeypatch):
+    """The gap-Br cache excludes one-use quadrature operators."""
     cache_directory = tmp_path / "operator-cache"
     simulation_kwargs = {
         "Nmax": 2,
@@ -158,17 +158,17 @@ def test_pfac_cache_excludes_transient_shell_evaluations(tmp_path, monkeypatch):
     }
     first = pynamit.Simulation(run_directory=tmp_path / "first", **simulation_kwargs)
     evaluation_directory = first.operator_cache.directory / "sh_evaluation"
-    evaluations_before_pfac = len(tuple(evaluation_directory.glob("*.npy")))
-    expected = first.geometry.pfac_coupling_matrix
+    evaluations_before_gap_response = len(tuple(evaluation_directory.glob("*.npy")))
+    expected = first.geometry.boundary_jr_to_gap_Br_matrix
 
     cache = first.operator_cache
-    assert any((cache.directory / "pfac_coupling").glob("*.npy"))
-    assert len(tuple(evaluation_directory.glob("*.npy"))) == evaluations_before_pfac + 2
+    assert any((cache.directory / "gap_Br_response").glob("*.npy"))
+    assert len(tuple(evaluation_directory.glob("*.npy"))) == evaluations_before_gap_response + 2
 
     second = pynamit.Simulation(run_directory=tmp_path / "second", **simulation_kwargs)
     monkeypatch.setattr(
         second.geometry,
-        "_compute_pfac_matrix",
-        lambda: pytest.fail("persisted PFAC matrix was rebuilt"),
+        "_compute_gap_Br_response_matrix",
+        lambda: pytest.fail("persisted gap-Br response was rebuilt"),
     )
-    np.testing.assert_array_equal(second.geometry.pfac_coupling_matrix, expected)
+    np.testing.assert_array_equal(second.geometry.boundary_jr_to_gap_Br_matrix, expected)

@@ -17,10 +17,10 @@ def _settings(**attrs):
     return xr.Dataset(attrs=defaults)
 
 
-def _state_payload(n_magnetic, n_surface):
+def _output_payload(n_magnetic, n_surface):
     return {
-        "m_ind": np.zeros(n_magnetic),
-        "m_imp": np.zeros(n_surface),
+        "induced_Br": np.zeros(n_magnetic),
+        "boundary_jr": np.zeros(n_surface),
         "Phi": np.zeros(n_surface),
         "W": np.zeros(n_surface),
     }
@@ -41,33 +41,37 @@ def test_run_data_owns_schema_artifacts_and_field_series(tmp_path):
 
     assert data.run_directory == str(run_dir.resolve())
     assert data.settings_saved is False
-    assert data.pfac_matrix is None
+    assert data.gap_Br_response is None
     assert data.config.horizontal_basis_kind == "CS"
-    assert data.config.jr_projection_basis == "CS"
+    assert data.config.boundary_jr_projection_basis == "CS"
     data.save_settings_if_missing()
-    state_spaces = data.schema.output_field_spaces["state"]
-    n_magnetic = state_spaces["m_ind"].coefficient_length
-    n_surface = state_spaces["m_imp"].coefficient_length
-    data.save_pfac_matrix_if_missing(
-        xr.DataArray(np.zeros((n_magnetic, n_surface)), dims=("row", "col"), name="PFAC_matrix")
-    )
+    output_spaces = data.schema.output_field_spaces["dynamic"]
+    n_magnetic = output_spaces["induced_Br"].coefficient_length
+    n_surface = output_spaces["boundary_jr"].coefficient_length
+    data.save_gap_Br_response_if_missing(np.zeros((n_magnetic, n_surface)))
     data.input_series.add_entry(
-        "jr", {"jr": np.arange(data.schema.input_field_spaces["jr"].coefficient_length)}, time=0.0
+        "boundary_jr",
+        {
+            "boundary_jr": np.arange(
+                data.schema.input_field_spaces["boundary_jr"].coefficient_length
+            )
+        },
+        time=0.0,
     )
-    data.save_input_dataset("jr")
-    data.add_output_entry("state", _state_payload(n_magnetic, n_surface), time=0.0)
-    data.save_output_dataset("state")
+    data.save_input_dataset("boundary_jr")
+    data.add_output_entry("dynamic", _output_payload(n_magnetic, n_surface), time=0.0)
+    data.save_output_dataset("dynamic")
 
     reloaded = RunData.open(settings, run_directory=run_dir, artifact_storage="netcdf")
 
     assert reloaded.settings_saved is True
-    assert reloaded.pfac_matrix is not None
-    assert reloaded.pfac_matrix.dims == ("poloidal_i", "surface_i")
-    assert "jr" in reloaded.input_series.datasets
-    assert "state" in reloaded.output_series.datasets
-    np.testing.assert_allclose(reloaded.pfac_matrix.values, np.zeros((n_magnetic, n_surface)))
+    assert reloaded.gap_Br_response is not None
+    assert reloaded.gap_Br_response.dims == ("poloidal_i", "surface_i")
+    assert "boundary_jr" in reloaded.input_series.datasets
+    assert "dynamic" in reloaded.output_series.datasets
+    np.testing.assert_allclose(reloaded.gap_Br_response.values, np.zeros((n_magnetic, n_surface)))
     np.testing.assert_allclose(
-        reloaded.output_series.get_entry("state", 0.0)["m_imp"], np.zeros(n_surface)
+        reloaded.output_series.get_entry("dynamic", 0.0)["boundary_jr"], np.zeros(n_surface)
     )
 
 
@@ -91,18 +95,16 @@ def test_run_data_rejects_saved_settings_mismatch(tmp_path):
         RunData.open(_settings(Nmax=4), run_directory=run_dir, artifact_storage="netcdf")
 
 
-def test_run_data_compares_normalized_legacy_settings(tmp_path):
-    """Legacy attributes inherit defaults before comparison."""
+def test_run_data_rejects_legacy_magnetic_schema(tmp_path):
+    """A legacy run cannot be misread as physical magnetic variables."""
     run_dir = tmp_path / "run"
     legacy_settings = _settings()
     ArtifactStore(run_dir, preferred_dataset_storage="netcdf").save_dataset(
         legacy_settings, "settings"
     )
 
-    data = RunData.open(legacy_settings, run_directory=run_dir, artifact_storage="netcdf")
-
-    assert data.settings_saved is True
-    assert data.config.integrator == "euler"
+    with pytest.raises(ValueError, match="simulation schema"):
+        RunData.open(legacy_settings, run_directory=run_dir, artifact_storage="netcdf")
 
 
 def test_simulation_has_one_persistence_and_spatial_ownership_path(tmp_path):
@@ -135,16 +137,16 @@ def test_simulation_has_one_persistence_and_spatial_ownership_path(tmp_path):
         "backend",
     ):
         assert not hasattr(simulation, redundant_name)
-    assert simulation.run_data.pfac_matrix is None
+    assert simulation.run_data.gap_Br_response is None
 
 
 @pytest.mark.parametrize(
     ("enable_pfac_coupling", "expected_persisted"), [(True, True), (False, False)]
 )
-def test_simulation_persists_only_active_pfac_matrix(
+def test_simulation_persists_only_active_gap_Br_response(
     tmp_path, enable_pfac_coupling, expected_persisted
 ):
-    """Defer active PFAC work until model output is requested."""
+    """Defer active gap-field work until model output is requested."""
     simulation = Simulation(
         run_directory=str(tmp_path / "run"),
         Nmax=2,
@@ -161,12 +163,14 @@ def test_simulation_persists_only_active_pfac_matrix(
         log_ratio_coefficients=np.zeros(resistance_shape),
         time=0.0,
     )
-    jr_shape = simulation.run_data.schema.input_field_spaces["jr"].coefficient_shape
-    simulation.set_jr(jr_coefficients=np.zeros(jr_shape), time=0.0)
+    boundary_jr_shape = simulation.run_data.schema.input_field_spaces[
+        "boundary_jr"
+    ].coefficient_shape
+    simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
 
-    assert simulation.run_data.pfac_matrix is None
-    simulation.impose_steady_state(time=0.0, quiet=True)
-    assert (simulation.run_data.pfac_matrix is not None) is expected_persisted
+    assert simulation.run_data.gap_Br_response is None
+    simulation.impose_equilibrium(time=0.0, quiet=True)
+    assert (simulation.run_data.gap_Br_response is not None) is expected_persisted
 
 
 def test_simulation_from_directory_uses_saved_configuration(tmp_path):

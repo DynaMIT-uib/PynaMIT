@@ -8,7 +8,7 @@ The MAGE workflow has three explicit stages:
 3. This script creates one named run for each configured resolution.
 
 Edit ``SETTINGS`` below for the run sweep. Completed runs are skipped,
-while interrupted runs resume from their last saved state.
+while interrupted runs resume from their last saved checkpoint.
 """
 
 from __future__ import annotations
@@ -45,9 +45,9 @@ class RunSettings:
     sampling_step_interval: int = 1
     saving_sample_interval: int = 1
     integrator: str = "exponential"
-    m_imp_regularization_lambda: float = 0.0
-    steady_state_initialization: bool = True
-    run_steady_state: bool = True
+    toroidal_potential_regularization_lambda: float = 0.0
+    equilibrium_initialization: bool = True
+    run_equilibrium: bool = True
     artifact_storage: str = "auto"
 
 
@@ -68,11 +68,15 @@ class _RunTarget:
 
 def _last_projected_input_time(input_store: ArtifactStore) -> float:
     """Return the final time covered by the projected MAGE inputs."""
-    time = np.asarray(input_store.load_dataset("Br").time.values, dtype=float)
+    time = np.asarray(input_store.load_dataset("boundary_Br").time.values, dtype=float)
     if time.ndim != 1 or time.size == 0 or np.any(~np.isfinite(time)):
-        raise RuntimeError("Projected MAGE Br input must have a finite one-dimensional time axis.")
+        raise RuntimeError(
+            "Projected MAGE boundary-Br input must have a finite one-dimensional time axis."
+        )
     if time[0] < 0.0 or np.any(np.diff(time) <= 0.0):
-        raise RuntimeError("Projected MAGE Br input times must be non-negative and increasing.")
+        raise RuntimeError(
+            "Projected MAGE boundary-Br input times must be non-negative and increasing."
+        )
     return float(time[-1])
 
 
@@ -146,7 +150,7 @@ def main(settings: RunSettings = SETTINGS) -> None:
     """Run every configured MAGE projection."""
     targets = _run_targets(settings)
     print(
-        "Magnetic-boundary shielding of m_ind: "
+        "Magnetic-boundary shielding of induced_Br: "
         f"{'enabled' if settings.magnetic_boundary_shielding else 'disabled'}",
         flush=True,
     )
@@ -180,11 +184,11 @@ def main(settings: RunSettings = SETTINGS) -> None:
                 settings.interhemispheric_electric_field_weight
             ),
             magnetic_boundary_shielding=settings.magnetic_boundary_shielding,
-            steady_state_initialization=settings.steady_state_initialization,
-            run_inductive=True,
-            run_steady_state=settings.run_steady_state,
+            equilibrium_initialization=settings.equilibrium_initialization,
+            run_dynamic=True,
+            run_equilibrium=settings.run_equilibrium,
             integrator=settings.integrator,
-            m_imp_regularization_lambda=settings.m_imp_regularization_lambda,
+            toroidal_potential_regularization_lambda=settings.toroidal_potential_regularization_lambda,
             artifact_storage=settings.artifact_storage,
             operator_cache_directory=target.operator_cache_directory,
             skip_completed=True,

@@ -70,13 +70,23 @@ def evaluate_wind_coefficients(transform, coeffs, *, include_magnitude=True):
     return values
 
 
-def evaluate_JS_from_maps(m_imp, m_ind, *, m_imp_to_JS, m_ind_to_JS, Br=None, Br_to_JS=None):
-    """Evaluate total JS from magnetic and boundary-field maps."""
-    current = _apply_linear_map(m_imp_to_JS, m_imp) + _apply_linear_map(m_ind_to_JS, m_ind)
-    if Br is not None:
-        if Br_to_JS is None:
-            raise ValueError("Br_to_JS is required when Br coefficients are provided.")
-        current += _apply_linear_map(Br_to_JS, Br)
+def evaluate_JS_from_maps(
+    boundary_jr,
+    induced_Br,
+    *,
+    boundary_jr_to_JS,
+    induced_Br_to_JS,
+    boundary_Br=None,
+    boundary_Br_to_JS=None,
+):
+    """Evaluate sheet current from physical magnetic quantities."""
+    current = _apply_linear_map(boundary_jr_to_JS, boundary_jr) + _apply_linear_map(
+        induced_Br_to_JS, induced_Br
+    )
+    if boundary_Br is not None:
+        if boundary_Br_to_JS is None:
+            raise ValueError("boundary_Br_to_JS is required when boundary_Br is provided.")
+        current += _apply_linear_map(boundary_Br_to_JS, boundary_Br)
     return current.reshape(2, -1)
 
 

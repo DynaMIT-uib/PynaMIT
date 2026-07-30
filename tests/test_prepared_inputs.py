@@ -96,7 +96,7 @@ def test_native_scalar_inputs_are_stored_on_model_grid(tmp_path, monkeypatch):
         Nmax=2,
         Mmax=1,
         Ncs=8,
-        use_jr=False,
+        use_boundary_jr=False,
         artifact_storage="netcdf",
     )
     model_grid = prepared.geometry.model_grid
@@ -141,24 +141,24 @@ def test_input_manifest_records_projection_settings(tmp_path):
     config = SimulationConfig(Nmax=4, Mmax=3, Ncs=8, horizontal_basis_kind="CS")
 
     manifest = write_input_manifest(
-        tmp_path, config.to_dataset(), input_datasets=("conductance", "jr"), source="test"
+        tmp_path, config.to_dataset(), input_datasets=("conductance", "boundary_jr"), source="test"
     )
 
     loaded = read_input_manifest(tmp_path)
     assert loaded == manifest
     assert loaded["kind"] == "pynamit_prepared_inputs"
-    assert loaded["version"] == 4
+    assert loaded["version"] == 5
     assert "input_datasets" not in loaded
     assert "input_projection_settings" not in loaded
     assert "t0" not in loaded["input_contract"]["coefficient_space"]
     assert loaded["input_contract"]["coefficient_space"] == input_projection_settings(config)
     assert loaded["input_contract"]["geometry"] == input_geometry_settings(config)
     assert loaded["input_contract"]["geometry"]["input_time_origin"] == config.t0
-    assert loaded["input_contract"]["input_datasets"] == ["conductance", "jr"]
+    assert loaded["input_contract"]["input_datasets"] == ["conductance", "boundary_jr"]
     assert loaded["input_contract"]["dataset_requirements"] == {}
     assert (
         validate_input_manifest(
-            tmp_path, config.to_dataset(), available_inputs=("conductance", "jr")
+            tmp_path, config.to_dataset(), available_inputs=("conductance", "boundary_jr")
         )
         == loaded
     )
@@ -171,34 +171,39 @@ def test_input_manifest_records_geometry_bound_dataset_requirements(tmp_path):
     write_input_manifest(
         tmp_path,
         config.to_dataset(),
-        input_datasets=("Br", "Q_eff", "E_neutral_wind"),
+        input_datasets=("boundary_Br", "Q_eff", "E_neutral_wind"),
         source="test",
     )
 
     loaded = read_input_manifest(tmp_path)
     assert loaded["input_contract"] == prepared_input_contract(
-        config, ["Br", "Q_eff", "E_neutral_wind"]
+        config, ["boundary_Br", "Q_eff", "E_neutral_wind"]
     )
     assert loaded["input_contract"]["geometry"]["RM"] == 7.0e6
     assert loaded["input_contract"]["geometry"]["main_field_kind"] == "igrf"
-    assert loaded["input_contract"]["dataset_requirements"] == {"Br": ["RM"]}
+    assert loaded["input_contract"]["dataset_requirements"] == {"boundary_Br": ["RM"]}
     assert input_dataset_requirements(("conductance", "u")) == {}
 
 
 def test_input_manifest_validation_catches_stale_dataset_lists(tmp_path):
     """Manifest datasets should match the stored artifacts."""
     config = SimulationConfig(Nmax=4, Mmax=3, Ncs=8)
-    write_input_manifest(tmp_path, config.to_dataset(), input_datasets=("jr",), source="test")
+    write_input_manifest(
+        tmp_path, config.to_dataset(), input_datasets=("boundary_jr",), source="test"
+    )
 
     with pytest.raises(ValueError, match="listed but missing"):
         validate_input_manifest(tmp_path, config.to_dataset(), available_inputs=())
 
     with pytest.raises(ValueError, match="stored but not listed"):
         validate_input_manifest(
-            tmp_path, config.to_dataset(), available_inputs=("jr", "conductance")
+            tmp_path, config.to_dataset(), available_inputs=("boundary_jr", "conductance")
         )
     validate_input_manifest(
-        tmp_path, config.to_dataset(), available_inputs=("jr", "conductance"), allow_unlisted=True
+        tmp_path,
+        config.to_dataset(),
+        available_inputs=("boundary_jr", "conductance"),
+        allow_unlisted=True,
     )
 
 
@@ -212,17 +217,17 @@ def test_input_manifest_validation_can_require_manifest(tmp_path):
 
 def test_clear_prepared_input_package_removes_only_pynamit_artifacts(tmp_path):
     """Repreparing inputs must not retain old PynaMIT artifacts."""
-    (tmp_path / "jr.ncdf").write_text("stale", encoding="utf-8")
-    (tmp_path / "state.zarr").mkdir()
+    (tmp_path / "boundary_jr.ncdf").write_text("stale", encoding="utf-8")
+    (tmp_path / "dynamic.zarr").mkdir()
     (tmp_path / INPUT_MANIFEST_FILENAME).write_text("{}", encoding="utf-8")
     notes = tmp_path / "notes.txt"
     notes.write_text("keep", encoding="utf-8")
 
     removed = clear_prepared_input_package(tmp_path, artifact_storage="netcdf")
 
-    assert removed == ("jr", "state")
-    assert not (tmp_path / "jr.ncdf").exists()
-    assert not (tmp_path / "state.zarr").exists()
+    assert removed == ("boundary_jr", "dynamic")
+    assert not (tmp_path / "boundary_jr.ncdf").exists()
+    assert not (tmp_path / "dynamic.zarr").exists()
     assert not (tmp_path / INPUT_MANIFEST_FILENAME).exists()
     assert notes.read_text(encoding="utf-8") == "keep"
 
@@ -231,10 +236,14 @@ def test_input_manifest_validation_catches_contract_mismatch(tmp_path):
     """Manifest contracts should describe the settings artifact."""
     config = SimulationConfig(Nmax=4, Mmax=3, Ncs=8)
     changed_config = SimulationConfig(Nmax=5, Mmax=3, Ncs=8)
-    write_input_manifest(tmp_path, config.to_dataset(), input_datasets=("jr",), source="test")
+    write_input_manifest(
+        tmp_path, config.to_dataset(), input_datasets=("boundary_jr",), source="test"
+    )
 
     with pytest.raises(ValueError, match="does not match the settings artifact"):
-        validate_input_manifest(tmp_path, changed_config.to_dataset(), available_inputs=("jr",))
+        validate_input_manifest(
+            tmp_path, changed_config.to_dataset(), available_inputs=("boundary_jr",)
+        )
 
 
 def test_prepared_inputs_require_matching_main_field():
@@ -268,7 +277,7 @@ def test_br_inputs_require_matching_magnetosphere_radius():
 
     with pytest.raises(ValueError, match="RM"):
         validate_prepared_input_compatibility(
-            input_config.to_dataset(), run_config.to_dataset(), input_datasets=("Br",)
+            input_config.to_dataset(), run_config.to_dataset(), input_datasets=("boundary_Br",)
         )
 
 
@@ -302,12 +311,12 @@ def test_prepare_and_run_from_inputs_smoke(tmp_path):
 
     assert run.run_data.run_directory == str(run_directory.resolve())
     assert run.config.fac_integration_radii[-1] == pytest.approx(run.config.RM)
-    assert "state" in run.run_data.output_series.datasets
+    assert "dynamic" in run.run_data.output_series.datasets
     assert "conductance" in run.run_data.input_series.datasets
     assert (run_directory / "conductance.ncdf").exists()
     assert (run_directory / RUN_MANIFEST_FILENAME).exists()
     run_manifest = json.loads((run_directory / RUN_MANIFEST_FILENAME).read_text(encoding="utf-8"))
-    assert run_manifest["version"] == 2
+    assert run_manifest["version"] == 3
     assert run_manifest["input_manifest"] == manifest
     assert run_manifest["time_evolution"]["sampling_step_interval"] == 2
 
@@ -323,7 +332,7 @@ def test_prepare_and_run_from_inputs_smoke(tmp_path):
     )
 
     assert set(selected_run.run_data.input_series.datasets) == {"conductance"}
-    assert not (selected_run_directory / "jr.ncdf").exists()
+    assert not (selected_run_directory / "boundary_jr.ncdf").exists()
 
 
 def test_run_from_inputs_rejects_changed_input_identity(tmp_path):
@@ -351,7 +360,7 @@ def test_run_from_inputs_rejects_changed_input_identity(tmp_path):
             artifact_storage="netcdf",
         )
 
-    assert (run_directory / "jr.ncdf").exists()
+    assert (run_directory / "boundary_jr.ncdf").exists()
 
 
 def test_run_from_inputs_allows_prepared_package_relocation(tmp_path):
@@ -420,7 +429,7 @@ def test_run_from_inputs_skips_completed_run_before_geometry(monkeypatch, tmp_pa
     [
         ({"final_time": -1.0}, "finite, non-negative"),
         ({"skip_completed": "yes"}, "skip_completed"),
-        ({"run_inductive": False, "run_steady_state": False}, "At least one"),
+        ({"run_dynamic": False, "run_equilibrium": False}, "At least one"),
     ],
 )
 def test_run_from_inputs_validates_batch_options_before_skipping(tmp_path, kwargs, match):

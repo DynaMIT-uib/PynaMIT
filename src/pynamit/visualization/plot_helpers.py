@@ -375,7 +375,7 @@ def style_global_comparison_axis(
     left_labels=True,
     bottom_labels=True,
 ):
-    """Style a global axis for state-vs-baseline comparisons."""
+    """Style a global axis for output-vs-baseline comparisons."""
     return style_global_axis(
         ax,
         coordinate_context=coordinate_context,

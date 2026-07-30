@@ -3,16 +3,12 @@
 import numpy as np
 
 from pynamit.simulation.workflows.standard import run_pynamit
+from tests import magnetic_potential_coordinate_array
 
 
-def _final_state_coefficients(simulation):
-    """Return concatenated final magnetic state coefficients."""
-    return np.hstack(
-        (
-            simulation.run_data.output_series.datasets["state"]["SH_m_ind"].values[-1],
-            simulation.run_data.output_series.datasets["state"]["SH_m_imp"].values[-1],
-        )
-    )
+def _final_magnetic_coordinates(simulation):
+    """Return concatenated final private magnetic coordinates."""
+    return magnetic_potential_coordinate_array(simulation)
 
 
 def test_2d_igrf_pfac_hc_wind_cs_resistance_basis():
@@ -28,14 +24,14 @@ def test_2d_igrf_pfac_hc_wind_cs_resistance_basis():
         enable_interhemispheric_coupling=True,
         interhemispheric_coupling_latitude=50,
         use_wind=True,
-        steady_state_initialization=False,
+        equilibrium_initialization=False,
     )
 
     sh_resistance = run_pynamit(**common_kwargs)
     cs_resistance = run_pynamit(conductance_projection_basis="CS", **common_kwargs)
 
-    sh_coeffs = _final_state_coefficients(sh_resistance)
-    cs_coeffs = _final_state_coefficients(cs_resistance)
+    sh_coeffs = _final_magnetic_coordinates(sh_resistance)
+    cs_coeffs = _final_magnetic_coordinates(cs_resistance)
     relative_difference = np.linalg.norm(cs_coeffs - sh_coeffs) / np.linalg.norm(sh_coeffs)
 
     assert (

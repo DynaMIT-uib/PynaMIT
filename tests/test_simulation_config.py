@@ -62,8 +62,8 @@ def test_simulation_config_normalizes_projection_defaults():
     config = SimulationConfig(u_projection_basis="CS")
 
     assert config.horizontal_basis_kind == "SH"
-    assert config.jr_projection_basis == "SH"
-    assert config.Br_projection_basis == "SH"
+    assert config.boundary_jr_projection_basis == "SH"
+    assert config.boundary_Br_projection_basis == "SH"
     assert config.conductance_projection_basis == "SH"
     assert config.u_projection_basis == "CS"
     assert config.Q_eff_projection_basis == "CS"
@@ -75,15 +75,15 @@ def test_simulation_config_cs_mode_requires_cs_projection_routes():
     config = SimulationConfig(horizontal_basis_kind="cs")
 
     assert config.horizontal_basis_kind == "CS"
-    assert config.jr_projection_basis == "CS"
-    assert config.Br_projection_basis == "CS"
+    assert config.boundary_jr_projection_basis == "CS"
+    assert config.boundary_Br_projection_basis == "CS"
     assert config.conductance_projection_basis == "CS"
     assert config.u_projection_basis == "CS"
     assert config.Q_eff_projection_basis == "CS"
     assert config.E_neutral_wind_projection_basis == "CS"
 
-    with pytest.raises(ValueError, match="jr_projection_basis"):
-        SimulationConfig(horizontal_basis_kind="CS", jr_projection_basis="SH")
+    with pytest.raises(ValueError, match="boundary_jr_projection_basis"):
+        SimulationConfig(horizontal_basis_kind="CS", boundary_jr_projection_basis="SH")
 
 
 def test_simulation_config_dataset_roundtrip_preserves_stored_sentinels():
@@ -98,7 +98,7 @@ def test_simulation_config_dataset_roundtrip_preserves_stored_sentinels():
         enable_pfac_coupling=False,
         area_weighted_least_squares=True,
         reuse_preconditioner=True,
-        m_imp_regularization_lambda=1e-3,
+        toroidal_potential_regularization_lambda=1e-3,
     )
 
     settings = config.to_dataset()
@@ -113,7 +113,7 @@ def test_simulation_config_dataset_roundtrip_preserves_stored_sentinels():
     assert not restored.enable_pfac_coupling
     assert restored.area_weighted_least_squares
     assert restored.reuse_preconditioner
-    assert restored.m_imp_regularization_lambda == pytest.approx(1e-3)
+    assert restored.toroidal_potential_regularization_lambda == pytest.approx(1e-3)
     np.testing.assert_allclose(restored.fac_integration_radii, config.fac_integration_radii)
 
 
@@ -176,8 +176,8 @@ def test_simulation_config_parses_persisted_boolean_values_explicitly():
     assert not config.enable_pfac_coupling
     assert config.enable_interhemispheric_coupling
 
-    with pytest.raises(ValueError, match="save_steady_states"):
-        SimulationConfig(save_steady_states="sometimes")
+    with pytest.raises(ValueError, match="save_equilibria"):
+        SimulationConfig(save_equilibria="sometimes")
 
 
 def test_simulation_config_from_settings_rejects_conflicting_override():
@@ -195,7 +195,7 @@ def test_simulation_config_from_settings_uses_override_when_missing():
     config = SimulationConfig.from_settings(settings, horizontal_basis_kind="CS")
 
     assert config.horizontal_basis_kind == "CS"
-    assert config.jr_projection_basis == "CS"
+    assert config.boundary_jr_projection_basis == "CS"
 
 
 def test_simulation_config_enforces_radial_boundary_invariants():
@@ -275,7 +275,10 @@ def test_simulation_config_derives_missing_fac_grid_from_loaded_radii():
         ({"integrator": "leapfrog"}, "integrator"),
         ({"least_squares_solver": "inverse"}, "least_squares_solver"),
         ({"least_squares_preconditioner": "ilu"}, "least_squares_preconditioner"),
-        ({"m_imp_regularization_lambda": np.nan}, "m_imp_regularization_lambda"),
+        (
+            {"toroidal_potential_regularization_lambda": np.nan},
+            "toroidal_potential_regularization_lambda",
+        ),
     ],
 )
 def test_simulation_config_rejects_invalid_space_and_physical_settings(kwargs, message):

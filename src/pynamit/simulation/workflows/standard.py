@@ -30,17 +30,17 @@ def run_pynamit(
     interhemispheric_coupling_latitude=50,
     use_wind=False,
     use_Q_eff=False,
-    use_jr=True,
-    steady_state_initialization=True,
-    run_inductive=True,
-    run_steady_state=True,
-    jr_projection_basis=None,
-    Br_projection_basis=None,
+    use_boundary_jr=True,
+    equilibrium_initialization=True,
+    run_dynamic=True,
+    run_equilibrium=True,
+    boundary_jr_projection_basis=None,
+    boundary_Br_projection_basis=None,
     conductance_projection_basis=None,
     u_projection_basis=None,
     Q_eff_projection_basis=None,
     integrator="euler",
-    jr_lambda=None,
+    boundary_jr_lambda=None,
     conductance_lambda=None,
     u_lambda=None,
     Q_eff_lambda=None,
@@ -48,7 +48,7 @@ def run_pynamit(
     least_squares_solver=None,
     least_squares_preconditioner="pinv",
     reuse_preconditioner=False,
-    m_imp_regularization_lambda=0.0,
+    toroidal_potential_regularization_lambda=0.0,
     run_directory=None,
     input_directory=None,
     artifact_storage="auto",
@@ -63,7 +63,7 @@ def run_pynamit(
     final_time : float, optional
         The final time of the simulation in seconds.
     saving_sample_interval : int, optional
-        Number of sampled states between persistence writes.
+        Number of output samples between persistence writes.
     dt : float, optional
         The time step for the simulation.
     Nmax : int, optional
@@ -92,19 +92,19 @@ def run_pynamit(
     use_Q_eff : bool, optional
         Whether to represent neutral-wind driving through the effective
         current input Q_eff instead of direct wind forcing.
-    use_jr : bool, optional
+    use_boundary_jr : bool, optional
         Whether to include radial-current driving in the simulation.
-    steady_state_initialization : bool, optional
-        Whether to initialize a new inductive run from steady state.
-    run_inductive : bool, optional
-        Whether to run and save the inductive time-dependent state.
-    run_steady_state : bool, optional
-        Whether to calculate and save the algebraic steady-state
+    equilibrium_initialization : bool, optional
+        Whether to initialize a new dynamic run from equilibrium.
+    run_dynamic : bool, optional
+        Whether to run and save the time-dependent inductive solution.
+    run_equilibrium : bool, optional
+        Whether to calculate and save the instantaneous equilibrium
         solution.
-    jr_projection_basis : {'SH', 'CS'}, optional
+    boundary_jr_projection_basis : {'SH', 'CS'}, optional
         Basis route used when projecting radial-current inputs. Defaults
         to ``horizontal_basis_kind``.
-    Br_projection_basis : {'SH', 'CS'}, optional
+    boundary_Br_projection_basis : {'SH', 'CS'}, optional
         Basis route used when projecting radial magnetic-field inputs.
         Defaults to ``horizontal_basis_kind``.
     conductance_projection_basis : {'SH', 'CS'}, optional
@@ -119,10 +119,10 @@ def run_pynamit(
         Defaults to ``u_projection_basis``.
     integrator : {'euler', 'exponential', 'RK23', 'RK45', 'DOP853',
                   'Radau', 'BDF', 'LSODA'}, optional
-        Integrator used for magnetic-state evolution. SciPy method names
+        Integrator used for ``induced_Br`` evolution. SciPy method names
         are accepted case-insensitively and stored canonically.
-    jr_lambda : float, optional
-        Regularization parameter for the radial current.
+    boundary_jr_lambda : float, optional
+        Regularization parameter for the boundary radial current.
     conductance_lambda : float, optional
         Regularization parameter for the conductance.
     u_lambda : float, optional
@@ -130,13 +130,13 @@ def run_pynamit(
     Q_eff_lambda : float, optional
         Regularization parameter for the effective wind current.
     least_squares_solver : str, optional
-        Least-squares solver used by state feedback solves.
+        Solver used for the toroidal-potential least-squares problem.
     least_squares_preconditioner : {'jacobi', 'pinv', None}, optional
-        Preconditioner used by iterative least-squares state solves.
+        Preconditioner used by iterative toroidal-potential solves.
     reuse_preconditioner : bool, optional
         Keep a reusable iterative-solver preconditioner when valid.
-    m_imp_regularization_lambda : float, optional
-        Regularization strength for imposed-potential solves.
+    toroidal_potential_regularization_lambda : float, optional
+        Regularization strength for toroidal-potential solves.
     run_directory : str, optional
         Directory for one persisted run. If omitted, a unique
         timestamped run directory is created under ``simulation/``.
@@ -146,7 +146,7 @@ def run_pynamit(
     artifact_storage : {'auto', 'netcdf', 'zarr'}, optional
         Preferred storage backend for new saved xarray artifacts.
     horizontal_basis_kind : {'SH', 'CS'}, optional
-        Basis requested for horizontal state coefficients and surface
+        Basis requested for horizontal surface coefficients and
         operators. ``'SH'`` is the default; ``'CS'`` uses cubed-sphere
         nodal coefficients and finite differences for horizontal
         surface operators. Radial Laplace-continuation terms use the SH
@@ -178,12 +178,12 @@ def run_pynamit(
         main_field_kind=main_field_kind,
         main_field_epoch=main_field_epoch,
         main_field_B0=main_field_B0,
-        jr_projection_basis=jr_projection_basis,
-        Br_projection_basis=Br_projection_basis,
+        boundary_jr_projection_basis=boundary_jr_projection_basis,
+        boundary_Br_projection_basis=boundary_Br_projection_basis,
         conductance_projection_basis=conductance_projection_basis,
         u_projection_basis=u_projection_basis,
         Q_eff_projection_basis=Q_eff_projection_basis,
-        jr_lambda=jr_lambda,
+        boundary_jr_lambda=boundary_jr_lambda,
         conductance_lambda=conductance_lambda,
         u_lambda=u_lambda,
         Q_eff_lambda=Q_eff_lambda,
@@ -193,7 +193,7 @@ def run_pynamit(
         area_weighted_least_squares=area_weighted_least_squares,
         use_wind=use_wind,
         use_Q_eff=use_Q_eff,
-        use_jr=use_jr,
+        use_boundary_jr=use_boundary_jr,
     )
 
     return run_pynamit_from_inputs(
@@ -207,14 +207,14 @@ def run_pynamit(
         enable_pfac_coupling=enable_pfac_coupling,
         enable_interhemispheric_coupling=enable_interhemispheric_coupling,
         interhemispheric_coupling_latitude=interhemispheric_coupling_latitude,
-        steady_state_initialization=steady_state_initialization,
-        run_inductive=run_inductive,
-        run_steady_state=run_steady_state,
+        equilibrium_initialization=equilibrium_initialization,
+        run_dynamic=run_dynamic,
+        run_equilibrium=run_equilibrium,
         integrator=integrator,
         least_squares_solver=least_squares_solver,
         least_squares_preconditioner=least_squares_preconditioner,
         reuse_preconditioner=reuse_preconditioner,
-        m_imp_regularization_lambda=m_imp_regularization_lambda,
+        toroidal_potential_regularization_lambda=toroidal_potential_regularization_lambda,
         artifact_storage=artifact_storage,
         magnetic_boundary_shielding=magnetic_boundary_shielding,
     )

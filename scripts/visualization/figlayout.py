@@ -1,4 +1,4 @@
-"""Build and plot a representative steady-state simulation."""
+"""Build and plot a representative equilibrium simulation."""
 
 import datetime
 
@@ -9,7 +9,7 @@ import pyhwm2014  # https://github.com/rilma/pyHWM14
 from lompe import conductance
 
 import pynamit
-from pynamit.visualization.results import plot_state_diagnostics
+from pynamit.visualization.results import plot_output_diagnostics
 
 RE = 6371.2e3
 RI = RE + 110e3
@@ -49,7 +49,7 @@ jr = (
     * 1e-6
 )
 jr[np.abs(model_grid.lat) < 50] = 0
-simulation.set_jr(jr, lat=model_grid.lat, lon=model_grid.lon)
+simulation.set_boundary_jr(jr, lat=model_grid.lat, lon=model_grid.lon)
 
 hwm14 = pyhwm2014.HWM142D(
     alt=110.0,
@@ -74,7 +74,7 @@ simulation.set_neutral_wind(
     sqrt_weights=np.tile(np.sqrt(np.sin(np.deg2rad(90 - u_lat.flatten()))), (2, 1)),
 )
 
-simulation.impose_steady_state(time=0.0, save=True, quiet=True)
-plot_state_diagnostics(
-    simulation, title="State diagnostic summary", filename=None, noon_longitude=noon_longitude
+simulation.impose_equilibrium(time=0.0, save=True, quiet=True)
+plot_output_diagnostics(
+    simulation, title="Output diagnostic summary", filename=None, noon_longitude=noon_longitude
 )

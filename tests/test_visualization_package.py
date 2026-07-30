@@ -18,8 +18,8 @@ def test_magnetic_boundary_operators_are_available():
         "pynamit.simulation.electrodynamics.magnetic_boundary"
     )
 
-    assert callable(magnetic_boundary.m_ind_to_gridded_JS)
-    assert callable(magnetic_boundary.m_imp_to_gridded_JS)
+    assert callable(magnetic_boundary.induced_Br_to_gridded_JS_operator)
+    assert callable(magnetic_boundary.boundary_jr_to_gridded_JS_operator)
     assert callable(grid_evaluation.build_JS_operators)
 
 
@@ -84,7 +84,7 @@ def test_panel_figure_specs_are_visualization_api():
     assert visualization.SavedCoefficientFieldView is run_fields.SavedCoefficientFieldView
 
 
-def test_saved_field_view_loads_projected_input_package_without_state(tmp_path):
+def test_saved_field_view_loads_projected_input_package_without_output(tmp_path):
     """Projection packages should be inspectable before a run exists."""
     run_fields = importlib.import_module("pynamit.visualization.run_fields")
 
@@ -106,23 +106,27 @@ def test_saved_field_view_loads_projected_input_package_without_state(tmp_path):
         time=0.0,
     )
 
-    jr_shape = simulation.run_data.schema.input_field_spaces["jr"].coefficient_shape
-    simulation.set_jr(jr_coefficients=np.zeros(jr_shape), time=0.0)
+    boundary_jr_shape = simulation.run_data.schema.input_field_spaces[
+        "boundary_jr"
+    ].coefficient_shape
+    simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
 
-    br_shape = simulation.run_data.schema.input_field_spaces["Br"].coefficient_shape
-    simulation.set_Br(Br_coefficients=np.zeros(br_shape), time=0.0)
+    boundary_Br_shape = simulation.run_data.schema.input_field_spaces[
+        "boundary_Br"
+    ].coefficient_shape
+    simulation.set_boundary_Br(boundary_Br_coefficients=np.zeros(boundary_Br_shape), time=0.0)
 
     view = run_fields.SavedCoefficientFieldView.from_directory(tmp_path)
 
-    assert view.has_output_state is False
+    assert view.has_model_output is False
     assert view.n_time == 1
-    assert "state" not in view.run_view.datasets
-    assert {"Br", "jr", "conductance"}.issubset(view.run_view.datasets)
-    assert view.state_evaluator is None
+    assert "dynamic" not in view.run_view.datasets
+    assert {"boundary_Br", "boundary_jr", "conductance"}.issubset(view.run_view.datasets)
+    assert view.output_evaluator is None
     assert view.run_view.geometry is None
-    assert view.state_evaluation_context is None
+    assert view.output_evaluation_context is None
     assert view.sheet_current_maps is None
-    assert view.input_evaluators["jr"] is view.input_evaluators["Br"]
+    assert view.input_evaluators["boundary_jr"] is view.input_evaluators["boundary_Br"]
     assert view.input_evaluators["u"] is None
     assert view.input_evaluators["Q_eff"] is None
     assert view.input_evaluators["E_neutral_wind"] is None
@@ -148,34 +152,36 @@ def test_saved_field_view_loads_without_boundary_br(tmp_path):
         log_ratio_coefficients=np.zeros(resistance_shape),
         time=0.0,
     )
-    jr_shape = simulation.run_data.schema.input_field_spaces["jr"].coefficient_shape
-    simulation.set_jr(jr_coefficients=np.zeros(jr_shape), time=0.0)
-    simulation.impose_steady_state(time=0.0, save=True, quiet=True)
+    boundary_jr_shape = simulation.run_data.schema.input_field_spaces[
+        "boundary_jr"
+    ].coefficient_shape
+    simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
+    simulation.impose_equilibrium(time=0.0, save=True, quiet=True)
 
     view = run_fields.SavedCoefficientFieldView.from_directory(tmp_path)
     assert view.run_view.geometry is None
-    assert view.state_evaluation_context is None
+    assert view.output_evaluation_context is None
     assert view.sheet_current_maps is None
-    with pytest.raises(ValueError, match="Unknown state fields"):
-        view.state_comparison_grid_fields(0, field_names={"not-a-field"})
+    with pytest.raises(ValueError, match="Unknown output fields"):
+        view.solution_comparison_grid_fields(0, field_names={"not-a-field"})
     assert view.run_view.geometry is None
 
-    fields = view.state_comparison_grid_fields(0, field_names={"Br"})
+    fields = view.solution_comparison_grid_fields(0, field_names={"Br"})
     input_fields = view.input_grid_fields(0)
 
-    assert view.has_output_state
+    assert view.has_model_output
     assert view.run_view.geometry is not None
-    assert view.state_evaluation_context is not None
+    assert view.output_evaluation_context is not None
     assert view.sheet_current_maps is None
-    assert "Br" not in view.run_view.datasets
-    assert set(view.available_inputs) == {"jr", "conductance"}
-    assert set(fields) == {"Br_state", "Br_steady"}
-    assert fields["Br_state"].shape == view.lat.shape
+    assert "boundary_Br" not in view.run_view.datasets
+    assert set(view.available_inputs) == {"boundary_jr", "conductance"}
+    assert set(fields) == {"Br_dynamic", "Br_equilibrium"}
+    assert fields["Br_dynamic"].shape == view.lat.shape
     assert np.all(np.isnan(input_fields["Br"]))
 
 
-def test_saved_state_joule_uses_pedersen_dissipation():
-    """Saved-state Joule heating follows the Pedersen closure."""
+def test_saved_output_joule_uses_pedersen_dissipation():
+    """Saved-output Joule heating follows the Pedersen closure."""
     run_fields = importlib.import_module("pynamit.visualization.run_fields")
 
     class IdentityEvaluator:
@@ -186,10 +192,10 @@ def test_saved_state_joule_uses_pedersen_dissipation():
         def synthesize_helmholtz(coeffs):
             return np.asarray(coeffs)[0], np.asarray(coeffs)[1]
 
-    state = xr.Dataset(
+    output = xr.Dataset(
         {
-            "SH_m_ind": (("time", "coefficient"), [[1.0, 2.0]]),
-            "SH_m_imp": (("time", "coefficient"), [[3.0, 4.0]]),
+            "SH_induced_Br": (("time", "coefficient"), [[1.0, 2.0]]),
+            "SH_boundary_jr": (("time", "coefficient"), [[3.0, 4.0]]),
             "SH_Phi": (("time", "coefficient"), [[5.0, 6.0]]),
             "SH_W": (("time", "coefficient"), [[7.0, 8.0]]),
         },
@@ -207,46 +213,46 @@ def test_saved_state_joule_uses_pedersen_dissipation():
         coords={"time": [0.0]},
     )
     zero_map = np.zeros((2, 2))
-    state_evaluation_context = {
+    output_evaluation_context = {
         "RI": 2.0,
-        "m_ind_to_Br": zero_map,
-        "m_imp_to_jr": zero_map,
-        "m_ind_to_Jeq": zero_map,
+        "induced_Br_to_Br": zero_map,
+        "boundary_jr_to_jr": zero_map,
+        "induced_Br_to_Jeq": zero_map,
         "pedersen_geometry": np.moveaxis(
             np.array([[[2.0, 1.0], [1.0, 3.0]], [[4.0, 0.0], [0.0, 5.0]]]), 0, -1
         ),
     }
     sheet_current_maps = {
-        "m_ind_to_JS": np.array([np.eye(2), np.zeros((2, 2))]),
-        "m_imp_to_JS": np.array([np.zeros((2, 2)), np.eye(2)]),
-        "Br_to_JS": None,
+        "induced_Br_to_JS": np.array([np.eye(2), np.zeros((2, 2))]),
+        "boundary_jr_to_JS": np.array([np.zeros((2, 2)), np.eye(2)]),
+        "boundary_Br_to_JS": None,
     }
 
-    fields = run_fields.compute_state_comparison_fields_at_index(
+    fields = run_fields.compute_solution_comparison_fields_at_index(
         0,
-        {"state": state, "conductance": conductance},
+        {"dynamic": output, "conductance": conductance},
         IdentityEvaluator(),
         IdentityEvaluator(),
-        state_evaluation_context,
+        output_evaluation_context,
         sheet_current_maps,
-    )["state"]
+    )["dynamic"]
 
     np.testing.assert_allclose(fields["joule"], [70.0, 288.0])
 
-    steady_fields = run_fields.compute_state_comparison_fields_at_index(
+    equilibrium_fields = run_fields.compute_solution_comparison_fields_at_index(
         0,
-        {"steady_state": state, "conductance": conductance},
+        {"equilibrium": output, "conductance": conductance},
         IdentityEvaluator(),
         IdentityEvaluator(),
-        state_evaluation_context,
+        output_evaluation_context,
         sheet_current_maps,
-    )["steady"]
+    )["equilibrium"]
 
-    np.testing.assert_allclose(steady_fields["joule"], fields["joule"])
+    np.testing.assert_allclose(equilibrium_fields["joule"], fields["joule"])
 
 
-def test_saved_field_view_supports_steady_state_only_output(tmp_path):
-    """A valid steady-only run remains visualizable as model output."""
+def test_saved_field_view_supports_equilibrium_only_output(tmp_path):
+    """An equilibrium-only run remains visualizable."""
     run_fields = importlib.import_module("pynamit.visualization.run_fields")
 
     simulation = pynamit.Simulation(
@@ -265,20 +271,22 @@ def test_saved_field_view_supports_steady_state_only_output(tmp_path):
         log_ratio_coefficients=np.zeros(resistance_shape),
         time=0.0,
     )
-    jr_shape = simulation.run_data.schema.input_field_spaces["jr"].coefficient_shape
-    simulation.set_jr(jr_coefficients=np.zeros(jr_shape), time=0.0)
-    simulation.impose_steady_state(time=0.0, save=True, quiet=True)
-    simulation.run_data.artifact_store.remove_artifact("state")
+    boundary_jr_shape = simulation.run_data.schema.input_field_spaces[
+        "boundary_jr"
+    ].coefficient_shape
+    simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
+    simulation.impose_equilibrium(time=0.0, save=True, quiet=True)
+    simulation.run_data.artifact_store.remove_artifact("dynamic")
 
     view = run_fields.SavedCoefficientFieldView.from_directory(tmp_path)
-    fields = view.state_comparison_grid_fields(0)
+    fields = view.solution_comparison_grid_fields(0)
 
-    assert view.has_output_state
-    assert "state" not in view.run_view.datasets
-    assert "steady_state" in view.run_view.datasets
+    assert view.has_model_output
+    assert "dynamic" not in view.run_view.datasets
+    assert "equilibrium" in view.run_view.datasets
     assert view.run_view.geometry is not None
-    assert "Br_steady" in fields
-    assert "Br_state" not in fields
+    assert "Br_equilibrium" in fields
+    assert "Br_dynamic" not in fields
 
 
 def test_saved_field_view_aligns_inputs_by_time_not_index(tmp_path):
@@ -294,24 +302,26 @@ def test_saved_field_view_aligns_inputs_by_time_not_index(tmp_path):
         enable_pfac_coupling=False,
         artifact_storage="netcdf",
     )
-    br_shape = simulation.run_data.schema.input_field_spaces["Br"].coefficient_shape
+    br_shape = simulation.run_data.schema.input_field_spaces["boundary_Br"].coefficient_shape
     br_coefficients = np.zeros((3, *br_shape))
     br_coefficients[0] = 1.0
     br_coefficients[1] = 2.0
     br_coefficients[2] = 3.0
-    simulation.set_Br(Br_coefficients=br_coefficients, time=np.array([0.0, 10.0, 20.0]))
-    xr.Dataset(coords={"time": np.array([0.0, 20.0])}).to_netcdf(tmp_path / "state.ncdf")
+    simulation.set_boundary_Br(
+        boundary_Br_coefficients=br_coefficients, time=np.array([0.0, 10.0, 20.0])
+    )
+    xr.Dataset(coords={"time": np.array([0.0, 20.0])}).to_netcdf(tmp_path / "dynamic.ncdf")
 
     view = run_fields.SavedCoefficientFieldView.from_directory(tmp_path)
     fields = view.input_grid_fields(1)
     expected = (
-        view.input_evaluators["Br"]
+        view.input_evaluators["boundary_Br"]
         .scalar_coeffs_to_grid.dot(br_coefficients[2])
         .reshape(view.lat.shape)
     )
 
     assert view.n_time == 2
-    assert view.run_view.datasets["Br"].sizes["time"] == 3
+    assert view.run_view.datasets["boundary_Br"].sizes["time"] == 3
     np.testing.assert_allclose(fields["Br"], expected)
 
 
@@ -365,22 +375,24 @@ def test_saved_field_view_keeps_model_and_geographic_evaluation_grids_separate(t
         log_ratio_coefficients=np.zeros(resistance_shape),
         time=0.0,
     )
-    jr_shape = simulation.run_data.schema.input_field_spaces["jr"].coefficient_shape
-    simulation.set_jr(jr_coefficients=np.zeros(jr_shape), time=0.0)
-    simulation.impose_steady_state(time=0.0, save=True, quiet=True)
+    boundary_jr_shape = simulation.run_data.schema.input_field_spaces[
+        "boundary_jr"
+    ].coefficient_shape
+    simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
+    simulation.impose_equilibrium(time=0.0, save=True, quiet=True)
 
     view = run_fields.SavedCoefficientFieldView.from_directory(tmp_path, nlat=6, nlon=8)
     geographic = view._get_geographic_evaluation()
-    geographic_state_evaluator = view._geographic_state_evaluator(geographic)
+    geographic_output_evaluator = view._geographic_output_evaluator(geographic)
     expected_lat, expected_lon = view.run_view.main_field.geo_to_model_coordinates(
         view.lat, view.lon, event_time=view._fallback_start_time()
     )
 
-    np.testing.assert_allclose(view.state_evaluator.grid.lat, view.lat.reshape(-1))
-    np.testing.assert_allclose(view.state_evaluator.grid.lon, view.lon.reshape(-1))
-    np.testing.assert_allclose(geographic_state_evaluator.grid.lat, expected_lat.reshape(-1))
-    np.testing.assert_allclose(geographic_state_evaluator.grid.lon, expected_lon.reshape(-1))
-    assert geographic_state_evaluator.grid != view.state_evaluator.grid
+    np.testing.assert_allclose(view.output_evaluator.grid.lat, view.lat.reshape(-1))
+    np.testing.assert_allclose(view.output_evaluator.grid.lon, view.lon.reshape(-1))
+    np.testing.assert_allclose(geographic_output_evaluator.grid.lat, expected_lat.reshape(-1))
+    np.testing.assert_allclose(geographic_output_evaluator.grid.lon, expected_lon.reshape(-1))
+    assert geographic_output_evaluator.grid != view.output_evaluator.grid
     assert view._get_geographic_evaluation() is geographic
     assert view.geographic_map_context() == run_fields.MapCoordinateContext.geographic(
         pd.Timestamp(view._fallback_start_time()).to_pydatetime()
@@ -401,8 +413,12 @@ def test_saved_field_view_reuses_earth_fixed_geographic_mapping(tmp_path):
         enable_pfac_coupling=False,
         artifact_storage="netcdf",
     )
-    jr_shape = simulation.run_data.schema.input_field_spaces["jr"].coefficient_shape
-    simulation.set_jr(jr_coefficients=np.zeros((2, *jr_shape)), time=np.array([0.0, 3600.0]))
+    boundary_jr_shape = simulation.run_data.schema.input_field_spaces[
+        "boundary_jr"
+    ].coefficient_shape
+    simulation.set_boundary_jr(
+        boundary_jr_coefficients=np.zeros((2, *boundary_jr_shape)), time=np.array([0.0, 3600.0])
+    )
 
     view = run_fields.SavedCoefficientFieldView.from_directory(tmp_path, nlat=6, nlon=8)
     first_time = view.timestamp_at_index(0)
@@ -434,8 +450,10 @@ def test_kaiju_hemisphere_plot_coordinates_are_magnetic(tmp_path):
         enable_pfac_coupling=False,
         artifact_storage="netcdf",
     )
-    jr_shape = simulation.run_data.schema.input_field_spaces["jr"].coefficient_shape
-    simulation.set_jr(jr_coefficients=np.zeros(jr_shape), time=0.0)
+    boundary_jr_shape = simulation.run_data.schema.input_field_spaces[
+        "boundary_jr"
+    ].coefficient_shape
+    simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
 
     view = run_fields.SavedCoefficientFieldView.from_directory(tmp_path, nlat=6, nlon=8)
     magnetic_latitude, magnetic_longitude = view.magnetic_plot_coordinates()
@@ -499,8 +517,10 @@ def test_saved_field_view_rejects_unknown_display_coordinate_system(tmp_path):
         enable_pfac_coupling=False,
         artifact_storage="netcdf",
     )
-    jr_shape = simulation.run_data.schema.input_field_spaces["jr"].coefficient_shape
-    simulation.set_jr(jr_coefficients=np.zeros(jr_shape), time=0.0)
+    boundary_jr_shape = simulation.run_data.schema.input_field_spaces[
+        "boundary_jr"
+    ].coefficient_shape
+    simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
     view = run_fields.SavedCoefficientFieldView.from_directory(tmp_path)
 
     with pytest.raises(ValueError, match="coordinate_system"):
@@ -523,13 +543,13 @@ def test_field_renderer_selects_coordinates_for_map_type(
 
     class CapturingView:
         lat, lon = np.meshgrid(np.linspace(-80.0, 80.0, 4), np.linspace(-180.0, 180.0, 5))
-        run_view = type("RunView", (), {"datasets": {"state": object()}})()
+        run_view = type("RunView", (), {"datasets": {"dynamic": object()}})()
         coordinate_system = None
 
-        def state_comparison_grid_fields(self, index, *, field_names, coordinate_system):
+        def solution_comparison_grid_fields(self, index, *, field_names, coordinate_system):
             del index, field_names
             self.coordinate_system = coordinate_system
-            return {"Br_state": np.zeros(self.lat.shape)}
+            return {"Br_dynamic": np.zeros(self.lat.shape)}
 
         @staticmethod
         def timestamp_at_index(index):
@@ -580,12 +600,15 @@ def test_field_renderer_applies_manual_fill_and_line_levels(monkeypatch):
 
     class View:
         lat, lon = np.meshgrid(np.linspace(-80.0, 80.0, 4), np.linspace(-180.0, 180.0, 5))
-        run_view = type("RunView", (), {"datasets": {"steady_state": object()}})()
+        run_view = type("RunView", (), {"datasets": {"equilibrium": object()}})()
 
         @classmethod
-        def state_comparison_grid_fields(cls, index, *, field_names, coordinate_system):
+        def solution_comparison_grid_fields(cls, index, *, field_names, coordinate_system):
             del index, field_names, coordinate_system
-            return {"jr_steady": np.zeros(cls.lat.shape), "Phi_steady": np.zeros(cls.lat.shape)}
+            return {
+                "jr_equilibrium": np.zeros(cls.lat.shape),
+                "Phi_equilibrium": np.zeros(cls.lat.shape),
+            }
 
         @staticmethod
         def timestamp_at_index(index):
@@ -663,7 +686,7 @@ def test_hemisphere_renderer_uses_cutoff_and_writes_coordinate_labels(monkeypatc
         hemisphere_min_abs_latitude=42.0,
     )
 
-    figure, _, _ = renderer._create_hemisphere_axes([("state", "Inductive")], 1)
+    figure, _, _ = renderer._create_hemisphere_axes([("dynamic", "Inductive")], 1)
     try:
         assert len(captured) == 1
         assert captured[0].min_abs_latitude == 42.0
@@ -676,7 +699,7 @@ def test_hemisphere_renderer_uses_cutoff_and_writes_coordinate_labels(monkeypatc
 
 
 def test_line_legend_omits_unused_difference_interval():
-    """A single-state plot should not advertise difference contours."""
+    """A single-field plot should not advertise difference contours."""
     import matplotlib.pyplot as plt
 
     figures = importlib.import_module("pynamit.visualization.field_comparison_figures")
@@ -857,7 +880,7 @@ def test_saved_field_view_cache_replaces_stale_run_version(tmp_path, monkeypatch
     """Live-run updates replace rather than accumulate cached views."""
     figure_context = importlib.import_module("pynamit.visualization.figure_context")
     figure_specs = importlib.import_module("pynamit.visualization.figure_specs")
-    fingerprint = [("state", 1)]
+    fingerprint = [("dynamic", 1)]
     views = iter((object(), object()))
     monkeypatch.setattr(
         figure_context, "_artifact_fingerprint", lambda _directory: tuple(fingerprint)
@@ -872,7 +895,7 @@ def test_saved_field_view_cache_replaces_stale_run_version(tmp_path, monkeypatch
 
     first = figure_context.get_saved_field_view(spec)
     assert figure_context.get_saved_field_view(spec) is first
-    fingerprint[0] = ("state", 2)
+    fingerprint[0] = ("dynamic", 2)
     second = figure_context.get_saved_field_view(spec)
 
     assert second is not first
@@ -882,7 +905,7 @@ def test_saved_field_view_cache_replaces_stale_run_version(tmp_path, monkeypatch
 def test_saved_field_view_fingerprint_detects_nested_store_changes(tmp_path):
     """In-place Zarr chunk additions invalidate a saved field view."""
     figure_context = importlib.import_module("pynamit.visualization.figure_context")
-    chunk_directory = tmp_path / "state.zarr" / "SH_m_ind"
+    chunk_directory = tmp_path / "dynamic.zarr" / "SH_induced_Br"
     chunk_directory.mkdir(parents=True)
     (chunk_directory / "0").write_bytes(b"first")
 

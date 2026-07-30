@@ -62,14 +62,14 @@ def build_simulation(
 
 
 def fetch_model_dense_matrices(
-    simulation: Simulation, *, df_only: bool = False, include_Br: bool = True
+    simulation: Simulation, *, df_only: bool = False, include_boundary_Br: bool = True
 ) -> dict[str, np.ndarray]:
     """Return dense matrices from the active simulation response."""
     response = simulation.response
     matrices = (
-        response.E_df_matrices(include_Br=include_Br)
+        response.E_df_matrices(include_boundary_Br=include_boundary_Br)
         if df_only
-        else response.m_ind_rate_matrices(include_Br=include_Br)
+        else response.induced_Br_rate_matrices(include_boundary_Br=include_boundary_Br)
     )
     return {
         key: np.asarray(to_numpy(block_until_ready(matrix))) for key, matrix in matrices.items()
@@ -78,14 +78,14 @@ def fetch_model_dense_matrices(
 
 def _print_summary(matrices: dict[str, np.ndarray]) -> None:
     order = (
-        "d_m_ind_dt_from_u",
-        "d_m_ind_dt_from_jr",
-        "d_m_ind_dt_from_Br",
-        "d_m_ind_dt_from_m_ind",
+        "d_induced_Br_dt_from_u",
+        "d_induced_Br_dt_from_boundary_jr",
+        "d_induced_Br_dt_from_boundary_Br",
+        "d_induced_Br_dt_from_induced_Br",
         "E_df_from_u",
-        "E_df_from_jr",
-        "E_df_from_Br",
-        "E_df_from_m_ind",
+        "E_df_from_boundary_jr",
+        "E_df_from_boundary_Br",
+        "E_df_from_induced_Br",
     )
     for key in [key for key in order if key in matrices]:
         matrix = np.asarray(matrices[key])
@@ -134,7 +134,7 @@ def main() -> None:
         "--least-squares-solver",
         type=str,
         default="normal_pinv",
-        help="Least-squares solver used for m_imp response matrices.",
+        help="Least-squares solver used for toroidal-potential responses.",
     )
     parser.add_argument(
         "--artifact-storage",
@@ -156,7 +156,7 @@ def main() -> None:
         help="Optional .npz path for saving the extracted dense matrices.",
     )
     parser.add_argument(
-        "--df-only", action="store_true", help="Return E_df maps instead of d(m_ind)/dt maps."
+        "--df-only", action="store_true", help="Return E_df maps instead of d(induced_Br)/dt maps."
     )
     parser.add_argument(
         "--exclude-br",
@@ -179,7 +179,7 @@ def main() -> None:
         least_squares_solver=args.least_squares_solver,
     )
     matrices = fetch_model_dense_matrices(
-        simulation, df_only=bool(args.df_only), include_Br=not bool(args.exclude_br)
+        simulation, df_only=bool(args.df_only), include_boundary_Br=not bool(args.exclude_br)
     )
     _print_summary(matrices)
 

@@ -9,8 +9,8 @@ from pathlib import Path
 
 MAP_FILL_OPTIONS = {
     "none": "No fill",
-    "Br": "Radial B-field",
-    "jr": "Radial current",
+    "Br": "Induced radial B field",
+    "jr": "Boundary radial current",
     "joule": "Joule heating",
 }
 

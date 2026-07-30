@@ -22,9 +22,9 @@ from pynamit.visualization.grid_evaluation import (
 from pynamit.visualization.map_coordinates import MapCoordinateContext
 from pynamit.visualization.saved_run import SavedRunView
 
-INPUT_ARTIFACT_KEYS = ("Br", "jr", "conductance", "u", "Q_eff", "E_neutral_wind")
+INPUT_ARTIFACT_KEYS = ("boundary_Br", "boundary_jr", "conductance", "u", "Q_eff", "E_neutral_wind")
 TANGENTIAL_INPUT_KEYS = ("u", "Q_eff", "E_neutral_wind")
-STATE_FIELD_NAMES = frozenset({"Br", "jr", "Jeq", "Phi", "W", "joule"})
+OUTPUT_FIELD_NAMES = frozenset({"Br", "jr", "Jeq", "Phi", "W", "joule"})
 _DISPLAY_COORDINATE_SYSTEMS = frozenset({"model", "geographic"})
 
 
@@ -38,17 +38,17 @@ def _normalize_display_coordinate_system(coordinate_system):
     return normalized
 
 
-def _normalize_state_field_names(field_names):
+def _normalize_output_field_names(field_names):
     """Return a validated immutable field selection."""
     if field_names is None:
-        selected = STATE_FIELD_NAMES
+        selected = OUTPUT_FIELD_NAMES
     elif isinstance(field_names, str):
         selected = frozenset({field_names})
     else:
         selected = frozenset(field_names)
-    unknown_fields = selected - STATE_FIELD_NAMES
+    unknown_fields = selected - OUTPUT_FIELD_NAMES
     if unknown_fields:
-        raise ValueError(f"Unknown state fields requested: {sorted(unknown_fields)}.")
+        raise ValueError(f"Unknown output fields requested: {sorted(unknown_fields)}.")
     return selected
 
 
@@ -92,9 +92,9 @@ class _GeographicEvaluation:
 
     scalar_grid: object
     vector_grid: object
-    state_evaluator: object | None
+    output_evaluator: object | None
     input_evaluators: dict[str, object | None] = field(default_factory=dict)
-    state_evaluation_context: dict[str, object] | None = None
+    output_evaluation_context: dict[str, object] | None = None
     sheet_current_maps: dict[str, object] | None = None
 
 
@@ -131,20 +131,19 @@ def _apply_flat_operator(operator, coeffs):
     return np.asarray(values).reshape(-1)
 
 
-def _state_evaluation_context(config, geometry, evaluator):
-    """Return geometry and maps for evaluating saved state fields."""
+def _output_evaluation_context(config, geometry, evaluator):
+    """Return geometry and maps for evaluating saved output fields."""
     ri = float(config.RI)
     poloidal_evaluator = geometry.poloidal_transform_for(evaluator)
     return {
         "RI": ri,
-        "m_ind_to_Br": (
-            poloidal_evaluator.scalar_coeffs_to_grid_operator @ geometry.m_ind_to_Br_operator
-        ),
-        "m_imp_to_jr": evaluator.scalar_coeffs_to_grid_operator @ geometry.m_imp_to_jr_operator,
-        "m_ind_to_Jeq": (-ri / mu0)
+        "induced_Br_to_Br": poloidal_evaluator.scalar_coeffs_to_grid_operator,
+        "boundary_jr_to_jr": evaluator.scalar_coeffs_to_grid_operator,
+        "induced_Br_to_Jeq": (-ri / mu0)
         * (
             poloidal_evaluator.scalar_coeffs_to_grid_operator
             @ geometry.poloidal_to_boundary_potential_jump_factor_operator
+            @ geometry.induced_Br_to_poloidal_potential_operator
         ),
     }
 
@@ -153,28 +152,42 @@ def _sheet_current_maps(geometry, evaluator):
     """Return source-to-sheet-current maps on the plotting grid."""
     poloidal_evaluator = geometry.poloidal_transform_for(evaluator)
     return {
-        "m_ind_to_JS": geometry.m_ind_to_gridded_JS(
+        "induced_Br_to_JS": geometry.induced_Br_to_gridded_JS(
             evaluator, poloidal_transform=poloidal_evaluator
         ),
-        "m_imp_to_JS": geometry.m_imp_to_gridded_JS(
+        "boundary_jr_to_JS": geometry.boundary_jr_to_gridded_JS(
             evaluator, poloidal_transform=poloidal_evaluator
         ),
-        "Br_to_JS": geometry.Br_to_gridded_JS(evaluator, poloidal_transform=poloidal_evaluator),
+        "boundary_Br_to_JS": geometry.boundary_Br_to_gridded_JS(
+            evaluator, poloidal_transform=poloidal_evaluator
+        ),
     }
 
 
-def _state_fields_from_coefficients(
-    m_ind, m_imp, phi_coeffs, w_coeffs, evaluator, state_evaluation_context, field_names
+def _output_fields_from_coefficients(
+    induced_Br,
+    boundary_jr,
+    phi_coeffs,
+    w_coeffs,
+    evaluator,
+    output_evaluation_context,
+    field_names,
 ):
-    """Evaluate flattened map fields from one state coefficient row."""
+    """Evaluate flattened map fields from one output row."""
     fields = {}
     if "Br" in field_names:
-        fields["Br"] = _apply_flat_operator(state_evaluation_context["m_ind_to_Br"], m_ind)
+        fields["Br"] = _apply_flat_operator(
+            output_evaluation_context["induced_Br_to_Br"], induced_Br
+        )
     if "jr" in field_names:
-        fields["jr"] = _apply_flat_operator(state_evaluation_context["m_imp_to_jr"], m_imp)
+        fields["jr"] = _apply_flat_operator(
+            output_evaluation_context["boundary_jr_to_jr"], boundary_jr
+        )
     if "Jeq" in field_names:
-        fields["Jeq"] = _apply_flat_operator(state_evaluation_context["m_ind_to_Jeq"], m_ind)
-    radius_scale = float(state_evaluation_context["RI"]) * 1e-3
+        fields["Jeq"] = _apply_flat_operator(
+            output_evaluation_context["induced_Br_to_Jeq"], induced_Br
+        )
+    radius_scale = float(output_evaluation_context["RI"]) * 1e-3
     if "Phi" in field_names:
         fields["Phi"] = _apply_flat_operator(
             evaluator.scalar_coeffs_to_grid_operator, radius_scale * phi_coeffs
@@ -254,23 +267,23 @@ def time_index_from_dataset(dataset, *, fallback_start_time=None):
     )
 
 
-def compute_state_comparison_fields_at_index(
+def compute_solution_comparison_fields_at_index(
     index,
     datasets,
     evaluator,
     conductance_evaluator,
-    state_evaluation_context,
+    output_evaluation_context,
     sheet_current_maps,
     *,
     target_time=None,
     fallback_start_time=None,
     field_names=None,
 ):
-    """Evaluate state and steady-state map fields at one saved index."""
-    field_names = _normalize_state_field_names(field_names)
-    output_keys = [key for key in ("state", "steady_state") if key in datasets]
+    """Evaluate dynamic and equilibrium fields at one saved index."""
+    field_names = _normalize_output_field_names(field_names)
+    output_keys = [key for key in ("dynamic", "equilibrium") if key in datasets]
     if not output_keys:
-        raise ValueError("No saved state or steady_state output is available.")
+        raise ValueError("No saved dynamic or equilibrium output is available.")
     reference_key = output_keys[0]
     reference_dataset = datasets[reference_key]
     if target_time is None:
@@ -278,14 +291,16 @@ def compute_state_comparison_fields_at_index(
             reference_dataset.time.values, int(index), fallback_start_time=fallback_start_time
         )
 
-    br_mag = None
-    if "joule" in field_names and "Br" in datasets:
-        br_var = _dataset_var_name(datasets["Br"], "Br")
-        if br_var is not None:
-            br_index = _dataset_index_at_time(
-                datasets["Br"], target_time, fallback_start_time=fallback_start_time
+    boundary_Br = None
+    if "joule" in field_names and "boundary_Br" in datasets:
+        boundary_Br_var = _dataset_var_name(datasets["boundary_Br"], "boundary_Br")
+        if boundary_Br_var is not None:
+            boundary_Br_index = _dataset_index_at_time(
+                datasets["boundary_Br"], target_time, fallback_start_time=fallback_start_time
             )
-            br_mag = datasets["Br"][br_var].isel(time=br_index).values
+            boundary_Br = (
+                datasets["boundary_Br"][boundary_Br_var].isel(time=boundary_Br_index).values
+            )
     etaP = None
     if "joule" in field_names and "conductance" in datasets:
         log_magnitude_var = _dataset_var_name(datasets["conductance"], "log_conductance_magnitude")
@@ -312,19 +327,19 @@ def compute_state_comparison_fields_at_index(
                 dataset, target_time, fallback_start_time=fallback_start_time
             )
         )
-        m_ind = (
-            _required_dataset_values(dataset, "m_ind", output_index)
+        induced_Br = (
+            _required_dataset_values(dataset, "induced_Br", output_index)
             if field_names & {"Br", "Jeq", "joule"}
             else None
         )
-        m_imp = (
-            _required_dataset_values(dataset, "m_imp", output_index)
+        boundary_jr = (
+            _required_dataset_values(dataset, "boundary_jr", output_index)
             if field_names & {"jr", "joule"}
             else None
         )
-        fields = _state_fields_from_coefficients(
-            m_ind,
-            m_imp,
+        fields = _output_fields_from_coefficients(
+            induced_Br,
+            boundary_jr,
             (
                 _required_dataset_values(dataset, "Phi", output_index)
                 if "Phi" in field_names
@@ -332,28 +347,28 @@ def compute_state_comparison_fields_at_index(
             ),
             (_required_dataset_values(dataset, "W", output_index) if "W" in field_names else None),
             evaluator,
-            state_evaluation_context,
+            output_evaluation_context,
             field_names,
         )
         if "joule" in field_names:
             if sheet_current_maps is None:
                 raise ValueError("sheet_current_maps are required for Joule heating.")
             sheet_current = evaluate_JS_from_maps(
-                m_imp,
-                m_ind,
-                m_imp_to_JS=sheet_current_maps["m_imp_to_JS"],
-                m_ind_to_JS=sheet_current_maps["m_ind_to_JS"],
-                Br=br_mag,
-                Br_to_JS=sheet_current_maps["Br_to_JS"],
+                boundary_jr,
+                induced_Br,
+                boundary_jr_to_JS=sheet_current_maps["boundary_jr_to_JS"],
+                induced_Br_to_JS=sheet_current_maps["induced_Br_to_JS"],
+                boundary_Br=boundary_Br,
+                boundary_Br_to_JS=sheet_current_maps["boundary_Br_to_JS"],
             )
             fields["joule"] = (
                 joule_heating_from_current(
-                    sheet_current, etaP, state_evaluation_context["pedersen_geometry"]
+                    sheet_current, etaP, output_evaluation_context["pedersen_geometry"]
                 )
                 if etaP is not None
                 else np.full(evaluator.grid.size, np.nan)
             )
-        result["state" if dataset_key == "state" else "steady"] = fields
+        result[dataset_key] = fields
     return result
 
 
@@ -361,21 +376,21 @@ def compute_input_fields_at_time(
     timestamp, datasets, input_evaluators, scalar_shape, vector_shape, *, fallback_start_time=None
 ):
     """Evaluate projected input drivers at one physical time."""
-    jr = _input_scalar_grid_at_time(
+    boundary_jr = _input_scalar_grid_at_time(
         datasets,
-        "jr",
-        "jr",
+        "boundary_jr",
+        "boundary_jr",
         timestamp,
-        input_evaluators["jr"],
+        input_evaluators["boundary_jr"],
         scalar_shape,
         fallback_start_time=fallback_start_time,
     )
-    br = _input_scalar_grid_at_time(
+    boundary_Br = _input_scalar_grid_at_time(
         datasets,
-        "Br",
-        "Br",
+        "boundary_Br",
+        "boundary_Br",
         timestamp,
-        input_evaluators["Br"],
+        input_evaluators["boundary_Br"],
         scalar_shape,
         fallback_start_time=fallback_start_time,
     )
@@ -419,8 +434,8 @@ def compute_input_fields_at_time(
     }
 
     return {
-        "jr": jr,
-        "Br": br,
+        "jr": boundary_jr,
+        "Br": boundary_Br,
         "sigmaP": sigma_p,
         "sigmaH": sigma_h,
         "wind_theta": tangential["u"][0],
@@ -441,9 +456,9 @@ class SavedCoefficientFieldView:
     lon: np.ndarray
     wind_lat: np.ndarray
     wind_lon: np.ndarray
-    state_evaluator: object | None
+    output_evaluator: object | None
     input_evaluators: dict[str, object | None]
-    state_evaluation_context: dict[str, object] | None
+    output_evaluation_context: dict[str, object] | None
     sheet_current_maps: dict[str, object] | None
     _geographic_evaluation: _GeographicEvaluation | None = field(
         default=None, init=False, repr=False
@@ -455,21 +470,21 @@ class SavedCoefficientFieldView:
     ) -> SavedCoefficientFieldView:
         """Load artifacts needed by map and input-driver figures."""
         run_view = SavedRunView.from_directory(
-            run_directory, optional_datasets=INPUT_ARTIFACT_KEYS + ("state", "steady_state")
+            run_directory, optional_datasets=INPUT_ARTIFACT_KEYS + ("dynamic", "equilibrium")
         )
         schema = run_view.schema
-        has_output_state = any(key in run_view.datasets for key in ("state", "steady_state"))
-        output_basis = schema.output_field_spaces["state"]["m_imp"].representation
+        has_model_output = any(key in run_view.datasets for key in ("dynamic", "equilibrium"))
+        output_basis = schema.output_field_spaces["dynamic"]["boundary_jr"].representation
         lat, lon, grid = build_plot_grid(nlat=nlat, nlon=nlon)
         wind_lat, wind_lon, wind_grid = build_plot_grid(
             nlat=wind_nlat, nlon=wind_nlon, lat_range=(-75.0, 75.0), lon_range=(-180.0, 180.0)
         )
-        state_evaluator = build_evaluator(output_basis, grid) if has_output_state else None
+        output_evaluator = build_evaluator(output_basis, grid) if has_model_output else None
         evaluator_cache = {}
-        if state_evaluator is not None:
+        if output_evaluator is not None:
             evaluator_cache[
                 (getattr(output_basis, "signature", id(output_basis)), grid.signature)
-            ] = state_evaluator
+            ] = output_evaluator
         input_evaluators = _build_input_evaluators(
             schema, run_view.datasets, grid, wind_grid, evaluator_cache
         )
@@ -479,8 +494,8 @@ class SavedCoefficientFieldView:
             raise ValueError(
                 "No saved input or output time series exists in "
                 f"{run_view.artifact_store.directory}. "
-                "Expected at least one of state, Br, jr, conductance, u, Q_eff, "
-                "or E_neutral_wind."
+                "Expected at least one of dynamic, boundary_Br, boundary_jr, "
+                "conductance, u, Q_eff, or E_neutral_wind."
             )
 
         return cls(
@@ -489,16 +504,16 @@ class SavedCoefficientFieldView:
             lon=lon,
             wind_lat=wind_lat,
             wind_lon=wind_lon,
-            state_evaluator=state_evaluator,
+            output_evaluator=output_evaluator,
             input_evaluators=input_evaluators,
-            state_evaluation_context=None,
+            output_evaluation_context=None,
             sheet_current_maps=None,
         )
 
     def require_geometry(self):
         """Return the lazily constructed saved-run geometry."""
-        if not self.has_output_state:
-            raise ValueError("Saved-run geometry requires state or steady_state output.")
+        if not self.has_model_output:
+            raise ValueError("Saved-run geometry requires dynamic or equilibrium output.")
         return self.run_view.require_geometry()
 
     def _get_geographic_evaluation(self, event_time=None):
@@ -517,19 +532,19 @@ class SavedCoefficientFieldView:
         vector_grid = model_grid_for_geographic_display(main_field, self.wind_lat, self.wind_lon)
 
         evaluation = _GeographicEvaluation(
-            scalar_grid=scalar_grid, vector_grid=vector_grid, state_evaluator=None
+            scalar_grid=scalar_grid, vector_grid=vector_grid, output_evaluator=None
         )
         self._geographic_evaluation = evaluation
         return evaluation
 
-    def _geographic_state_evaluator(self, evaluation):
-        """Return the lazy state evaluator for a geographic map."""
-        if evaluation.state_evaluator is None:
-            output_basis = self.run_view.schema.output_field_spaces["state"][
-                "m_imp"
+    def _geographic_output_evaluator(self, evaluation):
+        """Return the lazy output evaluator for a geographic map."""
+        if evaluation.output_evaluator is None:
+            output_basis = self.run_view.schema.output_field_spaces["dynamic"][
+                "boundary_jr"
             ].representation
-            evaluation.state_evaluator = build_evaluator(output_basis, evaluation.scalar_grid)
-        return evaluation.state_evaluator
+            evaluation.output_evaluator = build_evaluator(output_basis, evaluation.scalar_grid)
+        return evaluation.output_evaluator
 
     def geographic_map_context(self, reference_time=None):
         """Return a geographic map centered on mean-solar local noon."""
@@ -612,16 +627,16 @@ class SavedCoefficientFieldView:
         )
 
     @property
-    def has_output_state(self):
-        """Return whether any model-state output is present."""
-        return "state" in self.run_view.datasets or "steady_state" in self.run_view.datasets
+    def has_model_output(self):
+        """Return whether any model output is present."""
+        return "dynamic" in self.run_view.datasets or "equilibrium" in self.run_view.datasets
 
     def _time_dataset(self):
         """Return the dataset that defines display times."""
-        if "state" in self.run_view.datasets:
-            return self.run_view.datasets["state"]
-        if "steady_state" in self.run_view.datasets:
-            return self.run_view.datasets["steady_state"]
+        if "dynamic" in self.run_view.datasets:
+            return self.run_view.datasets["dynamic"]
+        if "equilibrium" in self.run_view.datasets:
+            return self.run_view.datasets["equilibrium"]
         time_datasets = _time_datasets(self.run_view.datasets)
         if not time_datasets:
             raise ValueError("No saved time-dependent artifacts are available.")
@@ -647,50 +662,50 @@ class SavedCoefficientFieldView:
         """Return the configured start time for numeric saved times."""
         return self.run_view.config.t0
 
-    def state_comparison_fields(self, index, *, field_names=None, coordinate_system="model"):
+    def solution_comparison_fields(self, index, *, field_names=None, coordinate_system="model"):
         """Return flat fields in model or geographic coordinates."""
-        field_names = _normalize_state_field_names(field_names)
+        field_names = _normalize_output_field_names(field_names)
         coordinate_system = _normalize_display_coordinate_system(coordinate_system)
         index = int(max(0, min(int(index), self.n_time - 1)))
         timestamp = self.timestamp_at_index(index)
-        if not self.has_output_state:
+        if not self.has_model_output:
             raise ValueError(
-                "This directory contains projected inputs but no saved output state. "
+                "This directory contains projected inputs but no saved model output. "
                 "Choose 'Input drivers' or run a simulation first."
             )
         if coordinate_system == "geographic":
             evaluation = self._get_geographic_evaluation(timestamp)
-            evaluator = self._geographic_state_evaluator(evaluation)
-            state_evaluation_context = evaluation.state_evaluation_context
+            evaluator = self._geographic_output_evaluator(evaluation)
+            output_evaluation_context = evaluation.output_evaluation_context
             sheet_current_maps = evaluation.sheet_current_maps
         else:
             evaluation = None
-            evaluator = self.state_evaluator
-            state_evaluation_context = self.state_evaluation_context
+            evaluator = self.output_evaluator
+            output_evaluation_context = self.output_evaluation_context
             sheet_current_maps = self.sheet_current_maps
 
         if evaluator is None:
-            raise RuntimeError("Saved state evaluation context is unavailable.")
+            raise RuntimeError("Saved output evaluation context is unavailable.")
         geometry = self.require_geometry()
-        if state_evaluation_context is None:
-            state_evaluation_context = _state_evaluation_context(
+        if output_evaluation_context is None:
+            output_evaluation_context = _output_evaluation_context(
                 self.run_view.config, geometry, evaluator
             )
         needs_joule = "joule" in field_names
         if needs_joule and sheet_current_maps is None:
             sheet_current_maps = _sheet_current_maps(geometry, evaluator)
-        if needs_joule and "pedersen_geometry" not in state_evaluation_context:
+        if needs_joule and "pedersen_geometry" not in output_evaluation_context:
             field = MagneticFieldEvaluation(
                 geometry.main_field, evaluator.grid, self.run_view.config.RI
             )
-            state_evaluation_context["pedersen_geometry"] = pedersen_geometry_tensor(
+            output_evaluation_context["pedersen_geometry"] = pedersen_geometry_tensor(
                 field.unit_btheta, field.unit_bphi, field.unit_br
             )
         if evaluation is None:
-            self.state_evaluation_context = state_evaluation_context
+            self.output_evaluation_context = output_evaluation_context
             self.sheet_current_maps = sheet_current_maps
         else:
-            evaluation.state_evaluation_context = state_evaluation_context
+            evaluation.output_evaluation_context = output_evaluation_context
             evaluation.sheet_current_maps = sheet_current_maps
         conductance_evaluator = self.input_evaluators.get("conductance") if needs_joule else None
         if evaluation is not None:
@@ -699,27 +714,29 @@ class SavedCoefficientFieldView:
                 if needs_joule
                 else None
             )
-        return compute_state_comparison_fields_at_index(
+        return compute_solution_comparison_fields_at_index(
             index,
             self.run_view.datasets,
             evaluator,
             conductance_evaluator,
-            state_evaluation_context,
+            output_evaluation_context,
             sheet_current_maps,
             target_time=timestamp,
             fallback_start_time=self._fallback_start_time(),
             field_names=field_names,
         )
 
-    def state_comparison_grid_fields(self, index, *, field_names=None, coordinate_system="model"):
+    def solution_comparison_grid_fields(
+        self, index, *, field_names=None, coordinate_system="model"
+    ):
         """Return gridded fields in model or geographic coordinates."""
-        fields = self.state_comparison_fields(
+        fields = self.solution_comparison_fields(
             index, field_names=field_names, coordinate_system=coordinate_system
         )
         return {
-            f"{name}_{state_key}": values.reshape(self.lat.shape)
-            for state_key, state_fields in fields.items()
-            for name, values in state_fields.items()
+            f"{name}_{output_key}": values.reshape(self.lat.shape)
+            for output_key, output_fields in fields.items()
+            for name, values in output_fields.items()
         }
 
     def input_grid_fields(self, index, *, coordinate_system="model"):
@@ -774,7 +791,7 @@ class SavedCoefficientFieldView:
 __all__ = [
     "SavedCoefficientFieldView",
     "compute_input_fields_at_time",
-    "compute_state_comparison_fields_at_index",
+    "compute_solution_comparison_fields_at_index",
     "datetime_at_index",
     "time_index_from_dataset",
 ]

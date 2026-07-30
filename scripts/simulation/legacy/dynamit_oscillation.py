@@ -118,7 +118,7 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
     if STEADY_STATE_INITIALIZATION:
         simulation.set_jr(jr=jr, lat=jr_lat, lon=jr_lon)
 
-        simulation.impose_steady_state()
+        simulation.impose_equilibrium()
 
     # Create array that will store all jr values.
     time_values = np.arange(

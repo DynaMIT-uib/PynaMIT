@@ -17,10 +17,10 @@ from pynamit.storage import ArrayCache, ArtifactStore
 class Simulation:
     """Configure, drive, evolve, and persist one coupled MIT simulation.
 
-    Manages the temporal evolution of the state of the ionosphere in
-    response to field-aligned currents and neutral winds, giving rise to
-    dynamic magnetosphere-ionosphere-thermosphere (MIT) coupling. Saves
-    and loads simulation data to and from persisted xarray artifacts.
+    Evolves the inductive magnetic response to field-aligned currents,
+    neutral winds, and magnetic-boundary forcing in a coupled
+    magnetosphere-ionosphere-thermosphere (MIT) model. Saves and loads
+    simulation data to and from persisted xarray artifacts.
 
     Attributes
     ----------
@@ -55,19 +55,19 @@ class Simulation:
         enable_interhemispheric_coupling=False,
         interhemispheric_coupling_latitude=50,
         interhemispheric_electric_field_weight=1e-5,
-        jr_projection_basis=None,
-        Br_projection_basis=None,
+        boundary_jr_projection_basis=None,
+        boundary_Br_projection_basis=None,
         conductance_projection_basis=None,
         u_projection_basis=None,
         Q_eff_projection_basis=None,
         E_neutral_wind_projection_basis=None,
         t0="2020-01-01 00:00:00",
-        save_steady_states=True,
+        save_equilibria=True,
         integrator="euler",
         least_squares_solver=None,
         least_squares_preconditioner="pinv",
         reuse_preconditioner=False,
-        m_imp_regularization_lambda=0.0,
+        toroidal_potential_regularization_lambda=0.0,
         artifact_storage="auto",
         operator_cache_directory=None,
         backend="auto",
@@ -115,10 +115,10 @@ class Simulation:
         interhemispheric_electric_field_weight : float, optional
             Relative least-squares weight of the conjugate
             electric-field constraint.
-        jr_projection_basis : {'SH', 'CS'}, optional
+        boundary_jr_projection_basis : {'SH', 'CS'}, optional
             Basis route used when projecting radial-current inputs.
             Defaults to ``horizontal_basis_kind``.
-        Br_projection_basis : {'SH', 'CS'}, optional
+        boundary_Br_projection_basis : {'SH', 'CS'}, optional
             Basis route used when projecting radial magnetic-field
             inputs. Defaults to ``horizontal_basis_kind``.
         conductance_projection_basis : {'SH', 'CS'}, optional
@@ -137,24 +137,24 @@ class Simulation:
             electric fields. Defaults to ``horizontal_basis_kind``.
         t0 : str, optional
             Start time in UTC format.
-        save_steady_states : bool, optional
+        save_equilibria : bool, optional
             Default for whether ``evolve_to_time`` calculates and saves
-            steady states.
+            instantaneous induction equilibria.
         integrator : {'euler', 'exponential', 'RK23', 'RK45', 'DOP853',
                       'Radau', 'BDF', 'LSODA'}, optional
-            Integrator used for magnetic-state evolution. SciPy method
+            Integrator used for ``induced_Br`` evolution. SciPy method
             names are case-insensitive and stored in canonical form.
         least_squares_solver : str, optional
-            Least-squares solver used by state feedback solves.
+            Solver used for the toroidal-potential problem.
         least_squares_preconditioner : {'jacobi', 'pinv', None},
             optional
-            Preconditioner used by iterative least-squares state solves.
+            Preconditioner used by iterative toroidal-potential solves.
         reuse_preconditioner : bool, optional
             Keep a reusable iterative-solver preconditioner when valid.
-        m_imp_regularization_lambda : float, optional
-            Optional Tikhonov regularization strength for the imposed
-            potential. The default is unregularized; coefficient gauges
-            are constrained separately.
+        toroidal_potential_regularization_lambda : float, optional
+            Optional Tikhonov regularization strength for the private
+            toroidal-potential solve. The default is unregularized;
+            coefficient gauges are constrained separately.
         artifact_storage : {'auto', 'netcdf', 'zarr'}, optional
             Preferred backend for new saved xarray artifacts. Existing
             artifacts keep their format on restart.
@@ -172,7 +172,7 @@ class Simulation:
             Basis requested for horizontal surface potentials and
             operators. ``'SH'`` is the default. ``'CS'`` uses
             cubed-sphere nodal coefficients and finite-difference
-            derivatives. The induced state and radial continuation
+            derivatives. ``induced_Br`` and radial continuation
             remain in the configured mean-free poloidal SH space.
         area_weighted_least_squares : bool, optional
             Use surface-area weights for least-squares projections when
@@ -197,8 +197,8 @@ class Simulation:
             main_field_kind=main_field_kind,
             main_field_epoch=main_field_epoch,
             main_field_B0=main_field_B0,
-            jr_projection_basis=jr_projection_basis,
-            Br_projection_basis=Br_projection_basis,
+            boundary_jr_projection_basis=boundary_jr_projection_basis,
+            boundary_Br_projection_basis=boundary_Br_projection_basis,
             conductance_projection_basis=conductance_projection_basis,
             u_projection_basis=u_projection_basis,
             Q_eff_projection_basis=Q_eff_projection_basis,
@@ -206,12 +206,12 @@ class Simulation:
             horizontal_basis_kind=horizontal_basis_kind,
             area_weighted_least_squares=area_weighted_least_squares,
             t0=t0,
-            save_steady_states=save_steady_states,
+            save_equilibria=save_equilibria,
             integrator=integrator,
             least_squares_solver=least_squares_solver,
             least_squares_preconditioner=least_squares_preconditioner,
             reuse_preconditioner=reuse_preconditioner,
-            m_imp_regularization_lambda=m_imp_regularization_lambda,
+            toroidal_potential_regularization_lambda=toroidal_potential_regularization_lambda,
         )
         self.operator_cache = (
             None if operator_cache_directory is None else ArrayCache(operator_cache_directory)
@@ -232,7 +232,7 @@ class Simulation:
             schema.cs_basis,
             main_field,
             self.config,
-            pfac_matrix=self.run_data.pfac_matrix,
+            gap_Br_response_matrix=self.run_data.gap_Br_response,
             solid_harmonics=schema.solid_harmonics,
             operator_cache=self.operator_cache,
         )
@@ -240,10 +240,10 @@ class Simulation:
         self._input_pipeline = InputPipeline(self)
         self._runner = SimulationRunner(self)
 
-        if "state" in self.run_data.output_series.datasets:
-            current_output = self.run_data.output_series.datasets["state"]
+        if "dynamic" in self.run_data.output_series.datasets:
+            current_output = self.run_data.output_series.datasets["dynamic"]
         else:
-            current_output = self.run_data.output_series.datasets.get("steady_state")
+            current_output = self.run_data.output_series.datasets.get("equilibrium")
         self.current_time = (
             np.max(current_output.time.values) if current_output is not None else np.float64(0)
         )
@@ -305,11 +305,11 @@ class Simulation:
         sampling_step_interval=200,
         saving_sample_interval=10,
         quiet=False,
-        steady_state_initialization=True,
-        run_inductive=True,
-        run_steady_state=None,
+        equilibrium_initialization=True,
+        run_dynamic=True,
+        run_equilibrium=None,
     ):
-        """Evolve the system state to a specified time.
+        """Evolve the inductive solution to a specified time.
 
         Parameters
         ----------
@@ -323,13 +323,14 @@ class Simulation:
             Number of samples between saves.
         quiet : bool, optional
             Whether to suppress progress output.
-        steady_state_initialization : bool, optional
-            Whether to initialize a new inductive run from steady state.
-        run_inductive : bool, optional
-            Whether to run and save the inductive time-dependent state.
-        run_steady_state : bool, optional
-            Whether to calculate and save the algebraic steady-state
-            solution. Defaults to ``self.config.save_steady_states``.
+        equilibrium_initialization : bool, optional
+            Whether to initialize a new dynamic run from equilibrium.
+        run_dynamic : bool, optional
+            Whether to run and save the time-dependent inductive
+            solution.
+        run_equilibrium : bool, optional
+            Whether to calculate and save the instantaneous equilibrium
+            solution. Defaults to ``self.config.save_equilibria``.
         """
         return self._runner.evolve_to_time(
             t,
@@ -337,14 +338,14 @@ class Simulation:
             sampling_step_interval=sampling_step_interval,
             saving_sample_interval=saving_sample_interval,
             quiet=quiet,
-            steady_state_initialization=steady_state_initialization,
-            run_inductive=run_inductive,
-            run_steady_state=run_steady_state,
+            equilibrium_initialization=equilibrium_initialization,
+            run_dynamic=run_dynamic,
+            run_equilibrium=run_equilibrium,
         )
 
-    def impose_steady_state(self, time=None, interpolation=True, save=True, quiet=False):
-        """Replace the current model state with the steady state."""
-        return self._runner.impose_steady_state(
+    def impose_equilibrium(self, time=None, interpolation=True, save=True, quiet=False):
+        """Solve the instantaneous induction equilibrium."""
+        return self._runner.impose_equilibrium(
             time=time, interpolation=interpolation, save=save, quiet=quiet
         )
 
@@ -389,7 +390,7 @@ class Simulation:
             FAC, lat=lat, lon=lon, theta=theta, phi=phi
         )
 
-        self.set_jr(
+        self.set_boundary_jr(
             radial_current,
             lat=lat,
             lon=lon,
@@ -401,9 +402,9 @@ class Simulation:
             pinv_rtol=pinv_rtol,
         )
 
-    def set_jr(
+    def set_boundary_jr(
         self,
-        jr=None,
+        boundary_jr=None,
         lat=None,
         lon=None,
         theta=None,
@@ -413,15 +414,15 @@ class Simulation:
         reg_lambda=None,
         pinv_rtol=1e-15,
         *,
-        jr_coefficients=None,
+        boundary_jr_coefficients=None,
     ):
-        """Set radial current density input.
+        """Set radial current at the upper ionospheric boundary.
 
         Parameters
         ----------
-        jr : array-like
+        boundary_jr : array-like
             Radial current density in A/m².
-        jr_coefficients : array-like, optional
+        boundary_jr_coefficients : array-like, optional
             Radial-current coefficients in the input storage basis.
         lat, lon : array-like, optional
             Latitude/longitude coordinates in degrees.
@@ -437,11 +438,11 @@ class Simulation:
             Relative tolerance for the pseudo-inverse.
         """
         self._input_pipeline.set_scalar_input(
-            "jr",
-            samples={"jr": jr},
-            coefficients={"jr": jr_coefficients},
-            sample_label="jr samples",
-            coefficient_label="jr_coefficients",
+            "boundary_jr",
+            samples={"boundary_jr": boundary_jr},
+            coefficients={"boundary_jr": boundary_jr_coefficients},
+            sample_label="boundary_jr samples",
+            coefficient_label="boundary_jr_coefficients",
             lat=lat,
             lon=lon,
             theta=theta,
@@ -452,9 +453,9 @@ class Simulation:
             pinv_rtol=pinv_rtol,
         )
 
-    def set_Br(
+    def set_boundary_Br(
         self,
-        Br=None,
+        boundary_Br=None,
         lat=None,
         lon=None,
         theta=None,
@@ -464,15 +465,15 @@ class Simulation:
         reg_lambda=None,
         pinv_rtol=1e-15,
         *,
-        Br_coefficients=None,
+        boundary_Br_coefficients=None,
     ):
-        """Set radial component of magnetic field input.
+        """Set radial magnetic field at the outer boundary.
 
         Parameters
         ----------
-        Br : array-like
+        boundary_Br : array-like
             Radial component of magnetic field.
-        Br_coefficients : array-like, optional
+        boundary_Br_coefficients : array-like, optional
             Radial magnetic-field coefficients in the input storage
             basis.
         lat, lon : array-like, optional
@@ -480,23 +481,23 @@ class Simulation:
         theta, phi : array-like, optional
             Colatitude/azimuth coordinates in degrees.
         time : array-like, optional
-            Time points for the current data.
+            Time points for the magnetic-field data.
         sqrt_weights : array-like, optional
-            sqrt_weights for the current data points.
+            sqrt_weights for the magnetic-field data points.
         reg_lambda : float, optional
             Regularization parameter.
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
         """
         if self.config.RM is None:
-            raise ValueError("Br can only be set if magnetospheric radius (RM) is set.")
+            raise ValueError("boundary_Br can only be set if magnetospheric radius (RM) is set.")
 
         self._input_pipeline.set_scalar_input(
-            "Br",
-            samples={"Br": Br},
-            coefficients={"Br": Br_coefficients},
-            sample_label="Br samples",
-            coefficient_label="Br_coefficients",
+            "boundary_Br",
+            samples={"boundary_Br": boundary_Br},
+            coefficients={"boundary_Br": boundary_Br_coefficients},
+            sample_label="boundary_Br samples",
+            coefficient_label="boundary_Br_coefficients",
             lat=lat,
             lon=lon,
             theta=theta,
@@ -575,7 +576,7 @@ class Simulation:
         log_magnitude_coefficients=None,
         log_ratio_coefficients=None,
     ):
-        """Set positive dimensionless magnitude/ratio conductance.
+        """Set positive conductance through canonical log coordinates.
 
         Sampled Pedersen/Hall values are converted to
         ``log(hypot(SigmaP, SigmaH) / 1 S)`` and

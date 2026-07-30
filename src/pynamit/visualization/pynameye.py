@@ -16,6 +16,7 @@ from polplot import Polarplot
 
 from pynamit.fields import FieldCoefficients, FieldSpace
 from pynamit.geomagnetism import MagneticFieldEvaluation
+from pynamit.math import identity_linear_map
 from pynamit.math.constants import RE
 from pynamit.simulation.config import setting_value
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
@@ -36,16 +37,16 @@ from pynamit.visualization.grid_evaluation import (
     transform_for_basis,
 )
 from pynamit.visualization.map_coordinates import MapCoordinateContext
-from pynamit.visualization.plot_helpers import style_global_axis as style_cartopy_global_axis
-from pynamit.visualization.plot_helpers import suppress_empty_contour_warnings
-from pynamit.visualization.saved_run import SavedRunView
-from pynamit.visualization.state_fields import (
-    evaluate_Br_coefficients,
+from pynamit.visualization.output_fields import (
+    evaluate_boundary_jr_coefficients,
     evaluate_equivalent_current_coefficients,
-    evaluate_jr_coefficients,
+    evaluate_induced_Br_coefficients,
     evaluate_Phi_coefficients,
     evaluate_W_coefficients,
 )
+from pynamit.visualization.plot_helpers import style_global_axis as style_cartopy_global_axis
+from pynamit.visualization.plot_helpers import suppress_empty_contour_warnings
+from pynamit.visualization.saved_run import SavedRunView
 
 
 class PynamEye:
@@ -68,7 +69,7 @@ class PynamEye:
     """
 
     def __init__(
-        self, run_directory, t=0, Nlat=60, Nlon=100, NCS_plot=10, mlatlim=50, steady_state=True
+        self, run_directory, t=0, Nlat=60, Nlon=100, NCS_plot=10, mlatlim=50, equilibrium=True
     ):
         """Initialize the PynamEye object.
 
@@ -88,26 +89,33 @@ class PynamEye:
             Number of grid points for the cubed sphere plot.
         mlatlim : int, optional
             Magnetic latitude limit.
-        steady_state : bool, optional
-            Whether to use steady state data.
+        equilibrium : bool, optional
+            Whether to use equilibrium output.
         """
-        optional_datasets = ["Br", "u", "Q_eff", "E_neutral_wind"]
-        if steady_state:
-            optional_datasets.append("steady_state")
+        optional_datasets = [
+            "dynamic",
+            "equilibrium",
+            "boundary_Br",
+            "u",
+            "Q_eff",
+            "E_neutral_wind",
+        ]
         self.run_view = SavedRunView.from_directory(
             run_directory,
-            required_datasets=("conductance", "state"),
+            required_datasets=("conductance",),
             optional_datasets=optional_datasets,
             build_geometry=True,
         )
-        if steady_state and "steady_state" not in self.run_view.datasets:
-            print(f"Could not find steady_state dataset at {run_directory!r}.")
+        if not {"dynamic", "equilibrium"} & self.run_view.datasets.keys():
+            raise ValueError(
+                f"No dynamic or equilibrium output dataset exists at {run_directory!r}."
+            )
         self.datasets = self.run_view.datasets
-        self.pfac_coupling_matrix = (
+        self.gap_Br_response_matrix = (
             None
             if self.run_view.geometry.main_field.kind == "radial"
             or not self.run_view.config.enable_pfac_coupling
-            else self.run_view.geometry.pfac_coupling_matrix
+            else self.run_view.geometry.boundary_jr_to_gap_Br_matrix
         )
 
         self.mlatlim = mlatlim
@@ -145,7 +153,7 @@ class PynamEye:
         self.output_field_spaces = self.schema.output_field_spaces
 
         self.conductance_field_space = self.input_field_spaces["conductance"]
-        self.scalar_field_space = self.output_field_spaces["state"]["m_imp"]
+        self.scalar_field_space = self.output_field_spaces["dynamic"]["boundary_jr"]
         self.tangential_field_space = FieldSpace.from_representation(
             self.basis, field_type="tangential", mean_free=self.scalar_field_space.mean_free
         )
@@ -203,13 +211,17 @@ class PynamEye:
         self._pedersen_geometry_cache = {}
 
         # Keep operator handles for electromagnetic quantities.
-        self.m_ind_to_Br_operator = self.geometry.m_ind_to_Br_operator
-        self.m_imp_to_jr_operator = self.geometry.m_imp_to_jr_operator
+        self.induced_Br_to_Br_operator = identity_linear_map(
+            (self.geometry.poloidal_basis.index_length,)
+        )
+        self.boundary_jr_to_jr_operator = identity_linear_map(
+            (self.geometry.horizontal_basis.index_length,)
+        )
         # Cache maps needed by Joule heating and E-from-B derivation.
         self.sheet_current_maps = {}
 
         self._define_defaults()
-        self.set_time(t, steady_state=steady_state)
+        self.set_time(t, equilibrium=equilibrium)
 
     def _add_transforms(self, region, grid):
         """Add region transforms."""
@@ -227,13 +239,13 @@ class PynamEye:
             transform = self.transforms[region]
             poloidal_transform = self.poloidal_transforms[region]
             self.sheet_current_maps[region] = {
-                "m_ind_to_JS": self.geometry.m_ind_to_gridded_JS(
+                "induced_Br_to_JS": self.geometry.induced_Br_to_gridded_JS(
                     transform, poloidal_transform=poloidal_transform
                 ),
-                "m_imp_to_JS": self.geometry.m_imp_to_gridded_JS(
+                "boundary_jr_to_JS": self.geometry.boundary_jr_to_gridded_JS(
                     transform, poloidal_transform=poloidal_transform
                 ),
-                "Br_to_JS": self.geometry.Br_to_gridded_JS(
+                "boundary_Br_to_JS": self.geometry.boundary_Br_to_gridded_JS(
                     transform, poloidal_transform=poloidal_transform
                 ),
             }
@@ -265,10 +277,10 @@ class PynamEye:
             raise RuntimeError("No saved 'u' dataset is available for E derivation.")
         if not self._e_from_b_cache_ready:
             # Reuse the exact numerical geometry from the saved run.
-            self.state_grid = self.geometry.model_grid
+            self.output_grid = self.geometry.model_grid
             self.transforms["num"] = self.geometry.horizontal_transform
             self.conductance_transforms["num"] = SphericalTransform(
-                self.conductance_field_space.representation, self.state_grid
+                self.conductance_field_space.representation, self.output_grid
             )
             self.poloidal_transforms["num"] = self.geometry.poloidal_transform
             self._num_pedersen_geometry = self.geometry.pedersen_geometry_tensor
@@ -277,15 +289,15 @@ class PynamEye:
 
             self._e_from_b_cache_ready = True
 
-        # Calculate electric field values on state_grid.
+        # Calculate electric field values on output_grid.
         current_maps = self._sheet_current_maps_for("num")
         JS = evaluate_JS_from_maps(
-            self.m_imp,
-            self.m_ind,
-            m_imp_to_JS=current_maps["m_imp_to_JS"],
-            m_ind_to_JS=current_maps["m_ind_to_JS"],
-            Br=self.m_Br,
-            Br_to_JS=current_maps["Br_to_JS"],
+            self.boundary_jr,
+            self.induced_Br,
+            boundary_jr_to_JS=current_maps["boundary_jr_to_JS"],
+            induced_Br_to_JS=current_maps["induced_Br_to_JS"],
+            boundary_Br=self.boundary_Br,
+            boundary_Br_to_JS=current_maps["boundary_Br_to_JS"],
         )
 
         closure_values = evaluate_conductance_coefficients(
@@ -366,33 +378,43 @@ class PynamEye:
         new_time = sorted(list(stored_times) + [self.t])
         self.datasets[key] = dataset.reindex(time=new_time).ffill(dim="time")
 
-    def set_time(self, t, steady_state=False):
+    def set_time(self, t, equilibrium=False):
         """Set time for PynamEye object in seconds.
 
         Parameters
         ----------
         t : int
             Simulation time in seconds.
-        steady_state : bool, optional
-            Whether to use steady state data.
+        equilibrium : bool, optional
+            Whether to use equilibrium output.
         """
         self.t = t
         self.time = self.t0 + datetime.timedelta(seconds=t)
 
-        for key in ["state", "steady_state", "Br", "u", "Q_eff", "E_neutral_wind", "conductance"]:
+        for key in [
+            "dynamic",
+            "equilibrium",
+            "boundary_Br",
+            "u",
+            "Q_eff",
+            "E_neutral_wind",
+            "conductance",
+        ]:
             self._ensure_dataset_covers_time(key)
 
-        if steady_state and "steady_state" in self.datasets:
-            print("using steady state dataset")
-            state_ds = self.datasets["steady_state"]
-        else:
-            state_ds = self.datasets["state"]
-
-        state_field_spaces = self.output_field_spaces["state"]
-        self.m_ind = self._select_values(state_ds, state_field_spaces["m_ind"], "m_ind")
-        self.m_imp = self._select_values(state_ds, state_field_spaces["m_imp"], "m_imp")
-        self.W_coeffs = self._select_values(state_ds, state_field_spaces["W"], "W")
-        self.Phi_coeffs = self._select_values(state_ds, state_field_spaces["Phi"], "Phi")
+        preferred_output = "equilibrium" if equilibrium else "dynamic"
+        fallback_output = "dynamic" if equilibrium else "equilibrium"
+        output_key = preferred_output if preferred_output in self.datasets else fallback_output
+        output_ds = self.datasets[output_key]
+        output_field_spaces = self.output_field_spaces[output_key]
+        self.induced_Br = self._select_values(
+            output_ds, output_field_spaces["induced_Br"], "induced_Br"
+        )
+        self.boundary_jr = self._select_values(
+            output_ds, output_field_spaces["boundary_jr"], "boundary_jr"
+        )
+        self.W_coeffs = self._select_values(output_ds, output_field_spaces["W"], "W")
+        self.Phi_coeffs = self._select_values(output_ds, output_field_spaces["Phi"], "Phi")
         self.m_W = self.W_coeffs * self.RI
         self.m_Phi = self.Phi_coeffs * self.RI
 
@@ -406,12 +428,12 @@ class PynamEye:
             self.input_field_spaces["conductance"],
             "log_hall_to_pedersen_ratio",
         )
-        if "Br" in self.datasets:
-            self.m_Br = self._select_values(
-                self.datasets["Br"], self.input_field_spaces["Br"], "Br"
+        if "boundary_Br" in self.datasets:
+            self.boundary_Br = self._select_values(
+                self.datasets["boundary_Br"], self.input_field_spaces["boundary_Br"], "boundary_Br"
             )
         else:
-            self.m_Br = None
+            self.boundary_Br = None
         if "u" in self.datasets:
             self.u = FieldCoefficients(
                 self.input_field_spaces["u"],
@@ -425,7 +447,7 @@ class PynamEye:
             self.m_u_df = None
             self.m_u_cf = None
 
-        if np.any(np.isnan(self.m_ind)):
+        if np.any(np.isnan(self.induced_Br)):
             print(f"induced magnetic field coefficients at t = {t:.2f} s are nans")
 
         return self
@@ -646,12 +668,12 @@ class PynamEye:
 
         current_maps = self._sheet_current_maps_for(region)
         JS = evaluate_JS_from_maps(
-            self.m_imp,
-            self.m_ind,
-            m_imp_to_JS=current_maps["m_imp_to_JS"],
-            m_ind_to_JS=current_maps["m_ind_to_JS"],
-            Br=self.m_Br,
-            Br_to_JS=current_maps["Br_to_JS"],
+            self.boundary_jr,
+            self.induced_Br,
+            boundary_jr_to_JS=current_maps["boundary_jr_to_JS"],
+            induced_Br_to_JS=current_maps["induced_Br_to_JS"],
+            boundary_Br=self.boundary_Br,
+            boundary_Br_to_JS=current_maps["boundary_Br_to_JS"],
         )
         closure_values = evaluate_conductance_coefficients(
             self.conductance_transforms[region],
@@ -727,7 +749,7 @@ class PynamEye:
         return self._quiver(wind["u_east"], wind["u_north"], ax, region, **kwargs)
 
     def plot_Br(self, ax, region="global", **kwargs):
-        """Plot Br.
+        """Plot induced Br.
 
         Parameters
         ----------
@@ -740,7 +762,9 @@ class PynamEye:
         """
         self._fill_plot_defaults(kwargs, self.Br_defaults)
 
-        Br = evaluate_Br_coefficients(self.geometry, self.m_ind, self.transforms[region])
+        Br = evaluate_induced_Br_coefficients(
+            self.geometry, self.induced_Br, self.transforms[region]
+        )
 
         return self._plot_filled_contour(Br, ax, region, **kwargs)
 
@@ -759,7 +783,7 @@ class PynamEye:
         self._fill_plot_defaults(kwargs, self.eqJ_defaults)
 
         Jeq = evaluate_equivalent_current_coefficients(
-            self.geometry, self.m_ind, self.transforms[region]
+            self.geometry, self.induced_Br, self.transforms[region]
         )
 
         return self._plot_contour(Jeq, ax, region, **kwargs)
@@ -778,7 +802,9 @@ class PynamEye:
         """
         self._fill_plot_defaults(kwargs, self.jr_defaults)
 
-        jr = evaluate_jr_coefficients(self.geometry, self.m_imp, self.transforms[region])
+        jr = evaluate_boundary_jr_coefficients(
+            self.geometry, self.boundary_jr, self.transforms[region]
+        )
 
         return self._plot_filled_contour(jr, ax, region, **kwargs)
 

@@ -321,6 +321,28 @@ class SurfaceOperators(SphericalBasis):
         """Return the surface scalar Laplacian operator."""
         return as_linear_map(self.laplacian(r))
 
+    def get_mean_free_surface_poisson_operator(self, r=1.0):
+        """Return the gauge-fixed inverse surface Laplacian.
+
+        Scalar spherical-harmonic spaces represent the surface
+        Laplacian diagonally. Mean-free spaces therefore have an exact,
+        nonsingular coefficient-space inverse. Nodal bases with a
+        constant nullspace should override this method with their
+        natural gauge constraint.
+        """
+        laplacian = self.laplacian(r)
+        xp = get_array_module(laplacian)
+        values = xp.asarray(laplacian)
+        if values.ndim != 1:
+            raise NotImplementedError(
+                f"{type(self).__name__} must define a gauge-fixed surface Poisson operator."
+            )
+        if bool(xp.any(values == 0)):
+            raise ValueError(
+                "The surface Poisson operator requires a mean-free coefficient space."
+            )
+        return as_linear_map(1.0 / values)
+
     def get_helmholtz_surface_divergence_matrix(self, r=1.0):
         """Return the Helmholtz-to-surface-divergence matrix.
 

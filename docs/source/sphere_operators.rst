@@ -101,5 +101,6 @@ unpenalized, so a dimensionless logarithmic field is invariant to its
 fixed reference scale.
 
 These projection penalties are deliberately distinct from the optional
-``m_imp`` inverse-problem regularization.  The latter acts on a physical
-magnetic state rather than on generic sampled input fields.
+toroidal-potential inverse-problem regularization. The latter acts on the
+private coordinate used to satisfy physical ``boundary_jr`` and
+interhemispheric constraints rather than on generic sampled input fields.

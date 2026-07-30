@@ -512,7 +512,7 @@ for step in range(0, nstep):
 
         plt.show()
 
-simulation.impose_steady_state()
+simulation.impose_equilibrium()
 
 final_time = 3600  # seconds
 simulation.evolve_to_time(final_time, dt=dt, sampling_step_interval=1, saving_sample_interval=1)

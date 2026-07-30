@@ -581,6 +581,15 @@ class CSBasis(SurfaceOperators):
             output_shape=(self.index_length,),
         )
 
+    def get_mean_free_surface_poisson_operator(self, r=1.0):
+        """Return the mean-zero inverse of the discrete Laplacian."""
+        n = self.index_length
+        normalized_mean = np.sqrt(n) * self.scalar_mean_weights
+        gauge = sp.csr_matrix(normalized_mean.reshape(1, n))
+        return sparse_constrained_least_squares_map(
+            self._sparse_laplacian_matrix(r), gauge, input_shape=(n,), output_shape=(n,)
+        )
+
     def get_gridpoints(self, N, flat=False):
         """Generate grid-line indices for a given resolution.
 

@@ -5,11 +5,12 @@ import pytest
 
 from pynamit.math.constants import RE
 from pynamit.simulation.electrodynamics.magnetic_boundary import (
-    boundary_Br_to_poloidal_scale,
-    shielded_m_ind_poloidal_scale,
+    boundary_Br_to_ionosphere_external_Br_scale,
+    shielded_induced_poloidal_scale,
 )
 from pynamit.simulation.workflows.standard import run_pynamit
 from pynamit.sphere import SHBasis, SolidHarmonics
+from tests import magnetic_potential_coordinate_array
 
 
 def test_boundary_br_continuation_reproduces_prescribed_outer_field():
@@ -27,9 +28,11 @@ def test_boundary_br_continuation_reproduces_prescribed_outer_field():
     inner_br_per_poloidal = np.asarray(
         -(inner_radius**2) * solid_harmonics.basis.laplacian(inner_radius)
     )
-    boundary_to_inner_poloidal = boundary_Br_to_poloidal_scale(
+    continued_Br = boundary_Br_to_ionosphere_external_Br_scale(
         solid_harmonics, boundary_radius, inner_radius
     )
+    degree_factor = solid_harmonics.basis.n * (solid_harmonics.basis.n + 1)
+    boundary_to_inner_poloidal = -continued_Br / degree_factor
 
     regular_source_at_boundary = 1.0 / denominator
     irregular_response_at_boundary = (
@@ -41,8 +44,8 @@ def test_boundary_br_continuation_reproduces_prescribed_outer_field():
     )
 
 
-def test_optional_m_ind_shielding_cancels_field_at_outer_boundary():
-    """The optional image response must cancel m_ind Br at RM."""
+def test_optional_induced_Br_shielding_cancels_field_at_outer_boundary():
+    """The optional image response must cancel induced Br at RM."""
     solid_harmonics = SolidHarmonics(SHBasis(Nmax=4, Mmax=3))
     inner_radius = 6.5e6
     boundary_radius = 10.0e6
@@ -52,7 +55,9 @@ def test_optional_m_ind_shielding_cancels_field_at_outer_boundary():
     irregular_to_boundary = np.asarray(
         solid_harmonics.irregular_reference_shift(inner_radius, boundary_radius)
     )
-    shielded_scale = shielded_m_ind_poloidal_scale(solid_harmonics, boundary_radius, inner_radius)
+    shielded_scale = shielded_induced_poloidal_scale(
+        solid_harmonics, boundary_radius, inner_radius
+    )
 
     unshielded_part = irregular_to_boundary * shielded_scale
     image_at_inner = -regular_to_inner * irregular_to_boundary * shielded_scale
@@ -85,17 +90,12 @@ def test_magnetic_boundary_shielding():
         enable_pfac_coupling=True,
         enable_interhemispheric_coupling=True,
         interhemispheric_coupling_latitude=50,
-        steady_state_initialization=False,
+        equilibrium_initialization=False,
         magnetic_boundary_shielding=True,
     )
 
     # Assert.
-    coeff_array = np.hstack(
-        (
-            simulation.run_data.output_series.datasets["state"]["SH_m_ind"].values[-1],
-            simulation.run_data.output_series.datasets["state"]["SH_m_imp"].values[-1],
-        )
-    )
+    coeff_array = magnetic_potential_coordinate_array(simulation)
 
     actual_coeff_norm = np.linalg.norm(coeff_array)
     actual_coeff_max = np.max(coeff_array)

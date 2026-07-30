@@ -2,6 +2,8 @@
 
 import numpy as np
 
+from pynamit.math import as_linear_map
+from pynamit.math.constants import mu0
 from pynamit.simulation.config import setting_value
 from pynamit.simulation.electrodynamics import magnetic_boundary
 from pynamit.sphere import Grid, SolidHarmonics, SphericalTransform
@@ -40,7 +42,7 @@ def transform_for_basis(basis, transform):
     )
 
 
-def build_JS_operators(settings, sh_basis, transform, pfac_coupling_matrix=None):
+def build_JS_operators(settings, sh_basis, transform, boundary_jr_to_gap_Br_matrix=None):
     """Build common coefficient-to-JS matrices.
 
     This is the low-level matrix bundle used by notebook and script
@@ -52,27 +54,38 @@ def build_JS_operators(settings, sh_basis, transform, pfac_coupling_matrix=None)
     else:
         rm = None
     solid_harmonics = SolidHarmonics(sh_basis)
-    m_ind_to_JS = magnetic_boundary.m_ind_to_gridded_JS(
+    radius = float(setting_value(settings, "RI"))
+    induced_Br_to_JS = magnetic_boundary.induced_Br_to_gridded_JS_operator(
         solid_harmonics,
         transform,
-        radius=float(setting_value(settings, "RI")),
+        radius=radius,
         boundary_radius=rm,
         boundary_shielding=bool(setting_value(settings, "magnetic_boundary_shielding", False)),
+    ).array
+    boundary_jr_to_toroidal_potential = (
+        mu0 / radius * sh_basis.get_mean_free_surface_poisson_operator(radius)
     )
-    m_imp_to_JS = magnetic_boundary.m_imp_to_gridded_JS(
-        solid_harmonics, transform, pfac_coupling_matrix=pfac_coupling_matrix
-    )
-    Br_to_JS = (
+    if boundary_jr_to_gap_Br_matrix is None:
+        boundary_jr_to_gap_Br_matrix = np.zeros((sh_basis.index_length, sh_basis.index_length))
+    boundary_jr_to_JS = magnetic_boundary.boundary_jr_to_gridded_JS_operator(
+        solid_harmonics,
+        transform,
+        poloidal_transform=transform,
+        boundary_jr_to_toroidal_potential=(boundary_jr_to_toroidal_potential),
+        boundary_jr_to_gap_Br=as_linear_map(boundary_jr_to_gap_Br_matrix),
+    ).array
+    boundary_Br_to_JS = (
         None
         if rm is None
-        else magnetic_boundary.Br_to_gridded_JS(
-            solid_harmonics,
-            transform,
-            radius=float(setting_value(settings, "RI")),
-            boundary_radius=rm,
-        )
+        else magnetic_boundary.boundary_Br_to_gridded_JS_operator(
+            solid_harmonics, transform, radius=radius, boundary_radius=rm
+        ).array
     )
-    return {"m_ind_to_JS": m_ind_to_JS, "m_imp_to_JS": m_imp_to_JS, "Br_to_JS": Br_to_JS}
+    return {
+        "induced_Br_to_JS": induced_Br_to_JS,
+        "boundary_jr_to_JS": boundary_jr_to_JS,
+        "boundary_Br_to_JS": boundary_Br_to_JS,
+    }
 
 
 __all__ = [

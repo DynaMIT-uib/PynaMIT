@@ -10,7 +10,7 @@ from typing import Any
 import numpy as np
 import xarray as xr
 
-from pynamit.simulation.config import SimulationConfig
+from pynamit.simulation.config import SIMULATION_SCHEMA_VERSION, SimulationConfig
 from pynamit.simulation.schema import SimulationSchema, build_simulation_schema
 from pynamit.storage import ArtifactStore, FieldTimeSeries
 
@@ -25,7 +25,7 @@ class RunData:
     input_series: FieldTimeSeries
     output_series: FieldTimeSeries
     settings_saved: bool = False
-    pfac_matrix: xr.DataArray | None = None
+    gap_Br_response: xr.DataArray | None = None
 
     @classmethod
     def open(
@@ -54,6 +54,13 @@ class RunData:
 
         stored_settings = artifact_store.load_dataset("settings", print_info=print_info)
         if stored_settings is not None:
+            stored_version = stored_settings.attrs.get("simulation_schema_version")
+            if stored_version != SIMULATION_SCHEMA_VERSION:
+                raise ValueError(
+                    "Run directory uses simulation schema "
+                    f"{stored_version!r}; expected {SIMULATION_SCHEMA_VERSION}. "
+                    "Create a new run directory for the physical magnetic-variable schema."
+                )
             normalized_stored_settings = SimulationConfig.from_settings(
                 stored_settings
             ).to_dataset()
@@ -62,7 +69,7 @@ class RunData:
                     "Mismatch between Simulation object arguments and settings on file."
                 )
 
-        pfac_matrix = artifact_store.load_dataarray("PFAC_matrix", print_info=print_info)
+        gap_Br_response = artifact_store.load_dataarray("gap_Br_response", print_info=print_info)
         schema = build_simulation_schema(config, operator_cache=operator_cache)
 
         input_series = FieldTimeSeries(schema.input_field_spaces, schema.input_variables)
@@ -78,7 +85,7 @@ class RunData:
             input_series=input_series,
             output_series=output_series,
             settings_saved=stored_settings is not None,
-            pfac_matrix=pfac_matrix,
+            gap_Br_response=gap_Br_response,
         )
 
     @property
@@ -95,16 +102,25 @@ class RunData:
         )
         self.settings_saved = True
 
-    def save_pfac_matrix_if_missing(self, pfac_matrix, *, print_info=False):
-        """Persist the PFAC sidecar for a new run directory."""
-        if self.pfac_matrix is not None:
+    def save_gap_Br_response_if_missing(self, matrix, *, print_info=False):
+        """Persist the physical gap-field response for restart."""
+        if self.gap_Br_response is not None:
             return
-        matrix = np.asarray(pfac_matrix)
+        matrix = np.asarray(matrix)
         if matrix.ndim != 2:
-            raise ValueError(f"pfac_matrix must be two-dimensional; got shape {matrix.shape}.")
-        dataarray = xr.DataArray(matrix, dims=("poloidal_i", "surface_i"), name="PFAC_matrix")
-        self.artifact_store.save_dataarray(dataarray, "PFAC_matrix", print_info=print_info)
-        self.pfac_matrix = dataarray
+            raise ValueError(f"gap_Br_response must be two-dimensional; got shape {matrix.shape}.")
+        dataarray = xr.DataArray(
+            matrix,
+            dims=("poloidal_i", "surface_i"),
+            name="gap_Br_response",
+            attrs={
+                "input_quantity": "boundary_jr_at_RI",
+                "output_quantity": "unshielded_gap_Br_at_RI",
+                "simulation_schema_version": SIMULATION_SCHEMA_VERSION,
+            },
+        )
+        self.artifact_store.save_dataarray(dataarray, "gap_Br_response", print_info=print_info)
+        self.gap_Br_response = dataarray
 
     def save_input_dataset(self, key, *, print_info=False):
         """Persist one loaded input time series."""

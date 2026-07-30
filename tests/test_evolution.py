@@ -12,7 +12,7 @@ from pynamit.simulation.runner import SimulationRunner
 
 class _FakeResponse:
     def __init__(self):
-        self.m_ind_feedback_matrix = np.eye(1)
+        self.induced_poloidal_potential_feedback_matrix = np.eye(1)
         self.geometry = SimpleNamespace(main_field=SimpleNamespace(kind="radial"))
 
     @staticmethod
@@ -27,7 +27,7 @@ class _FakeResponse:
 class _FakeSimulation:
     def __init__(self, *, integrator="euler"):
         self.config = SimpleNamespace(
-            integrator=integrator, save_steady_states=False, enable_pfac_coupling=False
+            integrator=integrator, save_equilibria=False, enable_pfac_coupling=False
         )
         self.response = _FakeResponse()
         self.response.config = self.config
@@ -39,13 +39,10 @@ class _FakeSimulation:
             input_series=SimpleNamespace(),
             output_series=SimpleNamespace(datasets={}),
             schema=SimpleNamespace(
-                output_field_spaces={"state": {"m_ind": SimpleNamespace(index_length=1)}}
+                output_field_spaces={"dynamic": {"induced_Br": SimpleNamespace(index_length=1)}}
             ),
             save_output_dataset=lambda key: self.saved.append((key, float(self.current_time))),
         )
-
-    def _record_output_state(self, key, *_values):
-        self.recorded.append((key, float(self.current_time)))
 
 
 @pytest.mark.parametrize("dt", [0.0, -0.1, np.inf, np.nan])
@@ -70,8 +67,8 @@ def test_evolution_rejects_invalid_sample_intervals(value):
         ({"t": True}, "t"),
         ({"t": 1.0, "dt": False}, "dt"),
         ({"t": 1.0, "quiet": "false"}, "quiet"),
-        ({"t": 1.0, "run_inductive": 1}, "run_inductive"),
-        ({"t": 1.0, "run_steady_state": "true"}, "run_steady_state"),
+        ({"t": 1.0, "run_dynamic": 1}, "run_dynamic"),
+        ({"t": 1.0, "run_equilibrium": "true"}, "run_equilibrium"),
     ],
 )
 def test_evolution_rejects_ambiguous_runtime_option_types(kwargs, match):
@@ -86,27 +83,29 @@ def test_evolution_rejects_backfill_from_later_checkpoint():
     """A later checkpoint cannot generate earlier missing output."""
     simulation = _FakeSimulation()
     simulation.run_data.output_series = SimpleNamespace(
-        datasets={"state": xr.Dataset(coords={"time": [10.0]})},
-        get_entry=lambda *_args, **_kwargs: {"m_ind": np.zeros(1)},
+        datasets={"dynamic": xr.Dataset(coords={"time": [10.0]})},
+        get_entry=lambda *_args, **_kwargs: {"induced_Br": np.zeros(1)},
     )
 
     with pytest.raises(ValueError, match="precedes the active checkpoint"):
-        SimulationRunner(simulation).evolve_to_time(5.0, run_steady_state=True, quiet=True)
+        SimulationRunner(simulation).evolve_to_time(5.0, run_equilibrium=True, quiet=True)
 
 
 def test_evolution_records_and_saves_exact_off_grid_target(monkeypatch):
     """An off-grid target is still a final checkpoint."""
     simulation = _FakeSimulation()
-    monkeypatch.setattr(
-        induction,
-        "evolve_m_ind",
-        lambda _response, m_ind, dt, _forcing, _steady, propagator=None: m_ind + dt,
-    )
+
+    def advance_by_dt(
+        _response, induced_Br, dt, _forcing, _equilibrium, poloidal_potential_propagator=None
+    ):
+        return induced_Br + dt
+
+    monkeypatch.setattr(induction, "evolve_induced_Br", advance_by_dt)
 
     runner = SimulationRunner(simulation)
     monkeypatch.setattr(
         runner,
-        "_record_output_state",
+        "_record_output_snapshot",
         lambda key, *_values: simulation.recorded.append((key, float(simulation.current_time))),
     )
     runner.evolve_to_time(
@@ -114,14 +113,14 @@ def test_evolution_records_and_saves_exact_off_grid_target(monkeypatch):
         dt=0.1,
         sampling_step_interval=10,
         saving_sample_interval=10,
-        steady_state_initialization=False,
-        run_steady_state=False,
+        equilibrium_initialization=False,
+        run_equilibrium=False,
         quiet=True,
     )
 
     assert simulation.current_time == np.float64(0.25)
-    assert simulation.recorded == [("state", 0.0), ("state", 0.25)]
-    assert simulation.saved == [("state", 0.0), ("state", 0.25)]
+    assert simulation.recorded == [("dynamic", 0.0), ("dynamic", 0.25)]
+    assert simulation.saved == [("dynamic", 0.0), ("dynamic", 0.25)]
 
 
 def test_exponential_propagator_reused_until_operator_or_dt_changes(monkeypatch):
@@ -130,16 +129,16 @@ def test_exponential_propagator_reused_until_operator_or_dt_changes(monkeypatch)
     runner = SimulationRunner(simulation)
     calls = []
 
-    def build_propagator(_response, dt, *, m_ind_feedback_matrix):
-        calls.append((m_ind_feedback_matrix, dt))
+    def build_propagator(_response, dt, *, feedback_matrix):
+        calls.append((feedback_matrix, dt))
         return np.array([[len(calls)]], dtype=float)
 
-    monkeypatch.setattr(induction, "exponential_propagator", build_propagator)
+    monkeypatch.setattr(induction, "poloidal_potential_exponential_propagator", build_propagator)
 
     first = runner._exponential_propagator_for_step(0.1)
     second = runner._exponential_propagator_for_step(0.1)
     third = runner._exponential_propagator_for_step(0.05)
-    simulation.response.m_ind_feedback_matrix = np.eye(1) * 2.0
+    simulation.response.induced_poloidal_potential_feedback_matrix = np.eye(1) * 2.0
     fourth = runner._exponential_propagator_for_step(0.05)
 
     assert first is second
@@ -156,14 +155,14 @@ def test_exponential_propagator_identity_tracks_active_resistance(monkeypatch):
     runner = SimulationRunner(simulation)
     calls = []
 
-    def build_propagator(_response, _dt, *, m_ind_feedback_matrix):
-        calls.append(m_ind_feedback_matrix)
+    def build_propagator(_response, _dt, *, feedback_matrix):
+        calls.append(feedback_matrix)
         return np.array([[len(calls)]], dtype=float)
 
-    monkeypatch.setattr(induction, "exponential_propagator", build_propagator)
+    monkeypatch.setattr(induction, "poloidal_potential_exponential_propagator", build_propagator)
 
     first = runner._exponential_propagator_for_step(0.1)
-    simulation.response.m_ind_feedback_matrix = np.eye(1) * 2.0
+    simulation.response.induced_poloidal_potential_feedback_matrix = np.eye(1) * 2.0
     equivalent = runner._exponential_propagator_for_step(0.1)
     simulation.response.conductance_fingerprint = "second"
     changed = runner._exponential_propagator_for_step(0.1)

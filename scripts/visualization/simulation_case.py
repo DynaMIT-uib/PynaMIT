@@ -7,16 +7,16 @@ import matplotlib.pyplot as plt
 import numpy as np
 from polplot import Polarplot
 
+from pynamit.visualization.output_fields import evaluate_Phi_coefficients
 from pynamit.visualization.pynameye import PynamEye
-from pynamit.visualization.state_fields import evaluate_Phi_coefficients
 
 path = "../simulation/data/pynamit_paper_simulation"  # Where the save files are located
 
 print(datetime.datetime.now(), "making PynamEye object")
-a = PynamEye(path, steady_state=True)
+a = PynamEye(path, equilibrium=True)
 
 for plot_num, simulation_time in enumerate([0, 480]):
-    a.set_time(simulation_time, steady_state=True)
+    a.set_time(simulation_time, equilibrium=True)
 
     phin = evaluate_Phi_coefficients(a.geometry, a.Phi_coeffs, a.transforms["north"])
     phis = evaluate_Phi_coefficients(a.geometry, a.Phi_coeffs, a.transforms["south"])

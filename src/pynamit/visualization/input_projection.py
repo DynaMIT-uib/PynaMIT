@@ -16,7 +16,7 @@ def _input_series(source):
 
 
 def _default_grid(source):
-    """Return the state/model grid for a Simulation-like object."""
+    """Return the model grid for a Simulation-like object."""
     try:
         return source.geometry.model_grid
     except AttributeError:
@@ -42,8 +42,9 @@ def evaluate_projected_input(
     source : Simulation or FieldTimeSeries
         Object containing projected input coefficient time series.
     key : str
-        Input key, for example ``"jr"``, ``"Br"``, ``"conductance"``,
-        ``"u"``, ``"Q_eff"``, or ``"E_neutral_wind"``.
+        Input key, for example ``"boundary_jr"``, ``"boundary_Br"``,
+        ``"conductance"``, ``"u"``, ``"Q_eff"``, or
+        ``"E_neutral_wind"``.
     time : float
         Time value to select from the input time series.
     grid : Grid, optional

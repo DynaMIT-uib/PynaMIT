@@ -62,7 +62,7 @@ if TS_ILLUSTRATION:
     paxes = [polplot.Polarplot(ax) for ax in axes]
 
     for t, pax in zip(ts, paxes, strict=True):
-        a.set_time(t, steady_state=True if t == 0 else False)
+        a.set_time(t, equilibrium=t == 0)
         a.plot_Br(pax, region="north", levels=np.linspace(-300, 300, 22) * 1e-9)
         a.plot_electric_potential(pax, region="north")
         a.plot_electric_field_stream_function(pax, region="north")
@@ -83,9 +83,9 @@ if SS_ILLUSTRATION:
 
     for i, pax in enumerate(paxes):
         if i == 0:
-            a.set_time(0, steady_state=True)
+            a.set_time(0, equilibrium=True)
         else:
-            a.set_time(481, steady_state=True)
+            a.set_time(481, equilibrium=True)
         a.plot_Br(pax, region="north", levels=np.linspace(-300, 300, 22) * 1e-9)
         a.plot_electric_potential(pax, region="north")
         a.plot_electric_field_stream_function(pax, region="north")
@@ -95,7 +95,7 @@ if SS_ILLUSTRATION:
         pax.writeLTlabels()
 
     plt.tight_layout()
-    plt.savefig("figures/steady_state_illustration.png", dpi=200)
+    plt.savefig("figures/equilibrium_illustration.png", dpi=200)
     plt.show()
 
 if LONG_TS:

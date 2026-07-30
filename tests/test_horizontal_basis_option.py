@@ -49,17 +49,18 @@ def test_horizontal_basis_kind_is_persisted(tmp_path):
     assert simulation.run_data.config.horizontal_basis_kind == "CS"
     assert simulation.run_data.schema.horizontal_basis is simulation.geometry.horizontal_basis
     assert simulation.geometry.solid_harmonics.basis is not simulation.geometry.horizontal_basis
-    assert simulation.run_data.schema.input_field_spaces["jr"].mean_free
-    assert simulation.run_data.schema.input_field_spaces["Br"].mean_free
+    assert simulation.run_data.schema.input_field_spaces["boundary_jr"].mean_free
+    assert simulation.run_data.schema.input_field_spaces["boundary_Br"].mean_free
     assert simulation.run_data.schema.input_field_spaces["u"].mean_free
     assert not simulation.run_data.schema.input_field_spaces["conductance"].mean_free
-    assert all(
-        field_space.mean_free
-        for field_space in simulation.run_data.schema.output_field_spaces["state"].values()
-    )
+    output_spaces = simulation.run_data.schema.output_field_spaces["dynamic"]
+    assert output_spaces["induced_Br"].mean_free
+    assert not output_spaces["boundary_jr"].mean_free
+    assert output_spaces["Phi"].mean_free
+    assert output_spaces["W"].mean_free
 
 
-def test_cs_surface_gauge_makes_m_imp_system_unique(tmp_path):
+def test_cs_surface_gauge_makes_toroidal_potential_system_unique(tmp_path):
     """The CS constant gauge is constrained without regularization."""
     simulation = Simulation(
         run_directory=str(tmp_path / "run"),
@@ -68,7 +69,7 @@ def test_cs_surface_gauge_makes_m_imp_system_unique(tmp_path):
         Ncs=4,
         enable_pfac_coupling=False,
         horizontal_basis_kind="CS",
-        m_imp_regularization_lambda=0.0,
+        toroidal_potential_regularization_lambda=0.0,
         artifact_storage="netcdf",
     )
 
@@ -80,12 +81,14 @@ def test_cs_surface_gauge_makes_m_imp_system_unique(tmp_path):
         np.sqrt(geometry.horizontal_basis.index_length),
     )
 
-    system = simulation.response._m_imp_problem.data_operator.to_matrix(backend="numpy")
+    system = simulation.response._toroidal_potential_problem.data_operator.to_matrix(
+        backend="numpy"
+    )
     assert np.linalg.matrix_rank(system) == geometry.horizontal_basis.index_length
 
 
-def test_cs_runtime_m_imp_solve_does_not_build_dense_response_matrix(tmp_path):
-    """A single current input should remain a single m_imp solve."""
+def test_cs_runtime_toroidal_solve_does_not_build_dense_response_matrix(tmp_path):
+    """A single current input should remain a single toroidal solve."""
     simulation = Simulation(
         run_directory=str(tmp_path / "run"),
         Nmax=2,
@@ -102,16 +105,21 @@ def test_cs_runtime_m_imp_solve_does_not_build_dense_response_matrix(tmp_path):
     simulation.set_conductance(
         log_magnitude_coefficients=np.zeros(n), log_ratio_coefficients=np.zeros(n), time=0.0
     )
-    simulation.set_jr(jr_coefficients=np.linspace(-1.0, 1.0, n), time=0.0)
+    simulation.set_boundary_jr(boundary_jr_coefficients=np.linspace(-1.0, 1.0, n), time=0.0)
     response = simulation.response
     response.activate_inputs_at_time(simulation.run_data.input_series, 0.0)
 
-    _, direct_m_imp = response.calculate_noninductive_response()
+    _, solved_boundary_jr = response.calculate_noninductive_response()
 
-    assert response._jr_to_m_imp_matrix is None
-    assert response._runtime_m_imp_to_E_coeffs._cached_dense(np) is None
-    explicit_m_imp = response.jr_to_m_imp_operator.matvec(response.jr.array)
-    np.testing.assert_allclose(direct_m_imp, explicit_m_imp, atol=1e-12)
+    assert response._boundary_jr_to_toroidal_potential_matrix is None
+    assert response._runtime_toroidal_potential_to_E_coeffs._cached_dense(np) is None
+    explicit_toroidal_potential = response.boundary_jr_to_toroidal_potential_operator.matvec(
+        response.boundary_jr.array
+    )
+    expected_boundary_jr = simulation.geometry.toroidal_potential_to_boundary_jr_operator.matvec(
+        explicit_toroidal_potential
+    )
+    np.testing.assert_allclose(solved_boundary_jr, expected_boundary_jr, atol=1e-12)
 
 
 def test_cs_reduced_induction_response_matches_full_E_response(tmp_path):
@@ -141,8 +149,8 @@ def test_cs_reduced_induction_response_matches_full_E_response(tmp_path):
     response = simulation.response
     response.activate_inputs_at_time(simulation.run_data.input_series, 0.0)
 
-    reduced = response.m_ind_to_E_df_operator.to_matrix(backend="numpy")
-    full = (response.driving_E_to_E_df_operator @ response.m_ind_to_E_coeffs).to_matrix(
+    reduced = response.induced_Br_to_E_df_operator.to_matrix(backend="numpy")
+    full = (response.driving_E_to_E_df_operator @ response.induced_Br_to_E_coeffs).to_matrix(
         backend="numpy"
     )
 
@@ -178,8 +186,8 @@ def test_area_weighted_least_squares_option_is_persisted(tmp_path):
     )
 
 
-def test_cs_horizontal_basis_runs_with_split_state_spaces(tmp_path):
-    """CS surface fields coexist with the poloidal SH state."""
+def test_cs_horizontal_basis_runs_with_split_output_spaces(tmp_path):
+    """CS surface fields coexist with the poloidal SH output."""
     simulation = run_pynamit(
         final_time=0.0,
         dt=0.1,
@@ -188,7 +196,7 @@ def test_cs_horizontal_basis_runs_with_split_state_spaces(tmp_path):
         Ncs=8,
         enable_pfac_coupling=False,
         use_wind=False,
-        jr_projection_basis="CS",
+        boundary_jr_projection_basis="CS",
         conductance_projection_basis="CS",
         u_projection_basis="CS",
         run_directory=str(tmp_path / "run"),
@@ -196,11 +204,11 @@ def test_cs_horizontal_basis_runs_with_split_state_spaces(tmp_path):
         artifact_storage="netcdf",
     )
 
-    state = simulation.run_data.output_series.datasets["state"]
-    assert "SH_m_ind" in state
-    assert "CS_m_imp" in state
-    assert state["SH_m_ind"].shape[-1] == simulation.geometry.poloidal_basis.index_length
-    assert state["CS_m_imp"].shape[-1] == simulation.geometry.horizontal_basis.index_length
+    output = simulation.run_data.output_series.datasets["dynamic"]
+    assert "SH_induced_Br" in output
+    assert "CS_boundary_jr" in output
+    assert output["SH_induced_Br"].shape[-1] == simulation.geometry.poloidal_basis.index_length
+    assert output["CS_boundary_jr"].shape[-1] == simulation.geometry.horizontal_basis.index_length
     assert simulation.run_data.schema.horizontal_basis is simulation.geometry.horizontal_basis
 
 
@@ -214,7 +222,7 @@ def test_cs_horizontal_basis_runs_with_pfac(tmp_path):
         Ncs=8,
         enable_pfac_coupling=True,
         use_wind=False,
-        jr_projection_basis="CS",
+        boundary_jr_projection_basis="CS",
         conductance_projection_basis="CS",
         u_projection_basis="CS",
         run_directory=str(tmp_path / "run"),
@@ -224,19 +232,19 @@ def test_cs_horizontal_basis_runs_with_pfac(tmp_path):
     )
 
     geometry = simulation.geometry
-    pfac = geometry.pfac_coupling_matrix
-    assert isinstance(pfac, np.ndarray)
-    assert not pfac.flags.writeable
+    gap_Br_response = geometry.boundary_jr_to_gap_Br_matrix
+    assert isinstance(gap_Br_response, np.ndarray)
+    assert not gap_Br_response.flags.writeable
 
     assert simulation.run_data.schema.horizontal_basis is simulation.geometry.horizontal_basis
     assert simulation.geometry.solid_harmonics.basis is not simulation.geometry.horizontal_basis
-    assert pfac.shape == (
+    assert gap_Br_response.shape == (
         simulation.geometry.poloidal_basis.index_length,
         simulation.geometry.horizontal_basis.index_length,
     )
-    assert np.linalg.norm(pfac) > 0.0
-    assert np.all(np.isfinite(pfac))
-    assert np.all(np.isfinite(geometry.m_imp_to_gridded_JS()))
+    assert np.linalg.norm(gap_Br_response) > 0.0
+    assert np.all(np.isfinite(gap_Br_response))
+    assert np.all(np.isfinite(geometry.boundary_jr_to_gridded_JS()))
 
 
 def test_cs_horizontal_basis_supports_rm_solid_harmonics(tmp_path):
@@ -254,17 +262,17 @@ def test_cs_horizontal_basis_supports_rm_solid_harmonics(tmp_path):
 
     geometry = simulation.geometry
 
-    m_ind_to_JS = geometry.m_ind_to_gridded_JS()
-    Br_to_JS = geometry.Br_to_gridded_JS()
+    induced_Br_to_JS = geometry.induced_Br_to_gridded_JS()
+    boundary_Br_to_JS = geometry.boundary_Br_to_gridded_JS()
 
-    assert m_ind_to_JS.shape == (
+    assert induced_Br_to_JS.shape == (
         2,
         geometry.model_grid.size,
         simulation.geometry.poloidal_basis.index_length,
     )
-    assert Br_to_JS.shape == m_ind_to_JS.shape
-    assert np.all(np.isfinite(m_ind_to_JS))
-    assert np.all(np.isfinite(Br_to_JS))
+    assert boundary_Br_to_JS.shape == induced_Br_to_JS.shape
+    assert np.all(np.isfinite(induced_Br_to_JS))
+    assert np.all(np.isfinite(boundary_Br_to_JS))
 
 
 def test_cs_horizontal_basis_supports_connected_hemispheres(tmp_path):
@@ -278,7 +286,7 @@ def test_cs_horizontal_basis_supports_connected_hemispheres(tmp_path):
         enable_pfac_coupling=False,
         enable_interhemispheric_coupling=True,
         use_wind=False,
-        jr_projection_basis="CS",
+        boundary_jr_projection_basis="CS",
         conductance_projection_basis="CS",
         u_projection_basis="CS",
         run_directory=str(tmp_path / "run"),
@@ -344,8 +352,8 @@ def test_cs_horizontal_basis_combines_pfac_rm_and_connected_terms(tmp_path):
         enable_pfac_coupling=True,
         enable_interhemispheric_coupling=True,
         use_wind=False,
-        jr_projection_basis="CS",
-        Br_projection_basis="CS",
+        boundary_jr_projection_basis="CS",
+        boundary_Br_projection_basis="CS",
         conductance_projection_basis="CS",
         u_projection_basis="CS",
         run_directory=str(tmp_path / "run"),
@@ -356,18 +364,20 @@ def test_cs_horizontal_basis_combines_pfac_rm_and_connected_terms(tmp_path):
 
     geometry = simulation.geometry
 
-    assert geometry.pfac_coupling_matrix.shape == (
+    assert geometry.boundary_jr_to_gap_Br_matrix.shape == (
         simulation.geometry.poloidal_basis.index_length,
         simulation.geometry.horizontal_basis.index_length,
     )
-    assert geometry.Br_to_gridded_JS().shape == (geometry.m_ind_to_gridded_JS().shape)
+    assert geometry.boundary_Br_to_gridded_JS().shape == (
+        geometry.induced_Br_to_gridded_JS().shape
+    )
     assert geometry.interhemispheric_electric_field_difference_matrix.shape[-2:] == (
         2,
         simulation.geometry.horizontal_basis.index_length,
     )
-    assert np.linalg.norm(geometry.pfac_coupling_matrix) > 0.0
-    assert np.all(np.isfinite(geometry.pfac_coupling_matrix))
-    assert np.all(np.isfinite(geometry.Br_to_gridded_JS()))
+    assert np.linalg.norm(geometry.boundary_jr_to_gap_Br_matrix) > 0.0
+    assert np.all(np.isfinite(geometry.boundary_jr_to_gap_Br_matrix))
+    assert np.all(np.isfinite(geometry.boundary_Br_to_gridded_JS()))
 
 
 def test_surface_to_poloidal_projection_matches_grid_least_squares(tmp_path):

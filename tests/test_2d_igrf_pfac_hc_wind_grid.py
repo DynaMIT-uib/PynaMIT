@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from pynamit.simulation.workflows.standard import run_pynamit
+from tests import magnetic_potential_coordinate_array
 
 
 def test_2d_igrf_pfac_hc_wind_grid():
@@ -26,19 +27,14 @@ def test_2d_igrf_pfac_hc_wind_grid():
         enable_interhemispheric_coupling=True,
         interhemispheric_coupling_latitude=50,
         use_wind=True,
-        jr_projection_basis="CS",
+        boundary_jr_projection_basis="CS",
         conductance_projection_basis="CS",
         u_projection_basis="CS",
-        steady_state_initialization=False,
+        equilibrium_initialization=False,
     )
 
     # Assert.
-    coeff_array = np.hstack(
-        (
-            simulation.run_data.output_series.datasets["state"]["SH_m_ind"].values[-1],
-            simulation.run_data.output_series.datasets["state"]["SH_m_imp"].values[-1],
-        )
-    )
+    coeff_array = magnetic_potential_coordinate_array(simulation)
 
     actual_coeff_norm = np.linalg.norm(coeff_array)
     actual_coeff_max = np.max(coeff_array)

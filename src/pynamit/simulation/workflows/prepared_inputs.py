@@ -5,7 +5,7 @@ directory.  It stores projected input coefficients on a chosen grid,
 basis, and Earth-fixed main-field coordinate system. The time origin
 locates those coefficients in physical time; it is not part of the
 spatial frame. Most evolution choices belong to the consuming run, but
-boundary ``Br`` also declares the magnetospheric radius it requires.
+``boundary_Br`` also declares the magnetospheric radius it requires.
 """
 
 from __future__ import annotations
@@ -34,15 +34,16 @@ from pynamit.storage.field_time_series import TIME_TOLERANCE_SECONDS
 
 INPUT_MANIFEST_FILENAME = "pynamit_input_manifest.json"
 RUN_MANIFEST_FILENAME = "pynamit_run_manifest.json"
-_INPUT_MANIFEST_VERSION = 4
+_INPUT_MANIFEST_VERSION = 5
+_RUN_MANIFEST_VERSION = 3
 
 _INPUT_PROJECTION_SETTING_KEYS = (
     "Nmax",
     "Mmax",
     "Ncs",
     "RI",
-    "jr_projection_basis",
-    "Br_projection_basis",
+    "boundary_jr_projection_basis",
+    "boundary_Br_projection_basis",
     "conductance_projection_basis",
     "u_projection_basis",
     "Q_eff_projection_basis",
@@ -62,17 +63,17 @@ _RUN_SETTING_KEYS = (
     "main_field_kind",
     "main_field_epoch",
     "main_field_B0",
-    "save_steady_states",
+    "save_equilibria",
     "integrator",
     "least_squares_solver",
     "least_squares_preconditioner",
     "reuse_preconditioner",
-    "m_imp_regularization_lambda",
+    "toroidal_potential_regularization_lambda",
 )
 
 _INPUT_MAINFIELD_SETTING_KEYS = ("main_field_kind", "main_field_epoch", "main_field_B0")
 _INPUT_GEOMETRY_SETTING_KEYS = ("RM",) + _INPUT_MAINFIELD_SETTING_KEYS
-_INPUT_DATASET_REQUIREMENT_KEYS = {"Br": ("RM",)}
+_INPUT_DATASET_REQUIREMENT_KEYS = {"boundary_Br": ("RM",)}
 _DEFAULT_INPUT_TIME = _datetime.datetime(2001, 5, 12, 21, 45)
 
 
@@ -484,7 +485,7 @@ def _validate_run_identity(
     if (
         not isinstance(existing, dict)
         or existing.get("kind") not in {"pynamit_run", "pynamit_paper_run"}
-        or existing.get("version") != 2
+        or existing.get("version") != _RUN_MANIFEST_VERSION
     ):
         raise ValueError(
             f"Existing {RUN_MANIFEST_FILENAME} in {run_directory!s} does not describe "
@@ -511,14 +512,14 @@ def _validate_run_identity(
 
 
 def _stored_run_outputs_reach(
-    store: ArtifactStore, target_time: float, *, run_inductive: bool, run_steady_state: bool
+    store: ArtifactStore, target_time: float, *, run_dynamic: bool, run_equilibrium: bool
 ) -> bool:
     """Return whether all requested persisted outputs reach a target."""
     requested_outputs = []
-    if run_inductive:
-        requested_outputs.append("state")
-    if run_steady_state:
-        requested_outputs.append("steady_state")
+    if run_dynamic:
+        requested_outputs.append("dynamic")
+    if run_equilibrium:
+        requested_outputs.append("equilibrium")
     if not requested_outputs:
         return False
 
@@ -588,13 +589,13 @@ def prepare_pynamit_inputs(
     main_field_B0=None,
     use_wind=False,
     use_Q_eff=False,
-    use_jr=True,
-    jr_projection_basis=None,
-    Br_projection_basis=None,
+    use_boundary_jr=True,
+    boundary_jr_projection_basis=None,
+    boundary_Br_projection_basis=None,
     conductance_projection_basis=None,
     u_projection_basis=None,
     Q_eff_projection_basis=None,
-    jr_lambda=None,
+    boundary_jr_lambda=None,
     conductance_lambda=None,
     u_lambda=None,
     Q_eff_lambda=None,
@@ -612,7 +613,7 @@ def prepare_pynamit_inputs(
 
     ``main_field_*`` is part of the prepared-input contract because
     inputs may be projected in model magnetic coordinates or converted
-    from FAC to ``jr`` using the main field.
+    from FAC to ``boundary_jr`` using the main field.
     """
     if use_Q_eff and not use_wind:
         raise ValueError("use_Q_eff=True requires use_wind=True in prepare_pynamit_inputs.")
@@ -630,8 +631,8 @@ def prepare_pynamit_inputs(
         main_field_epoch=main_field_epoch,
         main_field_B0=main_field_B0,
         t0=event_time.isoformat(sep=" "),
-        jr_projection_basis=jr_projection_basis,
-        Br_projection_basis=Br_projection_basis,
+        boundary_jr_projection_basis=boundary_jr_projection_basis,
+        boundary_Br_projection_basis=boundary_Br_projection_basis,
         conductance_projection_basis=conductance_projection_basis,
         u_projection_basis=u_projection_basis,
         Q_eff_projection_basis=Q_eff_projection_basis,
@@ -668,11 +669,13 @@ def prepare_pynamit_inputs(
         time=time,
     )
 
-    if use_jr:
+    if use_boundary_jr:
         jr, returned_lat, returned_lon = get_jr_inputs(event_time, query_lat, query_lon, time)
         jr_lat = model_lat if native_empirical_inputs else returned_lat
         jr_lon = model_lon if native_empirical_inputs else returned_lon
-        simulation.set_jr(jr, lat=jr_lat, lon=jr_lon, reg_lambda=jr_lambda, time=time)
+        simulation.set_boundary_jr(
+            jr, lat=jr_lat, lon=jr_lon, reg_lambda=boundary_jr_lambda, time=time
+        )
 
     wind_inputs = get_wind_inputs(event_time, use_wind=use_wind, time=time)
     if wind_inputs is not None:
@@ -719,7 +722,7 @@ def prepare_pynamit_inputs(
             "external_input_source": get_input_source(),
             "multi_data": bool(multi_data),
             "projection_regularization": {
-                "jr_lambda": jr_lambda,
+                "boundary_jr_lambda": boundary_jr_lambda,
                 "conductance_lambda": conductance_lambda,
                 "u_lambda": u_lambda,
                 "Q_eff_lambda": Q_eff_lambda,
@@ -745,14 +748,14 @@ def run_pynamit_from_inputs(
     enable_pfac_coupling=False,
     enable_interhemispheric_coupling=False,
     interhemispheric_coupling_latitude=50,
-    steady_state_initialization=True,
-    run_inductive=True,
-    run_steady_state=True,
+    equilibrium_initialization=True,
+    run_dynamic=True,
+    run_equilibrium=True,
     integrator="euler",
     least_squares_solver=None,
     least_squares_preconditioner="pinv",
     reuse_preconditioner=False,
-    m_imp_regularization_lambda=0.0,
+    toroidal_potential_regularization_lambda=0.0,
     artifact_storage="auto",
     operator_cache_directory=None,
     magnetic_boundary_shielding=False,
@@ -777,12 +780,12 @@ def run_pynamit_from_inputs(
             "enable_pfac_coupling": enable_pfac_coupling,
             "enable_interhemispheric_coupling": enable_interhemispheric_coupling,
             "interhemispheric_coupling_latitude": interhemispheric_coupling_latitude,
-            "save_steady_states": run_steady_state,
+            "save_equilibria": run_equilibrium,
             "integrator": integrator,
             "least_squares_solver": least_squares_solver,
             "least_squares_preconditioner": least_squares_preconditioner,
             "reuse_preconditioner": reuse_preconditioner,
-            "m_imp_regularization_lambda": m_imp_regularization_lambda,
+            "toroidal_potential_regularization_lambda": toroidal_potential_regularization_lambda,
             "magnetic_boundary_shielding": magnetic_boundary_shielding,
         }
     )
@@ -812,25 +815,25 @@ def run_pynamit_from_inputs(
         sampling_step_interval=sampling_step_interval,
         saving_sample_interval=saving_sample_interval,
         quiet=False,
-        steady_state_initialization=steady_state_initialization,
-        run_inductive=run_inductive,
-        run_steady_state=run_steady_state,
+        equilibrium_initialization=equilibrium_initialization,
+        run_dynamic=run_dynamic,
+        run_equilibrium=run_equilibrium,
     )
     final_time = options.target_time
     dt = float(options.dt)
     sampling_step_interval = options.sampling_step_interval
     saving_sample_interval = options.saving_sample_interval
-    steady_state_initialization = options.steady_state_initialization
-    run_inductive = options.run_inductive
-    run_steady_state = options.run_steady_state
+    equilibrium_initialization = options.equilibrium_initialization
+    run_dynamic = options.run_dynamic
+    run_equilibrium = options.run_equilibrium
     time_evolution = {
         "final_time": final_time,
         "dt": dt,
         "sampling_step_interval": sampling_step_interval,
         "saving_sample_interval": saving_sample_interval,
-        "steady_state_initialization": steady_state_initialization,
-        "run_inductive": run_inductive,
-        "run_steady_state": run_steady_state,
+        "equilibrium_initialization": equilibrium_initialization,
+        "run_dynamic": run_dynamic,
+        "run_equilibrium": run_equilibrium,
     }
     evolution_policy = {
         name: value for name, value in time_evolution.items() if name != "final_time"
@@ -853,7 +856,7 @@ def run_pynamit_from_inputs(
         run_store = ArtifactStore(run_directory, preferred_dataset_storage=artifact_storage)
         _validate_stored_run_settings(run_store, config, run_directory)
         if skip_completed and _stored_run_outputs_reach(
-            run_store, final_time, run_inductive=run_inductive, run_steady_state=run_steady_state
+            run_store, final_time, run_dynamic=run_dynamic, run_equilibrium=run_equilibrium
         ):
             print(
                 f"Run output in {run_directory} already reaches t={float(final_time):g} s; "
@@ -881,7 +884,7 @@ def run_pynamit_from_inputs(
         Path(run_directory) / RUN_MANIFEST_FILENAME,
         {
             "kind": "pynamit_run",
-            "version": 2,
+            "version": _RUN_MANIFEST_VERSION,
             "input_directory": str(Path(input_directory).resolve()),
             "enabled_inputs": loaded_inputs,
             "input_manifest": input_manifest,
@@ -895,9 +898,9 @@ def run_pynamit_from_inputs(
         dt=dt,
         sampling_step_interval=sampling_step_interval,
         saving_sample_interval=saving_sample_interval,
-        steady_state_initialization=steady_state_initialization,
-        run_inductive=run_inductive,
-        run_steady_state=run_steady_state,
+        equilibrium_initialization=equilibrium_initialization,
+        run_dynamic=run_dynamic,
+        run_equilibrium=run_equilibrium,
     )
     return simulation
 

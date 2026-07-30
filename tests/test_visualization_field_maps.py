@@ -15,7 +15,7 @@ from pynamit.visualization.field_maps import (
     evaluate_tangential_coefficients,
     evaluate_wind_coefficients,
 )
-from pynamit.visualization.state_fields import evaluate_JS_coefficients
+from pynamit.visualization.output_fields import evaluate_JS_coefficients
 
 
 class ScalingTransform:
@@ -85,10 +85,10 @@ def test_tangential_and_wind_coefficients_share_component_convention():
 def test_JS_map_accepts_sparse_operators():
     """Visualization field maps use the shared LinearMap adapter."""
     current = evaluate_JS_from_maps(
-        m_imp=np.array([1.0, 2.0]),
-        m_ind=np.array([3.0, 4.0]),
-        m_imp_to_JS=scipy.sparse.csr_matrix(np.eye(4, 2)),
-        m_ind_to_JS=scipy.sparse.csr_matrix(2.0 * np.eye(4, 2)),
+        boundary_jr=np.array([1.0, 2.0]),
+        induced_Br=np.array([3.0, 4.0]),
+        boundary_jr_to_JS=scipy.sparse.csr_matrix(np.eye(4, 2)),
+        induced_Br_to_JS=scipy.sparse.csr_matrix(2.0 * np.eye(4, 2)),
     )
 
     np.testing.assert_allclose(current, np.array([[7.0, 10.0], [0.0, 0.0]]))
@@ -97,19 +97,19 @@ def test_JS_map_accepts_sparse_operators():
 def test_JS_map_includes_optional_boundary_field():
     """Boundary Br contributes through the same current-map adapter."""
     current = evaluate_JS_from_maps(
-        m_imp=np.array([1.0, 2.0]),
-        m_ind=np.array([3.0, 4.0]),
-        m_imp_to_JS=np.eye(4, 2),
-        m_ind_to_JS=2.0 * np.eye(4, 2),
-        Br=np.array([5.0, 6.0]),
-        Br_to_JS=3.0 * np.eye(4, 2),
+        boundary_jr=np.array([1.0, 2.0]),
+        induced_Br=np.array([3.0, 4.0]),
+        boundary_jr_to_JS=np.eye(4, 2),
+        induced_Br_to_JS=2.0 * np.eye(4, 2),
+        boundary_Br=np.array([5.0, 6.0]),
+        boundary_Br_to_JS=3.0 * np.eye(4, 2),
     )
 
     np.testing.assert_allclose(current, np.array([[22.0, 28.0], [0.0, 0.0]]))
 
 
 def test_live_JS_evaluation_includes_boundary_field():
-    """Live state-field evaluation uses every physical JS source."""
+    """Live output evaluation uses every physical JS source."""
 
     class CompatibleBasis:
         def coefficients_are_compatible_with(self, other):
@@ -122,15 +122,15 @@ def test_live_JS_evaluation_includes_boundary_field():
         horizontal_basis = Transform.basis
 
         @staticmethod
-        def m_imp_to_gridded_JS(transform):
+        def boundary_jr_to_gridded_JS(transform):
             return np.eye(4, 2)
 
         @staticmethod
-        def m_ind_to_gridded_JS(transform):
+        def induced_Br_to_gridded_JS(transform):
             return 2.0 * np.eye(4, 2)
 
         @staticmethod
-        def Br_to_gridded_JS(transform):
+        def boundary_Br_to_gridded_JS(transform):
             return 3.0 * np.eye(4, 2)
 
     current = evaluate_JS_coefficients(
@@ -138,7 +138,7 @@ def test_live_JS_evaluation_includes_boundary_field():
         np.array([1.0, 2.0]),
         np.array([3.0, 4.0]),
         Transform(),
-        Br=np.array([5.0, 6.0]),
+        boundary_Br=np.array([5.0, 6.0]),
     )
 
     np.testing.assert_allclose(current, np.array([[22.0, 28.0], [0.0, 0.0]]))

@@ -25,7 +25,7 @@ def test_saved_run_view_loads_core_visualization_objects(tmp_path):
     assert run_view.config.Nmax == 2
     assert run_view.schema.horizontal_basis is run_view.schema.mean_free_sh_basis
     assert run_view.main_field.kind == simulation.geometry.main_field.kind
-    assert run_view.pfac_matrix is None
+    assert run_view.gap_Br_response is None
     assert run_view.geometry is not None
     assert input_series.field_spaces == run_view.schema.input_field_spaces
     assert output_series.field_spaces == run_view.schema.output_field_spaces
@@ -75,20 +75,28 @@ def test_pynameye_uses_saved_run_view(tmp_path):
     u_df = np.linspace(2.0, 3.0, wind_shape[1])
     simulation.set_neutral_wind(u_cf=u_cf, u_df=u_df, time=0.0)
 
-    jr_shape = simulation.run_data.schema.input_field_spaces["jr"].coefficient_shape
-    simulation.set_jr(jr_coefficients=np.zeros(jr_shape), time=0.0)
-    simulation.impose_steady_state(time=0.0, save=True, quiet=True)
+    boundary_jr_shape = simulation.run_data.schema.input_field_spaces[
+        "boundary_jr"
+    ].coefficient_shape
+    simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
+    simulation.impose_equilibrium(time=0.0, save=True, quiet=True)
 
     eye = PynamEye(
-        simulation.run_data.run_directory, Nlat=6, Nlon=8, NCS_plot=4, steady_state=False
+        simulation.run_data.run_directory, Nlat=6, Nlon=8, NCS_plot=4, equilibrium=False
     )
 
     assert isinstance(eye.run_view, SavedRunView)
     assert eye.schema is eye.run_view.schema
     assert eye.geometry is eye.run_view.geometry
     assert eye.main_field is eye.run_view.main_field
-    assert eye.m_ind_to_Br_operator is eye.geometry.m_ind_to_Br_operator
-    assert eye.m_imp_to_jr_operator is eye.geometry.m_imp_to_jr_operator
+    np.testing.assert_allclose(
+        eye.induced_Br_to_Br_operator.to_matrix(backend="numpy"),
+        np.eye(eye.geometry.poloidal_basis.index_length),
+    )
+    np.testing.assert_allclose(
+        eye.boundary_jr_to_jr_operator.to_matrix(backend="numpy"),
+        np.eye(eye.geometry.horizontal_basis.index_length),
+    )
     expected_model_lat, expected_model_lon = eye.main_field.geo_to_model_coordinates(
         eye.lat, eye.lon, event_time=eye.t0
     )
@@ -101,6 +109,34 @@ def test_pynameye_uses_saved_run_view(tmp_path):
     np.testing.assert_allclose(eye.m_u_cf, u_cf)
     np.testing.assert_allclose(eye.m_u_df, u_df)
     np.testing.assert_allclose(eye.u.array, np.stack([u_cf, u_df]))
+
+
+def test_pynameye_supports_equilibrium_only_output(tmp_path):
+    """PynamEye does not require a dynamic artifact for equilibrium."""
+    simulation = pynamit.Simulation(
+        run_directory=tmp_path,
+        Nmax=2,
+        Mmax=1,
+        Ncs=8,
+        enable_pfac_coupling=False,
+        artifact_storage="netcdf",
+    )
+    conductance_shape = simulation.run_data.schema.input_field_spaces[
+        "conductance"
+    ].coefficient_shape
+    simulation.set_conductance(
+        log_magnitude_coefficients=np.zeros(conductance_shape),
+        log_ratio_coefficients=np.zeros(conductance_shape),
+        time=0.0,
+    )
+    simulation.impose_equilibrium(time=0.0, save=True, quiet=True)
+    simulation.run_data.artifact_store.remove_artifact("dynamic")
+
+    eye = PynamEye(tmp_path, Nlat=6, Nlon=8, NCS_plot=4, equilibrium=True)
+
+    assert "dynamic" not in eye.datasets
+    assert "equilibrium" in eye.datasets
+    assert eye.induced_Br.shape == (simulation.geometry.poloidal_basis.index_length,)
 
 
 def test_pynameye_reuses_earth_fixed_geographic_mapping(tmp_path):
@@ -125,10 +161,14 @@ def test_pynameye_reuses_earth_fixed_geographic_mapping(tmp_path):
         log_ratio_coefficients=np.zeros((2, *resistance_shape)),
         time=times,
     )
-    jr_shape = simulation.run_data.schema.input_field_spaces["jr"].coefficient_shape
-    simulation.set_jr(jr_coefficients=np.zeros((2, *jr_shape)), time=times)
-    simulation.impose_steady_state(time=0.0, save=True, quiet=True)
-    simulation.impose_steady_state(time=3600.0, save=True, quiet=True)
+    boundary_jr_shape = simulation.run_data.schema.input_field_spaces[
+        "boundary_jr"
+    ].coefficient_shape
+    simulation.set_boundary_jr(
+        boundary_jr_coefficients=np.zeros((2, *boundary_jr_shape)), time=times
+    )
+    simulation.impose_equilibrium(time=0.0, save=True, quiet=True)
+    simulation.impose_equilibrium(time=3600.0, save=True, quiet=True)
     eye = PynamEye(tmp_path, Nlat=6, Nlon=8, NCS_plot=4)
     initial_lon = eye.global_grid.lon.copy()
     initial_vector_lon = np.asarray(eye.global_vector_lon).copy()
@@ -163,14 +203,16 @@ def test_pynameye_joule_uses_total_boundary_driven_current(tmp_path):
         log_ratio_coefficients=np.zeros(resistance_shape),
         time=0.0,
     )
-    br_shape = simulation.run_data.schema.input_field_spaces["Br"].coefficient_shape
-    Br = np.zeros(br_shape)
-    Br[0] = 1.0e-9
-    simulation.set_Br(Br_coefficients=Br, time=0.0)
-    simulation.impose_steady_state(time=0.0, save=True, quiet=True)
+    boundary_Br_shape = simulation.run_data.schema.input_field_spaces[
+        "boundary_Br"
+    ].coefficient_shape
+    boundary_Br = np.zeros(boundary_Br_shape)
+    boundary_Br[0] = 1.0e-9
+    simulation.set_boundary_Br(boundary_Br_coefficients=boundary_Br, time=0.0)
+    simulation.impose_equilibrium(time=0.0, save=True, quiet=True)
 
     eye = PynamEye(
-        simulation.run_data.run_directory, Nlat=6, Nlon=8, NCS_plot=4, steady_state=False
+        simulation.run_data.run_directory, Nlat=6, Nlon=8, NCS_plot=4, equilibrium=False
     )
     eye._plot_filled_contour = lambda values, _axis, _region, **_kwargs: values
 
@@ -179,9 +221,9 @@ def test_pynameye_joule_uses_total_boundary_driven_current(tmp_path):
     assert set(eye.sheet_current_maps) == {"global"}
     current_maps = eye.sheet_current_maps["global"]
     expected = (
-        np.asarray(current_maps["m_ind_to_JS"]).dot(eye.m_ind)
-        + np.asarray(current_maps["m_imp_to_JS"]).dot(eye.m_imp)
-        + np.asarray(current_maps["Br_to_JS"]).dot(eye.m_Br)
+        np.asarray(current_maps["induced_Br_to_JS"]).dot(eye.induced_Br)
+        + np.asarray(current_maps["boundary_jr_to_JS"]).dot(eye.boundary_jr)
+        + np.asarray(current_maps["boundary_Br_to_JS"]).dot(eye.boundary_Br)
     ).reshape(2, -1)
 
     np.testing.assert_allclose(eye._JS, expected, atol=1e-15)
@@ -217,12 +259,14 @@ def test_pynameye_wind_plot_uses_wind_projection_basis(tmp_path):
     u_df[1] = 0.5
     simulation.set_neutral_wind(u_cf=u_cf, u_df=u_df, time=0.0)
 
-    jr_shape = simulation.run_data.schema.input_field_spaces["jr"].coefficient_shape
-    simulation.set_jr(jr_coefficients=np.zeros(jr_shape), time=0.0)
-    simulation.impose_steady_state(time=0.0, save=True, quiet=True)
+    boundary_jr_shape = simulation.run_data.schema.input_field_spaces[
+        "boundary_jr"
+    ].coefficient_shape
+    simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
+    simulation.impose_equilibrium(time=0.0, save=True, quiet=True)
 
     eye = PynamEye(
-        simulation.run_data.run_directory, Nlat=6, Nlon=8, NCS_plot=4, steady_state=False
+        simulation.run_data.run_directory, Nlat=6, Nlon=8, NCS_plot=4, equilibrium=False
     )
     cs_wind_space = pynamit.FieldSpace.from_representation(
         eye.schema.cs_basis, field_type="tangential", mean_free=True

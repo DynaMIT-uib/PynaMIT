@@ -177,7 +177,9 @@ class PynamitPanelApp:
             value="SH",
             width=170,
         )
-        self.prepare_use_jr = pn.widgets.Checkbox(label="jr", value=True, width=70)
+        self.prepare_use_boundary_jr = pn.widgets.Checkbox(
+            label="Boundary jr", value=True, width=110
+        )
         self.prepare_use_wind = pn.widgets.Checkbox(label="u", value=False, width=70)
         self.prepare_use_q_eff = pn.widgets.Checkbox(label="Q_eff from u", value=False, width=120)
         self.prepare_multi_data = pn.widgets.Checkbox(label="multi-time", value=False, width=120)
@@ -212,13 +214,13 @@ class PynamitPanelApp:
         self.sim_magnetic_boundary_shielding = pn.widgets.Checkbox(
             label="Boundary shielding", value=False, width=150
         )
-        self.sim_run_inductive = pn.widgets.Checkbox(label="Inductive", value=True, width=110)
-        self.sim_run_steady = pn.widgets.Checkbox(label="Steady state", value=True, width=130)
+        self.sim_run_dynamic = pn.widgets.Checkbox(label="Dynamic", value=True, width=110)
+        self.sim_run_equilibrium = pn.widgets.Checkbox(label="Equilibrium", value=True, width=130)
         self.sim_interhemispheric_coupling_latitude = pn.widgets.FloatInput(
             label="Coupling latitude", value=50.0, width=140
         )
         self.sim_use_conductance = pn.widgets.Checkbox(label="Conductance", value=True, width=120)
-        self.sim_use_jr = pn.widgets.Checkbox(label="jr", value=True, width=70)
+        self.sim_use_boundary_jr = pn.widgets.Checkbox(label="Boundary jr", value=True, width=110)
         self.sim_use_br = pn.widgets.Checkbox(label="Br", value=True, width=70)
         self.sim_use_u = pn.widgets.Checkbox(label="u", value=True, width=70)
         self.sim_use_q_eff = pn.widgets.Checkbox(label="Q_eff", value=True, width=90)
@@ -572,8 +574,8 @@ class PynamitPanelApp:
     def _simulation_input_widgets(self):
         return {
             "conductance": self.sim_use_conductance,
-            "jr": self.sim_use_jr,
-            "Br": self.sim_use_br,
+            "boundary_jr": self.sim_use_boundary_jr,
+            "boundary_Br": self.sim_use_br,
             "u": self.sim_use_u,
             "Q_eff": self.sim_use_q_eff,
             "E_neutral_wind": self.sim_use_e_neutral_wind,
@@ -607,10 +609,10 @@ class PynamitPanelApp:
         selected = []
         if self.sim_use_conductance.value:
             selected.append("conductance")
-        if self.sim_use_jr.value:
-            selected.append("jr")
+        if self.sim_use_boundary_jr.value:
+            selected.append("boundary_jr")
         if self.sim_use_br.value:
-            selected.append("Br")
+            selected.append("boundary_Br")
         if self.sim_use_u.value:
             selected.append("u")
         if self.sim_use_q_eff.value:
@@ -638,7 +640,7 @@ class PynamitPanelApp:
                 Ncs=int(self.prepare_Ncs.value),
                 use_wind=bool(self.prepare_use_wind.value),
                 use_Q_eff=bool(self.prepare_use_q_eff.value),
-                use_jr=bool(self.prepare_use_jr.value),
+                use_boundary_jr=bool(self.prepare_use_boundary_jr.value),
                 multi_data=bool(self.prepare_multi_data.value),
                 horizontal_basis_kind=self.prepare_horizontal_basis.value,
             )
@@ -681,8 +683,8 @@ class PynamitPanelApp:
                 interhemispheric_coupling_latitude=float(
                     self.sim_interhemispheric_coupling_latitude.value
                 ),
-                run_inductive=bool(self.sim_run_inductive.value),
-                run_steady_state=bool(self.sim_run_steady.value),
+                run_dynamic=bool(self.sim_run_dynamic.value),
+                run_equilibrium=bool(self.sim_run_equilibrium.value),
                 integrator=self.sim_integrator.value,
                 magnetic_boundary_shielding=bool(self.sim_magnetic_boundary_shielding.value),
             )
@@ -714,13 +716,13 @@ class PynamitPanelApp:
             else:
                 self.spec = current_figure_spec(self)
             self.view = get_saved_field_view(self.spec)
-            if not self.view.has_output_state and self.spec.plot_type != "input_summary":
+            if not self.view.has_model_output and self.spec.plot_type != "input_summary":
                 spec_data = self.spec.to_dict()
                 spec_data["plot_type"] = "input_summary"
                 self.spec = self.spec.from_dict(spec_data)
-            elif self.view.has_output_state and self.spec.plot_type != "input_summary":
-                has_state = "state" in self.view.run_view.datasets
-                has_steady = "steady_state" in self.view.run_view.datasets
+            elif self.view.has_model_output and self.spec.plot_type != "input_summary":
+                has_state = "dynamic" in self.view.run_view.datasets
+                has_steady = "equilibrium" in self.view.run_view.datasets
                 spec_data = self.spec.to_dict()
                 if not has_state and spec_data["plot_type"] not in {"global", "hemispheres"}:
                     spec_data["plot_type"] = "global"
@@ -910,7 +912,7 @@ class PynamitPanelApp:
                 self.prepare_final_time,
             ),
             self._control_row(
-                self.prepare_use_jr,
+                self.prepare_use_boundary_jr,
                 self.prepare_use_wind,
                 self.prepare_use_q_eff,
                 self.prepare_multi_data,
@@ -931,13 +933,13 @@ class PynamitPanelApp:
                 self.sim_enable_pfac_coupling,
                 self.sim_enable_interhemispheric_coupling,
                 self.sim_magnetic_boundary_shielding,
-                self.sim_run_inductive,
-                self.sim_run_steady,
+                self.sim_run_dynamic,
+                self.sim_run_equilibrium,
                 self.sim_interhemispheric_coupling_latitude,
             ),
             self._control_row(
                 self.sim_use_conductance,
-                self.sim_use_jr,
+                self.sim_use_boundary_jr,
                 self.sim_use_br,
                 self.sim_use_u,
                 self.sim_use_q_eff,

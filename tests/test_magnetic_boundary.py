@@ -5,6 +5,7 @@ import pytest
 
 from pynamit.math.constants import RE
 from pynamit.simulation.workflows.standard import run_pynamit
+from tests import magnetic_potential_coordinate_array
 
 
 def test_magnetic_boundary():
@@ -27,16 +28,11 @@ def test_magnetic_boundary():
         enable_pfac_coupling=True,
         enable_interhemispheric_coupling=True,
         interhemispheric_coupling_latitude=50,
-        steady_state_initialization=False,
+        equilibrium_initialization=False,
     )
 
     # Assert.
-    coeff_array = np.hstack(
-        (
-            simulation.run_data.output_series.datasets["state"]["SH_m_ind"].values[-1],
-            simulation.run_data.output_series.datasets["state"]["SH_m_imp"].values[-1],
-        )
-    )
+    coeff_array = magnetic_potential_coordinate_array(simulation)
 
     actual_coeff_norm = np.linalg.norm(coeff_array)
     actual_coeff_max = np.max(coeff_array)

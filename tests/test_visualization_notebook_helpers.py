@@ -216,11 +216,11 @@ def test_artifact_store_reports_existing_visualization_artifact_path(tmp_path):
     """Visualization uses the canonical artifact store paths."""
     run_directory = tmp_path / "run"
     run_directory.mkdir()
-    (run_directory / "state.zarr").mkdir()
+    (run_directory / "sample.zarr").mkdir()
     (run_directory / "settings.ncdf").write_bytes(b"")
 
     store = ArtifactStore(run_directory)
-    assert store.existing_artifact_path("state") == run_directory / "state.zarr"
+    assert store.existing_artifact_path("sample") == run_directory / "sample.zarr"
     assert store.existing_artifact_path("settings") == run_directory / "settings.ncdf"
     assert store.existing_artifact_path("jr") is None
 
@@ -407,10 +407,10 @@ def test_build_JS_operators_matches_core_formulas():
     solid_harmonics = SolidHarmonics(sh_basis)
     _, _, grid = build_plot_grid(nlat=4, nlon=5)
     transform = build_evaluator(sh_basis, grid)
-    pfac_coupling_matrix = np.eye(sh_basis.index_length)
+    boundary_jr_to_gap_Br = np.eye(sh_basis.index_length)
 
     operators = build_JS_operators(
-        Settings, sh_basis, transform, pfac_coupling_matrix=pfac_coupling_matrix
+        Settings, sh_basis, transform, boundary_jr_to_gap_Br_matrix=boundary_jr_to_gap_Br
     )
 
     poloidal_to_JS = (
@@ -422,18 +422,27 @@ def test_build_JS_operators_matches_core_formulas():
     regular_shift = solid_harmonics.regular_reference_shift(Settings.RM, Settings.RI)
     irregular_shift = solid_harmonics.irregular_reference_shift(Settings.RI, Settings.RM)
     denominator = 1.0 - regular_shift * irregular_shift
-    m_ind_to_br = -(Settings.RI**2) * sh_basis.laplacian(Settings.RI)
+    induced_potential_to_Br = -(Settings.RI**2) * sh_basis.laplacian(Settings.RI)
+    boundary_jr_to_toroidal = (
+        mu0 / Settings.RI * sh_basis.get_mean_free_surface_poisson_operator(Settings.RI).array
+    )
 
     np.testing.assert_allclose(
-        operators["m_imp_to_JS"],
-        toroidal_to_JS + np.tensordot(poloidal_to_JS, pfac_coupling_matrix, axes=([2], [0])),
+        operators["boundary_jr_to_JS"],
+        np.tensordot(toroidal_to_JS, boundary_jr_to_toroidal, axes=([2], [0]))
+        + np.tensordot(
+            -poloidal_to_JS / induced_potential_to_Br, boundary_jr_to_gap_Br, axes=([2], [0])
+        ),
     )
     np.testing.assert_allclose(
-        operators["m_ind_to_JS"],
-        poloidal_to_JS * (1.0 + regular_shift * irregular_shift / denominator),
+        operators["induced_Br_to_JS"],
+        poloidal_to_JS
+        / induced_potential_to_Br
+        * (1.0 + regular_shift * irregular_shift / denominator),
     )
     np.testing.assert_allclose(
-        operators["Br_to_JS"], poloidal_to_JS * (-regular_shift / (denominator * m_ind_to_br))
+        operators["boundary_Br_to_JS"],
+        poloidal_to_JS * (-regular_shift / (denominator * induced_potential_to_Br)),
     )
 
 
@@ -456,7 +465,8 @@ def test_build_JS_operators_defaults_to_unshielded_rm():
         / mu0
     )
 
-    np.testing.assert_allclose(operators["m_ind_to_JS"], poloidal_to_JS)
+    degree_factor = -(Settings.RI**2) * sh_basis.laplacian(Settings.RI)
+    np.testing.assert_allclose(operators["induced_Br_to_JS"], poloidal_to_JS / degree_factor)
 
 
 def test_build_JS_operators_omits_boundary_map_without_rm():
@@ -472,7 +482,7 @@ def test_build_JS_operators_omits_boundary_map_without_rm():
 
     operators = build_JS_operators(Settings, sh_basis, transform)
 
-    assert operators["Br_to_JS"] is None
+    assert operators["boundary_Br_to_JS"] is None
 
 
 def test_build_JS_operators_matches_geometry(tmp_path):
@@ -493,9 +503,15 @@ def test_build_JS_operators_matches_geometry(tmp_path):
         simulation.run_data.config,
         simulation.geometry.horizontal_basis,
         transform,
-        pfac_coupling_matrix=geometry.pfac_coupling_matrix,
+        boundary_jr_to_gap_Br_matrix=geometry.boundary_jr_to_gap_Br_matrix,
     )
 
-    np.testing.assert_allclose(operators["m_ind_to_JS"], geometry.m_ind_to_gridded_JS(transform))
-    np.testing.assert_allclose(operators["m_imp_to_JS"], geometry.m_imp_to_gridded_JS(transform))
-    np.testing.assert_allclose(operators["Br_to_JS"], geometry.Br_to_gridded_JS(transform))
+    np.testing.assert_allclose(
+        operators["induced_Br_to_JS"], geometry.induced_Br_to_gridded_JS(transform)
+    )
+    np.testing.assert_allclose(
+        operators["boundary_jr_to_JS"], geometry.boundary_jr_to_gridded_JS(transform)
+    )
+    np.testing.assert_allclose(
+        operators["boundary_Br_to_JS"], geometry.boundary_Br_to_gridded_JS(transform)
+    )

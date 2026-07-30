@@ -7,8 +7,8 @@ import polplot
 from matplotlib.gridspec import GridSpec
 
 from pynamit import Grid, SphericalTransform
+from pynamit.visualization.output_fields import evaluate_Phi_coefficients
 from pynamit.visualization.pynameye import PynamEye
-from pynamit.visualization.state_fields import evaluate_Phi_coefficients
 
 ts = [0, 0.5, 1, 2, 3, 5, 10, 15, 20, 30, 40, 50, 60, 90, 120, 150, 180, 240, 300, 420]
 DT = 480  # An offset to apply to all the ts
@@ -19,7 +19,7 @@ path = (
     "/Users/laundal/Dropbox/git/dynamit/PynaMIT/scripts/simulation/data/pynamit_paper_simulation"
 )
 # path = ("/Users/laundal/Dropbox/git/dynamit/PynaMIT/scripts/"
-#        "simulation/data/steady_state"
+#        "simulation/data/equilibrium"
 # )
 
 a = PynamEye(path)
@@ -239,7 +239,7 @@ if EQUATORIAL_EFIELD:
     fig, ax = plt.subplots()
     for t in ts:
         if t == 0:
-            a.set_time(t + DT, steady_state=True)
+            a.set_time(t + DT, equilibrium=True)
         else:
             a.set_time(t + DT)
 
@@ -259,7 +259,7 @@ if EQUATORIAL_EFIELD:
         vr = (-np.diff(phi) / dl) / Bh[:-1]
 
         if t == ts[-1]:
-            ax.plot(vr, label="steady state", color="black", linewidth=3)
+            ax.plot(vr, label="equilibrium", color="black", linewidth=3)
         else:
             ax.plot(vr, label=f"t={t} s")
     ax.set_title("not entirely accurate -- see dl")

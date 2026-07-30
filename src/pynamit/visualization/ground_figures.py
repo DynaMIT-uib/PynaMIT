@@ -77,12 +77,12 @@ class GroundFigureRenderer:
                 "and local-time filtering."
             )
 
-        br_ind, bh_ind, br_steady, bh_steady = self._ground_field_matrices(lat, lon)
+        br_ind, bh_ind, br_equilibrium, bh_equilibrium = self._ground_field_matrices(lat, lon)
         layers = self._curve_layers(
             br_ind,
             bh_ind,
-            br_steady,
-            bh_steady,
+            br_equilibrium,
+            bh_equilibrium,
             source_times,
             target_times,
             measured_values,
@@ -224,7 +224,7 @@ class GroundFigureRenderer:
         if rows.empty:
             raise ValueError(f"Unknown station {station_code!r}.")
         station = rows.iloc[0]
-        br_ind, bh_ind, br_steady, bh_steady = self._ground_field_matrices(
+        br_ind, bh_ind, br_equilibrium, bh_equilibrium = self._ground_field_matrices(
             [station["GEOLAT"]], [station["GEOLON"]]
         )
         source_times = self._time_index + pd.to_timedelta(
@@ -256,8 +256,8 @@ class GroundFigureRenderer:
             for br_values, bh_values, label, color, linestyle, enabled in [
                 (br_ind, bh_ind, "Inductive", "#D55E00", "-", self.spec.show_inductive),
                 (
-                    br_steady,
-                    bh_steady,
+                    br_equilibrium,
+                    bh_equilibrium,
                     "Non-inductive",
                     "#009E73",
                     "-",
@@ -268,8 +268,8 @@ class GroundFigureRenderer:
                     continue
                 if br_values is None or bh_values is None:
                     raise ValueError(
-                        "This run has no steady_state output. Disable Non-inductive "
-                        "ground curves, or rerun with save_steady_states=True."
+                        "This run has no equilibrium output. Disable Non-inductive "
+                        "ground curves, or rerun with save_equilibria=True."
                     )
                 values = self._ground_matrix_at_times(
                     component,
@@ -338,26 +338,25 @@ class GroundFigureRenderer:
         solid_basis = solid_harmonics.basis
         evaluator = build_evaluator(solid_basis, grid)
         ve_to_ground = solid_harmonics.regular_reference_shift(ri, RE)
-        m_ind_to_br = -(ri**2) * solid_basis.laplacian(ri)
-        m_ind_to_br_ground = ve_to_ground * m_ind_to_br * evaluator.scalar_coeffs_to_grid
-        m_ind_to_bh_ground = (
-            (solid_basis.n + 1) * ve_to_ground * evaluator.scalar_coeffs_to_gridded_gradient
+        induced_Br_to_br_ground = ve_to_ground * evaluator.scalar_coeffs_to_grid
+        induced_Br_to_bh_ground = (
+            ve_to_ground / solid_basis.n * evaluator.scalar_coeffs_to_gridded_gradient
         )
 
-        m_ind = self.view.dataset_values("state", "m_ind").T
-        steady_dataset = self.view.run_view.datasets.get("steady_state")
-        if steady_dataset is None:
-            br_steady = None
-            bh_steady = None
+        induced_Br = self.view.dataset_values("dynamic", "induced_Br").T
+        equilibrium_dataset = self.view.run_view.datasets.get("equilibrium")
+        if equilibrium_dataset is None:
+            br_equilibrium = None
+            bh_equilibrium = None
         else:
-            m_ind_steady = self.view.dataset_values("steady_state", "m_ind").T
-            br_steady = m_ind_to_br_ground.dot(m_ind_steady)
-            bh_steady = m_ind_to_bh_ground.dot(m_ind_steady)
+            equilibrium_induced_Br = self.view.dataset_values("equilibrium", "induced_Br").T
+            br_equilibrium = induced_Br_to_br_ground.dot(equilibrium_induced_Br)
+            bh_equilibrium = induced_Br_to_bh_ground.dot(equilibrium_induced_Br)
         cached = (
-            m_ind_to_br_ground.dot(m_ind),
-            m_ind_to_bh_ground.dot(m_ind),
-            br_steady,
-            bh_steady,
+            induced_Br_to_br_ground.dot(induced_Br),
+            induced_Br_to_bh_ground.dot(induced_Br),
+            br_equilibrium,
+            bh_equilibrium,
         )
         _GROUND_FIELD_CACHE[key] = cached
         if len(_GROUND_FIELD_CACHE) > 64:
@@ -417,8 +416,8 @@ class GroundFigureRenderer:
         self,
         br_ind,
         bh_ind,
-        br_steady,
-        bh_steady,
+        br_equilibrium,
+        bh_equilibrium,
         source_times,
         target_times,
         measured_values,
@@ -460,10 +459,10 @@ class GroundFigureRenderer:
                 }
             )
         if self.spec.show_noninductive:
-            if br_steady is None or bh_steady is None:
+            if br_equilibrium is None or bh_equilibrium is None:
                 raise ValueError(
-                    "This run has no steady_state output. Disable Non-inductive "
-                    "ground curves, or rerun with save_steady_states=True."
+                    "This run has no equilibrium output. Disable Non-inductive "
+                    "ground curves, or rerun with save_equilibria=True."
                 )
             layers.append(
                 {
@@ -471,8 +470,8 @@ class GroundFigureRenderer:
                     "label": "Non-inductive",
                     "values": self._ground_matrix_at_times(
                         self.spec.ground_component,
-                        br_steady,
-                        bh_steady,
+                        br_equilibrium,
+                        bh_equilibrium,
                         source_times,
                         target_times,
                         quantity=self.spec.ground_quantity,

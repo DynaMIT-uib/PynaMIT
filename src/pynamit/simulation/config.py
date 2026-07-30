@@ -14,7 +14,14 @@ from pynamit.geomagnetism.main_field import normalize_main_field_kind
 from pynamit.math.constants import RE
 from pynamit.math.least_squares_solver import LeastSquaresSolver, get_default_least_squares_solver
 
-INDEPENDENT_PROJECTION_BASIS_KEYS = ("jr", "Br", "conductance", "u", "E_neutral_wind")
+SIMULATION_SCHEMA_VERSION = 2
+INDEPENDENT_PROJECTION_BASIS_KEYS = (
+    "boundary_jr",
+    "boundary_Br",
+    "conductance",
+    "u",
+    "E_neutral_wind",
+)
 PROJECTION_BASIS_KEYS = INDEPENDENT_PROJECTION_BASIS_KEYS + ("Q_eff",)
 PROJECTION_BASIS_SETTING_NAMES = tuple(f"{key}_projection_basis" for key in PROJECTION_BASIS_KEYS)
 INTEGRATORS = {
@@ -247,8 +254,8 @@ class SimulationConfig:
     main_field_kind: str = "dipole"
     main_field_epoch: float = 2020.0
     main_field_B0: float | None = None
-    jr_projection_basis: str | None = None
-    Br_projection_basis: str | None = None
+    boundary_jr_projection_basis: str | None = None
+    boundary_Br_projection_basis: str | None = None
     conductance_projection_basis: str | None = None
     u_projection_basis: str | None = None
     Q_eff_projection_basis: str | None = None
@@ -256,12 +263,12 @@ class SimulationConfig:
     horizontal_basis_kind: str = "SH"
     area_weighted_least_squares: bool = False
     t0: str = "2020-01-01 00:00:00"
-    save_steady_states: bool = True
+    save_equilibria: bool = True
     integrator: str = "euler"
     least_squares_solver: str | None = None
     least_squares_preconditioner: str | None = "pinv"
     reuse_preconditioner: bool = False
-    m_imp_regularization_lambda: float = 0.0
+    toroidal_potential_regularization_lambda: float = 0.0
 
     def __post_init__(self):
         """Normalize settings after dataclass initialization."""
@@ -396,9 +403,7 @@ class SimulationConfig:
         )
         object.__setattr__(self, "t0", _normalize_start_time(self.t0))
         object.__setattr__(
-            self,
-            "save_steady_states",
-            _boolean_setting(self.save_steady_states, name="save_steady_states"),
+            self, "save_equilibria", _boolean_setting(self.save_equilibria, name="save_equilibria")
         )
         object.__setattr__(self, "integrator", _normalize_integrator(self.integrator))
         if self.least_squares_solver is None:
@@ -419,13 +424,17 @@ class SimulationConfig:
             _boolean_setting(self.reuse_preconditioner, name="reuse_preconditioner"),
         )
         object.__setattr__(
-            self, "m_imp_regularization_lambda", float(self.m_imp_regularization_lambda)
+            self,
+            "toroidal_potential_regularization_lambda",
+            float(self.toroidal_potential_regularization_lambda),
         )
         if (
-            not np.isfinite(self.m_imp_regularization_lambda)
-            or self.m_imp_regularization_lambda < 0.0
+            not np.isfinite(self.toroidal_potential_regularization_lambda)
+            or self.toroidal_potential_regularization_lambda < 0.0
         ):
-            raise ValueError("m_imp_regularization_lambda must be finite and non-negative.")
+            raise ValueError(
+                "toroidal_potential_regularization_lambda must be finite and non-negative."
+            )
 
     @property
     def stored_RM(self):
@@ -449,6 +458,7 @@ class SimulationConfig:
     def to_attrs(self) -> dict[str, Any]:
         """Return canonical xarray attributes for persisted settings."""
         return {
+            "simulation_schema_version": SIMULATION_SCHEMA_VERSION,
             "Nmax": self.Nmax,
             "Mmax": self.Mmax,
             "Ncs": self.Ncs,
@@ -463,8 +473,8 @@ class SimulationConfig:
             "main_field_kind": self.main_field_kind,
             "main_field_epoch": self.main_field_epoch,
             "main_field_B0": self.stored_main_field_B0,
-            "jr_projection_basis": self.jr_projection_basis,
-            "Br_projection_basis": self.Br_projection_basis,
+            "boundary_jr_projection_basis": self.boundary_jr_projection_basis,
+            "boundary_Br_projection_basis": self.boundary_Br_projection_basis,
             "conductance_projection_basis": self.conductance_projection_basis,
             "u_projection_basis": self.u_projection_basis,
             "Q_eff_projection_basis": self.Q_eff_projection_basis,
@@ -472,12 +482,14 @@ class SimulationConfig:
             "horizontal_basis_kind": self.horizontal_basis_kind,
             "area_weighted_least_squares": int(self.area_weighted_least_squares),
             "t0": self.t0,
-            "save_steady_states": int(self.save_steady_states),
+            "save_equilibria": int(self.save_equilibria),
             "integrator": self.integrator,
             "least_squares_solver": self.least_squares_solver,
             "least_squares_preconditioner": self.stored_least_squares_preconditioner,
             "reuse_preconditioner": int(self.reuse_preconditioner),
-            "m_imp_regularization_lambda": self.m_imp_regularization_lambda,
+            "toroidal_potential_regularization_lambda": (
+                self.toroidal_potential_regularization_lambda
+            ),
         }
 
     def to_dataset(self) -> xr.Dataset:

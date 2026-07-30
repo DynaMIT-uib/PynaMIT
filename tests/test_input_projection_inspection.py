@@ -11,15 +11,17 @@ def test_evaluate_projected_scalar_input_on_model_grid(tmp_path):
     simulation = pynamit.Simulation(
         run_directory=tmp_path, Nmax=2, Mmax=1, Ncs=8, enable_pfac_coupling=False
     )
-    coeffs = np.zeros(simulation.run_data.schema.input_field_spaces["jr"].coefficient_shape)
+    coeffs = np.zeros(
+        simulation.run_data.schema.input_field_spaces["boundary_jr"].coefficient_shape
+    )
     coeffs[0] = 1.0
-    simulation.set_jr(jr_coefficients=coeffs, time=0.0)
+    simulation.set_boundary_jr(boundary_jr_coefficients=coeffs, time=0.0)
 
-    values = evaluate_projected_input(simulation, "jr", 0.0)
+    values = evaluate_projected_input(simulation, "boundary_jr", 0.0)
 
-    assert set(values) == {"jr"}
-    assert values["jr"].shape == (simulation.geometry.model_grid.size,)
-    assert np.all(np.isfinite(values["jr"]))
+    assert set(values) == {"boundary_jr"}
+    assert values["boundary_jr"].shape == (simulation.geometry.model_grid.size,)
+    assert np.all(np.isfinite(values["boundary_jr"]))
 
 
 def test_evaluate_projected_input_corrects_explicit_transform_source(tmp_path):
@@ -27,17 +29,21 @@ def test_evaluate_projected_input_corrects_explicit_transform_source(tmp_path):
     simulation = pynamit.Simulation(
         run_directory=tmp_path, Nmax=2, Mmax=1, Ncs=8, enable_pfac_coupling=False
     )
-    coeffs = np.zeros(simulation.run_data.schema.input_field_spaces["jr"].coefficient_shape)
+    coeffs = np.zeros(
+        simulation.run_data.schema.input_field_spaces["boundary_jr"].coefficient_shape
+    )
     coeffs[0] = 1.0
-    simulation.set_jr(jr_coefficients=coeffs, time=0.0)
+    simulation.set_boundary_jr(boundary_jr_coefficients=coeffs, time=0.0)
 
     grid = simulation.geometry.model_grid
     wrong_source_transform = pynamit.SphericalTransform(simulation.run_data.schema.sh_basis, grid)
 
-    corrected = evaluate_projected_input(simulation, "jr", 0.0, transform=wrong_source_transform)
-    default = evaluate_projected_input(simulation, "jr", 0.0, grid=grid)
+    corrected = evaluate_projected_input(
+        simulation, "boundary_jr", 0.0, transform=wrong_source_transform
+    )
+    default = evaluate_projected_input(simulation, "boundary_jr", 0.0, grid=grid)
 
-    np.testing.assert_allclose(corrected["jr"], default["jr"])
+    np.testing.assert_allclose(corrected["boundary_jr"], default["boundary_jr"])
 
 
 def test_evaluate_projected_conductance_returns_physical_conductance(tmp_path):

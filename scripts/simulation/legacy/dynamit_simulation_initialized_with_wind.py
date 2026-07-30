@@ -98,7 +98,7 @@ simulation.set_conductance(hall_aurora, pedersen_aurora, lat=conductance_lat, lo
 # Initialize with zero jr.
 simulation.set_jr(jr=jr * 0, lat=jr_lat, lon=jr_lon)
 
-simulation.impose_steady_state()
+simulation.impose_equilibrium()
 
 # Turn jr on and evolve.
 simulation.set_jr(jr, lat=jr_lat, lon=jr_lon)

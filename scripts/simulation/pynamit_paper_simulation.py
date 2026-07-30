@@ -8,7 +8,7 @@ The input projection and the time evolution are intentionally separate:
 
 ``run_paper_simulation``
     Consumes that package.  The first phase uses conductance and wind
-    only, imposes steady state, then loads the prepared radial current
+    only, imposes equilibrium, then loads the prepared radial current
     and continues the inductive evolution.
 
 Edit ``SETTINGS`` below instead of passing command-line flags.
@@ -58,9 +58,9 @@ class PaperSimulationSettings:
     saving_sample_interval: int = 200
     conductance_lambda: float = 0.001
     wind_lambda: float = 0.001
-    jr_lambda: float | None = None
+    boundary_jr_lambda: float | None = None
     area_weighted_least_squares: bool = False
-    m_imp_regularization_lambda: float = 0.0
+    toroidal_potential_regularization_lambda: float = 0.0
     artifact_storage: str = "auto"
     prepare_inputs: bool = True
     run_simulation: bool = True
@@ -140,7 +140,7 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
     amps = pyamps.AMPS(400, 5, -5, dipole_model.tilt(settings.date), 100, minlat=50)
     jr = amps.get_upward_current(mlat=mlat, mlt=mlt) * 1e-6
     jr[np.abs(jr_lat) < 50] = 0.0
-    simulation.set_jr(jr, lat=jr_lat, lon=jr_lon, reg_lambda=settings.jr_lambda)
+    simulation.set_boundary_jr(jr, lat=jr_lat, lon=jr_lon, reg_lambda=settings.boundary_jr_lambda)
 
     hwm14 = pyhwm2014.HWM142D(
         alt=110.0,
@@ -172,7 +172,7 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
         source="scripts.simulation.pynamit_paper_simulation",
         notes=[
             "Paper-style inputs: Hardy EUV conductance, HWM14 wind, AMPS upward current.",
-            "The run script loads conductance/wind first, imposes steady state, "
+            "The run script loads conductance/wind first, imposes equilibrium, "
             "then enables jr for the second phase.",
         ],
         metadata={
@@ -181,7 +181,7 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
             "projection_regularization": {
                 "conductance_lambda": settings.conductance_lambda,
                 "wind_lambda": settings.wind_lambda,
-                "jr_lambda": settings.jr_lambda,
+                "boundary_jr_lambda": settings.boundary_jr_lambda,
             },
         },
     )
@@ -210,21 +210,21 @@ def run_paper_simulation(settings: PaperSimulationSettings = SETTINGS) -> pynami
         enable_interhemispheric_coupling=True,
         interhemispheric_coupling_latitude=settings.interhemispheric_coupling_latitude,
         interhemispheric_electric_field_weight=1e-5,
-        steady_state_initialization=False,
-        run_inductive=True,
-        run_steady_state=False,
-        m_imp_regularization_lambda=settings.m_imp_regularization_lambda,
+        equilibrium_initialization=False,
+        run_dynamic=True,
+        run_equilibrium=False,
+        toroidal_potential_regularization_lambda=settings.toroidal_potential_regularization_lambda,
         artifact_storage=settings.artifact_storage,
     )
 
-    print("Imposing wind/conductance steady state before enabling jr", flush=True)
-    simulation.impose_steady_state()
+    print("Imposing wind/conductance equilibrium before enabling jr", flush=True)
+    simulation.impose_equilibrium()
 
     loaded_inputs = load_prepared_inputs_into_simulation(
         simulation,
         input_directory,
         artifact_storage=settings.artifact_storage,
-        enabled_inputs=("conductance", "u", "jr"),
+        enabled_inputs=("conductance", "u", "boundary_jr"),
     )
 
     final_time = 2.0 * float(settings.simulation_time)
@@ -234,9 +234,9 @@ def run_paper_simulation(settings: PaperSimulationSettings = SETTINGS) -> pynami
         dt=settings.dt,
         sampling_step_interval=1,
         saving_sample_interval=settings.saving_sample_interval,
-        steady_state_initialization=False,
-        run_inductive=True,
-        run_steady_state=False,
+        equilibrium_initialization=False,
+        run_dynamic=True,
+        run_equilibrium=False,
     )
 
     manifest_path = Path(simulation.run_data.run_directory) / RUN_MANIFEST_FILENAME
@@ -251,7 +251,7 @@ def run_paper_simulation(settings: PaperSimulationSettings = SETTINGS) -> pynami
                 "phase_1_final_time": settings.simulation_time,
                 "phase_2_inputs": loaded_inputs,
                 "phase_2_final_time": final_time,
-                "steady_state_imposed_between_phases": True,
+                "equilibrium_imposed_between_phases": True,
             },
         }
     )

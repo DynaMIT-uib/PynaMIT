@@ -143,9 +143,9 @@ is immutable run configuration and, when omitted, is derived from that run's
 ``RI`` and optional ``RM``. Basis resolutions, radial boundaries, main-field
 parameters, boolean choices, solver names, and integrators are validated
 before schema or geometry construction so invalid runs cannot partially
-initialize. Restart comparison is performed between normalized configurations,
-allowing old artifacts to inherit newly introduced defaults without allowing
-an actual setting mismatch.
+initialize. Restart comparison is performed between normalized configurations
+within the current persisted schema, so equivalent settings compare
+canonically without allowing an actual mismatch.
 
 Once normalized, one immutable ``SimulationConfig`` instance is shared by
 ``Simulation``, ``RunData``, and ``ElectrodynamicResponse``. Schema and persistence
@@ -170,9 +170,9 @@ Numerical policies that can change an established calculation are explicit
 and persisted. ``area_weighted_least_squares=False`` retains the historical
 unweighted projection convention; enabling it changes the least-squares norm,
 not the underlying field equations. Likewise,
-``m_imp_regularization_lambda=0.0`` leaves the physical imposed-potential
-problem unregularized. Reproducibility workflows pin both choices explicitly
-instead of inheriting a future policy change.
+``toroidal_potential_regularization_lambda=0.0`` leaves the physical
+toroidal-potential problem unregularized. Reproducibility workflows pin both
+choices explicitly instead of inheriting a future policy change.
 
 Numerical operators and value identity
 ----------------------------------------
@@ -186,8 +186,9 @@ do not add parallel wrappers for operations already expressed by
 ``LinearMap``.
 When a rectangular map must become explicit, materialization probes the
 smaller side: input columns for tall maps and adjoint output rows for wide
-maps. This is important for rectangular surface-to-poloidal and PFAC maps,
-whose compact physical output should determine temporary memory use.
+maps. This is important for rectangular surface-to-poloidal and
+boundary-current-to-gap-field maps, whose compact physical output should
+determine temporary memory use.
 
 Sparse equality-constrained least-squares factorization is a solver-layer
 primitive rather than a cubed-sphere implementation detail. Native CS
@@ -211,13 +212,16 @@ synthesis matrices while requiring different weighted least-squares analyses.
 Transform caches must choose deliberately between those two identities.
 Mean-freedom is owned by coefficient spaces, not by post-step cleanup. The
 schema's ``sh_basis`` retains the mean/monopole term for quantities such as
-resistance, while ``mean_free_sh_basis`` is used for radial magnetic fields.
-The evolving ``m_ind`` and prescribed boundary ``Br`` therefore live directly
-in the mean-free poloidal SH space. ``m_imp``, ``Phi``, and ``W`` live in the
-selected horizontal surface space. In CS mode the latter space retains its
-nodal layout and uses an explicit zero-area-mean gauge constraint. Each stored
-representation supplies its own synthesis operator on the model grid, so
-``SimulationGeometry`` does not carry a parallel full-scalar transform.
+conductance, while ``mean_free_sh_basis`` is used for radial magnetic fields.
+The evolving ``induced_Br`` at ``RI`` and prescribed ``boundary_Br`` at ``RM``
+therefore live directly in the mean-free poloidal SH space.
+``boundary_jr``, ``Phi``, and ``W`` live in the selected horizontal surface
+space. In CS mode the surface potentials use an explicit zero-area-mean gauge
+constraint. Saved ``boundary_jr`` is kept in the exact range of the discrete
+surface Laplacian instead of applying a second, slightly different
+area-mean projection. Each stored representation supplies its own synthesis
+operator on the model grid, so ``SimulationGeometry`` does not carry a
+parallel full-scalar transform.
 
 ``FieldCoefficients`` is likewise an owned value. NumPy inputs are copied and
 made read-only, and NumPy-to-JAX construction first breaks any shared host
@@ -264,7 +268,7 @@ maps used by ``SimulationGeometry``. Full field components use ``Br``, ``Btheta`
 ``unit_btheta``, and ``unit_bphi`` so a case-only spelling difference cannot
 change the physics.
 
-Simulation state coordinates are Earth-fixed. ``kaiju_dipole``, ``igrf``, and
+Simulation coordinates are Earth-fixed. ``kaiju_dipole``, ``igrf``, and
 ``radial`` use geocentric geographic coordinates, so the SH and cubed-sphere
 positions denote locations on Earth directly. The generic idealized ``dipole``
 model retains centered-dipole ``MAG`` coordinates. For ``kaiju_dipole``,
@@ -274,8 +278,8 @@ basis vectors in MAG and returns coordinates and vector components in GEO.
 The Kaiju/Geopack dipole coefficients and axis are frozen at
 ``main_field_epoch``. ``SM`` remains a timestamped external-source coordinate
 system whose Sun-facing longitude origin is transformed at every source time;
-it is never the coordinate space of ``m_ind`` or another evolving PynaMIT
-state. The background field is not re-tilted every timestep.
+it is never the coordinate space of the model coefficients. The background
+field is not re-tilted every timestep.
 
 Do not promote every focused module to a package. A standalone package is
 warranted when the concept has a reusable public vocabulary and a dependency
@@ -304,10 +308,11 @@ schema's ``FieldSpace``. ``InputPipeline`` owns:
   ``Q_eff``, and ``E_neutral_wind``; and
 * time-series coordination when deriving ``Q_eff`` from neutral wind.
 
-Public setters such as ``set_jr``, ``set_resistance``, ``set_neutral_wind``,
-``set_Q_eff``, and ``set_E_neutral_wind`` should remain thin API methods.  When a
-new input stream is added, prefer extending the schema and the private input
-specification table over hand-writing a new projection path inside ``Simulation``.
+Public setters such as ``set_boundary_jr``, ``set_resistance``,
+``set_neutral_wind``, ``set_Q_eff``, and ``set_E_neutral_wind`` should remain
+thin API methods.  When a new input stream is added, prefer extending the
+schema and the private input specification table over hand-writing a new
+projection path inside ``Simulation``.
 ``set_Q_eff_from_neutral_wind`` follows one coefficient-space route: it fits
 the stored ``Q_eff`` so its resistance-weighted electric response matches the
 projected wind forcing. ``calculate_Q_eff_from_neutral_wind`` is the separate
@@ -375,7 +380,7 @@ The run manifest snapshots the prepared-input manifest and selected streams.
 An existing trajectory can be resumed or extended only when that identity and
 its evolution policy still match; a different projection or experiment uses a
 new run directory. This prevents newly copied inputs from being paired with
-state outputs computed from an older forcing package.
+inductive outputs computed from an older forcing package.
 
 This boundary matters because prepared-input logic is both user-facing and
 testable.  If a script needs behavior that should remain correct over time,
@@ -413,47 +418,53 @@ Electrodynamic physics
 ----------------------
 
 The ``electrodynamics`` modules follow the direction of the model equations
-instead of mirroring the names of state variables:
+instead of mirroring individual coefficient names:
 
-* ``electrodynamics.magnetic_boundary`` maps magnetic boundary potentials and
-  prescribed boundary ``Br`` to the derived horizontal sheet current ``JS``.
-  Solid harmonics own generic radial continuation; this module owns the
-  particular potential jump, shielding, and boundary-current relations used
-  by PynaMIT.
+* ``electrodynamics.magnetic_boundary`` maps the physical
+  ``induced_Br``, ``boundary_Br``, and ``boundary_jr`` quantities to the
+  derived horizontal sheet current ``JS``. Solid harmonics own generic radial
+  continuation; this module owns the particular potential jump and shielding
+  relations used by PynaMIT. The private poloidal and toroidal potentials
+  appear here only as convenient operator coordinates.
 * ``electrodynamics.ionospheric_closure`` applies the height-integrated
-  Ohm-law closure.  It converts Hall/Pedersen conductance to the stored
-  resistance variables and maps neutral motion or sheet current through the
-  magnetic geometry and resistance tensor to ``E``. It owns both the direct
-  grid law ``E = R JS - u x B`` and the coefficient-operator compositions
-  used by ``ElectrodynamicResponse``. It also owns the Pedersen/Hall geometry tensors and
-  collisional Joule-heating kernel. Joule heating is the Pedersen dissipation
-  ``etaP * J.T @ P @ J``; ``J dot E`` is electromagnetic work and is not
-  generally the same quantity when neutral motion contributes to the closure.
-  Its functions remain numerical kernels; iteration over input times and
-  coefficient storage belong to ``InputPipeline``.
-* ``electrodynamics.induction`` owns Faraday evolution of ``m_ind``, including
-  Euler, exponential, and SciPy integration and the corresponding steady
-  state. Its coefficients and electric-field inputs share the fixed model
-  frame. Motion of an SM forcing pattern therefore appears through the
-  timestamped SM-to-GEO preparation, not through a rotating state basis.
+  Ohm-law closure. It maps physical Hall/Pedersen conductance or resistance
+  into the canonical log-conductance coordinates, reconstructs the resistance
+  tensor, and maps neutral motion or sheet current through the magnetic
+  geometry to ``E``. It owns both the direct grid law
+  ``E = R JS - u x B`` and the coefficient-operator compositions used by
+  ``ElectrodynamicResponse``. It also owns the Pedersen/Hall geometry tensors
+  and collisional Joule-heating kernel. Joule heating is the Pedersen
+  dissipation ``etaP * J.T @ P @ J``; ``J dot E`` is electromagnetic work and
+  is not generally the same quantity when neutral motion contributes to the
+  closure. Its functions remain numerical kernels; iteration over input times
+  and coefficient storage belong to ``InputPipeline``.
+* ``electrodynamics.induction`` owns Faraday evolution of physical
+  ``induced_Br``, including Euler, exponential, and SciPy integration and the
+  corresponding instantaneous equilibrium. It integrates in the private
+  induced-poloidal-potential coordinate where that improves conditioning, then
+  converts exactly at the module boundary. Motion of an SM forcing pattern
+  appears through timestamped SM-to-GEO preparation, not through a rotating
+  model basis.
 
-``SimulationGeometry`` supplies run-specific grids, magnetic-field factors, transforms,
-radial field-line mapping, and interhemispheric constraint geometry to these
-equations. It is a numerical object: persisted xarray values are unwrapped at
-construction, and ``RunData`` alone wraps a numerical PFAC matrix for
-storage. ``ElectrodynamicResponse`` receives that geometry, owns the inputs active at
-one simulation time, solves the imposed-potential constraint, and caches the
-composed operators whose values depend on the current resistance distribution.
-It also exposes named operator and matrix compositions for inspection. Keeping
-those compositions with their caches avoids split ownership between an
-operator facade and the response object whose private state they mutate.
+``SimulationGeometry`` supplies run-specific grids, magnetic-field factors,
+transforms, radial field-line mapping, exact physical-to-private coordinate
+maps, and interhemispheric constraint geometry to these equations. It is a
+numerical object: persisted xarray values are unwrapped at construction, and
+``RunData`` alone wraps the numerical ``gap_Br_response`` for storage.
+``ElectrodynamicResponse`` receives that geometry, owns the inputs active at
+one simulation time, solves the toroidal-potential constraint behind
+``boundary_jr``, and caches the composed operators whose values depend on the
+current resistance distribution. It also exposes named physical operator and
+matrix compositions for inspection. Keeping those compositions with their
+caches avoids split ownership between an operator facade and the response
+object whose private state they mutate.
 
-The combined field that drives the imposed-potential response is named
-``driving_E``. It can contain one neutral-wind representation, boundary
-``Br``, or an ``m_ind`` response. The name therefore describes its role without
-suggesting that it contains only one neutral-wind representation or encoding
-the absence of ``m_imp``. The imposed potential then completes the response
-required by the radial-current and optional interhemispheric constraints.
+The combined field that drives the toroidal-potential response is named
+``driving_E``. It can contain one neutral-wind representation, a
+``boundary_Br`` response, or an ``induced_Br`` response. The name therefore describes
+its role without suggesting that it contains only one neutral-wind
+representation. The private toroidal potential then completes the response
+required by the ``boundary_jr`` and optional interhemispheric constraints.
 ``E_neutral_wind`` is the public name for an externally prepared equivalent
 neutral-wind electric field. It does not claim that the stored field is the
 total electric field. In the MAGE workflow it is derived from separate
@@ -463,48 +474,51 @@ while solving the closure.
 The poloidal and horizontal surface spaces coincide in the default SH mode.
 They are intentionally distinct in CS mode. ``surface_to_poloidal_operator``
 is the only bridge in Faraday's law: it projects the surface ``W`` potential
-onto the configured poloidal harmonics. PFAC coupling has the corresponding
-rectangular shape. ``m_imp`` directly describes the imposed sheet-current
-contribution in the surface space; the field-aligned current above the
-ionosphere also produces a poloidal magnetic contribution and a potential
-jump across the sheet, which the PFAC map expresses in poloidal coefficients.
-This prevents unobservable high-resolution CS modes from being carried as
-part of the evolving poloidal state.
+onto the configured poloidal harmonics.
+``boundary_jr_to_gap_Br_operator`` has the corresponding rectangular shape.
+Its input is radial current at ``RI+`` and its output is the unshielded
+poloidal ``Br`` produced in the gap at ``RI``. That gap field and the inward
+continuation of ``boundary_Br`` are both external-source radial fields, so the
+same divergence-free ionospheric sheet-current response shields them. This
+factorization prevents unobservable high-resolution CS modes from being
+carried as part of ``induced_Br``.
 
-Expensive optional geometry follows use rather than construction. The PFAC
-coupling matrix is reused when persisted, but a new one is not built merely to
-construct ``Simulation`` or project inputs. It is constructed and saved when a
-steady-state or evolution path first requests model output. When PFAC coupling
-is disabled (or the main field is radial), the optional contribution is
-represented by absence rather than by constructing and multiplying a dense
+Expensive optional geometry follows use rather than construction. The
+``gap_Br_response`` is reused when persisted, but a new one is not built merely
+to construct ``Simulation`` or project inputs. It is constructed and saved
+when an equilibrium or dynamic path first requests model output. When PFAC
+coupling is disabled (or the main field is radial), the optional contribution
+is represented by absence rather than by constructing and multiplying a dense
 zero matrix.
 
 Surface-sized operators should remain structured in CS mode. In particular,
 native Helmholtz analysis, wind and sheet-current closure compositions, and
-ordinary runtime ``m_imp`` responses must not materialize dense surface maps.
+ordinary runtime toroidal-potential responses must not materialize dense
+surface maps.
 The surface-to-poloidal bridge composes a factorized full-column-rank SH
 analysis with the horizontal synthesis operator; native CS nodal synthesis
 therefore stays an implicit identity rather than allocating a dense grid-sized
-identity. The analogous poloidal-current fit used while constructing PFAC also
-keeps a factorized normal system and an implicit adjoint instead of forming an
-SVD pseudoinverse of its tall grid matrix.
+identity. The analogous poloidal-current fit used while constructing the gap
+response also keeps a factorized normal system and an implicit adjoint instead
+of forming an SVD pseudoinverse of its tall grid matrix.
 The compact poloidal feedback matrix remains intentionally dense because its
-matrix exponential and steady-state pseudoinverse require an explicit
-poloidal operator. The steady-state response composes that compact
+matrix exponential and equilibrium pseudoinverse require an explicit
+poloidal operator. The equilibrium response composes that compact
 pseudoinverse with the structured surface-to-poloidal bridge; its full
 cross-space matrix is materialized only when explicitly requested for
 diagnostics. The generic dense ``normal_pinv`` solver is retained for
-reproducibility; large CS imposed-potential solves should select ``lsmr`` (or
+reproducibility; large CS toroidal-potential solves should select ``lsmr`` (or
 ``cgls``) with the ``jacobi`` preconditioner.
 
-The imposed-potential runtime follows the same rule. A single active ``jr`` or
-driving-E field is assembled as one physical least-squares right-hand side and
-solved directly. The full ``jr_to_m_imp_operator`` and
-``driving_E_to_m_imp_operator`` remain available for matrix diagnostics, but
-normal simulation steps do not construct them. Interhemispheric induction
-solves only the source columns reachable from the poloidal ``m_ind`` state,
-rather than first constructing the response to every possible horizontal-E
-coefficient.
+The toroidal-potential runtime follows the same rule. A single active
+``boundary_jr`` or driving-E field is assembled as one physical least-squares
+right-hand side and solved directly. The full
+``boundary_jr_to_toroidal_potential_operator`` and
+``driving_E_to_toroidal_potential_operator`` remain available for matrix
+diagnostics, but normal simulation steps do not construct them.
+Interhemispheric induction solves only the source columns reachable from
+``induced_Br``, rather than first constructing the response to every possible
+horizontal-E coefficient.
 
 Magnetic-boundary maps also retain structured ``LinearMap`` compositions.
 This matters in CS mode, where the native gradient and Helmholtz synthesis
@@ -529,41 +543,47 @@ already projected log-coordinate coefficients. ``set_resistance`` remains a
 sample-level convenience for physical resistance values. It maps the
 reciprocal resistance magnitude and unchanged Hall/Pedersen ratio directly
 onto the same canonical log coordinates, without constructing intermediate
-conductance components. The response
-synthesizes the two log fields once per active input, reconstructs the
-resistance tensor on the model grid, and caches every closure-dependent
-operator under an exact fingerprint of the canonical coefficients.
+conductance components. The response synthesizes the two log fields once per
+active input, reconstructs the resistance tensor on the model grid, and
+caches the current closure-dependent operators. An exact fingerprint of the
+canonical coefficients determines whether those caches remain valid after an
+input update.
 
 The shared surface convention is
 ``F = -grad(phi) + rhat x grad(psi)``. Stored ``Phi`` and ``W`` are the
 curl-free and divergence-free electric-potential coefficients normalized by
 ``RI``; they therefore have units of V/m, while visualization multiplies them
-by ``RI`` to display volts. Stored ``m_ind`` and ``m_imp`` follow the normalized
-magnetic-potential convention documented with ``SolidHarmonics``. With these
-definitions, ``m_imp_to_jr = RI / mu0 * surface_laplacian``,
-``m_ind_to_Br = -RI**2 * poloidal_laplacian``, and
-``d(m_ind)/dt = W / RI`` use one sign and radius convention across the code.
+by ``RI`` to display volts. Stored magnetic variables are instead physical:
+``induced_Br`` is the continuous induced radial field at ``RI``,
+``boundary_jr`` is radial current density at ``RI+``, and ``boundary_Br`` is
+the prescribed radial field at ``RM``. Private potential coordinates obey
+``boundary_jr = RI / mu0 * surface_laplacian(toroidal_potential)``,
+``induced_Br = -RI**2 * poloidal_laplacian(induced_poloidal_potential)``, and
+``d(induced_poloidal_potential)/dt = W / RI``. Exact forward and inverse maps
+keep these numerical coordinates out of the public schema without changing
+the established sign, radius, or time-evolution convention.
 
-The CS imposed-potential system has one physically irrelevant constant gauge.
+The CS toroidal-potential system has one physically irrelevant constant gauge.
 ``surface_gauge_operator`` adds the exact zero-area-mean equation needed to
 make its coefficient solution unique. This is a constraint, not Tikhonov
-regularization: ``m_imp_regularization_lambda`` remains an optional numerical
+regularization: ``toroidal_potential_regularization_lambda`` remains an optional numerical
 policy that also damps physically observable coefficient directions when it
 is positive.
 
 ``SimulationGeometry`` names describe the physical map rather than the symbols
 used in one derivation. In particular, ``pedersen_geometry_tensor``,
 ``hall_geometry_tensor``, and ``wind_motional_E_tensor`` are pointwise maps,
-while ``faraday_rate_scale`` converts the divergence-free electric potential
-to the magnetic-potential rate. ``pfac_coupling_matrix`` denotes the specific
-PFAC toroidal-to-poloidal coupling from the model equations; its persisted
-artifact remains ``PFAC_matrix``.
+while ``induced_poloidal_potential_faraday_rate_scale`` converts the
+divergence-free electric potential to the private potential rate.
+``boundary_jr_to_gap_Br_matrix`` denotes the specific PFAC-derived physical
+map from upper-boundary current to unshielded gap radial field; its persisted
+artifact is ``gap_Br_response``.
 
 The interhemispheric names distinguish a physical region from a boundary
 condition. ``interhemispheric_coupling_latitude`` bounds the low-latitude
 region where conjugate points are compared; it is not another magnetic
 boundary. ``radial_current_constraint_operator`` is the assembled map used by
-the imposed-potential solve: it is the local radial-to-apex map outside that
+the toroidal-potential solve: it is the local radial-to-apex map outside that
 region and the local-minus-conjugate map inside it.
 ``interhemispheric_electric_field_weight`` is specifically the relative
 least-squares weight of the conjugate electric-field residual. Conjugate grids,
@@ -577,7 +597,7 @@ Response and evolution
 execution to ``SimulationRunner``. ``SimulationRunner`` owns restart
 short-circuiting, sample scheduling, progress reporting, and output save
 decisions, including assembly of complete output snapshots and the one-shot
-``impose_steady_state`` implementation behind the public facade. The requested
+``impose_equilibrium`` implementation behind the public facade. The requested
 target time is always an exact final sample and checkpoint, including when it
 is not an integer multiple of the nominal time step. Sampling and saving
 intervals are validated as positive integers, and a later active checkpoint
@@ -588,18 +608,20 @@ time-stepping equations belong in
 ``electrodynamics.induction``, closure-dependent operator caches belong in
 ``ElectrodynamicResponse``, and artifact details belong in ``RunData``.
 
-Imposing a steady state always updates the in-memory ``state`` stream; its
+Imposing an equilibrium always updates the in-memory ``dynamic`` stream; its
 ``save`` option controls only whether that live checkpoint is persisted.
 Imposition before a later active checkpoint is rejected because retaining both
 would create two trajectory branches in one linear time-series artifact.
 
-``ElectrodynamicResponse`` is intentionally not called ``State``. It stores the active
-input coefficients and the algebraic response implied by the current
-resistance, but it does not own a unique evolving ``m_ind``. One run can carry
-both inductive and steady-state ``m_ind`` branches for the same active inputs.
-``SimulationRunner`` owns those branch lifetimes and passes their coefficient
-vectors into response methods. The persisted artifact name ``state`` continues
-to identify the inductive output stream, not an in-memory object hierarchy.
+``ElectrodynamicResponse`` stores the active input coefficients and the
+algebraic response implied by the current resistance. The evolving
+``induced_Br`` remains an explicit value owned by the running branch because
+one run can carry both dynamic and equilibrium solutions for the same active
+inputs.
+``SimulationRunner`` manages those branch lifetimes and passes their
+coefficient vectors into response methods. The persisted artifact name
+``dynamic`` identifies the time-dependent output stream; ``equilibrium``
+identifies the instantaneous zero-Faraday-rate comparison.
 
 Persistence
 -----------
@@ -616,11 +638,11 @@ roundoff cannot create duplicate logical times.
 Coefficient time series have two intentional representations. In memory, each
 coefficient dimension carries its schema ``MultiIndex``. A group with one
 coefficient space keeps the compact ``i`` dimension; a mixed group, such as CS
-output with SH ``m_ind`` and CS surface potentials, uses distinct ``sh_i`` and
-``cs_i`` dimensions. On disk, those indexes are reset to explicit coordinate
-columns so NetCDF and Zarr persist the same portable structure. Loading
-validates every column and reconstructs the in-memory indexes before exposing
-the series.
+output with SH ``induced_Br`` and CS surface quantities, uses distinct
+``sh_i`` and ``cs_i`` dimensions. On disk, those indexes are reset to explicit
+coordinate columns so NetCDF and Zarr persist the same portable structure.
+Loading validates every column and reconstructs the in-memory indexes before
+exposing the series.
 
 The time tolerance is a time-coordinate policy measured in seconds. It is
 shared with evolution checkpoint decisions but is distinct from the relative
@@ -641,7 +663,7 @@ incremental Zarr appends remain the time-series layer's explicit fast path.
 The simulation schema owns the complete vocabulary of run artifact names.
 ``ArtifactStore`` remains generic: directory validation requires an explicit collection
 of artifact names, and the persistence primitive contains no knowledge of
-settings, PFAC, or field-stream identities. Artifact names are single
+settings, gap responses, or output-stream identities. Artifact names are single
 path-safe components.
 
 When adding persisted data, decide first whether it is configuration, input,
@@ -682,9 +704,9 @@ output-field calculation needs them, and the sheet-current maps are
 specifically deferred until Joule heating is requested. Input-driver and
 ordinary scalar-field figures do not pay that cost merely because output
 artifacts also exist. Renderers consume the shared objects instead of
-rebuilding main fields, schemas, and transforms from raw settings. A
-steady-state artifact is valid output even when no inductive ``state`` artifact
-is present; only difference plots require both.
+rebuilding main fields, schemas, and transforms from raw settings. An
+``equilibrium`` artifact is valid output even when no ``dynamic`` artifact is
+present; only difference plots require both.
 
 ``PynamEye`` and ``visualization.results`` are legacy frontends retained for
 existing scripts. New saved-run behavior should enter through ``SavedRunView``

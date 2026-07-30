@@ -27,7 +27,7 @@ from pynamit.sphere import CSBasis, Grid, SolidHarmonics, SurfaceOperators, is_s
 from pynamit.sphere.spherical_transform import SphericalTransform, resolve_sqrt_weights
 
 logger = logging.getLogger(__name__)
-_PFAC_CACHE_VERSION = 1
+_GAP_BR_RESPONSE_CACHE_VERSION = 1
 
 
 def build_main_field(config: SimulationConfig) -> MainField:
@@ -56,7 +56,7 @@ class SimulationGeometry:
         cs_basis: CSBasis,
         main_field: MainField,
         config: SimulationConfig,
-        pfac_matrix: ArrayLike | None = None,
+        gap_Br_response_matrix: ArrayLike | None = None,
         solid_harmonics: SolidHarmonics | None = None,
         operator_cache=None,
     ) -> None:
@@ -101,7 +101,7 @@ class SimulationGeometry:
         self._init_constraint_mappings()
 
         # Restore a persisted PFAC map or build it on first access.
-        self._init_pfac_matrix(pfac_matrix)
+        self._init_gap_Br_response_matrix(gap_Br_response_matrix)
         self._poloidal_transform_cache = {}
 
     def _init_surface_operators(self) -> None:
@@ -119,27 +119,36 @@ class SimulationGeometry:
             self.horizontal_basis.get_helmholtz_divergence_free_potential_operator()
         )
         self.surface_gauge_operator = self._build_surface_gauge_operator()
-        self.m_imp_to_jr_operator = self.RI / mu0 * self.surface_laplacian_operator
-        self.m_ind_to_Br_operator = -(self.RI**2) * self.poloidal_laplacian_operator
-        self.faraday_rate_scale = 1.0 / self.RI
+        self.toroidal_potential_to_boundary_jr_operator = (
+            self.RI / mu0 * self.surface_laplacian_operator
+        )
+        self.induced_poloidal_potential_to_Br_operator = (
+            -(self.RI**2) * self.poloidal_laplacian_operator
+        )
+        self.induced_Br_to_poloidal_potential_operator = diagonal_linear_map(
+            1.0 / np.asarray(self.poloidal_basis.n * (self.poloidal_basis.n + 1))
+        )
+        self.induced_poloidal_potential_faraday_rate_scale = 1.0 / self.RI
         self.surface_to_poloidal_operator = self._build_surface_to_poloidal_operator()
         self.poloidal_to_boundary_potential_jump_factor_operator = diagonal_linear_map(
             self.solid_harmonics.poloidal_to_boundary_potential_jump_factor
         )
 
-    def _init_pfac_matrix(self, pfac_matrix: ArrayLike | None) -> None:
-        """Validate and retain an optional persisted PFAC matrix."""
-        self._pfac_matrix = None
-        if pfac_matrix is None:
+    def _init_gap_Br_response_matrix(self, matrix: ArrayLike | None) -> None:
+        """Validate and retain an optional boundary-jr to gap-Br map."""
+        self._gap_Br_response_matrix = None
+        if matrix is None:
             return
         expected_shape = (self.poloidal_basis.index_length, self.horizontal_basis.index_length)
-        matrix = np.asarray(pfac_matrix)
+        matrix = np.asarray(matrix)
         if matrix.shape != expected_shape:
-            raise ValueError(f"pfac_matrix must have shape {expected_shape}; got {matrix.shape}.")
+            raise ValueError(
+                f"gap_Br_response_matrix must have shape {expected_shape}; got {matrix.shape}."
+            )
         if not np.all(np.isfinite(matrix)):
-            raise ValueError("pfac_matrix must contain only finite values.")
-        self._pfac_matrix = matrix.copy()
-        self._pfac_matrix.flags.writeable = False
+            raise ValueError("gap_Br_response_matrix must contain only finite values.")
+        self._gap_Br_response_matrix = matrix.copy()
+        self._gap_Br_response_matrix.flags.writeable = False
 
     def tangential_to_helmholtz(self, vec: np.ndarray) -> np.ndarray:
         """Convert tangential vector field to Helmholtz coeffs."""
@@ -232,7 +241,7 @@ class SimulationGeometry:
         """Project surface coefficients into poloidal SH space.
 
         The horizontal basis owns ionospheric surface operators.
-        The poloidal basis owns the induced state and its radial
+        The poloidal basis owns ``induced_Br`` and its radial
         continuation. For the CS surface path this map removes surface
         content that cannot be represented by the configured poloidal
         harmonics; for the SH path it is the identity. The projection is
@@ -269,31 +278,31 @@ class SimulationGeometry:
             )
         return self._poloidal_transform_cache[cache_key]
 
-    def m_ind_to_gridded_JS(
+    def induced_Br_to_gridded_JS(
         self,
         transform: SphericalTransform | None = None,
         *,
         poloidal_transform: SphericalTransform | None = None,
     ) -> np.ndarray:
-        """Map induced-potential coefficients to JS."""
-        return self.m_ind_to_gridded_JS_operator(
+        """Map induced radial-field coefficients to sheet current."""
+        return self.induced_Br_to_gridded_JS_operator(
             transform, poloidal_transform=poloidal_transform
         ).array
 
-    def m_ind_to_gridded_JS_operator(
+    def induced_Br_to_gridded_JS_operator(
         self,
         transform: SphericalTransform | None = None,
         *,
         poloidal_transform: SphericalTransform | None = None,
     ) -> LinearMap:
-        """Return the map from induced-potential coefficients to JS."""
+        """Return the map from induced ``Br(RI)`` to sheet current."""
         if poloidal_transform is None:
             poloidal_transform = (
                 self.poloidal_transform
                 if transform is None
                 else self.poloidal_transform_for(transform)
             )
-        return magnetic_boundary.m_ind_to_gridded_JS_operator(
+        return magnetic_boundary.induced_Br_to_gridded_JS_operator(
             self.solid_harmonics,
             poloidal_transform,
             radius=self.RI,
@@ -301,36 +310,87 @@ class SimulationGeometry:
             boundary_shielding=self.magnetic_boundary_shielding,
         )
 
-    def m_imp_to_gridded_JS(
+    @cached_property
+    def boundary_jr_to_gap_Br_operator(self) -> LinearMap:
+        """Map boundary radial current to unshielded gap ``Br(RI)``."""
+        return as_linear_map(
+            self.boundary_jr_to_gap_Br_matrix,
+            input_shape=(self.horizontal_basis.index_length,),
+            output_shape=(self.poloidal_basis.index_length,),
+        )
+
+    @property
+    def _active_boundary_jr_to_gap_Br_operator(self) -> LinearMap | None:
+        """Return the gap response only when that coupling is active."""
+        if self.main_field.kind == "radial" or not self.enable_pfac_coupling:
+            return None
+        return self.boundary_jr_to_gap_Br_operator
+
+    @cached_property
+    def boundary_jr_to_toroidal_potential_operator(self) -> LinearMap:
+        """Return the gauge-fixed boundary-current inverse."""
+        return (
+            mu0 / self.RI * self.horizontal_basis.get_mean_free_surface_poisson_operator(self.RI)
+        )
+
+    def toroidal_potential_to_gridded_JS(
         self,
         transform: SphericalTransform | None = None,
         *,
         poloidal_transform: SphericalTransform | None = None,
     ) -> np.ndarray:
-        """Map imposed-potential coefficients to JS."""
-        return self.m_imp_to_gridded_JS_operator(
+        """Map private toroidal-potential coefficients to current."""
+        return self.toroidal_potential_to_gridded_JS_operator(
             transform, poloidal_transform=poloidal_transform
         ).array
 
-    def m_imp_to_gridded_JS_operator(
+    def toroidal_potential_to_gridded_JS_operator(
         self,
         transform: SphericalTransform | None = None,
         *,
         poloidal_transform: SphericalTransform | None = None,
     ) -> LinearMap:
-        """Return the map from imposed-potential coefficients to JS."""
+        """Return the private toroidal-potential current map."""
         transform = self.horizontal_transform if transform is None else transform
-        if poloidal_transform is None:
+        gap_response = self._active_boundary_jr_to_gap_Br_operator
+        if gap_response is not None and poloidal_transform is None:
             poloidal_transform = self.poloidal_transform_for(transform)
-        return magnetic_boundary.m_imp_to_gridded_JS_operator(
+        return magnetic_boundary.toroidal_potential_to_gridded_JS_operator(
             self.solid_harmonics,
             transform,
             poloidal_transform=poloidal_transform,
-            pfac_coupling_matrix=(
-                None
-                if self.main_field.kind == "radial" or not self.enable_pfac_coupling
-                else self.pfac_coupling_matrix
-            ),
+            toroidal_potential_to_boundary_jr=(self.toroidal_potential_to_boundary_jr_operator),
+            boundary_jr_to_gap_Br=gap_response,
+        )
+
+    def boundary_jr_to_gridded_JS(
+        self,
+        transform: SphericalTransform | None = None,
+        *,
+        poloidal_transform: SphericalTransform | None = None,
+    ) -> np.ndarray:
+        """Map boundary radial-current coefficients to sheet current."""
+        return self.boundary_jr_to_gridded_JS_operator(
+            transform, poloidal_transform=poloidal_transform
+        ).array
+
+    def boundary_jr_to_gridded_JS_operator(
+        self,
+        transform: SphericalTransform | None = None,
+        *,
+        poloidal_transform: SphericalTransform | None = None,
+    ) -> LinearMap:
+        """Return the boundary-jr to total sheet-current map."""
+        transform = self.horizontal_transform if transform is None else transform
+        gap_response = self._active_boundary_jr_to_gap_Br_operator
+        if gap_response is not None and poloidal_transform is None:
+            poloidal_transform = self.poloidal_transform_for(transform)
+        return magnetic_boundary.boundary_jr_to_gridded_JS_operator(
+            self.solid_harmonics,
+            transform,
+            poloidal_transform=poloidal_transform,
+            boundary_jr_to_toroidal_potential=(self.boundary_jr_to_toroidal_potential_operator),
+            boundary_jr_to_gap_Br=gap_response,
         )
 
     def _init_constraint_mappings(self) -> None:
@@ -451,11 +511,18 @@ class SimulationGeometry:
         return ionospheric_closure.wind_motional_E_tensor(self.main_field_evaluation.Br)
 
     @property
-    def pfac_coupling_matrix(self) -> np.ndarray:
-        """Return the PFAC toroidal-to-poloidal coupling matrix."""
-        if self._pfac_matrix is None:
-            self._build_pfac_matrix()
-        return self._pfac_matrix
+    def boundary_jr_to_gap_Br_matrix(self) -> np.ndarray:
+        """Return the unshielded gap-field response at the ionosphere.
+
+        The matrix maps radial current at the upper ionospheric
+        boundary to the poloidal radial magnetic field created by its
+        field-aligned continuation through the gap. The result is the
+        external-source field incident on the ionosphere, before the
+        ionospheric shielding sheet current is applied.
+        """
+        if self._gap_Br_response_matrix is None:
+            self._build_gap_Br_response_matrix()
+        return self._gap_Br_response_matrix
 
     def _pfac_boundary_response(self):
         """Return outer-boundary factors for the PFAC shell response."""
@@ -473,14 +540,14 @@ class SimulationGeometry:
         )
         return outer_regular_to_ionosphere, response_factor
 
-    def _pfac_integrand_at_radius(
+    def _gap_Br_integrand_at_radius(
         self,
         radius,
         gridded_JS_to_poloidal_operator,
         outer_regular_to_ionosphere,
         boundary_response_factor,
     ):
-        """Return the imposed-to-poloidal PFAC response at one shell."""
+        """Return one shell's shielding-potential response."""
         theta_footpoint, phi_footpoint = self.main_field.map_along_field_lines(
             r_dest=self.RI, r=radius, theta=self.model_grid.theta, phi=self.model_grid.phi
         )
@@ -511,35 +578,38 @@ class SimulationGeometry:
             @ gridded_JS_to_poloidal_operator
             @ jr_to_gridded_JS
             @ footpoint_transform.scalar_coeffs_to_grid_operator
-            @ self.m_imp_to_jr_operator
         )
         return np.asarray(integrand_operator.to_matrix(backend="numpy"))
 
-    def _build_pfac_matrix(self) -> None:
-        """Construct the PFAC coupling matrix by radial integration."""
+    def _build_gap_Br_response_matrix(self) -> None:
+        """Construct the gap-Br map by radial integration."""
         if self.main_field.kind == "radial" or not self.enable_pfac_coupling:
-            pfac_matrix = np.zeros(
+            matrix = np.zeros(
                 (self.poloidal_basis.index_length, self.horizontal_basis.index_length)
             )
         elif self.operator_cache is None:
-            pfac_matrix = self._compute_pfac_matrix()
+            matrix = self._compute_gap_Br_response_matrix()
         else:
-            pfac_matrix = self.operator_cache.get_or_create(
-                "pfac_coupling", self._pfac_cache_identity(), self._compute_pfac_matrix
+            matrix = self.operator_cache.get_or_create(
+                "gap_Br_response",
+                self._gap_Br_response_cache_identity(),
+                self._compute_gap_Br_response_matrix,
             )
-        pfac_matrix.flags.writeable = False
-        self._pfac_matrix = pfac_matrix
+        matrix.flags.writeable = False
+        self._gap_Br_response_matrix = matrix
 
-    def _pfac_cache_identity(self) -> dict:
-        """Return the exact identity of the final PFAC matrix."""
+    def _gap_Br_response_cache_identity(self) -> dict:
+        """Return the exact identity of the gap-Br response."""
         field_components = (
             self.main_field_evaluation.Br,
             self.main_field_evaluation.Btheta,
             self.main_field_evaluation.Bphi,
         )
         return {
-            "algorithm": "pfac_radial_integration",
-            "version": _PFAC_CACHE_VERSION,
+            "algorithm": "boundary_jr_to_gap_Br_radial_integration",
+            "version": _GAP_BR_RESPONSE_CACHE_VERSION,
+            "input_quantity": "boundary_jr_at_RI",
+            "output_quantity": "unshielded_gap_Br_at_RI",
             "horizontal_basis": self.horizontal_basis.signature,
             "poloidal_basis": self.poloidal_basis.signature,
             "model_grid_coordinates": self.model_grid.exact_coordinate_signature,
@@ -555,9 +625,9 @@ class SimulationGeometry:
             "area_weighted_least_squares": self.area_weighted_least_squares,
         }
 
-    def _compute_pfac_matrix(self) -> np.ndarray:
-        """Compute PFAC from transient shell operators."""
-        pfac_matrix = np.zeros(
+    def _compute_gap_Br_response_matrix(self) -> np.ndarray:
+        """Compute the physical gap-field response from shell maps."""
+        shielding_potential_response = np.zeros(
             (self.poloidal_basis.index_length, self.horizontal_basis.index_length)
         )
         integration_radii = np.asarray(self.fac_integration_radii)
@@ -575,36 +645,48 @@ class SimulationGeometry:
 
         for i, radial_midpoint in enumerate(radial_midpoints):
             logger.debug(
-                "PFAC integration step %d/%d (rk=%s)",
+                "Gap-field integration step %d/%d (rk=%s)",
                 i + 1,
                 radial_midpoints.size,
                 radial_midpoint,
             )
-            pfac_matrix += radial_step_widths[i] * self._pfac_integrand_at_radius(
+            shielding_potential_response += radial_step_widths[
+                i
+            ] * self._gap_Br_integrand_at_radius(
                 radial_midpoint,
                 gridded_JS_to_poloidal_operator,
                 outer_regular_to_ionosphere,
                 boundary_response_factor,
             )
-        return pfac_matrix
 
-    def Br_to_gridded_JS(
+        # The integrated response above is the poloidal coefficient of
+        # the ionospheric shielding field. If b_gap is the unshielded
+        # external radial field incident from the gap, shielding gives
+        # kappa = -D^-1 b_gap, hence b_gap = -D kappa.
+        degree_factor = np.asarray(
+            self.poloidal_basis.n * (self.poloidal_basis.n + 1), dtype=float
+        )
+        return -degree_factor[:, None] * shielding_potential_response
+
+    def boundary_Br_to_gridded_JS(
         self,
         transform: SphericalTransform | None = None,
         *,
         poloidal_transform: SphericalTransform | None = None,
     ) -> np.ndarray | None:
-        """Map boundary-Br coefficients to JS."""
-        operator = self.Br_to_gridded_JS_operator(transform, poloidal_transform=poloidal_transform)
+        """Map outer-boundary-Br coefficients to sheet current."""
+        operator = self.boundary_Br_to_gridded_JS_operator(
+            transform, poloidal_transform=poloidal_transform
+        )
         return None if operator is None else operator.array
 
-    def Br_to_gridded_JS_operator(
+    def boundary_Br_to_gridded_JS_operator(
         self,
         transform: SphericalTransform | None = None,
         *,
         poloidal_transform: SphericalTransform | None = None,
     ) -> LinearMap | None:
-        """Return the map from boundary-Br coefficients to JS."""
+        """Return the map from outer-boundary Br to sheet current."""
         if self.RM is None:
             return None
         if poloidal_transform is None:
@@ -613,6 +695,6 @@ class SimulationGeometry:
                 if transform is None
                 else self.poloidal_transform_for(transform)
             )
-        return magnetic_boundary.Br_to_gridded_JS_operator(
+        return magnetic_boundary.boundary_Br_to_gridded_JS_operator(
             self.solid_harmonics, poloidal_transform, radius=self.RI, boundary_radius=self.RM
         )

@@ -1,7 +1,8 @@
 """Project prepared MAGE forcing into reusable PynaMIT inputs.
 
-The workflow owns validation, file lifetime, and provenance. Its private
-projector owns numerical state reused across forcing times.
+The workflow owns validation, file lifetime, and provenance. Its
+private projector reuses grids, transforms, and fit operators across
+forcing times.
 """
 
 from __future__ import annotations
@@ -573,17 +574,17 @@ class _MageInputProjector:
         simulation: pynamit.Simulation,
         ionosphere_grid: pynamit.Grid,
         magnetosphere_grid: pynamit.Grid,
-        br_lambda: float,
+        boundary_Br_lambda: float,
         conductance_lambda: float,
-        jr_lambda: float,
+        boundary_jr_lambda: float,
         e_neutral_wind_lambda: float,
     ) -> None:
         self._simulation = simulation
         self._ionosphere_grid = ionosphere_grid
         self._magnetosphere_grid = magnetosphere_grid
-        self._br_lambda = br_lambda
+        self._boundary_Br_lambda = boundary_Br_lambda
         self._conductance_lambda = conductance_lambda
-        self._jr_lambda = jr_lambda
+        self._boundary_jr_lambda = boundary_jr_lambda
         self._e_neutral_wind_lambda = e_neutral_wind_lambda
 
         self._ionosphere_field = MagneticFieldEvaluation(
@@ -610,28 +611,28 @@ class _MageInputProjector:
         if np.any(~np.isfinite(delta_br)):
             raise ValueError("Br input contains non-finite values.")
         _print_field_stats("  Delta Br [T]", delta_br)
-        self._simulation.set_Br(
+        self._simulation.set_boundary_Br(
             delta_br,
             lat=self._magnetosphere_grid.lat,
             lon=self._magnetosphere_grid.lon,
             time=input_time,
             sqrt_weights=self._magnetosphere_sqrt_weights,
-            reg_lambda=self._br_lambda,
+            reg_lambda=self._boundary_Br_lambda,
         )
 
     def _project_radial_current(self, h5_file: Any, step: int, input_time: float) -> None:
         """Project prepared outward radial current density."""
-        jr = np.asarray(h5_file["jr"][step], dtype=float).reshape(-1) * 1e-6
-        if np.any(~np.isfinite(jr)):
+        boundary_jr = np.asarray(h5_file["jr"][step], dtype=float).reshape(-1) * 1e-6
+        if np.any(~np.isfinite(boundary_jr)):
             raise ValueError("Prepared radial current contains non-finite values.")
-        _print_field_stats("  jr [A/m^2]", jr)
-        self._simulation.set_jr(
-            jr,
+        _print_field_stats("  boundary jr [A/m^2]", boundary_jr)
+        self._simulation.set_boundary_jr(
+            boundary_jr,
             lat=self._ionosphere_grid.lat,
             lon=self._ionosphere_grid.lon,
             time=input_time,
             sqrt_weights=self._ionosphere_sqrt_weights,
-            reg_lambda=self._jr_lambda,
+            reg_lambda=self._boundary_jr_lambda,
         )
 
     def _project_conductance(
@@ -721,9 +722,9 @@ def project_inputs(
     mmax: int,
     ncs: int,
     max_steps: int | None,
-    br_lambda: float,
+    boundary_Br_lambda: float,
     conductance_lambda: float,
-    jr_lambda: float,
+    boundary_jr_lambda: float,
     e_neutral_wind_lambda: float,
     artifact_storage: str,
     operator_cache_directory: str | Path | None = None,
@@ -854,9 +855,9 @@ def project_inputs(
                 simulation=simulation,
                 ionosphere_grid=ionosphere_grid,
                 magnetosphere_grid=magnetosphere_grid,
-                br_lambda=br_lambda,
+                boundary_Br_lambda=boundary_Br_lambda,
                 conductance_lambda=conductance_lambda,
-                jr_lambda=jr_lambda,
+                boundary_jr_lambda=boundary_jr_lambda,
                 e_neutral_wind_lambda=e_neutral_wind_lambda,
             )
 
@@ -947,9 +948,9 @@ def project_inputs(
                         file.attrs["remix_grid_equatorward_sm_latitude_deg"]
                     ),
                     "projection_regularization": {
-                        "Br_lambda": br_lambda,
+                        "boundary_Br_lambda": boundary_Br_lambda,
                         "conductance_lambda": conductance_lambda,
-                        "jr_lambda": jr_lambda,
+                        "boundary_jr_lambda": boundary_jr_lambda,
                         "E_neutral_wind_lambda": e_neutral_wind_lambda,
                     },
                     "n_projected_steps": n_steps,

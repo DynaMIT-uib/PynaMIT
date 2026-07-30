@@ -36,10 +36,10 @@ def test_horizontal_basis_kind_is_simulation_policy():
 
 def test_projection_basis_kind_is_input_policy():
     """Normalize projection-basis choices within simulation policy."""
-    assert normalize_projection_basis_kind(" sh ", name="jr_projection_basis") == "SH"
+    assert normalize_projection_basis_kind(" sh ", name="boundary_jr_projection_basis") == "SH"
     assert normalize_projection_basis_kind("cs", name="u_projection_basis") == "CS"
-    with pytest.raises(ValueError, match="jr_projection_basis"):
-        normalize_projection_basis_kind("grid", name="jr_projection_basis")
+    with pytest.raises(ValueError, match="boundary_jr_projection_basis"):
+        normalize_projection_basis_kind("grid", name="boundary_jr_projection_basis")
 
 
 def test_projection_basis_settings_resolve_defaults_and_inheritance():
@@ -49,8 +49,8 @@ def test_projection_basis_settings_resolve_defaults_and_inheritance():
     resolved = resolve_projection_basis_settings(settings, "SH")
 
     assert resolved == {
-        "jr_projection_basis": "SH",
-        "Br_projection_basis": "SH",
+        "boundary_jr_projection_basis": "SH",
+        "boundary_Br_projection_basis": "SH",
         "conductance_projection_basis": "SH",
         "u_projection_basis": "CS",
         "E_neutral_wind_projection_basis": "SH",
@@ -59,9 +59,9 @@ def test_projection_basis_settings_resolve_defaults_and_inheritance():
 
 
 def test_projection_basis_settings_reject_sh_projection_in_cs_mode():
-    """CS horizontal state mode requires CS input settings."""
-    with pytest.raises(ValueError, match="jr_projection_basis"):
-        resolve_projection_basis_settings({"jr_projection_basis": "SH"}, "CS")
+    """A CS horizontal basis requires matching CS input settings."""
+    with pytest.raises(ValueError, match="boundary_jr_projection_basis"):
+        resolve_projection_basis_settings({"boundary_jr_projection_basis": "SH"}, "CS")
 
 
 def test_setting_value_accepts_attrs_and_data_vars():
@@ -82,52 +82,59 @@ def test_sh_schema_uses_mean_free_sh_inputs_and_outputs():
 
     assert schema.horizontal_basis is schema.mean_free_sh_basis
     assert schema.solid_harmonics.basis is schema.horizontal_basis
-    assert schema.input_field_spaces["jr"].representation is schema.mean_free_sh_basis
-    assert schema.input_field_spaces["Br"].representation is schema.mean_free_sh_basis
+    assert schema.input_field_spaces["boundary_jr"].representation is schema.mean_free_sh_basis
+    assert schema.input_field_spaces["boundary_Br"].representation is schema.mean_free_sh_basis
     assert schema.input_field_spaces["u"].representation is schema.mean_free_sh_basis
     assert schema.input_field_spaces["Q_eff"].representation is schema.mean_free_sh_basis
     assert schema.input_field_spaces["conductance"].representation is schema.sh_basis
     assert all(
         space.representation is schema.horizontal_basis
-        for space in schema.output_field_spaces["state"].values()
+        for space in schema.output_field_spaces["dynamic"].values()
     )
 
-    assert schema.input_field_spaces["jr"].mean_free
-    assert schema.input_field_spaces["Br"].mean_free
+    assert schema.input_field_spaces["boundary_jr"].mean_free
+    assert schema.input_field_spaces["boundary_Br"].mean_free
     assert schema.input_field_spaces["u"].mean_free
     assert schema.input_field_spaces["Q_eff"].mean_free
     assert not schema.input_field_spaces["conductance"].mean_free
-    assert all(space.mean_free for space in schema.output_field_spaces["state"].values())
+    assert schema.output_field_spaces["dynamic"]["induced_Br"].mean_free
+    assert not schema.output_field_spaces["dynamic"]["boundary_jr"].mean_free
+    assert schema.output_field_spaces["dynamic"]["Phi"].mean_free
+    assert schema.output_field_spaces["dynamic"]["W"].mean_free
 
 
-def test_cs_schema_separates_magnetic_and_surface_state_spaces():
+def test_cs_schema_separates_poloidal_and_surface_output_spaces():
     """Keep radial magnetic quantities in mean-free SH space."""
     schema = build_simulation_schema(_settings(horizontal_basis_kind="cs"))
 
     assert schema.horizontal_basis is schema.cs_basis
     assert schema.solid_harmonics.basis is schema.mean_free_sh_basis
-    assert schema.input_field_spaces["Br"].representation is schema.mean_free_sh_basis
+    assert schema.input_field_spaces["boundary_Br"].representation is schema.mean_free_sh_basis
     assert all(
         space.representation is schema.cs_basis
         for key, space in schema.input_field_spaces.items()
-        if key != "Br"
+        if key != "boundary_Br"
     )
     assert all(basis is schema.cs_basis for basis in schema.input_projection_bases.values())
 
-    state_spaces = schema.output_field_spaces["state"]
-    assert state_spaces["m_ind"].representation is schema.mean_free_sh_basis
+    output_spaces = schema.output_field_spaces["dynamic"]
+    assert output_spaces["induced_Br"].representation is schema.mean_free_sh_basis
     assert all(
-        state_spaces[name].representation is schema.cs_basis for name in ("m_imp", "Phi", "W")
+        output_spaces[name].representation is schema.cs_basis
+        for name in ("boundary_jr", "Phi", "W")
     )
-    assert all(space.mean_free for space in state_spaces.values())
+    assert output_spaces["induced_Br"].mean_free
+    assert not output_spaces["boundary_jr"].mean_free
+    assert output_spaces["Phi"].mean_free
+    assert output_spaces["W"].mean_free
 
 
 def test_schema_respects_input_projection_basis_for_sh_mode():
     """Input projection choices are explicit in SH mode."""
     schema = build_simulation_schema(
         _settings(
-            jr_projection_basis="CS",
-            Br_projection_basis="CS",
+            boundary_jr_projection_basis="CS",
+            boundary_Br_projection_basis="CS",
             conductance_projection_basis="CS",
             u_projection_basis="CS",
             Q_eff_projection_basis="CS",
@@ -135,13 +142,13 @@ def test_schema_respects_input_projection_basis_for_sh_mode():
         )
     )
 
-    assert schema.input_field_spaces["jr"].representation is schema.mean_free_sh_basis
+    assert schema.input_field_spaces["boundary_jr"].representation is schema.mean_free_sh_basis
     assert schema.input_field_spaces["conductance"].representation is schema.cs_basis
     assert all(basis is schema.cs_basis for basis in schema.input_projection_bases.values())
 
 
 def test_sh_schema_can_store_conductance_on_cs_grid():
-    """CS conductance projection basis keeps SH state storage."""
+    """CS conductance storage keeps the SH horizontal basis."""
     schema = build_simulation_schema(_settings(conductance_projection_basis="CS"))
 
     assert schema.horizontal_basis is schema.mean_free_sh_basis
@@ -166,10 +173,10 @@ def test_field_spaces_from_bases_requires_matching_keys():
         field_spaces_from_bases({"bad": schema.sh_basis}, {})
 
 
-def test_schema_mean_free_projection_is_operational_for_cs_state_space():
-    """Surface-state metadata applies the CS mean-free gauge."""
+def test_schema_mean_free_projection_is_operational_for_cs_potential_space():
+    """Surface-potential metadata applies the CS mean-free gauge."""
     schema = build_simulation_schema(_settings(horizontal_basis_kind="CS"))
-    field_space = schema.output_field_spaces["state"]["m_imp"]
+    field_space = schema.output_field_spaces["dynamic"]["Phi"]
     coeffs = np.linspace(0.0, 1.0, field_space.index_length) + 5.0
 
     projected = field_space.project_mean_free(coeffs)
@@ -185,6 +192,8 @@ def test_schema_mappings_cannot_be_mutated_after_construction():
     with pytest.raises(TypeError):
         schema.input_variables["new"] = ("value",)
     with pytest.raises(TypeError):
-        schema.input_field_spaces["jr"] = schema.output_field_spaces["state"]
+        schema.input_field_spaces["boundary_jr"] = schema.output_field_spaces["dynamic"]
     with pytest.raises(TypeError):
-        schema.output_field_spaces["state"]["m_ind"] = schema.input_field_spaces["jr"]
+        schema.output_field_spaces["dynamic"]["induced_Br"] = schema.input_field_spaces[
+            "boundary_jr"
+        ]

@@ -1,7 +1,7 @@
 """Visualization utilities for simulation results.
 
 This module contains plotting functions for global field maps and
-current-state diagnostics.
+current-output diagnostics.
 """
 
 import datetime as dt
@@ -20,12 +20,12 @@ from pynamit.visualization.hemisphere import (
     make_hemisphere_polarplot,
 )
 from pynamit.visualization.map_coordinates import MapCoordinateContext
-from pynamit.visualization.plot_helpers import style_global_axis
-from pynamit.visualization.state_fields import (
-    evaluate_Br,
+from pynamit.visualization.output_fields import (
+    evaluate_boundary_jr,
     evaluate_equivalent_current_function,
-    evaluate_jr,
+    evaluate_induced_Br,
 )
+from pynamit.visualization.plot_helpers import style_global_axis
 
 
 def plot_global_polar_map(
@@ -113,7 +113,7 @@ def plot_global_polar_map(
     plt.close()
 
 
-def plot_state_diagnostics(
+def plot_output_diagnostics(
     simulation,
     title=None,
     filename=None,
@@ -121,7 +121,7 @@ def plot_state_diagnostics(
     coordinate_context=None,
     hemisphere_min_abs_latitude=DEFAULT_HEMISPHERE_MIN_ABS_LATITUDE,
 ):
-    """Generate diagnostic plots of simulation state.
+    """Generate diagnostic plots of current simulation output.
 
     Creates visualizations of radial magnetic field, field-aligned
     currents, and equivalent current function for debugging.
@@ -213,8 +213,10 @@ def plot_state_diagnostics(
         simulation.geometry.main_field, global_grid, simulation.config.RI
     )
 
-    global_br = evaluate_Br(simulation, global_transform)
-    global_fac = evaluate_jr(simulation, global_transform) / global_field_evaluation.unit_br
+    global_br = evaluate_induced_Br(simulation, global_transform)
+    global_fac = (
+        evaluate_boundary_jr(simulation, global_transform) / global_field_evaluation.unit_br
+    )
     global_eq_current = evaluate_equivalent_current_function(simulation, global_transform)
 
     # Evaluate hemisphere fields on the model grid, then express the
@@ -225,8 +227,8 @@ def plot_state_diagnostics(
     model_field_evaluation = MagneticFieldEvaluation(
         simulation.geometry.main_field, model_grid, simulation.config.RI
     )
-    model_br = evaluate_Br(simulation, model_transform)
-    model_fac = evaluate_jr(simulation, model_transform) / model_field_evaluation.unit_br
+    model_br = evaluate_induced_Br(simulation, model_transform)
+    model_fac = evaluate_boundary_jr(simulation, model_transform) / model_field_evaluation.unit_br
     model_eq_current = evaluate_equivalent_current_function(simulation, model_transform)
     if magnetic_coordinates_available:
         geographic_model_lat, geographic_model_lon = main_field.model_to_geo_coordinates(

@@ -56,9 +56,9 @@ class _EvolutionOptions:
     sampling_step_interval: int
     saving_sample_interval: int
     quiet: bool
-    steady_state_initialization: bool
-    run_inductive: bool
-    run_steady_state: bool
+    equilibrium_initialization: bool
+    run_dynamic: bool
+    run_equilibrium: bool
 
     @classmethod
     def from_values(
@@ -70,9 +70,9 @@ class _EvolutionOptions:
         sampling_step_interval,
         saving_sample_interval,
         quiet,
-        steady_state_initialization,
-        run_inductive,
-        run_steady_state,
+        equilibrium_initialization,
+        run_dynamic,
+        run_equilibrium,
     ):
         """Normalize and validate evolution arguments."""
         if isinstance(t, (bool, np.bool_)):
@@ -86,14 +86,14 @@ class _EvolutionOptions:
         if not np.isfinite(dt) or dt <= 0.0:
             raise ValueError("dt must be finite and greater than zero.")
 
-        run_inductive = _boolean_option(run_inductive, name="run_inductive")
-        if run_steady_state is None:
-            run_steady_state = config.save_steady_states
+        run_dynamic = _boolean_option(run_dynamic, name="run_dynamic")
+        if run_equilibrium is None:
+            run_equilibrium = config.save_equilibria
         else:
-            run_steady_state = _boolean_option(run_steady_state, name="run_steady_state")
+            run_equilibrium = _boolean_option(run_equilibrium, name="run_equilibrium")
 
-        if not run_inductive and not run_steady_state:
-            raise ValueError("At least one of run_inductive or run_steady_state must be True.")
+        if not run_dynamic and not run_equilibrium:
+            raise ValueError("At least one of run_dynamic or run_equilibrium must be True.")
 
         sampling_step_interval = _positive_integer(
             sampling_step_interval, name="sampling_step_interval"
@@ -108,17 +108,17 @@ class _EvolutionOptions:
             sampling_step_interval=sampling_step_interval,
             saving_sample_interval=saving_sample_interval,
             quiet=_boolean_option(quiet, name="quiet"),
-            steady_state_initialization=_boolean_option(
-                steady_state_initialization, name="steady_state_initialization"
+            equilibrium_initialization=_boolean_option(
+                equilibrium_initialization, name="equilibrium_initialization"
             ),
-            run_inductive=run_inductive,
-            run_steady_state=run_steady_state,
+            run_dynamic=run_dynamic,
+            run_equilibrium=run_equilibrium,
         )
 
     @property
     def step_increment(self) -> int:
         """Return loop-step increment for enabled evolution modes."""
-        return 1 if self.run_inductive else self.sampling_step_interval
+        return 1 if self.run_dynamic else self.sampling_step_interval
 
     @property
     def save_step_interval(self) -> int:
@@ -148,9 +148,9 @@ class SimulationRunner:
         sampling_step_interval=200,
         saving_sample_interval=10,
         quiet=False,
-        steady_state_initialization=True,
-        run_inductive=True,
-        run_steady_state=None,
+        equilibrium_initialization=True,
+        run_dynamic=True,
+        run_equilibrium=None,
     ) -> None:
         """Evolve the associated simulation to a target time."""
         options = self.normalize_evolution_options(
@@ -160,11 +160,11 @@ class SimulationRunner:
             sampling_step_interval=sampling_step_interval,
             saving_sample_interval=saving_sample_interval,
             quiet=quiet,
-            steady_state_initialization=steady_state_initialization,
-            run_inductive=run_inductive,
-            run_steady_state=run_steady_state,
+            equilibrium_initialization=equilibrium_initialization,
+            run_dynamic=run_dynamic,
+            run_equilibrium=run_equilibrium,
         )
-        inductive_m_ind = self._initialize_run_state(options)
+        dynamic_induced_Br = self._initialize_induced_Br(options)
 
         if self._saved_outputs_reach_target(options):
             if not options.quiet:
@@ -180,13 +180,13 @@ class SimulationRunner:
             self.simulation.geometry.main_field.kind != "radial"
             and self.simulation.config.enable_pfac_coupling
         ):
-            self.simulation.run_data.save_pfac_matrix_if_missing(
-                self.simulation.geometry.pfac_coupling_matrix, print_info=not options.quiet
+            self.simulation.run_data.save_gap_Br_response_if_missing(
+                self.simulation.geometry.boundary_jr_to_gap_Br_matrix, print_info=not options.quiet
             )
-        self._run_loop(options, inductive_m_ind)
+        self._run_loop(options, dynamic_induced_Br)
 
-    def impose_steady_state(self, *, time=None, interpolation=True, save=True, quiet=False):
-        """Solve and optionally persist the steady state at one time."""
+    def impose_equilibrium(self, *, time=None, interpolation=True, save=True, quiet=False):
+        """Solve and optionally save the instantaneous equilibrium."""
         if time is not None:
             if isinstance(time, (bool, np.bool_)):
                 raise ValueError("time must be a finite, non-negative simulation time.")
@@ -195,7 +195,7 @@ class SimulationRunner:
                 raise ValueError("time must be a finite, non-negative simulation time.")
             if imposed_time < float(self.simulation.current_time) - TIME_TOLERANCE_SECONDS:
                 raise ValueError(
-                    f"Cannot impose a state at {imposed_time:g} s before the active "
+                    f"Cannot impose equilibrium at {imposed_time:g} s before the active "
                     f"checkpoint at {float(self.simulation.current_time):g} s. Start from an "
                     "earlier run directory to create a new trajectory."
                 )
@@ -207,36 +207,41 @@ class SimulationRunner:
             self.simulation.current_time,
             interpolation=interpolation,
         )
-        E_coeffs_noninductive, m_imp_noninductive = response.calculate_noninductive_response()
-        steady_state_m_ind = induction.steady_state_m_ind(response, E_coeffs_noninductive)
+        E_coeffs_noninductive, boundary_jr_noninductive = (
+            response.calculate_noninductive_response()
+        )
+        equilibrium_induced_Br = induction.equilibrium_induced_Br(response, E_coeffs_noninductive)
 
         if (
             save
             and self.simulation.geometry.main_field.kind != "radial"
             and self.simulation.config.enable_pfac_coupling
         ):
-            self.simulation.run_data.save_pfac_matrix_if_missing(
-                self.simulation.geometry.pfac_coupling_matrix, print_info=not quiet
+            self.simulation.run_data.save_gap_Br_response_if_missing(
+                self.simulation.geometry.boundary_jr_to_gap_Br_matrix, print_info=not quiet
             )
-        self._record_output_state(
-            "state", steady_state_m_ind, E_coeffs_noninductive, m_imp_noninductive
+        self._record_output_snapshot(
+            "dynamic", equilibrium_induced_Br, E_coeffs_noninductive, boundary_jr_noninductive
         )
-        if self.simulation.config.save_steady_states:
-            self._record_output_state(
-                "steady_state", steady_state_m_ind, E_coeffs_noninductive, m_imp_noninductive
+        if self.simulation.config.save_equilibria:
+            self._record_output_snapshot(
+                "equilibrium",
+                equilibrium_induced_Br,
+                E_coeffs_noninductive,
+                boundary_jr_noninductive,
             )
 
         if save:
-            self.simulation.run_data.save_output_dataset("state")
-            if self.simulation.config.save_steady_states:
-                self.simulation.run_data.save_output_dataset("steady_state")
+            self.simulation.run_data.save_output_dataset("dynamic")
+            if self.simulation.config.save_equilibria:
+                self.simulation.run_data.save_output_dataset("equilibrium")
 
         if not quiet:
             persisted = " and persisted" if save else ""
             current_time = float(self.simulation.current_time)
-            print(f"Imposed{persisted} steady state at t = {current_time:.2f} s")
+            print(f"Imposed{persisted} equilibrium at t = {current_time:.2f} s")
 
-        return steady_state_m_ind
+        return equilibrium_induced_Br
 
     def _require_forward_checkpoint(self, options: _EvolutionOptions) -> None:
         """Reject backfill from a later checkpoint."""
@@ -248,56 +253,60 @@ class SimulationRunner:
             "reach the target. Start from an earlier run directory to backfill outputs."
         )
 
-    def _initialize_run_state(self, options: _EvolutionOptions):
+    def _initialize_induced_Br(self, options: _EvolutionOptions):
         """Return initial inductive coefficients."""
         output_datasets = self.simulation.run_data.output_series.datasets
-        if options.run_inductive and "state" in output_datasets:
-            return self._resume_inductive_state(options)
-        if options.run_inductive:
-            return self._new_inductive_state(options)
-        if "steady_state" in output_datasets:
-            self.simulation.current_time = np.max(output_datasets["steady_state"].time.values)
+        if options.run_dynamic and "dynamic" in output_datasets:
+            return self._resume_induced_Br(options)
+        if options.run_dynamic:
+            return self._initialize_new_induced_Br(options)
+        if "equilibrium" in output_datasets:
+            self.simulation.current_time = np.max(output_datasets["equilibrium"].time.values)
         else:
             self.simulation.current_time = np.float64(0)
         return None
 
-    def _resume_inductive_state(self, options: _EvolutionOptions):
-        """Resume inductive coefficients from saved state output."""
+    def _resume_induced_Br(self, options: _EvolutionOptions):
+        """Resume induced_Br coefficients from the transient output."""
         if not options.quiet:
-            print("Resuming inductive state from saved output.", flush=True)
-        state_dataset = self.simulation.run_data.output_series.datasets["state"]
-        self.simulation.current_time = np.max(state_dataset.time.values)
-        inductive_m_ind = self.simulation.run_data.output_series.get_entry(
-            "state", self.simulation.current_time, interpolation=False
-        )["m_ind"]
-        return to_jax(inductive_m_ind) if use_jax() else inductive_m_ind
+            print("Resuming dynamic induced Br from saved output.", flush=True)
+        transient_output = self.simulation.run_data.output_series.datasets["dynamic"]
+        self.simulation.current_time = np.max(transient_output.time.values)
+        dynamic_induced_Br = self.simulation.run_data.output_series.get_entry(
+            "dynamic", self.simulation.current_time, interpolation=False
+        )["induced_Br"]
+        return to_jax(dynamic_induced_Br) if use_jax() else dynamic_induced_Br
 
-    def _new_inductive_state(self, options: _EvolutionOptions):
-        """Build a new inductive state from steady state or zero."""
-        if options.steady_state_initialization:
+    def _initialize_new_induced_Br(self, options: _EvolutionOptions):
+        """Initialize induced Br from equilibrium or zero."""
+        if options.equilibrium_initialization:
             if not options.quiet:
-                print("Initializing inductive state from steady state.", flush=True)
+                print("Initializing dynamic induced Br from equilibrium.", flush=True)
             self.simulation.response.activate_inputs_at_time(
                 self.simulation.run_data.input_series, self.simulation.current_time
             )
             E_coeffs_noninductive, _ = self.simulation.response.calculate_noninductive_response()
-            return induction.steady_state_m_ind(self.simulation.response, E_coeffs_noninductive)
+            return induction.equilibrium_induced_Br(
+                self.simulation.response, E_coeffs_noninductive
+            )
 
         if not options.quiet:
-            print("Initializing inductive state from zero.", flush=True)
+            print("Initializing dynamic induced Br from zero.", flush=True)
         self.simulation.current_time = np.float64(0)
         zeros = np.zeros(
-            self.simulation.run_data.schema.output_field_spaces["state"]["m_ind"].index_length
+            self.simulation.run_data.schema.output_field_spaces["dynamic"][
+                "induced_Br"
+            ].index_length
         )
         return to_jax(zeros) if use_jax() else zeros
 
     def _saved_outputs_reach_target(self, options: _EvolutionOptions) -> bool:
         """Return whether requested outputs reach target."""
         requested_outputs = []
-        if options.run_inductive:
-            requested_outputs.append("state")
-        if options.run_steady_state:
-            requested_outputs.append("steady_state")
+        if options.run_dynamic:
+            requested_outputs.append("dynamic")
+        if options.run_equilibrium:
+            requested_outputs.append("equilibrium")
         return bool(requested_outputs) and all(
             self._output_dataset_reaches(dataset_key, options.target_time)
             for dataset_key in requested_outputs
@@ -310,7 +319,7 @@ class SimulationRunner:
             return False
         return float(np.max(dataset.time.values)) >= float(target_time) - TIME_TOLERANCE_SECONDS
 
-    def _run_loop(self, options: _EvolutionOptions, inductive_m_ind) -> None:
+    def _run_loop(self, options: _EvolutionOptions, dynamic_induced_Br) -> None:
         """Run the configured evolution loop."""
         step = 0
         total_steps_estimate = self._total_steps_estimate(options)
@@ -325,7 +334,7 @@ class SimulationRunner:
                 self.simulation.run_data.input_series, self.simulation.current_time
             )
 
-            E_coeffs_noninductive, m_imp_noninductive = (
+            E_coeffs_noninductive, boundary_jr_noninductive = (
                 self.simulation.response.calculate_noninductive_response()
             )
             is_final_step = (
@@ -335,17 +344,17 @@ class SimulationRunner:
             should_save_sample = is_final_step or (
                 is_sample_step and step % options.save_step_interval == 0
             )
-            steady_state_m_ind = self._steady_state_for_step(
+            equilibrium_induced_Br = self._equilibrium_for_step(
                 options, is_sample_step, is_final_step, E_coeffs_noninductive
             )
 
             if is_sample_step:
                 self._sample_outputs(
                     options,
-                    inductive_m_ind,
-                    steady_state_m_ind,
+                    dynamic_induced_Br,
+                    equilibrium_induced_Br,
                     E_coeffs_noninductive,
-                    m_imp_noninductive,
+                    boundary_jr_noninductive,
                 )
                 if should_save_sample:
                     self._save_sample_outputs(options)
@@ -361,16 +370,18 @@ class SimulationRunner:
             )
             next_time = float(self.simulation.current_time) + step_duration
 
-            if options.run_inductive:
+            if options.run_dynamic:
                 if not options.quiet and self.simulation.config.integrator == "exponential":
                     print("  Applying dense exponential induction step.", flush=True)
-                inductive_m_ind = induction.evolve_m_ind(
+                dynamic_induced_Br = induction.evolve_induced_Br(
                     self.simulation.response,
-                    inductive_m_ind,
+                    dynamic_induced_Br,
                     step_duration,
                     E_coeffs_noninductive,
-                    steady_state_m_ind,
-                    propagator=self._exponential_propagator_for_step(step_duration),
+                    equilibrium_induced_Br,
+                    poloidal_potential_propagator=(
+                        self._exponential_propagator_for_step(step_duration)
+                    ),
                 )
             self.simulation.current_time = np.float64(next_time)
             step += options.step_increment
@@ -399,29 +410,27 @@ class SimulationRunner:
             flush=True,
         )
 
-    def _steady_state_for_step(
-        self, options, is_sample_step, is_final_step, E_coeffs_noninductive
-    ):
-        """Return steady-state coefficients when needed."""
-        needs_steady_state = (
-            options.run_inductive
+    def _equilibrium_for_step(self, options, is_sample_step, is_final_step, E_coeffs_noninductive):
+        """Return equilibrium coefficients when needed."""
+        needs_equilibrium = (
+            options.run_dynamic
             and self.simulation.config.integrator == "exponential"
             and not is_final_step
-        ) or (options.run_steady_state and is_sample_step)
+        ) or (options.run_equilibrium and is_sample_step)
 
-        if not needs_steady_state:
+        if not needs_equilibrium:
             return None
 
         if not options.quiet and self.simulation.config.integrator == "exponential":
-            print("  Solving steady state required by exponential integrator.", flush=True)
-        return induction.steady_state_m_ind(self.simulation.response, E_coeffs_noninductive)
+            print("  Solving equilibrium required by exponential integrator.", flush=True)
+        return induction.equilibrium_induced_Br(self.simulation.response, E_coeffs_noninductive)
 
     def _exponential_propagator_for_step(self, dt):
         """Return the cached propagator for this closure and step."""
         if self.simulation.config.integrator != "exponential":
             return None
 
-        operator = self.simulation.response.m_ind_feedback_matrix
+        operator = self.simulation.response.induced_poloidal_potential_feedback_matrix
         conductance_fingerprint = getattr(
             self.simulation.response, "conductance_fingerprint", None
         )
@@ -435,40 +444,51 @@ class SimulationRunner:
             self._cached_exponential_operator = operator
             self._cached_exponential_conductance_fingerprint = conductance_fingerprint
             self._cached_exponential_dt = dt
-            self._cached_exponential_propagator = induction.exponential_propagator(
-                self.simulation.response, dt, m_ind_feedback_matrix=operator
+            self._cached_exponential_propagator = (
+                induction.poloidal_potential_exponential_propagator(
+                    self.simulation.response, dt, feedback_matrix=operator
+                )
             )
         return self._cached_exponential_propagator
 
     def _sample_outputs(
         self,
         options: _EvolutionOptions,
-        inductive_m_ind,
-        steady_state_m_ind,
+        dynamic_induced_Br,
+        equilibrium_induced_Br,
         E_coeffs_noninductive,
-        m_imp_noninductive,
+        boundary_jr_noninductive,
     ) -> None:
         """Add enabled outputs for the current loop time."""
-        if options.run_inductive:
-            self._record_output_state(
-                "state", inductive_m_ind, E_coeffs_noninductive, m_imp_noninductive
+        if options.run_dynamic:
+            self._record_output_snapshot(
+                "dynamic", dynamic_induced_Br, E_coeffs_noninductive, boundary_jr_noninductive
             )
-        if options.run_steady_state:
-            self._record_output_state(
-                "steady_state", steady_state_m_ind, E_coeffs_noninductive, m_imp_noninductive
+        if options.run_equilibrium:
+            self._record_output_snapshot(
+                "equilibrium",
+                equilibrium_induced_Br,
+                E_coeffs_noninductive,
+                boundary_jr_noninductive,
             )
 
-    def _record_output_state(self, key, m_ind, E_coeffs_noninductive, m_imp_noninductive):
+    def _record_output_snapshot(
+        self, key, induced_Br, E_coeffs_noninductive, boundary_jr_noninductive
+    ):
         """Append a complete model response to one output stream."""
         response = self.simulation.response
-        E_coeffs_inductive, m_imp_inductive = response.calculate_inductive_response(m_ind)
+        E_coeffs_induced, boundary_jr_induced = response.calculate_induced_response(induced_Br)
 
-        E_coeffs = response.project_helmholtz_mean_free(E_coeffs_noninductive + E_coeffs_inductive)
-        m_imp = response.project_surface_scalar_mean_free(m_imp_noninductive + m_imp_inductive)
+        E_coeffs = response.project_helmholtz_mean_free(E_coeffs_noninductive + E_coeffs_induced)
+        # Each term is obtained from the same gauge-fixed toroidal
+        # potential through the discrete surface Laplacian. Preserve
+        # that exact range element so a saved physical current can
+        # reconstruct the private potential without loss.
+        boundary_jr = boundary_jr_noninductive + boundary_jr_induced
 
-        state_data = {
-            "m_ind": to_numpy(m_ind),
-            "m_imp": to_numpy(m_imp),
+        output_data = {
+            "induced_Br": to_numpy(induced_Br),
+            "boundary_jr": to_numpy(boundary_jr),
             "Phi": to_numpy(
                 self.simulation.geometry.helmholtz_curl_free_potential_operator.matvec(E_coeffs)
             ),
@@ -479,19 +499,19 @@ class SimulationRunner:
             ),
         }
         self.simulation.run_data.add_output_entry(
-            key, state_data, time=self.simulation.current_time
+            key, output_data, time=self.simulation.current_time
         )
 
     def _save_sample_outputs(self, options: _EvolutionOptions) -> None:
         """Persist enabled output datasets for the current sample."""
         saved_outputs = []
-        if options.run_inductive:
-            self.simulation.run_data.save_output_dataset("state")
-            saved_outputs.append("state")
+        if options.run_dynamic:
+            self.simulation.run_data.save_output_dataset("dynamic")
+            saved_outputs.append("dynamic")
 
-        if options.run_steady_state:
-            self.simulation.run_data.save_output_dataset("steady_state")
-            saved_outputs.append("steady state")
+        if options.run_equilibrium:
+            self.simulation.run_data.save_output_dataset("equilibrium")
+            saved_outputs.append("equilibrium")
 
         if not options.quiet and saved_outputs:
             print(

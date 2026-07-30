@@ -1,17 +1,21 @@
-"""Derived sheet-current operators from magnetic-boundary fields.
+"""Sheet-current response to physical magnetic boundary quantities.
 
-In PynaMIT's B, v formulation, JS is a derived horizontal surface
-current rather than an independent state.  These functions map magnetic
-potential coefficients and optional boundary field data to JS on a grid.
-SimulationGeometry supplies the run-specific radii, transforms, and
-shielding.
+The ionosphere sees two external-source radial fields: the field
+continued inward from the magnetospheric boundary and the poloidal
+field created by field-aligned current in the gap. Both are shielded
+by the same divergence-free ionospheric sheet-current response.
+
+The evolving induced field is continuous across the ionosphere. Its
+stored coordinate is radial magnetic field at the ionosphere; private
+poloidal and toroidal potentials are used only to build well-conditioned
+operators.
 """
 
 from __future__ import annotations
 
 import numpy as np
 
-from pynamit.math import as_linear_map, diagonal_linear_map
+from pynamit.math import diagonal_linear_map
 from pynamit.math.constants import mu0
 
 
@@ -20,14 +24,20 @@ def _coefficient_scale(values):
     array = np.asarray(values)
     if array.ndim != 1:
         raise ValueError(f"coefficient scale must be one-dimensional; got shape {array.shape}.")
-    return array.copy()
+    return array.astype(np.result_type(array.dtype, np.float64), copy=True)
 
 
-def poloidal_to_gridded_JS_operator(solid_harmonics, transform, *, poloidal_scale=None):
-    """Return the map from poloidal coefficients to gridded JS."""
+def _poloidal_degree_factor(solid_harmonics):
+    """Return ``n(n+1)`` in the poloidal coefficient ordering."""
+    n = np.asarray(solid_harmonics.basis.n)
+    return n * (n + 1)
+
+
+def poloidal_potential_to_gridded_JS_operator(solid_harmonics, transform, *, poloidal_scale=None):
+    """Map private poloidal-potential coefficients to sheet current."""
     scale = _coefficient_scale(solid_harmonics.poloidal_to_boundary_potential_jump_factor)
     if poloidal_scale is not None:
-        scale = scale * np.asarray(poloidal_scale)
+        scale *= np.asarray(poloidal_scale)
     return (
         (-1.0 / mu0)
         * transform.scalar_coeffs_to_gridded_rhat_cross_gradient_operator
@@ -35,132 +45,127 @@ def poloidal_to_gridded_JS_operator(solid_harmonics, transform, *, poloidal_scal
     )
 
 
-def poloidal_to_gridded_JS(solid_harmonics, transform, *, poloidal_scale=None):
-    """Map poloidal coefficients to gridded JS."""
-    return poloidal_to_gridded_JS_operator(
-        solid_harmonics, transform, poloidal_scale=poloidal_scale
-    ).array
+def external_Br_to_gridded_JS_operator(solid_harmonics, transform):
+    """Shield external-source ``Br(RI)`` with ionospheric current."""
+    external_Br_to_shielding_potential = diagonal_linear_map(
+        -1.0 / _poloidal_degree_factor(solid_harmonics)
+    )
+    return (
+        poloidal_potential_to_gridded_JS_operator(solid_harmonics, transform)
+        @ external_Br_to_shielding_potential
+    )
 
 
-def shielded_m_ind_poloidal_scale(solid_harmonics, boundary_radius, radius):
-    """Return the optional zero-Br image response for ``m_ind``."""
+def shielded_induced_poloidal_scale(solid_harmonics, boundary_radius, radius):
+    """Return the optional zero-Br outer image-response scale."""
     regular_shift = _coefficient_scale(
         solid_harmonics.regular_reference_shift(boundary_radius, radius)
     )
     irregular_shift = _coefficient_scale(
         solid_harmonics.irregular_reference_shift(radius, boundary_radius)
     )
-    denominator = 1.0 - regular_shift * irregular_shift
-    return 1.0 / denominator
+    return 1.0 / (1.0 - regular_shift * irregular_shift)
 
 
-def boundary_Br_to_poloidal_scale(solid_harmonics, boundary_radius, radius):
-    """Continue prescribed ``Br(RM)`` to its ionospheric potential jump.
-
-    The regular source field and its irregular response sum to the
-    supplied radial field at ``boundary_radius``. This continuation is
-    intrinsic to the boundary input and is separate from optional
-    shielding of the evolving ``m_ind`` field.
-    """
-    regular_shift = _coefficient_scale(
-        solid_harmonics.regular_reference_shift(boundary_radius, radius)
-    )
-    irregular_shift = _coefficient_scale(
-        solid_harmonics.irregular_reference_shift(radius, boundary_radius)
-    )
-    denominator = 1.0 - regular_shift * irregular_shift
-    m_ind_to_Br = _coefficient_scale(-(radius**2) * solid_harmonics.basis.laplacian(radius))
-    return -regular_shift / denominator / m_ind_to_Br
-
-
-def m_ind_to_gridded_JS(
+def induced_Br_to_gridded_JS_operator(
     solid_harmonics, transform, *, radius, boundary_radius=None, boundary_shielding=False
 ):
-    """Map induced-potential coefficients to gridded JS."""
-    return m_ind_to_gridded_JS_operator(
-        solid_harmonics,
-        transform,
-        radius=radius,
-        boundary_radius=boundary_radius,
-        boundary_shielding=boundary_shielding,
-    ).array
-
-
-def m_ind_to_gridded_JS_operator(
-    solid_harmonics, transform, *, radius, boundary_radius=None, boundary_shielding=False
-):
-    """Return the map from induced-potential coefficients to JS."""
+    """Map continuous induced ``Br(RI)`` to ionospheric current."""
     poloidal_scale = None
     if boundary_radius is not None and boundary_shielding:
-        poloidal_scale = shielded_m_ind_poloidal_scale(solid_harmonics, boundary_radius, radius)
-    return poloidal_to_gridded_JS_operator(
-        solid_harmonics, transform, poloidal_scale=poloidal_scale
+        poloidal_scale = shielded_induced_poloidal_scale(solid_harmonics, boundary_radius, radius)
+    induced_Br_to_poloidal_potential = diagonal_linear_map(
+        1.0 / _poloidal_degree_factor(solid_harmonics)
+    )
+    return (
+        poloidal_potential_to_gridded_JS_operator(
+            solid_harmonics, transform, poloidal_scale=poloidal_scale
+        )
+        @ induced_Br_to_poloidal_potential
     )
 
 
-def Br_to_gridded_JS(solid_harmonics, transform, *, radius, boundary_radius):
-    """Map boundary-Br coefficients to gridded JS."""
-    return Br_to_gridded_JS_operator(
-        solid_harmonics, transform, radius=radius, boundary_radius=boundary_radius
-    ).array
+def boundary_Br_to_ionosphere_external_Br_scale(solid_harmonics, boundary_radius, radius):
+    """Continue prescribed outer-boundary Br to external ``Br(RI)``.
 
-
-def Br_to_gridded_JS_operator(solid_harmonics, transform, *, radius, boundary_radius):
-    """Return the map from boundary-Br coefficients to gridded JS."""
-    poloidal_scale = boundary_Br_to_poloidal_scale(solid_harmonics, boundary_radius, radius)
-    return poloidal_to_gridded_JS_operator(
-        solid_harmonics, transform, poloidal_scale=poloidal_scale
-    )
-
-
-def m_imp_to_gridded_JS(
-    solid_harmonics, horizontal_transform, *, poloidal_transform=None, pfac_coupling_matrix=None
-):
-    """Map imposed-potential coefficients to their total gridded JS."""
-    return m_imp_to_gridded_JS_operator(
-        solid_harmonics,
-        horizontal_transform,
-        poloidal_transform=poloidal_transform,
-        pfac_coupling_matrix=pfac_coupling_matrix,
-    ).array
-
-
-def m_imp_to_gridded_JS_operator(
-    solid_harmonics, horizontal_transform, *, poloidal_transform=None, pfac_coupling_matrix=None
-):
-    """Return the map from imposed-potential coefficients to total JS.
-
-    The direct term is the sheet current represented by ``m_imp`` on
-    the ionosphere. With PFAC coupling, field-aligned current above the
-    ionosphere also creates a poloidal magnetic contribution and an
-    additional sheet current through the magnetic-potential jump.
+    The source is represented by a regular field in the gap together
+    with the irregular ionospheric shielding response required to
+    reproduce the prescribed field at ``boundary_radius``.
     """
-    poloidal_transform = horizontal_transform if poloidal_transform is None else poloidal_transform
+    regular_shift = _coefficient_scale(
+        solid_harmonics.regular_reference_shift(boundary_radius, radius)
+    )
+    irregular_shift = _coefficient_scale(
+        solid_harmonics.irregular_reference_shift(radius, boundary_radius)
+    )
+    return regular_shift / (1.0 - regular_shift * irregular_shift)
+
+
+def boundary_Br_to_gridded_JS_operator(solid_harmonics, transform, *, radius, boundary_radius):
+    """Map outer-boundary Br to ionospheric shielding current."""
+    continued_Br = diagonal_linear_map(
+        boundary_Br_to_ionosphere_external_Br_scale(solid_harmonics, boundary_radius, radius)
+    )
+    return external_Br_to_gridded_JS_operator(solid_harmonics, transform) @ continued_Br
+
+
+def toroidal_potential_to_gridded_JS_operator(
+    solid_harmonics,
+    horizontal_transform,
+    *,
+    poloidal_transform,
+    toroidal_potential_to_boundary_jr,
+    boundary_jr_to_gap_Br=None,
+):
+    """Map private toroidal potential to total sheet current."""
     direct_sheet_current = (
         -1.0 / mu0
     ) * horizontal_transform.scalar_coeffs_to_gridded_gradient_operator
-    if pfac_coupling_matrix is None:
+    if boundary_jr_to_gap_Br is None:
         return direct_sheet_current
-    m_imp_to_poloidal = as_linear_map(
-        pfac_coupling_matrix,
-        input_shape=(horizontal_transform.basis.index_length,),
-        output_shape=(solid_harmonics.basis.index_length,),
+    gap_shielding_current = (
+        external_Br_to_gridded_JS_operator(solid_harmonics, poloidal_transform)
+        @ boundary_jr_to_gap_Br
+        @ toroidal_potential_to_boundary_jr
     )
-    pfac_sheet_current = (
-        poloidal_to_gridded_JS_operator(solid_harmonics, poloidal_transform) @ m_imp_to_poloidal
+    return direct_sheet_current + gap_shielding_current
+
+
+def boundary_jr_to_gridded_JS_operator(
+    solid_harmonics,
+    horizontal_transform,
+    *,
+    poloidal_transform,
+    boundary_jr_to_toroidal_potential,
+    boundary_jr_to_gap_Br=None,
+):
+    """Map upper-boundary radial current to total sheet current.
+
+    The curl-free term closes ``boundary_jr`` through current
+    continuity. The divergence-free term shields the poloidal radial
+    field created by the continuation of that current through the gap.
+    """
+    direct_sheet_current = (
+        (-1.0 / mu0)
+        * horizontal_transform.scalar_coeffs_to_gridded_gradient_operator
+        @ boundary_jr_to_toroidal_potential
     )
-    return direct_sheet_current + pfac_sheet_current
+    if boundary_jr_to_gap_Br is None:
+        return direct_sheet_current
+    gap_shielding_current = (
+        external_Br_to_gridded_JS_operator(solid_harmonics, poloidal_transform)
+        @ boundary_jr_to_gap_Br
+    )
+    return direct_sheet_current + gap_shielding_current
 
 
 __all__ = [
-    "Br_to_gridded_JS",
-    "Br_to_gridded_JS_operator",
-    "boundary_Br_to_poloidal_scale",
-    "m_imp_to_gridded_JS",
-    "m_imp_to_gridded_JS_operator",
-    "m_ind_to_gridded_JS",
-    "m_ind_to_gridded_JS_operator",
-    "poloidal_to_gridded_JS",
-    "poloidal_to_gridded_JS_operator",
-    "shielded_m_ind_poloidal_scale",
+    "boundary_Br_to_gridded_JS_operator",
+    "boundary_Br_to_ionosphere_external_Br_scale",
+    "boundary_jr_to_gridded_JS_operator",
+    "external_Br_to_gridded_JS_operator",
+    "induced_Br_to_gridded_JS_operator",
+    "poloidal_potential_to_gridded_JS_operator",
+    "shielded_induced_poloidal_scale",
+    "toroidal_potential_to_gridded_JS_operator",
 ]

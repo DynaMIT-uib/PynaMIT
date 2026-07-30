@@ -13,6 +13,7 @@ from pynamit.simulation.api import Simulation
 from pynamit.simulation.workflows.standard import run_pynamit
 from pynamit.sphere import SHBasis
 from pynamit.storage import ArtifactStore, FieldTimeSeries
+from tests import magnetic_potential_coordinate_array
 
 
 def _small_dataset(values: np.ndarray | None = None) -> xr.Dataset:
@@ -35,22 +36,21 @@ def _first_data_chunk(store: Path, variable_name: str) -> Path:
     return chunks[0]
 
 
-def _build_state_timeseries() -> FieldTimeSeries:
+def _build_sample_timeseries() -> FieldTimeSeries:
     sh_basis = SHBasis(2, 1)
     return FieldTimeSeries(
-        {"state": FieldSpace(sh_basis, field_type="scalar")}, {"state": ("m_ind", "m_imp")}
+        {"sample": FieldSpace(sh_basis, field_type="scalar")}, {"sample": ("first", "second")}
     )
 
 
-def _add_state(ts: FieldTimeSeries, time: float, scale: float) -> None:
-    n_coeffs = ts.get_field_space("state").index_length
+def _add_sample(ts: FieldTimeSeries, time: float, scale: float) -> None:
+    n_coeffs = ts.get_field_space("sample").index_length
     values = np.arange(n_coeffs, dtype=float) + scale
-    ts.add_entry("state", {"m_ind": values, "m_imp": -values}, time)
+    ts.add_entry("sample", {"first": values, "second": -values}, time)
 
 
-def _state_coefficients(simulation: Simulation) -> np.ndarray:
-    state = simulation.run_data.output_series.datasets["state"]
-    return np.hstack((state["SH_m_ind"].values[-1], state["SH_m_imp"].values[-1]))
+def _regression_coordinates(simulation: Simulation) -> np.ndarray:
+    return magnetic_potential_coordinate_array(simulation)
 
 
 def test_artifact_store_auto_uses_netcdf_when_zarr_is_unavailable(tmp_path, monkeypatch):
@@ -58,10 +58,10 @@ def test_artifact_store_auto_uses_netcdf_when_zarr_is_unavailable(tmp_path, monk
     monkeypatch.setattr(ArtifactStore, "zarr_available", staticmethod(lambda: False))
     store = ArtifactStore(tmp_path / "run")
 
-    store.save_dataset(_small_dataset(), "state")
+    store.save_dataset(_small_dataset(), "sample")
 
-    assert store.get_dataset_storage_kind("state") == "netcdf"
-    xr.testing.assert_equal(store.load_dataset("state"), _small_dataset())
+    assert store.get_dataset_storage_kind("sample") == "netcdf"
+    xr.testing.assert_equal(store.load_dataset("sample"), _small_dataset())
 
 
 def test_artifact_store_explicit_zarr_requires_dependency(tmp_path, monkeypatch):
@@ -70,16 +70,16 @@ def test_artifact_store_explicit_zarr_requires_dependency(tmp_path, monkeypatch)
     store = ArtifactStore(tmp_path / "run", preferred_dataset_storage="zarr")
 
     with pytest.raises(ImportError, match="optional 'zarr' dependency"):
-        store.save_dataset(_small_dataset(), "state")
+        store.save_dataset(_small_dataset(), "sample")
 
 
 def test_artifact_store_scans_only_explicit_artifact_names(tmp_path):
     """Generic persistence does not own simulation artifact names."""
     store = ArtifactStore(tmp_path / "run", preferred_dataset_storage="netcdf")
     store.save_dataset(_small_dataset(), "settings")
-    store.save_dataset(_small_dataset(), "state")
+    store.save_dataset(_small_dataset(), "sample")
 
-    assert store.scan_artifacts(("state",)) == {"state": ("netcdf",)}
+    assert store.scan_artifacts(("sample",)) == {"sample": ("netcdf",)}
 
 
 def test_artifact_store_rejects_ambiguous_artifact_representations(tmp_path):
@@ -87,11 +87,11 @@ def test_artifact_store_rejects_ambiguous_artifact_representations(tmp_path):
     store = ArtifactStore(tmp_path / "run")
     run_directory = Path(store.directory)
     run_directory.mkdir(parents=True)
-    (run_directory / "state.ncdf").touch()
-    (run_directory / "state.zarr").mkdir()
+    (run_directory / "sample.ncdf").touch()
+    (run_directory / "sample.zarr").mkdir()
 
     with pytest.raises(ValueError, match="ambiguous storage representations"):
-        store.get_dataset_storage_kind("state")
+        store.get_dataset_storage_kind("sample")
 
 
 def test_artifact_store_requires_only_explicitly_named_artifacts(tmp_path):
@@ -109,7 +109,7 @@ def test_artifact_store_requires_only_explicitly_named_artifacts(tmp_path):
         ArtifactStore.require_artifact_directory(run_directory, "custom")
 
 
-@pytest.mark.parametrize("name", ["", ".", "..", "../state", "nested/state", r"nested\state"])
+@pytest.mark.parametrize("name", ["", ".", "..", "../sample", "nested/sample", r"nested\sample"])
 def test_artifact_store_rejects_nonlocal_artifact_names(tmp_path, name):
     """Artifact names cannot escape or introduce directory structure."""
     store = ArtifactStore(tmp_path / "run", preferred_dataset_storage="netcdf")
@@ -129,10 +129,10 @@ def test_artifact_store_auto_zarr_permission_error_is_not_silent(tmp_path, monke
     store = ArtifactStore(tmp_path / "run")
 
     with pytest.raises(PermissionError, match="simulated zarr permission failure"):
-        store.save_dataset(_small_dataset(), "state")
+        store.save_dataset(_small_dataset(), "sample")
 
-    assert not (tmp_path / "run" / "state.ncdf").exists()
-    assert not (tmp_path / "run" / "state.zarr").exists()
+    assert not (tmp_path / "run" / "sample.ncdf").exists()
+    assert not (tmp_path / "run" / "sample.zarr").exists()
 
 
 def test_artifact_store_netcdf_write_failure_cleans_unique_temporary_file(tmp_path, monkeypatch):
@@ -145,9 +145,9 @@ def test_artifact_store_netcdf_write_failure_cleans_unique_temporary_file(tmp_pa
     monkeypatch.setattr(xr.Dataset, "to_netcdf", raising_to_netcdf)
 
     with pytest.raises(OSError, match="simulated NetCDF write failure"):
-        store.save_dataset(_small_dataset(), "state")
+        store.save_dataset(_small_dataset(), "sample")
 
-    assert not (tmp_path / "run" / "state.ncdf").exists()
+    assert not (tmp_path / "run" / "sample.ncdf").exists()
     assert list((tmp_path / "run").iterdir()) == []
 
 
@@ -156,15 +156,15 @@ def test_artifact_store_roundtrips_real_zarr_when_available(tmp_path):
     pytest.importorskip("zarr")
     store = ArtifactStore(tmp_path / "run", preferred_dataset_storage="zarr")
     dataset = _small_dataset()
-    dataarray = xr.DataArray(np.array([1.0, 2.0]), dims=["x"], name="PFAC_matrix")
+    dataarray = xr.DataArray(np.array([1.0, 2.0]), dims=["x"], name="weights")
 
-    store.save_dataset(dataset, "state")
-    store.save_dataarray(dataarray, "PFAC_matrix")
+    store.save_dataset(dataset, "sample")
+    store.save_dataarray(dataarray, "weights")
 
-    assert store.get_dataset_storage_kind("state") == "zarr"
-    assert (tmp_path / "run" / "state.zarr").is_dir()
-    xr.testing.assert_equal(store.load_dataset("state"), dataset)
-    xr.testing.assert_equal(store.load_dataarray("PFAC_matrix"), dataarray)
+    assert store.get_dataset_storage_kind("sample") == "zarr"
+    assert (tmp_path / "run" / "sample.zarr").is_dir()
+    xr.testing.assert_equal(store.load_dataset("sample"), dataset)
+    xr.testing.assert_equal(store.load_dataarray("weights"), dataarray)
 
 
 def test_artifact_store_format_change_removes_stale_artifact_representation(tmp_path):
@@ -174,11 +174,11 @@ def test_artifact_store_format_change_removes_stale_artifact_representation(tmp_
     first = _small_dataset(np.array([[1.0, 2.0]]))
     second = _small_dataset(np.array([[3.0, 4.0]]))
 
-    store.save_dataset(first, "state", storage="zarr")
-    store.save_dataset(second, "state", storage="netcdf")
+    store.save_dataset(first, "sample", storage="zarr")
+    store.save_dataset(second, "sample", storage="netcdf")
 
-    assert store.get_dataset_storage_kinds("state") == ("netcdf",)
-    xr.testing.assert_equal(store.load_dataset("state"), second)
+    assert store.get_dataset_storage_kinds("sample") == ("netcdf",)
+    xr.testing.assert_equal(store.load_dataset("sample"), second)
 
 
 def test_artifact_store_zarr_writes_empty_chunks_for_strict_reads(tmp_path):
@@ -187,20 +187,20 @@ def test_artifact_store_zarr_writes_empty_chunks_for_strict_reads(tmp_path):
     store = ArtifactStore(tmp_path / "run", preferred_dataset_storage="zarr")
     dataset = _small_dataset(np.zeros((1, 2), dtype=float))
 
-    store.save_dataset(dataset, "state")
+    store.save_dataset(dataset, "sample")
 
-    xr.testing.assert_equal(store.load_dataset("state"), dataset)
-    assert _first_data_chunk(tmp_path / "run" / "state.zarr", "value").exists()
+    xr.testing.assert_equal(store.load_dataset("sample"), dataset)
+    assert _first_data_chunk(tmp_path / "run" / "sample.zarr", "value").exists()
 
 
 def test_artifact_store_zarr_missing_chunk_raises_instead_of_filling(tmp_path):
     """Missing zarr chunks should fail loudly."""
     pytest.importorskip("zarr")
     store = ArtifactStore(tmp_path / "run", preferred_dataset_storage="zarr")
-    store.save_dataset(_small_dataset(), "state")
-    _first_data_chunk(tmp_path / "run" / "state.zarr", "value").unlink()
+    store.save_dataset(_small_dataset(), "sample")
+    _first_data_chunk(tmp_path / "run" / "sample.zarr", "value").unlink()
 
-    loaded = store.load_dataset("state")
+    loaded = store.load_dataset("sample")
     with pytest.raises(Exception) as excinfo:
         _ = loaded["value"].values
 
@@ -212,7 +212,7 @@ def test_timeseries_save_appends_only_new_zarr_slices(tmp_path):
     """Loaded zarr time series append new monotonic samples."""
     pytest.importorskip("zarr")
     store = ArtifactStore(tmp_path / "run", preferred_dataset_storage="zarr")
-    ts = _build_state_timeseries()
+    ts = _build_sample_timeseries()
     calls = []
     original_save_dataset = store.save_dataset
 
@@ -224,13 +224,13 @@ def test_timeseries_save_appends_only_new_zarr_slices(tmp_path):
 
     store.save_dataset = recording_save_dataset
 
-    _add_state(ts, 0.0, 0.0)
-    ts.save("state", store)
-    _add_state(ts, 1.0, 10.0)
-    ts.save("state", store)
+    _add_sample(ts, 0.0, 0.0)
+    ts.save("sample", store)
+    _add_sample(ts, 1.0, 10.0)
+    ts.save("sample", store)
 
-    assert calls == [("state", None, 1), ("state", "time", 1)]
-    loaded = store.load_dataset("state")
+    assert calls == [("sample", None, 1), ("sample", "time", 1)]
+    loaded = store.load_dataset("sample")
     np.testing.assert_allclose(loaded.time.values, [0.0, 1.0])
 
 
@@ -238,7 +238,7 @@ def test_timeseries_rewrites_zarr_for_same_time_replacement(tmp_path):
     """Replacing an existing timestamp requires a full store rewrite."""
     pytest.importorskip("zarr")
     store = ArtifactStore(tmp_path / "run", preferred_dataset_storage="zarr")
-    ts = _build_state_timeseries()
+    ts = _build_sample_timeseries()
     calls = []
     original_save_dataset = store.save_dataset
 
@@ -250,16 +250,16 @@ def test_timeseries_rewrites_zarr_for_same_time_replacement(tmp_path):
 
     store.save_dataset = recording_save_dataset
 
-    _add_state(ts, 0.0, 0.0)
-    ts.save("state", store)
-    _add_state(ts, 0.0, 10.0)
-    ts.save("state", store)
+    _add_sample(ts, 0.0, 0.0)
+    ts.save("sample", store)
+    _add_sample(ts, 0.0, 10.0)
+    ts.save("sample", store)
 
-    assert calls == [("state", None, 1), ("state", None, 1)]
-    loaded = store.load_dataset("state")
-    n_coeffs = ts.get_field_space("state").index_length
+    assert calls == [("sample", None, 1), ("sample", None, 1)]
+    loaded = store.load_dataset("sample")
+    n_coeffs = ts.get_field_space("sample").index_length
     np.testing.assert_allclose(
-        loaded["SH_m_ind"].values[0], np.arange(n_coeffs, dtype=float) + 10.0
+        loaded["SH_first"].values[0], np.arange(n_coeffs, dtype=float) + 10.0
     )
 
 
@@ -278,7 +278,7 @@ def test_run_pynamit_default_run_directories_are_isolated(
         Ncs=8,
         main_field_kind="dipole",
         enable_pfac_coupling=False,
-        steady_state_initialization=False,
+        equilibrium_initialization=False,
         artifact_storage="netcdf",
     )
     second = run_pynamit(
@@ -289,7 +289,7 @@ def test_run_pynamit_default_run_directories_are_isolated(
         Ncs=8,
         main_field_kind="dipole",
         enable_pfac_coupling=False,
-        steady_state_initialization=False,
+        equilibrium_initialization=False,
         artifact_storage="netcdf",
     )
 
@@ -317,7 +317,7 @@ def test_simulation_restart_continues_to_match_direct_run(
         main_field_kind="dipole",
         enable_pfac_coupling=False,
         use_wind=False,
-        steady_state_initialization=False,
+        equilibrium_initialization=False,
         saving_sample_interval=1,
         artifact_storage=artifact_storage,
     )
@@ -333,14 +333,14 @@ def test_simulation_restart_continues_to_match_direct_run(
         dt=0.05,
         sampling_step_interval=1,
         saving_sample_interval=1,
-        steady_state_initialization=False,
+        equilibrium_initialization=False,
         quiet=True,
     )
 
     np.testing.assert_allclose(
-        _state_coefficients(resumed), _state_coefficients(direct), rtol=1e-10, atol=0.0
+        _regression_coordinates(resumed), _regression_coordinates(direct), rtol=1e-10, atol=0.0
     )
     np.testing.assert_allclose(
-        resumed.run_data.output_series.datasets["state"].time.values,
-        direct.run_data.output_series.datasets["state"].time.values,
+        resumed.run_data.output_series.datasets["dynamic"].time.values,
+        direct.run_data.output_series.datasets["dynamic"].time.values,
     )

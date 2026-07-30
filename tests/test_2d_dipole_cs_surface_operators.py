@@ -11,7 +11,7 @@ from pynamit.visualization.run_fields import SavedCoefficientFieldView
 
 
 def test_2d_dipole_cs_surface_operators(tmp_path):
-    """Run a 2D dipole case with CS state and saved-run views."""
+    """Run a dipole case with CS fields and saved-run views."""
     simulation = run_pynamit(
         final_time=0.01,
         dt=0.01,
@@ -20,10 +20,10 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
         Ncs=8,
         main_field_kind="dipole",
         enable_pfac_coupling=False,
-        steady_state_initialization=False,
+        equilibrium_initialization=False,
         use_wind=False,
         run_directory=str(tmp_path / "run"),
-        jr_projection_basis="CS",
+        boundary_jr_projection_basis="CS",
         conductance_projection_basis="CS",
         u_projection_basis="CS",
         least_squares_solver="normal_pinv",
@@ -36,9 +36,9 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
     assert simulation.run_data.schema.horizontal_basis is simulation.geometry.horizontal_basis
     assert simulation.geometry.solid_harmonics.basis is not simulation.geometry.horizontal_basis
     assert not simulation.run_data.schema.input_field_spaces["conductance"].mean_free
-    state_spaces = simulation.run_data.schema.output_field_spaces["state"]
-    assert state_spaces["m_ind"].representation is simulation.geometry.poloidal_basis
-    assert state_spaces["m_imp"].representation is simulation.geometry.horizontal_basis
+    output_spaces = simulation.run_data.schema.output_field_spaces["dynamic"]
+    assert output_spaces["induced_Br"].representation is simulation.geometry.poloidal_basis
+    assert output_spaces["boundary_jr"].representation is simulation.geometry.horizontal_basis
 
     geometry = simulation.geometry
     spherical_transform = geometry.horizontal_transform
@@ -59,12 +59,12 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
         geometry.poloidal_to_boundary_potential_jump_factor_operator.to_matrix(backend="numpy"),
         expected_boundary_potential_jump_factor,
     )
-    assert geometry.m_ind_to_gridded_JS().shape == (
+    assert geometry.induced_Br_to_gridded_JS().shape == (
         2,
         geometry.model_grid.size,
         simulation.geometry.poloidal_basis.index_length,
     )
-    assert geometry.m_imp_to_gridded_JS().shape == (
+    assert geometry.boundary_jr_to_gridded_JS().shape == (
         2,
         geometry.model_grid.size,
         simulation.geometry.horizontal_basis.index_length,
@@ -75,44 +75,52 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
     assert geometry.poloidal_transform_for(plot_transform) is geometry.poloidal_transform_for(
         plot_transform
     )
-    assert geometry.m_ind_to_gridded_JS(plot_transform).shape == (
+    assert geometry.induced_Br_to_gridded_JS(plot_transform).shape == (
         2,
         plot_grid.size,
         simulation.geometry.poloidal_basis.index_length,
     )
 
-    state = simulation.run_data.output_series.datasets["state"]
-    assert "SH_m_ind" in state
-    assert "CS_m_imp" in state
+    output = simulation.run_data.output_series.datasets["dynamic"]
+    assert "SH_induced_Br" in output
+    assert "CS_boundary_jr" in output
 
-    coeff_array = np.hstack((state["SH_m_ind"].values[-1], state["CS_m_imp"].values[-1]))
+    induced_Br = output["SH_induced_Br"].values[-1]
+    boundary_jr = output["CS_boundary_jr"].values[-1]
 
-    actual_n_coeffs = coeff_array.shape[0]
+    actual_n_coeffs = induced_Br.size + boundary_jr.size
 
     assert actual_n_coeffs == (
         simulation.geometry.poloidal_basis.index_length
         + simulation.geometry.horizontal_basis.index_length
     )
-    assert np.all(np.isfinite(coeff_array))
+    assert np.all(np.isfinite(induced_Br))
+    assert np.all(np.isfinite(boundary_jr))
 
     assert np.all(simulation.geometry.poloidal_basis.n > 0)
-    for name in ("m_imp", "Phi", "W"):
+    for name in ("Phi", "W"):
         assert simulation.geometry.horizontal_basis.scalar_mean(
-            state[f"CS_{name}"].values[-1]
+            output[f"CS_{name}"].values[-1]
         ) == (pytest.approx(0.0, abs=1e-18))
-    assert simulation.geometry.horizontal_basis.scalar_mean(simulation.response.jr.array) == (
+    reconstructed_potential = (
+        simulation.geometry.boundary_jr_to_toroidal_potential_operator.matvec(boundary_jr)
+    )
+    assert simulation.geometry.horizontal_basis.scalar_mean(reconstructed_potential) == (
         pytest.approx(0.0, abs=1e-18)
     )
+    assert simulation.geometry.horizontal_basis.scalar_mean(
+        simulation.response.boundary_jr.array
+    ) == (pytest.approx(0.0, abs=1e-18))
 
     view = SavedCoefficientFieldView.from_directory(
         simulation.run_data.run_directory, nlat=8, nlon=12, wind_nlat=5, wind_nlon=7
     )
-    fields = view.state_comparison_grid_fields(0)
-    assert isinstance(view.state_evaluator.basis, CSBasis)
-    assert fields["Br_state"].shape == view.lat.shape
-    assert fields["jr_state"].shape == view.lat.shape
-    assert np.all(np.isfinite(fields["Br_state"]))
-    assert np.all(np.isfinite(fields["jr_state"]))
+    fields = view.solution_comparison_grid_fields(0)
+    assert isinstance(view.output_evaluator.basis, CSBasis)
+    assert fields["Br_dynamic"].shape == view.lat.shape
+    assert fields["jr_dynamic"].shape == view.lat.shape
+    assert np.all(np.isfinite(fields["Br_dynamic"]))
+    assert np.all(np.isfinite(fields["jr_dynamic"]))
 
     renderer = GroundFigureRenderer(
         PynamitFigureSpec(

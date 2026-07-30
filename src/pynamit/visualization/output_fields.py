@@ -14,11 +14,11 @@ def current_output_key(simulation, preferred=None):
         if preferred not in datasets:
             raise ValueError(f"No output dataset named {preferred!r} is available.")
         return preferred
-    if "state" in datasets:
-        return "state"
-    if "steady_state" in datasets:
-        return "steady_state"
-    raise RuntimeError("No state or steady_state output is available to visualize.")
+    if "dynamic" in datasets:
+        return "dynamic"
+    if "equilibrium" in datasets:
+        return "equilibrium"
+    raise RuntimeError("No dynamic or equilibrium output is available to visualize.")
 
 
 def current_output_entry(simulation, key=None):
@@ -32,36 +32,35 @@ def current_output_entry(simulation, key=None):
     return entry
 
 
-def evaluate_Br_coefficients(geometry, m_ind, transform):
-    """Evaluate radial magnetic perturbation from ``m_ind``."""
-    coeffs = geometry.m_ind_to_Br_operator.matvec(m_ind)
-    return geometry.poloidal_transform_for(transform).synthesize_scalar(coeffs)
+def evaluate_induced_Br_coefficients(geometry, induced_Br, transform):
+    """Evaluate the saved induced radial magnetic field."""
+    return geometry.poloidal_transform_for(transform).synthesize_scalar(induced_Br)
 
 
-def evaluate_Br(simulation, transform, *, key=None):
+def evaluate_induced_Br(simulation, transform, *, key=None):
     """Evaluate radial magnetic perturbation on ``transform.grid``."""
     entry = current_output_entry(simulation, key=key)
-    return evaluate_Br_coefficients(simulation.geometry, entry["m_ind"], transform)
+    return evaluate_induced_Br_coefficients(simulation.geometry, entry["induced_Br"], transform)
 
 
-def evaluate_jr_coefficients(geometry, m_imp, transform):
-    """Evaluate radial current density from ``m_imp`` coefficients."""
-    coeffs = geometry.m_imp_to_jr_operator.matvec(m_imp)
-    return transform_for_basis(geometry.horizontal_basis, transform).synthesize_scalar(coeffs)
+def evaluate_boundary_jr_coefficients(geometry, boundary_jr, transform):
+    """Evaluate upper-boundary radial current density."""
+    return transform_for_basis(geometry.horizontal_basis, transform).synthesize_scalar(boundary_jr)
 
 
-def evaluate_jr(simulation, transform, *, key=None):
+def evaluate_boundary_jr(simulation, transform, *, key=None):
     """Evaluate radial current density on ``transform.grid``."""
     entry = current_output_entry(simulation, key=key)
-    return evaluate_jr_coefficients(simulation.geometry, entry["m_imp"], transform)
+    return evaluate_boundary_jr_coefficients(simulation.geometry, entry["boundary_jr"], transform)
 
 
-def evaluate_equivalent_current_coefficients(geometry, m_ind, transform):
-    """Evaluate equivalent-current stream function from ``m_ind``."""
+def evaluate_equivalent_current_coefficients(geometry, induced_Br, transform):
+    """Evaluate equivalent-current stream function from induced Br."""
+    potential = geometry.induced_Br_to_poloidal_potential_operator.matvec(induced_Br)
     coeffs = (
         -geometry.RI
         / mu0
-        * geometry.poloidal_to_boundary_potential_jump_factor_operator.matvec(m_ind)
+        * geometry.poloidal_to_boundary_potential_jump_factor_operator.matvec(potential)
     )
     return geometry.poloidal_transform_for(transform).synthesize_scalar(coeffs)
 
@@ -69,33 +68,52 @@ def evaluate_equivalent_current_coefficients(geometry, m_ind, transform):
 def evaluate_equivalent_current_function(simulation, transform, *, key=None):
     """Evaluate the equivalent-current stream function."""
     entry = current_output_entry(simulation, key=key)
-    return evaluate_equivalent_current_coefficients(simulation.geometry, entry["m_ind"], transform)
+    return evaluate_equivalent_current_coefficients(
+        simulation.geometry, entry["induced_Br"], transform
+    )
 
 
-def evaluate_JS_coefficients(geometry, m_imp, m_ind, transform, *, Br=None):
+def evaluate_JS_coefficients(geometry, boundary_jr, induced_Br, transform, *, boundary_Br=None):
     """Evaluate total horizontal JS from coefficients."""
-    m_imp = np.asarray(m_imp)
-    m_ind = np.asarray(m_ind)
+    boundary_jr = np.asarray(boundary_jr)
+    induced_Br = np.asarray(induced_Br)
 
     horizontal_transform = transform_for_basis(geometry.horizontal_basis, transform)
-    m_imp_to_JS = geometry.m_imp_to_gridded_JS(horizontal_transform)
-    m_ind_to_JS = geometry.m_ind_to_gridded_JS(horizontal_transform)
-    Br_to_JS = geometry.Br_to_gridded_JS(horizontal_transform) if Br is not None else None
+    boundary_jr_to_JS = geometry.boundary_jr_to_gridded_JS(horizontal_transform)
+    induced_Br_to_JS = geometry.induced_Br_to_gridded_JS(horizontal_transform)
+    boundary_Br_to_JS = (
+        geometry.boundary_Br_to_gridded_JS(horizontal_transform)
+        if boundary_Br is not None
+        else None
+    )
     return evaluate_JS_from_maps(
-        m_imp, m_ind, m_imp_to_JS=m_imp_to_JS, m_ind_to_JS=m_ind_to_JS, Br=Br, Br_to_JS=Br_to_JS
+        boundary_jr,
+        induced_Br,
+        boundary_jr_to_JS=boundary_jr_to_JS,
+        induced_Br_to_JS=induced_Br_to_JS,
+        boundary_Br=boundary_Br,
+        boundary_Br_to_JS=boundary_Br_to_JS,
     )
 
 
 def evaluate_JS(simulation, transform, *, key=None):
     """Evaluate total horizontal JS."""
     entry = current_output_entry(simulation, key=key)
-    Br = simulation.response.Br
-    if Br is None and "Br" in simulation.run_data.input_series.datasets:
-        boundary_entry = simulation.run_data.input_series.get_entry("Br", simulation.current_time)
+    boundary_Br = None
+    if "boundary_Br" in simulation.run_data.input_series.datasets:
+        boundary_entry = simulation.run_data.input_series.get_entry(
+            "boundary_Br", simulation.current_time
+        )
         if boundary_entry is not None:
-            Br = boundary_entry["Br"]
+            boundary_Br = boundary_entry["boundary_Br"]
+    elif simulation.response.boundary_Br is not None:
+        boundary_Br = simulation.response.boundary_Br
     return evaluate_JS_coefficients(
-        simulation.geometry, entry["m_imp"], entry["m_ind"], transform, Br=Br
+        simulation.geometry,
+        entry["boundary_jr"],
+        entry["induced_Br"],
+        transform,
+        boundary_Br=boundary_Br,
     )
 
 
@@ -128,16 +146,16 @@ def evaluate_W(simulation, transform, *, key=None):
 __all__ = [
     "current_output_entry",
     "current_output_key",
-    "evaluate_Br",
-    "evaluate_Br_coefficients",
+    "evaluate_boundary_jr",
+    "evaluate_boundary_jr_coefficients",
     "evaluate_Phi",
     "evaluate_Phi_coefficients",
     "evaluate_W",
     "evaluate_W_coefficients",
     "evaluate_equivalent_current_coefficients",
     "evaluate_equivalent_current_function",
-    "evaluate_jr",
-    "evaluate_jr_coefficients",
+    "evaluate_induced_Br",
+    "evaluate_induced_Br_coefficients",
     "evaluate_JS",
     "evaluate_JS_coefficients",
 ]

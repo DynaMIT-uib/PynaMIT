@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from pynamit.simulation.workflows.standard import run_pynamit
+from tests import magnetic_potential_coordinate_array
 
 
 def test_multi_data():
@@ -26,8 +27,8 @@ def test_multi_data():
         enable_interhemispheric_coupling=True,
         interhemispheric_coupling_latitude=50,
         use_wind=True,
-        steady_state_initialization=True,
-        jr_projection_basis="SH",
+        equilibrium_initialization=True,
+        boundary_jr_projection_basis="SH",
         conductance_projection_basis="SH",
         u_projection_basis="SH",
         integrator="exponential",
@@ -35,12 +36,7 @@ def test_multi_data():
     )
 
     # Assert.
-    coeff_array = np.hstack(
-        (
-            simulation.run_data.output_series.datasets["state"]["SH_m_ind"].values[-1],
-            simulation.run_data.output_series.datasets["state"]["SH_m_imp"].values[-1],
-        )
-    )
+    coeff_array = magnetic_potential_coordinate_array(simulation)
 
     actual_coeff_norm = np.linalg.norm(coeff_array)
     actual_coeff_max = np.max(coeff_array)
