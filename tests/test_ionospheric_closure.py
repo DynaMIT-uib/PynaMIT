@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from kompe.math.linear_map import as_linear_map
+from kompe.math import as_linear_map
 
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     Q_eff_on_grid_from_wind,

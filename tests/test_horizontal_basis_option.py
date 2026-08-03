@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 from kompe.constants import EARTH_RADIUS_M
-from kompe.math.tensor_operations import tensor_pinv, weighted_tensor_pinv
+from kompe.math import tensor_pinv, weighted_tensor_pinv
 
 from pynamit.simulation.api import Simulation
 from pynamit.simulation.workflows.standard import run_pynamit

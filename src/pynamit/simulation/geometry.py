@@ -12,13 +12,13 @@ from kompe.math import (
     LinearMap,
     array_fingerprint,
     as_linear_map,
+    dense_full_rank_least_squares_map,
     diagonal_linear_map,
     identity_linear_map,
     pointwise_matrix_linear_map,
     take_linear_map,
+    to_numpy,
 )
-from kompe.math.backend import to_numpy
-from kompe.math.least_squares_solver import dense_full_rank_least_squares_map
 from kompe.spherical_transform import SphericalTransform, resolve_sqrt_weights
 from numpy.typing import ArrayLike
 

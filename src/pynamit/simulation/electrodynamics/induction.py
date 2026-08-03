@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from kompe.math.backend import to_jax, to_numpy, use_jax, xp
+from kompe.math import to_jax, to_numpy, use_jax, xp
 from scipy.integrate import solve_ivp
 from scipy.linalg import expm
 

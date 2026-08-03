@@ -7,8 +7,13 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from kompe.math import JAX_AVAILABLE, set_backend, use_jax
-from kompe.math.least_squares_solver import LEAST_SQUARES_SOLVER_ENV, LeastSquaresSolver
+from kompe.math import (
+    JAX_AVAILABLE,
+    LEAST_SQUARES_SOLVER_ENV,
+    LeastSquaresSolver,
+    set_backend,
+    use_jax,
+)
 
 from pynamit.external_inputs import get_input_source, native_inputs_available, set_input_source
 from pynamit.storage import ArtifactStore

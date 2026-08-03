@@ -6,11 +6,20 @@ import logging
 from typing import Any
 
 import numpy as np
-from kompe.math import content_fingerprint
-from kompe.math.backend import block_after_jax_linalg, get_array_module, to_jax, use_jax, xp
-from kompe.math.least_squares_problem import LeastSquaresProblem
-from kompe.math.least_squares_solver import LeastSquaresSolver
-from kompe.math.linear_map import LinearMap, MatrixBackend, as_linear_map, identity_linear_map
+from kompe.math import (
+    LeastSquaresProblem,
+    LeastSquaresSolver,
+    LinearMap,
+    MatrixBackend,
+    as_linear_map,
+    block_after_jax_linalg,
+    content_fingerprint,
+    get_array_module,
+    identity_linear_map,
+    to_jax,
+    use_jax,
+    xp,
+)
 
 from pynamit.fields import FieldCoefficients
 from pynamit.simulation.config import SimulationConfig

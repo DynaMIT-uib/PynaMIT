@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
-from kompe.math.backend import get_array_module
-from kompe.math.linear_map import as_linear_map, pointwise_matrix_linear_map
+from kompe.math import as_linear_map, get_array_module, pointwise_matrix_linear_map
 
 CONDUCTANCE_REFERENCE_S = 1.0
 
@@ -356,9 +355,9 @@ __all__ = [
     "joule_heating_from_current",
     "pedersen_geometry_tensor",
     "resistance_from_log_conductance_coordinates",
-    "resistance_to_log_conductance_coordinates",
-    "resistance_to_conductance",
     "resistance_tensor_on_grid",
+    "resistance_to_conductance",
+    "resistance_to_log_conductance_coordinates",
     "solve_Q_eff_coefficients",
     "tangential_current_to_E_coeffs_operator",
     "wind_motional_E_tensor",

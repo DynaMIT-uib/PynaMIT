@@ -2,7 +2,7 @@
 
 import numpy as np
 from kompe.constants import EARTH_RADIUS_M
-from kompe.math.backend import set_backend
+from kompe.math import set_backend
 
 from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.electrodynamics import ionospheric_closure

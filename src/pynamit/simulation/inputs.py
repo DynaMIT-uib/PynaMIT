@@ -291,10 +291,10 @@ class InputPipeline:
         input_data = self.tangential_input_data(key, theta_component, phi_component)
         input_time = self.resolve_input_times(time, input_data)
         input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
-        coeff_rows = self.projection_transform_for(key).project_helmholtz(
+        coeff_rows = self.projection_transform_for(key).analyze_helmholtz_samples(
             input_data[key],
             input_grid=input_grid,
-            projection_basis=self.simulation.run_data.schema.input_projection_bases[key],
+            analysis_basis=self.simulation.run_data.schema.input_projection_bases[key],
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
@@ -388,16 +388,16 @@ class InputPipeline:
         else:
             projected_data = {}
             project = (
-                transform.project_helmholtz
+                transform.analyze_helmholtz_samples
                 if field_space.field_type == "tangential"
-                else transform.project_scalar
+                else transform.analyze_scalar_samples
             )
 
             for var, values in input_data.items():
                 projected_values = project(
                     values,
                     input_grid=input_grid,
-                    projection_basis=self.simulation.run_data.schema.input_projection_bases[key],
+                    analysis_basis=self.simulation.run_data.schema.input_projection_bases[key],
                     sqrt_weights=sqrt_weights,
                     reg_lambda=reg_lambda,
                     pinv_rtol=pinv_rtol,
@@ -430,10 +430,10 @@ class InputPipeline:
 
         variables = tuple(normalized)
         combined = np.concatenate([normalized[var] for var in variables], axis=0)
-        projected = transform.project_scalar(
+        projected = transform.analyze_scalar_samples(
             combined,
             input_grid=input_grid,
-            projection_basis=self.simulation.run_data.schema.input_projection_bases[key],
+            analysis_basis=self.simulation.run_data.schema.input_projection_bases[key],
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,

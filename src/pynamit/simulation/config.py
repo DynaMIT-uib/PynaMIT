@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 from kompe.constants import EARTH_RADIUS_M
-from kompe.math.least_squares_solver import LeastSquaresSolver, get_default_least_squares_solver
+from kompe.math import LeastSquaresSolver, get_default_least_squares_solver
 
 from pynamit.geomagnetism.main_field import normalize_main_field_kind
 

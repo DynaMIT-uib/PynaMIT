@@ -4,8 +4,15 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from kompe.math import JAX_AVAILABLE, einsum_linear_map, get_array_module, set_backend, use_jax
-from kompe.math.linear_map import LinearMap, as_linear_map
+from kompe.math import (
+    JAX_AVAILABLE,
+    LinearMap,
+    as_linear_map,
+    einsum_linear_map,
+    get_array_module,
+    set_backend,
+    use_jax,
+)
 
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     resistance_from_log_conductance_coordinates,

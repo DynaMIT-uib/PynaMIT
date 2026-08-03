@@ -9,7 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
-from kompe.math.fingerprints import content_fingerprint
+from kompe.math import content_fingerprint
 
 _CACHE_FORMAT_VERSION = 1
 

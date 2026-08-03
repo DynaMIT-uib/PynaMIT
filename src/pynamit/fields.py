@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
-from kompe.math.backend import get_array_module
+from kompe.math import get_array_module
 
 
 @dataclass(frozen=True)

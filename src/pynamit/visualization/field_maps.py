@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
-from kompe.math.linear_map import as_linear_map
+from kompe.math import as_linear_map
 
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     conductance_from_log_coordinates,
@@ -91,9 +91,9 @@ def evaluate_JS_from_maps(
 
 
 __all__ = [
+    "evaluate_JS_from_maps",
     "evaluate_conductance_coefficients",
     "evaluate_conductance_values",
-    "evaluate_JS_from_maps",
     "evaluate_tangential_coefficients",
     "evaluate_wind_coefficients",
 ]
