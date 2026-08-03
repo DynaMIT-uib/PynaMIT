@@ -1,6 +1,7 @@
 """Simulation."""
 
 import numpy as np
+import kompe
 import pynamit
 import dipole
 import datetime
@@ -79,14 +80,14 @@ file = h5.File("mage_2011/data_H_int.h5", "r")
 ionosphere_lat = file["glat"][:]
 ionosphere_lon = file["glon"][:]
 
-ionosphere_grid = pynamit.Grid(lat=ionosphere_lat, lon=ionosphere_lon)
+ionosphere_grid = kompe.Grid(lat=ionosphere_lat, lon=ionosphere_lon)
 
 magnetosphere_lat = file["Blat"][:]
 magnetosphere_lon = mage_coordinate_context.local_time_longitude_to_coordinate(
     file["Blon"][:], local_noon_longitude=MAGE_BR_LOCAL_NOON_LONGITUDE
 )
 
-magnetosphere_grid = pynamit.Grid(lat=magnetosphere_lat, lon=magnetosphere_lon)
+magnetosphere_grid = kompe.Grid(lat=magnetosphere_lat, lon=magnetosphere_lon)
 
 print("Setting up simulation object")
 # Set up simulation object.
@@ -108,14 +109,14 @@ simulation = pynamit.Simulation(
 )
 
 fac_field_evaluation = pynamit.MagneticFieldEvaluation(
-    simulation.geometry.main_field, pynamit.Grid(lat=ionosphere_lat, lon=ionosphere_lon), RI
+    simulation.geometry.main_field, kompe.Grid(lat=ionosphere_lat, lon=ionosphere_lon), RI
 )
 
 plt_lat, plt_lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)
 plt_lat, plt_lon = np.meshgrid(plt_lat, plt_lon)
-plt_grid = pynamit.Grid(lat=plt_lat, lon=plt_lon)
-plt_evaluator = pynamit.SphericalTransform(simulation.geometry.horizontal_basis, plt_grid)
-conductance_plt_evaluator = pynamit.SphericalTransform(
+plt_grid = kompe.Grid(lat=plt_lat, lon=plt_lon)
+plt_evaluator = kompe.SphericalTransform(simulation.geometry.horizontal_basis, plt_grid)
+conductance_plt_evaluator = kompe.SphericalTransform(
     simulation.run_data.schema.input_field_spaces["conductance"].representation, plt_grid
 )
 

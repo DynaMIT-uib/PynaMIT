@@ -1,7 +1,8 @@
 """Inspect projected simulation inputs on plotting grids."""
 
+from kompe.spherical_transform import SphericalTransform
+
 from pynamit.fields import FieldCoefficients
-from pynamit.sphere.spherical_transform import SphericalTransform
 from pynamit.visualization.field_maps import (
     evaluate_conductance_values,
     evaluate_tangential_coefficients,

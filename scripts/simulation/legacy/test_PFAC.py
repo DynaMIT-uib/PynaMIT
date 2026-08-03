@@ -1,6 +1,7 @@
 """Script to check if the PFAC calculation gives a reasonable result."""
 
 from importlib import reload
+import kompe
 import pynamit
 import dipole
 import numpy as np
@@ -72,8 +73,8 @@ simulation.response.update_E()
 # Set up plotting grid and evaluators.
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
-plt_grid = pynamit.Grid(lat=lat, lon=lon)
-plt_state_evaluator = pynamit.SphericalTransform(simulation.geometry.horizontal_basis, plt_grid)
+plt_grid = kompe.Grid(lat=lat, lon=lon)
+plt_state_evaluator = kompe.SphericalTransform(simulation.geometry.horizontal_basis, plt_grid)
 
 G_Br = plt_state_evaluator.contract_scalar_coeffs_to_grid(simulation.response.m_ind_to_Br)
 Br = G_Br.dot(simulation.geometry.pfac_coupling_matrix.dot(simulation.response.m_imp.array))
@@ -161,7 +162,7 @@ if COMPARE_TO_SECS:
     r = np.full(lat.size, RI - 1)
     lat_secs, lon_secs = simulation.geometry.model_grid.lat, simulation.geometry.model_grid.lon
     field_evaluation = pynamit.MagneticFieldEvaluation(
-        simulation.geometry.main_field, pynamit.Grid(lat=lat_secs, lon=lon_secs), RI
+        simulation.geometry.main_field, kompe.Grid(lat=lat_secs, lon=lon_secs), RI
     )
     Be, Bn, Br = (
         field_evaluation.unit_bphi,

@@ -9,10 +9,10 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import xarray as xr
+from kompe.constants import EARTH_RADIUS_M
+from kompe.math.least_squares_solver import LeastSquaresSolver, get_default_least_squares_solver
 
 from pynamit.geomagnetism.main_field import normalize_main_field_kind
-from pynamit.math.constants import RE
-from pynamit.math.least_squares_solver import LeastSquaresSolver, get_default_least_squares_solver
 
 SIMULATION_SCHEMA_VERSION = 2
 INDEPENDENT_PROJECTION_BASIS_KEYS = (
@@ -111,9 +111,9 @@ def _normalize_start_time(value: Any) -> str:
     return timestamp.isoformat(sep=" ")
 
 
-def default_fac_integration_radii(RI=RE + 110.0e3, RM=None):
+def default_fac_integration_radii(RI=EARTH_RADIUS_M + 110.0e3, RM=None):
     """Return the default radial samples used for FAC integration."""
-    outer_radius = 4 * RE if RM is None else RM
+    outer_radius = 4 * EARTH_RADIUS_M if RM is None else RM
     return np.logspace(np.log10(RI), np.log10(outer_radius), 11)
 
 
@@ -243,7 +243,7 @@ class SimulationConfig:
     Nmax: int = 20
     Mmax: int = 20
     Ncs: int = 30
-    RI: float = RE + 110.0e3
+    RI: float = EARTH_RADIUS_M + 110.0e3
     RM: float | None = None
     magnetic_boundary_shielding: bool = False
     interhemispheric_coupling_latitude: float = 50
@@ -297,8 +297,10 @@ class SimulationConfig:
             "magnetic_boundary_shielding",
             _boolean_setting(self.magnetic_boundary_shielding, name="magnetic_boundary_shielding"),
         )
-        if not np.isfinite(self.RI) or self.RI <= RE:
-            raise ValueError("RI must be finite and greater than Earth's reference radius RE.")
+        if not np.isfinite(self.RI) or self.RI <= EARTH_RADIUS_M:
+            raise ValueError(
+                "RI must be finite and greater than Earth's reference radius EARTH_RADIUS_M."
+            )
         if self.RM is not None:
             object.__setattr__(self, "RM", float(self.RM))
             if not np.isfinite(self.RM) or self.RM <= self.RI:

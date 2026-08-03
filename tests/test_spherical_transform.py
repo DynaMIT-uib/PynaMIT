@@ -2,14 +2,13 @@
 
 import numpy as np
 import pytest
+from kompe import GlobalCSBasis, Grid, SHBasis, SphericalTransform
+from kompe.cubed_sphere.cs_grid import CSGridRemapper
+from kompe.math import JAX_AVAILABLE, set_backend, to_numpy, use_jax
+from kompe.math.least_squares_solver import dense_full_rank_least_squares_map
 
 import pynamit
 from pynamit.fields import FieldCoefficients, FieldSpace
-from pynamit.math import JAX_AVAILABLE, set_backend, to_numpy, use_jax
-from pynamit.math.least_squares_solver import dense_full_rank_least_squares_map
-from pynamit.sphere import BasisEvaluator, CSBasis, Grid, SHBasis
-from pynamit.sphere.cubed_sphere.cs_grid import CSGridRemapper
-from pynamit.sphere.spherical_transform import SphericalTransform
 from pynamit.storage.field_time_series import TIME_TOLERANCE_SECONDS, FieldTimeSeries
 
 
@@ -171,15 +170,16 @@ def test_direct_projection_cache_fingerprints_explicit_weights():
     assert len(transform._input_transforms) == 2
 
 
-def test_basis_evaluator_is_spherical_transform_alias():
-    """Historical BasisEvaluator name aliases SphericalTransform."""
+def test_basis_evaluator_is_the_pynamit_compatibility_alias():
+    """PynaMIT retains its historical evaluator spelling."""
+    from pynamit.sphere import BasisEvaluator
+
     basis = SHBasis(3, 2, mean_free=True)
     grid = _regular_grid()
-    evaluator = BasisEvaluator(basis, grid)
+    evaluator = SphericalTransform(basis, grid)
 
     assert BasisEvaluator is SphericalTransform
     assert pynamit.BasisEvaluator is SphericalTransform
-    assert pynamit.SphericalTransform is SphericalTransform
 
     coeffs = np.zeros(basis.index_length)
     coeffs[1] = 1.0
@@ -382,7 +382,7 @@ def test_spherical_transform_least_squares_use_operator_properties():
 
 def test_native_cs_transform_synthesizes_from_sparse_operator_paths(monkeypatch):
     """Native CS synthesis can apply sparse operators."""
-    basis = CSBasis(4)
+    basis = GlobalCSBasis(4)
     grid = Grid(theta=basis.arr_theta, phi=basis.arr_phi, area_weights=basis.unit_area)
     transform = SphericalTransform(basis, grid)
     bundle = basis._get_derivative_bundle()
@@ -419,8 +419,8 @@ def test_spherical_transform_reuses_scalar_grid_remap(monkeypatch):
     """Scalar projection reuses a cached CS remap operator."""
     CSGridRemapper._shared_remap_matrix_cache.clear()
     basis = SHBasis(3, 2, mean_free=True)
-    grid_remap_basis = CSBasis(8)
-    source_basis = CSBasis(10)
+    grid_remap_basis = GlobalCSBasis(8)
+    source_basis = GlobalCSBasis(10)
     target_grid = Grid(
         theta=grid_remap_basis.arr_theta,
         phi=grid_remap_basis.arr_phi,
@@ -463,7 +463,7 @@ def test_spherical_transform_reuses_scalar_grid_remap(monkeypatch):
 def test_spherical_transform_skips_matching_grid_remap(monkeypatch):
     """Projection skips remapping on matching grids."""
     basis = SHBasis(3, 2, mean_free=True)
-    grid_remap_basis = CSBasis(8)
+    grid_remap_basis = GlobalCSBasis(8)
     grid = Grid(
         theta=grid_remap_basis.arr_theta,
         phi=grid_remap_basis.arr_phi,
@@ -487,8 +487,8 @@ def test_spherical_transform_skips_matching_grid_remap(monkeypatch):
 def test_spherical_transform_requires_grid_remap_operator():
     """Grid-to-grid projection requires remap operators."""
     basis = SHBasis(3, 2, mean_free=True)
-    target_basis = CSBasis(8)
-    source_basis = CSBasis(10)
+    target_basis = GlobalCSBasis(8)
+    source_basis = GlobalCSBasis(10)
     target_grid = Grid(
         theta=target_basis.arr_theta, phi=target_basis.arr_phi, area_weights=target_basis.unit_area
     )
@@ -504,8 +504,8 @@ def test_spherical_transform_reuses_helmholtz_grid_remap(monkeypatch):
     """Helmholtz projection reuses a cached CS remap operator."""
     CSGridRemapper._shared_remap_matrix_cache.clear()
     basis = SHBasis(3, 2, mean_free=True)
-    grid_remap_basis = CSBasis(8)
-    source_basis = CSBasis(10)
+    grid_remap_basis = GlobalCSBasis(8)
+    source_basis = GlobalCSBasis(10)
     target_grid = Grid(
         theta=grid_remap_basis.arr_theta,
         phi=grid_remap_basis.arr_phi,
@@ -555,8 +555,8 @@ def test_spherical_transform_reuses_helmholtz_grid_remap(monkeypatch):
 
 def test_cs_scalar_remap_operator_matches_interpolation():
     """Cached scalar remap matches the legacy CS interpolation."""
-    source_basis = CSBasis(8)
-    target_basis = CSBasis(6)
+    source_basis = GlobalCSBasis(8)
+    target_basis = GlobalCSBasis(6)
     source_grid = Grid(theta=source_basis.arr_theta, phi=source_basis.arr_phi)
     target_grid = Grid(theta=target_basis.arr_theta, phi=target_basis.arr_phi)
     values = np.sin(np.deg2rad(source_grid.theta)) + 0.25 * np.cos(np.deg2rad(source_grid.phi))
@@ -573,8 +573,8 @@ def test_cs_scalar_remap_operator_matches_interpolation():
 
 def test_cs_tangential_remap_operator_matches_interpolation():
     """Cached tangential remap matches legacy interpolation."""
-    source_basis = CSBasis(8)
-    target_basis = CSBasis(6)
+    source_basis = GlobalCSBasis(8)
+    target_basis = GlobalCSBasis(6)
     source_grid = Grid(theta=source_basis.arr_theta, phi=source_basis.arr_phi)
     target_grid = Grid(theta=target_basis.arr_theta, phi=target_basis.arr_phi)
     theta_component = np.sin(np.deg2rad(source_grid.theta))
@@ -601,9 +601,9 @@ def test_cs_tangential_remap_operator_matches_interpolation():
 def test_cs_tangential_remap_matrix_cache_is_shared(monkeypatch):
     """Equivalent CS remaps share sparse matrix construction."""
     CSGridRemapper._shared_remap_matrix_cache.clear()
-    source_basis = CSBasis(8)
-    target_basis = CSBasis(6)
-    equivalent_target_basis = CSBasis(6)
+    source_basis = GlobalCSBasis(8)
+    target_basis = GlobalCSBasis(6)
+    equivalent_target_basis = GlobalCSBasis(6)
     source_grid = Grid(theta=source_basis.arr_theta, phi=source_basis.arr_phi)
     target_grid = Grid(theta=target_basis.arr_theta, phi=target_basis.arr_phi)
     values = np.vstack(
@@ -630,7 +630,7 @@ def test_cs_tangential_remap_matrix_cache_is_shared(monkeypatch):
 
 def test_cs_non_native_scalar_operator_uses_remap_without_dense_interpolation(monkeypatch):
     """CS non-native scalar operators use sparse remaps."""
-    basis = CSBasis(8)
+    basis = GlobalCSBasis(8)
     _, theta, phi = basis.cube2spherical(
         basis.xi(np.array([1.2, 2.3, 3.4, 4.5]), basis.N),
         basis.eta(np.array([1.1, 2.2, 3.1, 4.2]), basis.N),
@@ -656,7 +656,7 @@ def test_cs_non_native_scalar_operator_uses_remap_without_dense_interpolation(mo
 
 def test_cs_non_native_vector_operators_use_remap_without_dense_interpolation(monkeypatch):
     """CS non-native vector operators use sparse remaps."""
-    basis = CSBasis(8)
+    basis = GlobalCSBasis(8)
     _, theta, phi = basis.cube2spherical(
         basis.xi(np.array([1.2, 2.3, 3.4, 4.5]), basis.N),
         basis.eta(np.array([1.1, 2.2, 3.1, 4.2]), basis.N),
@@ -703,8 +703,8 @@ def test_cs_non_native_vector_operators_use_remap_without_dense_interpolation(mo
 
 def test_cs_non_native_scalar_analysis_solves_against_remap_operator():
     """CS scalar analysis is identity only on the native grid."""
-    basis = CSBasis(4)
-    target_basis = CSBasis(6)
+    basis = GlobalCSBasis(4)
+    target_basis = GlobalCSBasis(6)
     target = Grid(
         theta=target_basis.arr_theta, phi=target_basis.arr_phi, area_weights=target_basis.unit_area
     )
@@ -728,8 +728,8 @@ def test_cs_non_native_scalar_analysis_solves_against_remap_operator():
 
 def test_cs_non_native_helmholtz_analysis_solves_against_remap_operator():
     """CS Helmholtz analysis is identity only on the native grid."""
-    basis = CSBasis(4)
-    target_basis = CSBasis(6)
+    basis = GlobalCSBasis(4)
+    target_basis = GlobalCSBasis(6)
     target = Grid(
         theta=target_basis.arr_theta, phi=target_basis.arr_phi, area_weights=target_basis.unit_area
     )
@@ -748,7 +748,7 @@ def test_cs_non_native_helmholtz_analysis_solves_against_remap_operator():
 def test_mean_free_sh_helmholtz_analysis_uses_full_rank_factorization(area_weighted):
     """Gauge-free SH analysis avoids a tall SVD on either backend."""
     basis = SHBasis(4, 3, mean_free=True)
-    cs_basis = CSBasis(8)
+    cs_basis = GlobalCSBasis(8)
     grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi, area_weights=cs_basis.unit_area)
     transform = SphericalTransform(basis, grid, area_weighted=area_weighted)
     reference = SphericalTransform(basis, grid, area_weighted=area_weighted)
@@ -774,7 +774,7 @@ def test_mean_free_sh_helmholtz_analysis_uses_full_rank_factorization(area_weigh
 def test_full_mean_sh_helmholtz_analysis_retains_rank_deficient_fallback():
     """Constant SH gauges continue through pseudoinverse analysis."""
     basis = SHBasis(3, 2, mean_free=False)
-    cs_basis = CSBasis(6)
+    cs_basis = GlobalCSBasis(6)
     grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
     transform = SphericalTransform(basis, grid)
 
@@ -785,7 +785,7 @@ def test_full_mean_sh_helmholtz_analysis_retains_rank_deficient_fallback():
 @pytest.mark.parametrize("area_weighted", [False, True])
 def test_native_cs_helmholtz_analysis_is_sparse_constrained_least_squares(area_weighted):
     """Native CS analysis stays sparse and fixes both gauges."""
-    basis = CSBasis(4)
+    basis = GlobalCSBasis(4)
     grid = Grid(theta=basis.arr_theta, phi=basis.arr_phi, area_weights=basis.unit_area)
     transform = SphericalTransform(basis, grid, area_weighted=area_weighted)
     reference_transform = SphericalTransform(basis, grid, area_weighted=area_weighted)
@@ -847,7 +847,7 @@ def test_spherical_transform_synthesis_preserves_jax_backend():
     previous_backend = use_jax()
     try:
         set_backend("jax")
-        basis = CSBasis(4)
+        basis = GlobalCSBasis(4)
         grid = Grid(theta=basis.arr_theta, phi=basis.arr_phi, area_weights=basis.unit_area)
 
         transform = SphericalTransform(basis, grid)
@@ -877,7 +877,7 @@ def test_spherical_transform_preserves_explicit_jax_coefficients():
     previous_backend = use_jax()
     try:
         set_backend("numpy")
-        basis = CSBasis(4)
+        basis = GlobalCSBasis(4)
         grid = Grid(
             theta=np.asarray(basis.arr_theta),
             phi=np.asarray(basis.arr_phi),
@@ -898,7 +898,7 @@ def test_spherical_transform_preserves_explicit_jax_coefficients():
 
 def test_field_space_applies_cs_mean_free_after_spherical_projection():
     """Field-space constraints remain separate from projection."""
-    basis = CSBasis(4)
+    basis = GlobalCSBasis(4)
     field_space = FieldSpace(basis, field_type="scalar", mean_free=True)
     grid = Grid(theta=basis.arr_theta, phi=basis.arr_phi, area_weights=basis.unit_area)
     values = np.linspace(0.0, 1.0, basis.index_length) + 3.0
@@ -913,7 +913,7 @@ def test_field_space_applies_cs_mean_free_after_spherical_projection():
 
 def test_timeseries_exposes_field_space_and_projects_mean_free_cs_coefficients():
     """Time-series storage honors FieldSpace metadata."""
-    basis = CSBasis(4)
+    basis = GlobalCSBasis(4)
     field_space = FieldSpace(basis, field_type="scalar", mean_free=True)
     timeseries = FieldTimeSeries({"sample": field_space}, {"sample": ("value",)})
     values = np.linspace(0.0, 1.0, basis.index_length) + 2.0
@@ -1025,7 +1025,7 @@ def test_timeseries_restores_coefficient_multiindex_in_memory():
 
 def test_timeseries_change_tracking_is_group_scoped():
     """Groups with the same variable names do not share change state."""
-    basis = CSBasis(4)
+    basis = GlobalCSBasis(4)
     field_space = FieldSpace(basis, field_type="scalar")
     timeseries = FieldTimeSeries(
         {"first": field_space, "second": field_space}, {"first": ("value",), "second": ("value",)}
@@ -1042,7 +1042,7 @@ def test_timeseries_change_tracking_is_group_scoped():
 
 def test_timeseries_requires_field_space_and_name_only_variables():
     """Time-series schema keeps field types in FieldSpace only."""
-    basis = CSBasis(4)
+    basis = GlobalCSBasis(4)
     field_space = FieldSpace(basis, field_type="scalar")
 
     with pytest.raises(TypeError, match="field types belong in FieldSpace"):

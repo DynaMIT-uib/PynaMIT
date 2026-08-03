@@ -1,4 +1,4 @@
-"""Testing of the cubedsphere CSBasis class.
+"""Testing of the cubedsphere GlobalCSBasis class.
 
 1) Conversions to / from cubed sphere, Cartesian, and spherical
 coordinates 2) Conversions to / from cubed sphere, Cartesians, and
@@ -10,10 +10,9 @@ vector fields on cubed sphere blocks
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
 import numpy as np
+from kompe.cubed_sphere import cs_basis
 
-from pynamit.sphere.cubed_sphere import cs_basis
-
-p = cs_basis.CSBasis()
+p = cs_basis.GlobalCSBasis()
 
 
 def geocentric_to_plate_carree_vector_components(east, north, latitude):

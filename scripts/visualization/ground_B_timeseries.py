@@ -5,11 +5,11 @@ from pathlib import Path
 
 import apexpy
 import dipole
+import kompe
 import matplotlib.pyplot as plt
 import numpy as np
+from kompe.constants import EARTH_RADIUS_M
 
-import pynamit
-from pynamit.math.constants import RE
 from pynamit.storage import ArtifactStore
 
 periods = [50, 25, 10, 5, 1]
@@ -28,7 +28,7 @@ dynamic_data_list = [_load_period_dataset(p, "dynamic") for p in periods]
 settings_list = [_load_period_dataset(p, "settings") for p in periods]
 
 RI = settings_list[0].RI
-sh_basis = pynamit.SHBasis(settings_list[0].Nmax, settings_list[0].Mmax)
+sh_basis = kompe.SHBasis(settings_list[0].Nmax, settings_list[0].Mmax)
 
 t0 = datetime.datetime.strptime(settings_list[0].t0, "%Y-%m-%d %H:%M:%S")
 d = dipole.Dipole(t0.year)
@@ -44,11 +44,11 @@ mlon = d.mlt2mlon(mlt, t0)
 glat, glon, _ = a.apex2geo(mlat, mlon, 0)
 glat, glon = glat.flatten(), glon.flatten()
 
-ground_grid = pynamit.Grid(lat=glat, lon=glon)
-ground_evaluator = pynamit.SphericalTransform(sh_basis, ground_grid)
+ground_grid = kompe.Grid(lat=glat, lon=glon)
+ground_evaluator = kompe.SphericalTransform(sh_basis, ground_grid)
 
-induced_Br_to_Bh_ground = -((RE / RI) ** sh_basis.n) / sh_basis.n
-induced_Br_to_Br_ground = (RE / RI) ** (sh_basis.n - 1)
+induced_Br_to_Bh_ground = -((EARTH_RADIUS_M / RI) ** sh_basis.n) / sh_basis.n
+induced_Br_to_Br_ground = (EARTH_RADIUS_M / RI) ** (sh_basis.n - 1)
 
 
 fig, axes = plt.subplots(ncols=Ncols, nrows=Nrows, sharex=True)

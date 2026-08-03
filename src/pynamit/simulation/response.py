@@ -6,13 +6,13 @@ import logging
 from typing import Any
 
 import numpy as np
+from kompe.math import content_fingerprint
+from kompe.math.backend import block_after_jax_linalg, get_array_module, to_jax, use_jax, xp
+from kompe.math.least_squares_problem import LeastSquaresProblem
+from kompe.math.least_squares_solver import LeastSquaresSolver
+from kompe.math.linear_map import LinearMap, MatrixBackend, as_linear_map, identity_linear_map
 
 from pynamit.fields import FieldCoefficients
-from pynamit.math import content_fingerprint
-from pynamit.math.backend import block_after_jax_linalg, get_array_module, to_jax, use_jax, xp
-from pynamit.math.least_squares_problem import LeastSquaresProblem
-from pynamit.math.least_squares_solver import LeastSquaresSolver
-from pynamit.math.linear_map import LinearMap, MatrixBackend, as_linear_map, identity_linear_map
 from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.electrodynamics import ionospheric_closure
 from pynamit.simulation.geometry import SimulationGeometry

@@ -27,9 +27,11 @@ nitpicky = True
 nitpick_ignore = [
     ("py:class", "ndarray"),
     ("py:class", "optional"),
-    ("py:class", "pynamit.math.least_squares_problem.LeastSquaresProblem"),
-    ("py:class", "pynamit.sphere.core.SphericalRepresentation"),
-    ("py:class", "pynamit.sphere.core.SurfaceOperators"),
+    ("py:class", "kompe.math.LeastSquaresProblem"),
+    ("py:class", "kompe.SphericalRepresentation"),
+    ("py:class", "kompe.SurfaceOperators"),
+    ("py:class", "kompe.spherical_transform.SphericalTransform"),
+    ("py:class", "pynamit.storage.ArrayCache"),
     ("py:class", "xarray.core.dataset.Dataset"),
 ]
 

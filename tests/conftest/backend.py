@@ -7,10 +7,10 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from kompe.math import JAX_AVAILABLE, set_backend, use_jax
+from kompe.math.least_squares_solver import LEAST_SQUARES_SOLVER_ENV, LeastSquaresSolver
 
 from pynamit.external_inputs import get_input_source, native_inputs_available, set_input_source
-from pynamit.math import JAX_AVAILABLE, set_backend, use_jax
-from pynamit.math.least_squares_solver import LEAST_SQUARES_SOLVER_ENV, LeastSquaresSolver
 from pynamit.storage import ArtifactStore
 
 BACKEND_OPTION_NAME = "--backend"
@@ -109,7 +109,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         choices=tuple(LeastSquaresSolver.VALID_SOLVERS) + ("all",),
         help=(
             "Least-squares solver defaults to exercise. The default is normal_pinv "
-            "unless PYNAMIT_LEAST_SQUARES_SOLVER is set. Use 'all' or provide this "
+            "unless KOMPE_LEAST_SQUARES_SOLVER is set. Use 'all' or provide this "
             "option multiple times to run the suite across multiple solvers."
         ),
     )
@@ -194,7 +194,7 @@ def least_squares_solver(request: pytest.FixtureRequest) -> str:
 def configure_runtime(backend: str, data_source: str, least_squares_solver: str):
     """Fixture to configure backend and data source for each test."""
     previous_backend = use_jax()
-    previous_backend_env = os.environ.get("PYNAMIT_USE_JAX")
+    previous_backend_env = os.environ.get("KOMPE_USE_JAX")
     previous_source = get_input_source()
     previous_source_env = os.environ.get("PYNAMIT_INPUT_SOURCE")
     previous_solver_env = os.environ.get(LEAST_SQUARES_SOLVER_ENV)
@@ -222,9 +222,9 @@ def configure_runtime(backend: str, data_source: str, least_squares_solver: str)
             set_backend(previous_backend)
             set_input_source(previous_source)
             if previous_backend_env is None:
-                os.environ.pop("PYNAMIT_USE_JAX", None)
+                os.environ.pop("KOMPE_USE_JAX", None)
             else:
-                os.environ["PYNAMIT_USE_JAX"] = previous_backend_env
+                os.environ["KOMPE_USE_JAX"] = previous_backend_env
             if previous_source_env is None:
                 os.environ.pop("PYNAMIT_INPUT_SOURCE", None)
             else:

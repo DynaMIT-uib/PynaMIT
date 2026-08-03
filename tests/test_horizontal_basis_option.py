@@ -2,9 +2,9 @@
 
 import numpy as np
 import pytest
+from kompe.constants import EARTH_RADIUS_M
+from kompe.math.tensor_operations import tensor_pinv, weighted_tensor_pinv
 
-from pynamit.math.constants import RE
-from pynamit.math.tensor_operations import tensor_pinv, weighted_tensor_pinv
 from pynamit.simulation.api import Simulation
 from pynamit.simulation.workflows.standard import run_pynamit
 
@@ -254,7 +254,7 @@ def test_cs_horizontal_basis_supports_rm_solid_harmonics(tmp_path):
         Nmax=2,
         Mmax=1,
         Ncs=8,
-        RM=4 * RE,
+        RM=4 * EARTH_RADIUS_M,
         enable_pfac_coupling=False,
         horizontal_basis_kind="CS",
         artifact_storage="netcdf",
@@ -348,7 +348,7 @@ def test_cs_horizontal_basis_combines_pfac_rm_and_connected_terms(tmp_path):
         Nmax=2,
         Mmax=1,
         Ncs=8,
-        RM=4 * RE,
+        RM=4 * EARTH_RADIUS_M,
         enable_pfac_coupling=True,
         enable_interhemispheric_coupling=True,
         use_wind=False,

@@ -1,12 +1,12 @@
 """Grid and coefficient-evaluation helpers for visualization."""
 
 import numpy as np
+from kompe import Grid, SolidHarmonics, SphericalTransform
+from kompe.constants import MU0
+from kompe.math import as_linear_map
 
-from pynamit.math import as_linear_map
-from pynamit.math.constants import mu0
 from pynamit.simulation.config import setting_value
 from pynamit.simulation.electrodynamics import magnetic_boundary
-from pynamit.sphere import Grid, SolidHarmonics, SphericalTransform
 
 
 def build_plot_grid(nlat=60, nlon=100, lat_range=(-89.9, 89.9), lon_range=(-180.0, 180.0)):
@@ -63,7 +63,7 @@ def build_JS_operators(settings, sh_basis, transform, boundary_jr_to_gap_Br_matr
         boundary_shielding=bool(setting_value(settings, "magnetic_boundary_shielding", False)),
     ).array
     boundary_jr_to_toroidal_potential = (
-        mu0 / radius * sh_basis.get_mean_free_surface_poisson_operator(radius)
+        MU0 / radius * sh_basis.get_mean_free_surface_poisson_operator(radius)
     )
     if boundary_jr_to_gap_Br_matrix is None:
         boundary_jr_to_gap_Br_matrix = np.zeros((sh_basis.index_length, sh_basis.index_length))

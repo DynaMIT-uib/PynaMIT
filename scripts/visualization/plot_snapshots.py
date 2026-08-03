@@ -4,9 +4,9 @@ import dipole
 import matplotlib.pyplot as plt
 import numpy as np
 import polplot
+from kompe import Grid, SphericalTransform
 from matplotlib.gridspec import GridSpec
 
-from pynamit import Grid, SphericalTransform
 from pynamit.visualization.output_fields import evaluate_Phi_coefficients
 from pynamit.visualization.pynameye import PynamEye
 

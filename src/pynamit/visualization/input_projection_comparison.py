@@ -10,10 +10,10 @@ import cartopy.crs as ccrs
 import h5py
 import matplotlib.pyplot as plt
 import numpy as np
+from kompe import Grid
+from kompe.spherical_transform import SphericalTransform, grid_sqrt_area_weights
 
 from pynamit.simulation.electrodynamics.ionospheric_closure import CONDUCTANCE_REFERENCE_S
-from pynamit.sphere import Grid
-from pynamit.sphere.spherical_transform import SphericalTransform, grid_sqrt_area_weights
 from pynamit.visualization.input_projection import evaluate_projected_input
 from pynamit.visualization.map_coordinates import MapCoordinateContext
 from pynamit.visualization.plot_helpers import (

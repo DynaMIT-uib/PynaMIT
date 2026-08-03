@@ -7,6 +7,7 @@ import apexpy
 import dipole
 import numpy as np
 import ppigrf
+from kompe.constants import EARTH_RADIUS_M
 
 from pynamit.coordinates import decimal_year_to_datetime, wrap_longitude_180
 from pynamit.coordinates import local_noon_longitude as geographic_noon_longitude
@@ -16,7 +17,6 @@ from pynamit.geomagnetism.kaiju_geopack import (
     kaiju_geopack_mag,
     kaiju_geopack_sm,
 )
-from pynamit.math.constants import RE
 
 MAIN_FIELD_KINDS = ("radial", "dipole", "kaiju_dipole", "igrf")
 _DIPOLE_KINDS = frozenset({"dipole", "kaiju_dipole"})
@@ -83,7 +83,7 @@ def _igrf_field_components(epoch, r, theta, phi):
 def _radial_field_components(B0, r, theta, phi):
     """Evaluate an inverse-square radial field."""
     r, theta, phi = np.broadcast_arrays(r, theta, phi)
-    return ((RE / r) ** 2 * B0, r * 0, r * 0)
+    return ((EARTH_RADIUS_M / r) ** 2 * B0, r * 0, r * 0)
 
 
 def _normalize_field_strength(kind, B0):
@@ -124,7 +124,7 @@ class MainField:
     magnetic coordinates. SM and MAG are physical working frames owned
     by the Kaiju field/source adapters, not simulation-state coordinate
     systems. For IGRF, geodetic height is approximated as
-    ``h = r - RE``.
+    ``h = r - EARTH_RADIUS_M``.
     """
 
     def __init__(self, kind="dipole", epoch=2020, ionosphere_height_km=0.0, B0=None):
@@ -250,7 +250,7 @@ class MainField:
             return np.asarray(magnetic_latitude)
         if self.kind == "dipole":
             return 90.0 - theta
-        latitude, _ = self.apex.geo2apex(90.0 - theta, phi, (r - RE) * 1e-3)
+        latitude, _ = self.apex.geo2apex(90.0 - theta, phi, (r - EARTH_RADIUS_M) * 1e-3)
         return np.asarray(latitude)
 
     def magnetic_latitude_trace_to_geographic(
@@ -514,8 +514,8 @@ class MainField:
 
         elif self.kind == "igrf":
             # Use apexpy to map along IGRF field lines.
-            mlat, mlon = self.apex.geo2apex(90 - theta, phi, (r - RE) * 1e-3)
-            lat_out, phi_out, _ = self.apex.apex2geo(mlat, mlon, (r_dest - RE) * 1e-3)
+            mlat, mlon = self.apex.geo2apex(90 - theta, phi, (r - EARTH_RADIUS_M) * 1e-3)
+            lat_out, phi_out, _ = self.apex.apex2geo(mlat, mlon, (r_dest - EARTH_RADIUS_M) * 1e-3)
             theta_out = 90 - lat_out
 
         return (theta_out, phi_out)
@@ -568,7 +568,7 @@ class MainField:
         elif self.kind == "dipole":
             theta_conj, phi_conj = (180 - theta, phi)
         elif self.kind == "igrf":
-            h = (r - RE) * 1e-3
+            h = (r - EARTH_RADIUS_M) * 1e-3
             mlat, mlon = self.apex.geo2apex(90 - theta, phi, h)
             glat, phi_conj, _ = self.apex.apex2geo(-mlat, mlon, h)
             theta_conj = 90 - glat
@@ -621,7 +621,9 @@ class MainField:
 
         if self.kind == "kaiju_dipole":
             magnetic_latitude, magnetic_longitude = self._mag_transform.geo2mag(90.0 - theta, phi)
-            vectors = self.dipole.get_apex_base_vectors(magnetic_latitude, r * 1e-3, R=RE * 1e-3)
+            vectors = self.dipole.get_apex_base_vectors(
+                magnetic_latitude, r * 1e-3, R=EARTH_RADIUS_M * 1e-3
+            )
 
             def magnetic_vector_to_geographic(vector):
                 _, _, east, north = self._mag_transform.mag2geo(
@@ -632,10 +634,12 @@ class MainField:
             return tuple(magnetic_vector_to_geographic(vector) for vector in vectors)
 
         if self.kind == "dipole":
-            vectors = self.dipole.get_apex_base_vectors(90 - theta, r * 1e-3, R=RE * 1e-3)
+            vectors = self.dipole.get_apex_base_vectors(
+                90 - theta, r * 1e-3, R=EARTH_RADIUS_M * 1e-3
+            )
         else:
-            vectors = self.apex.basevectors_apex(90 - theta, phi, (r - RE) * 1e-3, coords="geo")[
-                6:
-            ]
+            vectors = self.apex.basevectors_apex(
+                90 - theta, phi, (r - EARTH_RADIUS_M) * 1e-3, coords="geo"
+            )[6:]
 
         return tuple(_east_north_up_to_spherical(vector) for vector in vectors)

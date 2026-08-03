@@ -1,6 +1,7 @@
 """Script for running and debugging PynaMIT simulation."""
 
 from importlib import reload
+import kompe
 import pynamit
 import dipole
 import numpy as np
@@ -94,8 +95,8 @@ simulation.response.update_E()
 # Set up plotting grid and evaluators.
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
-plt_grid = pynamit.Grid(lat=lat, lon=lon)
-plt_state_evaluator = pynamit.SphericalTransform(simulation.geometry.horizontal_basis, plt_grid)
+plt_grid = kompe.Grid(lat=lat, lon=lon)
+plt_state_evaluator = kompe.SphericalTransform(simulation.geometry.horizontal_basis, plt_grid)
 nnn = plt_grid.lat.flatten() > 50
 sss = plt_grid.lat.flatten() < -50
 

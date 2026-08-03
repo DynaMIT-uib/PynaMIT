@@ -1,6 +1,7 @@
 """Tests for projected-input inspection helpers."""
 
 import numpy as np
+from kompe import SphericalTransform
 
 import pynamit
 from pynamit.visualization.input_projection import evaluate_projected_input
@@ -36,7 +37,7 @@ def test_evaluate_projected_input_corrects_explicit_transform_source(tmp_path):
     simulation.set_boundary_jr(boundary_jr_coefficients=coeffs, time=0.0)
 
     grid = simulation.geometry.model_grid
-    wrong_source_transform = pynamit.SphericalTransform(simulation.run_data.schema.sh_basis, grid)
+    wrong_source_transform = SphericalTransform(simulation.run_data.schema.sh_basis, grid)
 
     corrected = evaluate_projected_input(
         simulation, "boundary_jr", 0.0, transform=wrong_source_transform

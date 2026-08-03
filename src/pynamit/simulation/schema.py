@@ -8,16 +8,17 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
-from pynamit.fields import FieldSpace
-from pynamit.simulation.config import PROJECTION_BASIS_KEYS, SimulationConfig
-from pynamit.sphere import (
+from kompe import (
     BasisView,
-    CSBasis,
+    GlobalCSBasis,
     SHBasis,
     SolidHarmonics,
     SphericalBasis,
     SurfaceOperators,
 )
+
+from pynamit.fields import FieldSpace
+from pynamit.simulation.config import PROJECTION_BASIS_KEYS, SimulationConfig
 
 INPUT_VARIABLES = {
     "boundary_jr": ("boundary_jr",),
@@ -67,7 +68,7 @@ class SimulationSchema:
     metadata for inputs and outputs.
     """
 
-    cs_basis: CSBasis
+    cs_basis: GlobalCSBasis
     sh_basis: SHBasis
     mean_free_sh_basis: BasisView
     horizontal_basis: SurfaceOperators
@@ -130,7 +131,7 @@ def build_simulation_schema(config: SimulationConfig, *, operator_cache=None) ->
 
     sh_basis = SHBasis(config.Nmax, config.Mmax, mean_free=False, operator_cache=operator_cache)
     mean_free_sh_basis = sh_basis.with_mean_free(True)
-    cs_basis = CSBasis(config.Ncs)
+    cs_basis = GlobalCSBasis(config.Ncs)
     horizontal_basis = cs_basis if horizontal_basis_kind == "CS" else mean_free_sh_basis
     solid_harmonics = SolidHarmonics(mean_free_sh_basis)
 

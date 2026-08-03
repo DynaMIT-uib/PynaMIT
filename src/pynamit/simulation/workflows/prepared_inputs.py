@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from kompe.constants import EARTH_RADIUS_M
 
 from pynamit.external_inputs import (
     get_conductance_inputs,
@@ -24,7 +25,6 @@ from pynamit.external_inputs import (
     get_wind_inputs,
 )
 from pynamit.geomagnetism import MainField, decimal_year
-from pynamit.math.constants import RE
 from pynamit.simulation.api import Simulation
 from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.runner import SimulationRunner
@@ -626,7 +626,7 @@ def prepare_pynamit_inputs(
         Nmax=Nmax,
         Mmax=Mmax,
         Ncs=Ncs,
-        RI=RE + 110.0e3,
+        RI=EARTH_RADIUS_M + 110.0e3,
         main_field_kind=main_field_kind,
         main_field_epoch=main_field_epoch,
         main_field_B0=main_field_B0,

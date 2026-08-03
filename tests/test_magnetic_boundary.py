@@ -2,8 +2,8 @@
 
 import numpy as np
 import pytest
+from kompe.constants import EARTH_RADIUS_M
 
-from pynamit.math.constants import RE
 from pynamit.simulation.workflows.standard import run_pynamit
 from tests import magnetic_potential_coordinate_array
 
@@ -23,7 +23,7 @@ def test_magnetic_boundary():
         Nmax=10,
         Mmax=8,
         Ncs=18,
-        RM=4 * RE,
+        RM=4 * EARTH_RADIUS_M,
         main_field_kind="dipole",
         enable_pfac_coupling=True,
         enable_interhemispheric_coupling=True,

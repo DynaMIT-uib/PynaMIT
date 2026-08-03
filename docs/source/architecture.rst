@@ -16,11 +16,11 @@ PynaMIT has four API tiers:
   ``pynamit.simulation``. The high-level optional visualization API is the
   explicit lazy export set of ``pynamit.visualization``. Together they contain
   the simulation facade, normalized configuration, field values and spaces,
-  spherical bases and transforms, background-field utilities, backend
-  selection, saved-run views, and renderers.
-* Reusable packages such as ``pynamit.sphere``, ``pynamit.geomagnetism``,
-  ``pynamit.math``, and ``pynamit.storage`` provide advanced scientific and
-  infrastructure APIs. Their package export lists define the supported
+  background-field utilities, backend selection, saved-run views, and
+  renderers. Spherical and numerical APIs are imported from ``kompe``.
+* Reusable packages such as ``pynamit.geomagnetism`` and
+  ``pynamit.storage`` provide advanced scientific and infrastructure APIs.
+  Their package export lists define the supported
   entry points; implementation submodules do not extend that promise merely
   because Python can import them.
   Focused electrodynamics and workflow functions are advanced module APIs at
@@ -36,10 +36,9 @@ PynaMIT has four API tiers:
   ``simulation._runner``, caches, and scheduling helpers are internal. Tests
   may exercise these objects directly without turning them into user API.
 
-Compatibility names such as ``BasisEvaluator``, ``set_u``, and the
-``SphericalTransform.G*`` properties remain supported, but implementation
-code uses the canonical descriptive names. New code should enter through the
-primary names rather than adding further aliases.
+The ``BasisEvaluator`` compatibility spelling remains supported by PynaMIT.
+Kompe retains the documented ``SphericalTransform.G*`` properties. New code
+uses the canonical descriptive names rather than adding further aliases.
 
 High-level flow
 ---------------
@@ -89,12 +88,12 @@ concepts from the PynaMIT simulation model::
     pynamit/
       fields.py              coefficient-space metadata and owned values
       coordinates.py         generic longitude and local-time conversions
-      math/                  backend-neutral operators and solvers
-      sphere/                spherical bases, grids, and transforms
       geomagnetism/          background fields and magnetic coordinates
       storage/               named artifacts and coefficient time series
       simulation/            the coupled PynaMIT model
       visualization/         read-only run views and rendering
+
+    kompe/                   spherical geometry, bases, operators, and solvers
 
 The simulation package is grouped by runtime role::
 
@@ -239,7 +238,7 @@ Spatial bases
 
 Spherical harmonics and cubed-sphere support have different implementation
 needs, but they should present the same public basis contract wherever
-possible. ``CSBasis`` is the public cubed-sphere basis facade. Its private
+possible. ``GlobalCSBasis`` is Kompe's public cubed-sphere basis. Its private
 implementation is split into:
 
 * ``cs_coordinates`` for panel and coordinate transforms.
@@ -249,13 +248,13 @@ implementation is split into:
 * ``cs_vectors`` for vector-basis conversions.
 
 Prefer adding focused CS behavior to one of these collaborators instead of
-growing ``CSBasis`` again. Stateless coordinate and vector calculations are
+growing ``GlobalCSBasis`` again. Stateless coordinate and vector calculations are
 module functions rather than artificial namespace objects. The familiar
-coordinate and interpolation methods remain on ``CSBasis`` as its public
-facade, while their implementations belong to those focused modules. Keep the
+coordinate and interpolation methods remain on ``GlobalCSBasis`` as its public
+surface, while their implementations belong to those focused modules. Keep the
 ``CS`` abbreviation in class names that represent actual objects.
 
-``sphere`` is a warranted standalone package because its bases, grids,
+``kompe`` is a warranted standalone package because its bases, grids,
 analysis/synthesis transforms, and solid-harmonic continuation form a coherent
 numerical domain that can be used without a PynaMIT run.
 

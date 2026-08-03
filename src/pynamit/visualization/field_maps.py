@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import numpy as np
+from kompe.math.linear_map import as_linear_map
 
-from pynamit.math.linear_map import as_linear_map
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     conductance_from_log_coordinates,
     conductance_to_resistance,

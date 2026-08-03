@@ -18,8 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-
-from pynamit.sphere.grid import Grid
+from kompe.grid import Grid
 
 FALLBACK_RESOURCE = resources.files("pynamit.data") / "fallback_inputs.json"
 _INPUT_SOURCE = os.environ.get("PYNAMIT_INPUT_SOURCE", "native").lower()

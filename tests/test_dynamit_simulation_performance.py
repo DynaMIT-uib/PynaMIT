@@ -82,7 +82,7 @@ exec(
     env["PYTHONPATH"] = pythonpath
     env["PYNAMIT_BENCH_OUT"] = str(tmp_path / "dynamit-simulation")
     env["PYNAMIT_DYNAMIT_BENCH_RESOLUTION"] = str(bench_resolution)
-    env["PYNAMIT_USE_JAX"] = "0"
+    env["KOMPE_USE_JAX"] = "0"
     env.setdefault("MPLCONFIGDIR", str(tmp_path / "matplotlib-cache"))
     env["OPENBLAS_NUM_THREADS"] = "1"
     env["OMP_NUM_THREADS"] = "1"

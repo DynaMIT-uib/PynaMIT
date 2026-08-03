@@ -6,10 +6,9 @@ import logging
 from functools import cached_property
 
 import numpy as np
-from numpy.typing import ArrayLike
-
-from pynamit.geomagnetism import MagneticFieldEvaluation, MainField
-from pynamit.math import (
+from kompe import GlobalCSBasis, Grid, SolidHarmonics, SurfaceOperators, is_sh_basis
+from kompe.constants import EARTH_RADIUS_M, MU0
+from kompe.math import (
     LinearMap,
     array_fingerprint,
     as_linear_map,
@@ -18,13 +17,14 @@ from pynamit.math import (
     pointwise_matrix_linear_map,
     take_linear_map,
 )
-from pynamit.math.backend import to_numpy
-from pynamit.math.constants import RE, mu0
-from pynamit.math.least_squares_solver import dense_full_rank_least_squares_map
+from kompe.math.backend import to_numpy
+from kompe.math.least_squares_solver import dense_full_rank_least_squares_map
+from kompe.spherical_transform import SphericalTransform, resolve_sqrt_weights
+from numpy.typing import ArrayLike
+
+from pynamit.geomagnetism import MagneticFieldEvaluation, MainField
 from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.electrodynamics import ionospheric_closure, magnetic_boundary
-from pynamit.sphere import CSBasis, Grid, SolidHarmonics, SurfaceOperators, is_sh_basis
-from pynamit.sphere.spherical_transform import SphericalTransform, resolve_sqrt_weights
 
 logger = logging.getLogger(__name__)
 _GAP_BR_RESPONSE_CACHE_VERSION = 1
@@ -37,7 +37,7 @@ def build_main_field(config: SimulationConfig) -> MainField:
     return MainField(
         kind=config.main_field_kind,
         epoch=config.main_field_epoch,
-        ionosphere_height_km=(config.RI - RE) * 1e-3,
+        ionosphere_height_km=(config.RI - EARTH_RADIUS_M) * 1e-3,
         B0=config.main_field_B0,
     )
 
@@ -53,7 +53,7 @@ class SimulationGeometry:
     def __init__(
         self,
         horizontal_basis: SurfaceOperators,
-        cs_basis: CSBasis,
+        cs_basis: GlobalCSBasis,
         main_field: MainField,
         config: SimulationConfig,
         gap_Br_response_matrix: ArrayLike | None = None,
@@ -120,7 +120,7 @@ class SimulationGeometry:
         )
         self.surface_gauge_operator = self._build_surface_gauge_operator()
         self.toroidal_potential_to_boundary_jr_operator = (
-            self.RI / mu0 * self.surface_laplacian_operator
+            self.RI / MU0 * self.surface_laplacian_operator
         )
         self.induced_poloidal_potential_to_Br_operator = (
             -(self.RI**2) * self.poloidal_laplacian_operator
@@ -168,7 +168,7 @@ class SimulationGeometry:
         """Explicit matrix mapping gridded vectors to coefficients."""
         return self.helmholtz_analysis_operator.array
 
-    def _init_spatial_context(self, cs_basis: CSBasis) -> None:
+    def _init_spatial_context(self, cs_basis: GlobalCSBasis) -> None:
         """Set up grid, transforms, and background-field evaluators."""
         self.model_grid = Grid(
             theta=cs_basis.arr_theta, phi=cs_basis.arr_phi, area_weights=cs_basis.unit_area
@@ -330,7 +330,7 @@ class SimulationGeometry:
     def boundary_jr_to_toroidal_potential_operator(self) -> LinearMap:
         """Return the gauge-fixed boundary-current inverse."""
         return (
-            mu0 / self.RI * self.horizontal_basis.get_mean_free_surface_poisson_operator(self.RI)
+            MU0 / self.RI * self.horizontal_basis.get_mean_free_surface_poisson_operator(self.RI)
         )
 
     def toroidal_potential_to_gridded_JS(
@@ -637,7 +637,7 @@ class SimulationGeometry:
             self.poloidal_transform.rhat_cross_gradient_analysis_operator(
                 coefficient_scale=(
                     -np.asarray(self.solid_harmonics.poloidal_to_boundary_potential_jump_factor)
-                    / mu0
+                    / MU0
                 )
             )
         )

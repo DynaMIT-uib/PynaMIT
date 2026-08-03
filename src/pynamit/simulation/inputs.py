@@ -6,12 +6,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+from kompe import Grid
+from kompe.spherical_transform import SphericalTransform
 
 from pynamit.geomagnetism import MagneticFieldEvaluation
 from pynamit.simulation.electrodynamics import ionospheric_closure
 from pynamit.simulation.schema import INPUT_VARIABLES
-from pynamit.sphere import Grid
-from pynamit.sphere.spherical_transform import SphericalTransform
 
 if TYPE_CHECKING:
     from pynamit.simulation.api import Simulation

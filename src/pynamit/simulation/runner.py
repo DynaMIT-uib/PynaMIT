@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
+from kompe.math.backend import to_jax, to_numpy, use_jax
 
-from pynamit.math.backend import to_jax, to_numpy, use_jax
 from pynamit.simulation.electrodynamics import induction
 from pynamit.storage.field_time_series import TIME_TOLERANCE_SECONDS
 

@@ -4,12 +4,12 @@ import json
 
 import numpy as np
 import pytest
+from kompe import Grid, SHBasis
+from kompe.constants import EARTH_RADIUS_M
+from kompe.math import array_fingerprint, content_fingerprint
+from kompe.spherical_transform import SphericalTransform
 
 import pynamit
-from pynamit.math import array_fingerprint, content_fingerprint
-from pynamit.math.constants import RE
-from pynamit.sphere import Grid, SHBasis
-from pynamit.sphere.spherical_transform import SphericalTransform
 from pynamit.storage import ArrayCache
 
 
@@ -105,7 +105,7 @@ def test_transform_reuses_persisted_normal_pinv(tmp_path, monkeypatch):
         lambda *_args, **_kwargs: pytest.fail("persisted normal pseudo-inverse was rebuilt"),
     )
     monkeypatch.setattr(
-        "pynamit.sphere.spherical_transform._scalar_data_normal_matrix",
+        "kompe.spherical_transform._scalar_data_normal_matrix",
         lambda *_args, **_kwargs: pytest.fail("normal matrix was rebuilt on a cache hit"),
     )
     second_basis = SHBasis(3, 3, mean_free=True, operator_cache=cache)
@@ -128,7 +128,7 @@ def test_transform_reuses_persisted_helmholtz_factor(tmp_path, monkeypatch):
 
     assert any((cache.directory / "least_squares_factor").glob("*.npy"))
     monkeypatch.setattr(
-        "pynamit.sphere.spherical_transform._helmholtz_normal_factor",
+        "kompe.spherical_transform._helmholtz_normal_factor",
         lambda *_args, **_kwargs: pytest.fail("persisted Cholesky factor was rebuilt"),
     )
     second_basis = SHBasis(3, 3, mean_free=True, operator_cache=cache)
@@ -147,10 +147,10 @@ def test_gap_Br_cache_excludes_transient_shell_evaluations(tmp_path, monkeypatch
         "Nmax": 2,
         "Mmax": 2,
         "Ncs": 4,
-        "RI": RE + 110e3,
-        "RM": 2.0 * RE,
+        "RI": EARTH_RADIUS_M + 110e3,
+        "RM": 2.0 * EARTH_RADIUS_M,
         "main_field_kind": "dipole",
-        "fac_integration_radii": np.array([RE + 110e3, 1.5 * RE]),
+        "fac_integration_radii": np.array([EARTH_RADIUS_M + 110e3, 1.5 * EARTH_RADIUS_M]),
         "enable_pfac_coupling": True,
         "artifact_storage": "netcdf",
         "operator_cache_directory": cache_directory,

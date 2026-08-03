@@ -7,11 +7,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 import xarray as xr
+from kompe import SHBasis
 
 from pynamit.fields import FieldSpace
 from pynamit.simulation.api import Simulation
 from pynamit.simulation.workflows.standard import run_pynamit
-from pynamit.sphere import SHBasis
 from pynamit.storage import ArtifactStore, FieldTimeSeries
 from tests import magnetic_potential_coordinate_array
 

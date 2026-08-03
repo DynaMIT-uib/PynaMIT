@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import pytest
+from kompe.math import JAX_AVAILABLE
 
 from pynamit.external_inputs import native_inputs_available
-from pynamit.math import JAX_AVAILABLE
 
 pytest_plugins = ("tests.conftest.backend",)
 

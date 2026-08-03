@@ -4,15 +4,14 @@ import warnings
 
 import numpy as np
 import pytest
-from scipy.sparse.linalg import lsmr as scipy_lsmr
-
-from pynamit.math import JAX_AVAILABLE, as_linear_map, set_backend, use_jax
-from pynamit.math.least_squares_problem import LeastSquaresProblem
-from pynamit.math.least_squares_solver import (
+from kompe.math import JAX_AVAILABLE, as_linear_map, set_backend, use_jax
+from kompe.math.least_squares_problem import LeastSquaresProblem
+from kompe.math.least_squares_solver import (
     LeastSquaresSolver,
     dense_full_rank_least_squares_map,
     sparse_constrained_least_squares_map,
 )
+from scipy.sparse.linalg import lsmr as scipy_lsmr
 
 
 def test_unregularized_problem_skips_normal_diagonal_scaling():
@@ -36,41 +35,20 @@ def test_unregularized_problem_skips_normal_diagonal_scaling():
 @pytest.mark.parametrize("complex_data", [False, True])
 def test_sparse_constrained_least_squares_map_matches_kkt_and_adjoint(complex_data):
     """Constrained analysis handles rectangular and complex RHS data."""
-    A = np.array(
-        [
-            [1.0, 0.0, 0.5],
-            [0.0, 1.0, -0.25],
-            [1.0, -1.0, 0.0],
-            [0.5, 0.25, 1.0],
-        ]
-    )
+    A = np.array([[1.0, 0.0, 0.5], [0.0, 1.0, -0.25], [1.0, -1.0, 0.0], [0.5, 0.25, 1.0]])
     if complex_data:
         A = A + 0.1j * np.array(
-            [
-                [0.0, 1.0, -0.5],
-                [0.5, 0.0, 0.25],
-                [-1.0, 0.5, 0.0],
-                [0.25, -0.5, 1.0],
-            ]
+            [[0.0, 1.0, -0.5], [0.5, 0.0, 0.25], [-1.0, 0.5, 0.0], [0.25, -0.5, 1.0]]
         )
     constraint = np.array([[1.0, 1.0, 1.0]])
     sqrt_weights = np.array([1.0, 2.0, 0.5, 1.5])
     operator = sparse_constrained_least_squares_map(
-        A,
-        constraint,
-        sqrt_weights=sqrt_weights,
-        input_shape=(2, 2),
-        output_shape=(3,),
+        A, constraint, sqrt_weights=sqrt_weights, input_shape=(2, 2), output_shape=(3,)
     )
     rhs = np.array([1.0 + 0.5j, -0.25j, 2.0 - 0.75j, -1.0 + 0.25j])
 
     weights = np.diag(sqrt_weights**2)
-    kkt = np.block(
-        [
-            [A.T.conjugate() @ weights @ A, constraint.T],
-            [constraint, np.zeros((1, 1))],
-        ]
-    )
+    kkt = np.block([[A.T.conjugate() @ weights @ A, constraint.T], [constraint, np.zeros((1, 1))]])
     expected_rhs = np.concatenate([A.T.conjugate() @ weights @ rhs, np.zeros(1)])
     expected = np.linalg.solve(kkt, expected_rhs)[: A.shape[1]]
     analysis_rhs = np.vstack(
@@ -97,9 +75,7 @@ def test_sparse_constrained_least_squares_map_matches_kkt_and_adjoint(complex_da
         compiled = jax.jit(operator.matvec)(jnp.asarray(rhs))
         compiled_adjoint = jax.jit(operator.rmatvec)(jnp.asarray(coefficient_probe))
         np.testing.assert_allclose(compiled, expected, rtol=1e-13, atol=1e-13)
-        np.testing.assert_allclose(
-            compiled_adjoint, expected_adjoint, rtol=1e-13, atol=1e-13
-        )
+        np.testing.assert_allclose(compiled_adjoint, expected_adjoint, rtol=1e-13, atol=1e-13)
 
 
 def test_dense_full_rank_least_squares_map_matches_weighted_lstsq_and_adjoint():
@@ -139,9 +115,7 @@ def test_dense_full_rank_least_squares_map_is_jittable_with_jax():
     import jax
     import jax.numpy as jnp
 
-    data_matrix = np.array(
-        [[1.0, 0.0], [0.0, 2.0], [1.0, -1.0], [0.5, 0.25]]
-    )
+    data_matrix = np.array([[1.0, 0.0], [0.0, 2.0], [1.0, -1.0], [0.5, 0.25]])
     operator = dense_full_rank_least_squares_map(data_matrix)
     rhs = jnp.array([1.0, -0.5, 2.0, 0.25])
 
@@ -480,8 +454,7 @@ def test_jax_lsmr_solves_underdetermined_block_rhs():
 def test_jax_lsmr_recurrence_matches_scipy(complex_system):
     """Internal LSMR matches SciPy for damping and an initial guess."""
     import jax.numpy as jnp
-
-    from pynamit.math.jax_lsmr import lsmr as jax_lsmr
+    from kompe.math.jax_lsmr import lsmr as jax_lsmr
 
     rng = np.random.default_rng(2841)
     matrix = rng.normal(size=(8, 5))
@@ -512,8 +485,7 @@ def test_jax_lsmr_recurrence_matches_scipy(complex_system):
 def test_jax_lsmr_zero_rhs_discards_non_solution_initial_guess():
     """A zero RHS rejects an initial guess that is not a solution."""
     import jax.numpy as jnp
-
-    from pynamit.math.jax_lsmr import lsmr as jax_lsmr
+    from kompe.math.jax_lsmr import lsmr as jax_lsmr
 
     matrix = np.array([[2.0, -1.0], [1.0, 3.0], [0.5, 2.0]])
     rhs = np.zeros(3)
@@ -530,8 +502,7 @@ def test_jax_lsmr_zero_rhs_discards_non_solution_initial_guess():
 def test_jax_lsmr_uses_complex_operator_dtype():
     """A complex operator promotes real right-hand sides correctly."""
     import jax.numpy as jnp
-
-    from pynamit.math.jax_lsmr import lsmr as jax_lsmr
+    from kompe.math.jax_lsmr import lsmr as jax_lsmr
 
     rng = np.random.default_rng(91)
     matrix = rng.normal(size=(8, 4)) + 1j * rng.normal(size=(8, 4))

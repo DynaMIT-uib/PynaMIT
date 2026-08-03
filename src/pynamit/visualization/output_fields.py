@@ -1,8 +1,8 @@
 """Evaluate simulation output fields on visualization grids."""
 
 import numpy as np
+from kompe.constants import MU0
 
-from pynamit.math.constants import mu0
 from pynamit.visualization.field_maps import evaluate_JS_from_maps
 from pynamit.visualization.grid_evaluation import transform_for_basis
 
@@ -59,7 +59,7 @@ def evaluate_equivalent_current_coefficients(geometry, induced_Br, transform):
     potential = geometry.induced_Br_to_poloidal_potential_operator.matvec(induced_Br)
     coeffs = (
         -geometry.RI
-        / mu0
+        / MU0
         * geometry.poloidal_to_boundary_potential_jump_factor_operator.matvec(potential)
     )
     return geometry.poloidal_transform_for(transform).synthesize_scalar(coeffs)

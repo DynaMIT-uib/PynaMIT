@@ -39,7 +39,7 @@ jobs:
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Install PynaMIT
-        run: pip install .
+        run: pip install "kompe @ git+https://github.com/DynaMIT-uib/kompe.git@main" .
 
       - name: Lint PynaMIT code
         run: ruff check

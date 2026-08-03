@@ -2,9 +2,9 @@
 
 import numpy as np
 import pytest
+from kompe import GlobalCSBasis, Grid, SHBasis, SphericalTransform
 
 from pynamit.simulation.workflows.standard import run_pynamit
-from pynamit.sphere import CSBasis, Grid, SHBasis, SphericalTransform
 from pynamit.visualization.figure_specs import PynamitFigureSpec
 from pynamit.visualization.ground_figures import GroundFigureRenderer
 from pynamit.visualization.run_fields import SavedCoefficientFieldView
@@ -31,7 +31,7 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
         artifact_storage="netcdf",
     )
 
-    assert isinstance(simulation.geometry.horizontal_basis, CSBasis)
+    assert isinstance(simulation.geometry.horizontal_basis, GlobalCSBasis)
     assert isinstance(simulation.geometry.solid_harmonics.basis.root_basis, SHBasis)
     assert simulation.run_data.schema.horizontal_basis is simulation.geometry.horizontal_basis
     assert simulation.geometry.solid_harmonics.basis is not simulation.geometry.horizontal_basis
@@ -116,7 +116,7 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
         simulation.run_data.run_directory, nlat=8, nlon=12, wind_nlat=5, wind_nlon=7
     )
     fields = view.solution_comparison_grid_fields(0)
-    assert isinstance(view.output_evaluator.basis, CSBasis)
+    assert isinstance(view.output_evaluator.basis, GlobalCSBasis)
     assert fields["Br_dynamic"].shape == view.lat.shape
     assert fields["jr_dynamic"].shape == view.lat.shape
     assert np.all(np.isfinite(fields["Br_dynamic"]))

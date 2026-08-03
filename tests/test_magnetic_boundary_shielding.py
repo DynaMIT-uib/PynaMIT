@@ -2,14 +2,14 @@
 
 import numpy as np
 import pytest
+from kompe import SHBasis, SolidHarmonics
+from kompe.constants import EARTH_RADIUS_M
 
-from pynamit.math.constants import RE
 from pynamit.simulation.electrodynamics.magnetic_boundary import (
     boundary_Br_to_ionosphere_external_Br_scale,
     shielded_induced_poloidal_scale,
 )
 from pynamit.simulation.workflows.standard import run_pynamit
-from pynamit.sphere import SHBasis, SolidHarmonics
 from tests import magnetic_potential_coordinate_array
 
 
@@ -85,7 +85,7 @@ def test_magnetic_boundary_shielding():
         Nmax=10,
         Mmax=8,
         Ncs=18,
-        RM=4 * RE,
+        RM=4 * EARTH_RADIUS_M,
         main_field_kind="dipole",
         enable_pfac_coupling=True,
         enable_interhemispheric_coupling=True,

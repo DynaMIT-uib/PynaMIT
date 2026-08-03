@@ -1,9 +1,9 @@
 """Tests for direct input-basis coefficient setters."""
 
 import numpy as np
+from kompe.constants import EARTH_RADIUS_M
 
 from pynamit.fields import FieldCoefficients
-from pynamit.math.constants import RE
 from pynamit.simulation.api import Simulation
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     conductance_to_log_coordinates,
@@ -58,7 +58,7 @@ def test_set_boundary_jr_accepts_input_basis_coefficients(tmp_path):
 
 def test_set_boundary_Br_accepts_input_basis_coefficients(tmp_path):
     """Magnetospheric Br coefficients are stored directly."""
-    simulation = _small_simulation(tmp_path, RM=4 * RE)
+    simulation = _small_simulation(tmp_path, RM=4 * EARTH_RADIUS_M)
     n_coeffs = simulation.run_data.schema.input_field_spaces["boundary_Br"].index_length
     br_coeffs = np.linspace(-1.0, 1.0, n_coeffs)
 

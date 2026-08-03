@@ -14,9 +14,8 @@ operators.
 from __future__ import annotations
 
 import numpy as np
-
-from pynamit.math import diagonal_linear_map
-from pynamit.math.constants import mu0
+from kompe.constants import MU0
+from kompe.math import diagonal_linear_map
 
 
 def _coefficient_scale(values):
@@ -39,7 +38,7 @@ def poloidal_potential_to_gridded_JS_operator(solid_harmonics, transform, *, pol
     if poloidal_scale is not None:
         scale *= np.asarray(poloidal_scale)
     return (
-        (-1.0 / mu0)
+        (-1.0 / MU0)
         * transform.scalar_coeffs_to_gridded_rhat_cross_gradient_operator
         @ diagonal_linear_map(scale)
     )
@@ -119,7 +118,7 @@ def toroidal_potential_to_gridded_JS_operator(
 ):
     """Map private toroidal potential to total sheet current."""
     direct_sheet_current = (
-        -1.0 / mu0
+        -1.0 / MU0
     ) * horizontal_transform.scalar_coeffs_to_gridded_gradient_operator
     if boundary_jr_to_gap_Br is None:
         return direct_sheet_current
@@ -146,7 +145,7 @@ def boundary_jr_to_gridded_JS_operator(
     field created by the continuation of that current through the gap.
     """
     direct_sheet_current = (
-        (-1.0 / mu0)
+        (-1.0 / MU0)
         * horizontal_transform.scalar_coeffs_to_gridded_gradient_operator
         @ boundary_jr_to_toroidal_potential
     )

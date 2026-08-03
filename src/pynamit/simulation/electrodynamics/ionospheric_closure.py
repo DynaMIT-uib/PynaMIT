@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import numpy as np
-
-from pynamit.math.backend import get_array_module
-from pynamit.math.linear_map import as_linear_map, pointwise_matrix_linear_map
+from kompe.math.backend import get_array_module
+from kompe.math.linear_map import as_linear_map, pointwise_matrix_linear_map
 
 CONDUCTANCE_REFERENCE_S = 1.0
 

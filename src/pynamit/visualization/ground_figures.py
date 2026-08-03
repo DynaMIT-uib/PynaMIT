@@ -8,11 +8,11 @@ import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from kompe import Grid
+from kompe.constants import EARTH_RADIUS_M
 from matplotlib.lines import Line2D
 
 from pynamit.coordinates import local_time_hours_to_longitude
-from pynamit.math.constants import RE
-from pynamit.sphere import Grid
 from pynamit.visualization.figure_context import as_figure_spec, get_saved_field_view
 from pynamit.visualization.grid_evaluation import build_evaluator
 from pynamit.visualization.local_time import apply_local_time_grid_labels
@@ -337,7 +337,7 @@ class GroundFigureRenderer:
         solid_harmonics = geometry.solid_harmonics
         solid_basis = solid_harmonics.basis
         evaluator = build_evaluator(solid_basis, grid)
-        ve_to_ground = solid_harmonics.regular_reference_shift(ri, RE)
+        ve_to_ground = solid_harmonics.regular_reference_shift(ri, EARTH_RADIUS_M)
         induced_Br_to_br_ground = ve_to_ground * evaluator.scalar_coeffs_to_grid
         induced_Br_to_bh_ground = (
             ve_to_ground / solid_basis.n * evaluator.scalar_coeffs_to_gridded_gradient

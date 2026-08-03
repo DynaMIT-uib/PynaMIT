@@ -4,6 +4,7 @@ import datetime
 
 import cartopy.crs as ccrs
 import dipole
+import kompe
 import matplotlib.pyplot as plt
 import numpy as np
 import pyhwm2014  # https://github.com/rilma/pyHWM14
@@ -38,8 +39,8 @@ d = dipole.Dipole(date.year)
 noon_lon = d.mlt2mlon(12, date)  # noon longitude
 
 # Define cubed sphere basis and grid
-cs_basis = pynamit.CSBasis(Ncs)
-output_grid = pynamit.Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
+cs_basis = kompe.GlobalCSBasis(Ncs)
+output_grid = kompe.Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
 output_weights = None
 
 # Use regular grid from PyHWM14.
@@ -58,7 +59,7 @@ hwm14Obj = pyhwm2014.HWM142D(
 
 u_theta, u_phi = (-hwm14Obj.Vwind.flatten(), hwm14Obj.Uwind.flatten())
 u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing="ij")
-input_grid = pynamit.Grid(lat=u_lat.flatten(), lon=u_lon.flatten())
+input_grid = kompe.Grid(lat=u_lat.flatten(), lon=u_lon.flatten())
 
 if CONDUCTANCE:
     # Get and set conductance input.
@@ -171,12 +172,12 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
 
         Nmax_values.append(Nmax)
 
-        sh_basis = pynamit.SHBasis(Nmax, Mmax, nmin)
+        sh_basis = kompe.SHBasis(Nmax, Mmax, nmin)
         field_space = pynamit.FieldSpace(sh_basis, field_type=field_type)
-        input_spherical_transform = pynamit.SphericalTransform(
+        input_spherical_transform = kompe.SphericalTransform(
             sh_basis, input_grid, sqrt_weights=input_weights, reg_lambda=reg_lambda, pinv_rtol=rtol
         )
-        output_spherical_transform = pynamit.SphericalTransform(
+        output_spherical_transform = kompe.SphericalTransform(
             sh_basis,
             output_grid,
             sqrt_weights=output_weights,

@@ -1,11 +1,13 @@
-Sphere Operators
-================
+Kompe Sphere Operators
+======================
 
-The ``pynamit.sphere`` package contains spherical representations,
-surface bases, transforms, and solid-harmonic radial operations.
+The standalone ``kompe`` package owns spherical representations, surface
+bases, transforms, and solid-harmonic radial operations. PynaMIT imports
+these objects directly; ``pynamit.sphere`` retains only the historical
+``BasisEvaluator`` spelling for ``kompe.SphericalTransform``.
 
 ``Grid`` and the basis classes are spherical representations.  ``Grid``
-stores sampled values, while ``SHBasis`` and ``CSBasis`` reconstruct
+stores sampled values, while ``SHBasis`` and ``GlobalCSBasis`` reconstruct
 functions and provide surface operators.  Both basis classes implement
 the same ``SurfaceOperators`` interface.
 

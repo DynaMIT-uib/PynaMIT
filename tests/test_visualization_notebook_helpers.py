@@ -4,6 +4,8 @@ import datetime as dt
 
 import cartopy.crs as ccrs
 import numpy as np
+from kompe import SHBasis, SolidHarmonics
+from kompe.constants import EARTH_RADIUS_M, MU0
 
 from pynamit.coordinates import (
     datetime_to_utc_hours,
@@ -14,9 +16,7 @@ from pynamit.coordinates import (
     longitude_to_local_time_hours,
     wrap_longitude_180,
 )
-from pynamit.math.constants import RE, mu0
 from pynamit.simulation.api import Simulation
-from pynamit.sphere import SHBasis, SolidHarmonics
 from pynamit.storage import ArtifactStore
 from pynamit.visualization.grid_evaluation import (
     build_evaluator,
@@ -416,15 +416,15 @@ def test_build_JS_operators_matches_core_formulas():
     poloidal_to_JS = (
         -transform.scalar_coeffs_to_gridded_rhat_cross_gradient
         * solid_harmonics.poloidal_to_boundary_potential_jump_factor.reshape(1, 1, -1)
-        / mu0
+        / MU0
     )
-    toroidal_to_JS = -transform.scalar_coeffs_to_gridded_gradient / mu0
+    toroidal_to_JS = -transform.scalar_coeffs_to_gridded_gradient / MU0
     regular_shift = solid_harmonics.regular_reference_shift(Settings.RM, Settings.RI)
     irregular_shift = solid_harmonics.irregular_reference_shift(Settings.RI, Settings.RM)
     denominator = 1.0 - regular_shift * irregular_shift
     induced_potential_to_Br = -(Settings.RI**2) * sh_basis.laplacian(Settings.RI)
     boundary_jr_to_toroidal = (
-        mu0 / Settings.RI * sh_basis.get_mean_free_surface_poisson_operator(Settings.RI).array
+        MU0 / Settings.RI * sh_basis.get_mean_free_surface_poisson_operator(Settings.RI).array
     )
 
     np.testing.assert_allclose(
@@ -462,7 +462,7 @@ def test_build_JS_operators_defaults_to_unshielded_rm():
     poloidal_to_JS = (
         -transform.scalar_coeffs_to_gridded_rhat_cross_gradient
         * solid_harmonics.poloidal_to_boundary_potential_jump_factor.reshape(1, 1, -1)
-        / mu0
+        / MU0
     )
 
     degree_factor = -(Settings.RI**2) * sh_basis.laplacian(Settings.RI)
@@ -492,7 +492,7 @@ def test_build_JS_operators_matches_geometry(tmp_path):
         Nmax=2,
         Mmax=1,
         Ncs=8,
-        RM=4 * RE,
+        RM=4 * EARTH_RADIUS_M,
         enable_pfac_coupling=False,
         artifact_storage="netcdf",
     )

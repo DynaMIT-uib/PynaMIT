@@ -5,6 +5,7 @@ import datetime as dt
 import dipole
 import numpy as np
 import pytest
+from kompe.constants import EARTH_RADIUS_M
 
 from pynamit.coordinates import decimal_year_to_datetime, local_noon_longitude
 from pynamit.geomagnetism import MainField, decimal_year
@@ -17,7 +18,6 @@ from pynamit.geomagnetism.kaiju_geopack import (
     kaiju_geopack_mag,
     kaiju_geopack_sm,
 )
-from pynamit.math.constants import RE
 from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.geometry import build_main_field
 
@@ -33,7 +33,7 @@ def test_dipole_B0_override_preserves_epoch_alignment():
     np.testing.assert_allclose(main_field.dipole.north_pole, reference.north_pole)
     assert main_field.dipole.B0 == b0 * 1e9
 
-    Br, Btheta, Bphi = main_field.field_components(RE, 90.0, 0.0)
+    Br, Btheta, Bphi = main_field.field_components(EARTH_RADIUS_M, 90.0, 0.0)
     np.testing.assert_allclose(Br, 0.0, atol=1e-20)
     np.testing.assert_allclose(Btheta, -b0)
     np.testing.assert_allclose(Bphi, 0.0, atol=0.0)
@@ -87,7 +87,9 @@ def test_kaiju_dipole_main_field_B0_override_preserves_kaiju_alignment():
     assert main_field.dipole.B0 == b0 * 1e9
 
     geo_latitude, geo_longitude = kaiju_geopack_mag(epoch).mag2geo(0.0, 0.0)
-    Br, Btheta, Bphi = main_field.field_components(RE, 90.0 - geo_latitude, geo_longitude)
+    Br, Btheta, Bphi = main_field.field_components(
+        EARTH_RADIUS_M, 90.0 - geo_latitude, geo_longitude
+    )
     np.testing.assert_allclose(Br, 0.0, atol=1e-20)
     np.testing.assert_allclose(np.hypot(Btheta, Bphi), b0)
 
@@ -125,7 +127,7 @@ def test_main_field_rejects_invalid_or_inapplicable_physical_parameters():
 def test_main_field_components_preserve_broadcast_shape(kind):
     """Field components and inclination follow NumPy broadcasting."""
     main_field = MainField(kind=kind, epoch=2011)
-    radius = np.array([[RE], [RE + 110e3]])
+    radius = np.array([[EARTH_RADIUS_M], [EARTH_RADIUS_M + 110e3]])
     theta = np.array([[35.0], [120.0]])
     longitude = np.array([[-90.0, 0.0, 90.0]])
 
@@ -138,7 +140,7 @@ def test_main_field_components_preserve_broadcast_shape(kind):
 def test_main_field_from_config_uses_canonical_settings():
     """Saved and live runs share one main-field constructor."""
     config = SimulationConfig(
-        RI=RE + 130.0e3,
+        RI=EARTH_RADIUS_M + 130.0e3,
         main_field_kind="kaiju_dipole",
         main_field_epoch=2011.5,
         main_field_B0=29_000.0e-9,
@@ -179,7 +181,7 @@ def test_kaiju_main_field_evaluates_dipole_in_mag_and_returns_geo_components():
     lat = np.array([65.0, -50.0, 10.0])
     lon = np.array([-30.0, 120.0, 5.0])
     magnetic_latitude, magnetic_longitude = reference.geo2mag(lat, lon)
-    magnetic_north, magnetic_radial = main_field.dipole.B(magnetic_latitude, RE * 1e-3)
+    magnetic_north, magnetic_radial = main_field.dipole.B(magnetic_latitude, EARTH_RADIUS_M * 1e-3)
     _, _, expected_east, expected_north = reference.mag2geo(
         magnetic_latitude,
         magnetic_longitude,
@@ -187,7 +189,7 @@ def test_kaiju_main_field_evaluates_dipole_in_mag_and_returns_geo_components():
         north=magnetic_north * 1e-9,
     )
 
-    br, btheta, bphi = main_field.field_components(RE, 90.0 - lat, lon)
+    br, btheta, bphi = main_field.field_components(EARTH_RADIUS_M, 90.0 - lat, lon)
 
     np.testing.assert_allclose(br, magnetic_radial * 1e-9)
     np.testing.assert_allclose(btheta, -expected_north)
@@ -197,8 +199,8 @@ def test_kaiju_main_field_evaluates_dipole_in_mag_and_returns_geo_components():
 def test_kaiju_main_field_mapping_and_conjugacy_are_returned_in_geo():
     """Analytic MAG operations preserve the GEO API boundary."""
     main_field = MainField(kind="kaiju_dipole", epoch=2011.0)
-    radius = np.array([2.0 * RE, 2.5 * RE])
-    destination = RE
+    radius = np.array([2.0 * EARTH_RADIUS_M, 2.5 * EARTH_RADIUS_M])
+    destination = EARTH_RADIUS_M
     magnetic_latitude = np.array([45.0, -50.0])
     magnetic_longitude = np.array([-30.0, 80.0])
     magnetic_coordinates = kaiju_geopack_mag(2011.0)
@@ -231,7 +233,7 @@ def test_kaiju_main_field_mapping_and_conjugacy_are_returned_in_geo():
 def test_kaiju_main_field_basis_vectors_are_dual_in_geo_components():
     """Rotating analytic MAG basis vectors preserves their duality."""
     main_field = MainField(kind="kaiju_dipole", epoch=2011.0)
-    radius = np.array([RE + 110e3, RE + 110e3])
+    radius = np.array([EARTH_RADIUS_M + 110e3, EARTH_RADIUS_M + 110e3])
     latitude = np.array([65.0, -55.0])
     longitude = np.array([-40.0, 100.0])
 
@@ -447,7 +449,7 @@ def test_radial_default_B0_is_in_tesla():
 
     main_field = MainField(kind="radial", epoch=epoch)
 
-    Br, Btheta, Bphi = main_field.field_components(RE, 90.0, 0.0)
+    Br, Btheta, Bphi = main_field.field_components(EARTH_RADIUS_M, 90.0, 0.0)
     np.testing.assert_allclose(Br, reference_b0)
     np.testing.assert_allclose(Btheta, 0.0, atol=0.0)
     np.testing.assert_allclose(Bphi, 0.0, atol=0.0)
@@ -456,7 +458,7 @@ def test_radial_default_B0_is_in_tesla():
 def test_radial_basis_vectors_are_field_aligned_and_orthonormal():
     """Radial-field apex vectors follow the spherical convention."""
     main_field = MainField(kind="radial", epoch=2011)
-    radius = np.array([RE, RE + 110e3])
+    radius = np.array([EARTH_RADIUS_M, EARTH_RADIUS_M + 110e3])
     theta = np.array([30.0, 120.0])
     phi = np.array([-45.0, 80.0])
 

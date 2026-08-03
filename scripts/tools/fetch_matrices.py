@@ -12,10 +12,10 @@ import argparse
 import datetime
 
 import numpy as np
+from kompe.constants import EARTH_RADIUS_M
+from kompe.math import block_until_ready, to_numpy
 
 from pynamit.external_inputs import get_conductance_inputs
-from pynamit.math.backend import block_until_ready, to_numpy
-from pynamit.math.constants import RE
 from pynamit.simulation.api import Simulation
 
 
@@ -34,8 +34,8 @@ def build_simulation(
     least_squares_solver: str,
 ) -> Simulation:
     """Build a minimal simulation for matrix extraction."""
-    RI = RE + 110.0e3
-    RM = None if rm_re is None else float(rm_re) * RE
+    RI = EARTH_RADIUS_M + 110.0e3
+    RM = None if rm_re is None else float(rm_re) * EARTH_RADIUS_M
     simulation = Simulation(
         run_directory=run_directory,
         Nmax=nmax,

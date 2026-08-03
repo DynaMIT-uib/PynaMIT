@@ -1,9 +1,9 @@
 """User-facing assembly of a PynaMIT simulation."""
 
 import numpy as np
+from kompe.constants import EARTH_RADIUS_M
+from kompe.math.backend import set_backend
 
-from pynamit.math.backend import set_backend
-from pynamit.math.constants import RE
 from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.electrodynamics import ionospheric_closure
 from pynamit.simulation.geometry import SimulationGeometry, build_main_field
@@ -34,7 +34,7 @@ class Simulation:
         Run-invariant spatial realization of the model equations.
     response : ElectrodynamicResponse
         Instantaneous forcing and electrodynamic response model.
-    operator_cache : ArrayCache, optional
+    operator_cache : pynamit.storage.ArrayCache, optional
         Shared cache for deterministic materialized operators.
     """
 
@@ -44,7 +44,7 @@ class Simulation:
         Nmax=20,
         Mmax=20,
         Ncs=30,
-        RI=RE + 110.0e3,
+        RI=EARTH_RADIUS_M + 110.0e3,
         RM=None,
         magnetic_boundary_shielding=False,
         main_field_kind="dipole",

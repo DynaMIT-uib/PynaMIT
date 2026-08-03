@@ -61,6 +61,12 @@ stack, and `pynamit[inputs]` for the optional native input models. The
 requirements files above remain the reproducible development-environment
 definition.
 
+PynaMIT's spherical and numerical machinery is provided by
+[`kompe`](https://github.com/DynaMIT-uib/kompe). Until the first Kompe release
+is available from PyPI, `requirements/pip-common.txt` installs it directly
+from that repository; install the requirements file before invoking
+`pip install .` on a fresh environment.
+
 ## Testing
 
 After installation, run the test suite from the repository root:

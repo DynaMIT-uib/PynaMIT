@@ -4,9 +4,7 @@ from itertools import product
 
 import numpy as np
 import pytest
-from scipy.sparse import csr_matrix
-
-from pynamit.math import (
+from kompe.math import (
     JAX_AVAILABLE,
     einsum_linear_map,
     einsum_linear_map_from_matvec,
@@ -14,9 +12,9 @@ from pynamit.math import (
     set_backend,
     use_jax,
 )
-from pynamit.math.least_squares_problem import LeastSquaresProblem
-from pynamit.math.least_squares_solver import LeastSquaresSolver
-from pynamit.math.linear_map import (
+from kompe.math.least_squares_problem import LeastSquaresProblem
+from kompe.math.least_squares_solver import LeastSquaresSolver
+from kompe.math.linear_map import (
     LinearMap,
     as_linear_map,
     diagonal_linear_map,
@@ -26,6 +24,7 @@ from pynamit.math.linear_map import (
     take_linear_map,
     vstack_linear_maps,
 )
+from scipy.sparse import csr_matrix
 
 
 def test_dense_linear_map_matches_matrix_operations():
@@ -239,8 +238,7 @@ def test_pointwise_matrix_linear_map_matches_local_component_transform():
 def test_structured_dense_builders_preserve_jax_backend(monkeypatch):
     """New structured maps should materialize matrices on JAX."""
     import jax.numpy as jnp
-
-    import pynamit.math.linear_map as linear_map_module
+    import kompe.math.linear_map as linear_map_module
 
     previous_backend = use_jax()
     matrix = jnp.arange(24.0).reshape(2, 3, 4)
@@ -469,9 +467,7 @@ def test_wide_composition_materializes_through_composed_adjoint():
 
     composed = matrix_free(left_matrix) @ matrix_free(right_matrix)
 
-    np.testing.assert_allclose(
-        composed.to_matrix(backend="numpy"), left_matrix @ right_matrix
-    )
+    np.testing.assert_allclose(composed.to_matrix(backend="numpy"), left_matrix @ right_matrix)
 
 
 def test_linear_map_to_array_returns_shaped_dense_representation():
@@ -531,8 +527,7 @@ def test_pointwise_linear_map_accepts_numpy_inputs_with_jax_backend():
 def test_dense_linear_map_preserves_jax_dense_source(monkeypatch):
     """JAX dense inputs should not materialize during creation."""
     import jax.numpy as jnp
-
-    import pynamit.math.linear_map as linear_map_module
+    import kompe.math.linear_map as linear_map_module
 
     matrix = jnp.asarray([[1.0, 2.0], [3.0, 5.0], [7.0, 11.0]])
     x = jnp.asarray([0.25, -2.0])
@@ -559,8 +554,7 @@ def test_dense_linear_map_preserves_jax_dense_source(monkeypatch):
 def test_diagonal_linear_map_preserves_jax_dense_source(monkeypatch):
     """JAX diagonal inputs should not materialize during creation."""
     import jax.numpy as jnp
-
-    import pynamit.math.linear_map as linear_map_module
+    import kompe.math.linear_map as linear_map_module
 
     diagonal = jnp.asarray([2.0, 3.0])
     x = jnp.asarray([0.25, -2.0])
@@ -1237,8 +1231,7 @@ def test_einsum_linear_map_dense_uses_active_backend():
 def test_einsum_linear_map_dtype_does_not_materialize_jax_components(monkeypatch):
     """Einsum-backed dtype should only inspect dtype metadata."""
     import jax.numpy as jnp
-
-    import pynamit.math._einsum_linear_map as einsum_map_module
+    import kompe.math.einsum as einsum_map_module
 
     linear_map = einsum_linear_map(
         component_tensors=[jnp.asarray([[1.0, 2.0], [3.0, 5.0]])],

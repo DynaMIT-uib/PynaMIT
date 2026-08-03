@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 import xarray as xr
+from kompe.constants import EARTH_RADIUS_M
 
-from pynamit.math.constants import RE
 from pynamit.simulation import Simulation
 from pynamit.simulation.config import SimulationConfig, dipole_fac_integration_radii, setting_value
 
@@ -263,7 +263,7 @@ def test_simulation_config_derives_missing_fac_grid_from_loaded_radii():
         ({"Mmax": -1}, "Mmax"),
         ({"Nmax": 2, "Mmax": 3}, "Mmax"),
         ({"Ncs": 3}, "Ncs must be even"),
-        ({"RI": RE}, "reference radius"),
+        ({"RI": EARTH_RADIUS_M}, "reference radius"),
         ({"interhemispheric_coupling_latitude": 91}, "interhemispheric_coupling_latitude"),
         (
             {"interhemispheric_electric_field_weight": np.inf},

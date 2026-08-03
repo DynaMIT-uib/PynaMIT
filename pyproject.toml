@@ -14,6 +14,7 @@ dependencies = [
     "pandas",
     "ppigrf",
     "scipy",
+    "kompe>=0.1.0",
     "xarray",
 ]
 

@@ -6,9 +6,9 @@ from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
+from kompe.constants import MU0
 
 from pynamit.geomagnetism import MagneticFieldEvaluation
-from pynamit.math.constants import mu0
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     joule_heating_from_current,
     pedersen_geometry_tensor,
@@ -139,7 +139,7 @@ def _output_evaluation_context(config, geometry, evaluator):
         "RI": ri,
         "induced_Br_to_Br": poloidal_evaluator.scalar_coeffs_to_grid_operator,
         "boundary_jr_to_jr": evaluator.scalar_coeffs_to_grid_operator,
-        "induced_Br_to_Jeq": (-ri / mu0)
+        "induced_Br_to_Jeq": (-ri / MU0)
         * (
             poloidal_evaluator.scalar_coeffs_to_grid_operator
             @ geometry.poloidal_to_boundary_potential_jump_factor_operator

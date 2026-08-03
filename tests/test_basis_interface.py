@@ -2,10 +2,17 @@
 
 import numpy as np
 import pytest
-from scipy.sparse import csr_matrix
-
-import pynamit
-from pynamit.math import (
+from kompe import (
+    BasisView,
+    GlobalCSBasis,
+    Grid,
+    SHBasis,
+    SolidHarmonics,
+    SphericalBasis,
+    SphericalRepresentation,
+    SurfaceOperators,
+)
+from kompe.math import (
     JAX_AVAILABLE,
     LinearMap,
     as_linear_map,
@@ -16,42 +23,30 @@ from pynamit.math import (
     to_numpy,
     use_jax,
 )
-from pynamit.math.tensor_operations import weighted_tensor_pinv
-from pynamit.sphere import (
-    BasisView,
-    CSBasis,
-    Grid,
-    SHBasis,
-    SolidHarmonics,
-    SphericalBasis,
-    SphericalRepresentation,
-    SurfaceOperators,
-)
-from pynamit.sphere.spherical_transform import (
+from kompe.math.tensor_operations import weighted_tensor_pinv
+from kompe.spherical_transform import (
     SphericalTransform,
     grid_sqrt_area_weights,
     resolve_sqrt_weights,
 )
+from scipy.sparse import csr_matrix
 
 
 def test_public_sphere_package_is_canonical():
     """Spherical basis types are available from the public package."""
-    from pynamit.sphere.core import SphericalBasis as CoreBasis
-    from pynamit.sphere.cubed_sphere.cs_basis import CSBasis as ConcreteCSBasis
-    from pynamit.sphere.spherical_harmonics.sh_basis import SHBasis as ConcreteSHBasis
+    from kompe.core import SphericalBasis as CoreBasis
+    from kompe.cubed_sphere.cs_basis import GlobalCSBasis as ConcreteCSBasis
+    from kompe.spherical_harmonics.sh_basis import SHBasis as ConcreteSHBasis
 
-    assert CSBasis is ConcreteCSBasis
+    assert GlobalCSBasis is ConcreteCSBasis
     assert SHBasis is ConcreteSHBasis
     assert SphericalBasis is CoreBasis
-    assert pynamit.CSBasis is CSBasis
-    assert pynamit.SHBasis is SHBasis
-    assert pynamit.SolidHarmonics is SolidHarmonics
 
 
 def test_concrete_bases_implement_basis_interface():
     """Concrete basis classes satisfy the shared metadata interface."""
     sh_basis = SHBasis(3, 3)
-    cs_basis = CSBasis(4)
+    cs_basis = GlobalCSBasis(4)
 
     assert isinstance(sh_basis, SphericalBasis)
     assert isinstance(sh_basis, SurfaceOperators)
@@ -78,7 +73,7 @@ def test_grid_and_bases_are_spherical_representations():
 def test_solid_harmonics_are_separate_from_surface_bases():
     """Solid-harmonic physics wraps rather than extends an SH basis."""
     sh_basis = SHBasis(3, 2)
-    cs_basis = CSBasis(4)
+    cs_basis = GlobalCSBasis(4)
     solid_harmonics = SolidHarmonics(sh_basis)
 
     assert solid_harmonics.basis is sh_basis
@@ -91,7 +86,7 @@ def test_solid_harmonics_are_separate_from_surface_bases():
 def test_public_basis_constructors_reject_invalid_resolution():
     """Basis primitives enforce their own representation invariants."""
     with pytest.raises(ValueError, match="positive"):
-        CSBasis(0)
+        GlobalCSBasis(0)
     with pytest.raises(ValueError, match="between zero and Nmax"):
         SHBasis(2, 3)
     with pytest.raises(TypeError, match="Nmax must be an integer"):
@@ -101,7 +96,7 @@ def test_public_basis_constructors_reject_invalid_resolution():
 def test_basis_metadata_arrays_are_immutable_values():
     """Basis cache identity cannot drift through array mutation."""
     sh_basis = SHBasis(3, 2)
-    cs_basis = CSBasis(4)
+    cs_basis = GlobalCSBasis(4)
 
     assert sh_basis.index_names == ("n", "m")
     assert cs_basis.index_names == ("theta", "phi")
@@ -160,13 +155,13 @@ def test_grid_rejects_invalid_area_weights():
 
 def test_csbasis_native_grid_comparison_uses_grid_hash(monkeypatch):
     """Native CS Grid matching delegates to Grid.same_as."""
-    cs_basis = CSBasis(4)
+    cs_basis = GlobalCSBasis(4)
     grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
 
     def fail_allclose(*args, **kwargs):
         raise AssertionError("Grid-native comparison should use coordinate hashes")
 
-    monkeypatch.setattr("pynamit.sphere.cubed_sphere.cs_basis.np.allclose", fail_allclose)
+    monkeypatch.setattr("kompe.cubed_sphere.cs_basis.np.allclose", fail_allclose)
 
     assert cs_basis._is_native_grid(grid)
     grid_like = type(
@@ -183,14 +178,14 @@ def test_basis_coefficient_compatibility_uses_coefficient_space():
     assert sh_basis.coefficients_are_compatible_with(SHBasis(3, 2, backend="scipy"))
     assert not sh_basis.coefficients_are_compatible_with(SHBasis(3, 2, Nmin=0))
     assert not sh_basis.coefficients_are_compatible_with(SHBasis(4, 2))
-    assert CSBasis(4).coefficients_are_compatible_with(CSBasis(4))
-    assert not CSBasis(4).coefficients_are_compatible_with(CSBasis(6))
-    assert not sh_basis.coefficients_are_compatible_with(CSBasis(4))
+    assert GlobalCSBasis(4).coefficients_are_compatible_with(GlobalCSBasis(4))
+    assert not GlobalCSBasis(4).coefficients_are_compatible_with(GlobalCSBasis(6))
+    assert not sh_basis.coefficients_are_compatible_with(GlobalCSBasis(4))
 
 
 def test_surface_operator_builders_match_component_matrices():
     """Surface operators assemble the expected component matrices."""
-    cs_basis = CSBasis(8)
+    cs_basis = GlobalCSBasis(8)
     grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
 
     G = cs_basis.get_scalar_evaluation_matrix(grid)
@@ -218,7 +213,7 @@ def test_surface_operator_builders_match_component_matrices():
 @pytest.mark.parametrize("basis_kind", ["CS", "SH"])
 def test_helmholtz_divergence_and_radial_curl_are_laplacian_maps(basis_kind):
     """Helmholtz div/curl maps expose shared potential identities."""
-    basis = CSBasis(8) if basis_kind == "CS" else SHBasis(3, 2)
+    basis = GlobalCSBasis(8) if basis_kind == "CS" else SHBasis(3, 2)
     laplacian = to_numpy(basis.get_surface_laplacian_matrix())
     curl_free_potential = to_numpy(basis.get_helmholtz_curl_free_potential_matrix())
     divergence_free_potential = to_numpy(basis.get_helmholtz_divergence_free_potential_matrix())
@@ -292,8 +287,8 @@ def test_solid_harmonics_match_reference_radius_shift_formulas():
 
 
 def test_csbasis_evaluates_with_finite_difference_derivatives():
-    """CSBasis exposes native finite-difference derivative matrices."""
-    cs_basis = CSBasis(8)
+    """The global CS basis exposes finite-difference derivatives."""
+    cs_basis = GlobalCSBasis(8)
     grid = type("GridLike", (), {"theta": cs_basis.arr_theta, "phi": cs_basis.arr_phi})()
 
     constant = np.ones(cs_basis.index_length)
@@ -310,7 +305,7 @@ def test_csbasis_evaluates_with_finite_difference_derivatives():
 
 def test_csbasis_native_grid_is_cell_centered_with_cell_areas():
     """Native CS coefficients live at cell centers with cell areas."""
-    cs_basis = CSBasis(16)
+    cs_basis = GlobalCSBasis(16)
     block, i, j = cs_basis.get_gridpoints(cs_basis.N)
     expected_xi = cs_basis.xi(i[:, :-1, :-1] + 0.5, cs_basis.N).reshape(-1)
     expected_eta = cs_basis.eta(j[:, :-1, :-1] + 0.5, cs_basis.N).reshape(-1)
@@ -332,7 +327,7 @@ def test_csbasis_native_grid_is_cell_centered_with_cell_areas():
 
 def test_csbasis_local_metric_factors_match_gnomonic_mapping():
     """CS local metric factors are consistent with the gnomonic map."""
-    cs_basis = CSBasis(16)
+    cs_basis = GlobalCSBasis(16)
     xi, eta = cs_basis.arr_xi, cs_basis.arr_eta
     delta = cs_basis.get_delta(xi, eta)
     expected_sqrt_detg = 1.0 / (np.cos(xi) ** 2 * np.cos(eta) ** 2 * delta**1.5)
@@ -347,7 +342,7 @@ def test_csbasis_local_metric_factors_match_gnomonic_mapping():
 
 def test_csbasis_vector_coordinate_transforms_round_trip():
     """CS vector transform matrices are mutually consistent."""
-    cs_basis = CSBasis(16)
+    cs_basis = GlobalCSBasis(16)
     xi, eta, block = cs_basis.arr_xi, cs_basis.arr_eta, cs_basis.arr_block
     identity = np.broadcast_to(np.eye(3), (cs_basis.index_length, 3, 3))
 
@@ -365,7 +360,7 @@ def test_csbasis_vector_coordinate_transforms_round_trip():
 
 def test_csbasis_non_native_scalar_evaluation_uses_interpolation():
     """CS scalar evaluation matches built-in interpolation."""
-    cs_basis = CSBasis(8)
+    cs_basis = GlobalCSBasis(8)
     _, theta, phi = cs_basis.cube2spherical(
         cs_basis.xi(np.array([1.2, 2.3, 3.4, 4.5]), cs_basis.N),
         cs_basis.eta(np.array([1.1, 2.2, 3.1, 4.2]), cs_basis.N),
@@ -387,7 +382,7 @@ def test_csbasis_non_native_scalar_evaluation_uses_interpolation():
 
 def test_csbasis_non_native_helmholtz_uses_vector_interpolation():
     """CS non-native Helmholtz evaluation interpolates vectors."""
-    cs_basis = CSBasis(8)
+    cs_basis = GlobalCSBasis(8)
     native = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
     _, theta, phi = cs_basis.cube2spherical(
         cs_basis.xi(np.array([1.2, 2.3, 3.4, 4.5]), cs_basis.N),
@@ -421,7 +416,7 @@ def test_csbasis_non_native_helmholtz_uses_vector_interpolation():
 
 def test_csbasis_multi_vector_interpolation_matches_per_field_calls():
     """CS vector interpolation supports multiple fields at once."""
-    cs_basis = CSBasis(8)
+    cs_basis = GlobalCSBasis(8)
     _, theta, phi = cs_basis.cube2spherical(
         cs_basis.xi(np.array([1.2, 2.3, 3.4, 4.5]), cs_basis.N),
         cs_basis.eta(np.array([1.1, 2.2, 3.1, 4.2]), cs_basis.N),
@@ -459,7 +454,7 @@ def test_csbasis_multi_vector_interpolation_matches_per_field_calls():
 
 def test_spherical_transform_contract_scalar_coeffs_to_grid_matches_explicit_products():
     """Scalar grid contraction matches explicit operators."""
-    cs_basis = CSBasis(8)
+    cs_basis = GlobalCSBasis(8)
     evaluator = SphericalTransform(cs_basis, Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi))
     vector = np.linspace(1.0, 2.0, cs_basis.index_length)
     matrix = np.diag(vector)
@@ -485,7 +480,7 @@ def test_spherical_transform_contract_scalar_coeffs_to_grid_matches_explicit_pro
 
 def test_spherical_transform_contract_scalar_coeffs_uses_operator_actions():
     """Scalar grid contraction can use a structured right operator."""
-    cs_basis = CSBasis(8)
+    cs_basis = GlobalCSBasis(8)
     evaluator = SphericalTransform(cs_basis, Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi))
     rng = np.random.default_rng(1)
     matrix = rng.normal(size=(cs_basis.index_length, 3)) + 1j * rng.normal(
@@ -515,7 +510,7 @@ def test_spherical_transform_contract_scalar_coeffs_uses_operator_actions():
 
 def test_spherical_transform_contract_scalar_coeffs_skips_diagonal_probe():
     """Square non-diagonal maps should not densify."""
-    cs_basis = CSBasis(8)
+    cs_basis = GlobalCSBasis(8)
     evaluator = SphericalTransform(cs_basis, Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi))
     rng = np.random.default_rng(2)
     matrix = rng.normal(size=(cs_basis.index_length, cs_basis.index_length)) + 1j * rng.normal(
@@ -545,7 +540,7 @@ def test_spherical_transform_contract_scalar_coeffs_skips_diagonal_probe():
 
 def test_grid_basis_regularization_requires_degree_metadata():
     """Degree-weighted regularization declares basis support."""
-    cs_basis = CSBasis(8)
+    cs_basis = GlobalCSBasis(8)
     evaluator = SphericalTransform(
         cs_basis, Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi), reg_lambda=1.0
     )
@@ -558,7 +553,7 @@ def test_grid_basis_regularization_requires_degree_metadata():
 
 def test_area_weight_defaults_use_grid_areas_or_sin_theta():
     """Default area weights use CS areas or sin(theta) grid weights."""
-    cs_basis = CSBasis(4)
+    cs_basis = GlobalCSBasis(4)
     cs_grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi, area_weights=cs_basis.unit_area)
     regular_grid = Grid(theta=np.array([30.0, 90.0, 150.0]), phi=np.array([0.0, 90.0, 180.0]))
 
@@ -570,7 +565,7 @@ def test_area_weight_defaults_use_grid_areas_or_sin_theta():
 
 def test_area_weight_option_and_explicit_weights_override():
     """Global area weighting is used only without explicit weights."""
-    cs_basis = CSBasis(4)
+    cs_basis = GlobalCSBasis(4)
     grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi, area_weights=cs_basis.unit_area)
     explicit = np.linspace(1.0, 2.0, grid.size)
 
@@ -605,7 +600,7 @@ def test_weighted_tensor_pinv_matches_explicit_weighted_least_squares():
 
 def test_csbasis_derivatives_match_first_spherical_harmonics():
     """CS derivatives match first-degree sphere functions."""
-    cs_basis = CSBasis(8)
+    cs_basis = GlobalCSBasis(8)
     grid = type("GridLike", (), {"theta": cs_basis.arr_theta, "phi": cs_basis.arr_phi})()
     theta = np.deg2rad(cs_basis.arr_theta)
     phi = np.deg2rad(cs_basis.arr_phi)
@@ -633,7 +628,7 @@ def test_csbasis_derivative_convergence_rates_are_reasonable():
     """CS finite differences show expected RMS convergence rates."""
 
     def rms_errors(N):
-        cs_basis = CSBasis(N)
+        cs_basis = GlobalCSBasis(N)
         grid = type("GridLike", (), {"theta": cs_basis.arr_theta, "phi": cs_basis.arr_phi})()
         theta = np.deg2rad(cs_basis.arr_theta)
         phi = np.deg2rad(cs_basis.arr_phi)
@@ -675,7 +670,7 @@ def test_csbasis_derivative_convergence_rates_are_reasonable():
 
 def test_csbasis_mean_free_projection_is_area_weighted_and_operator_preserving():
     """CS scalar gauges use an area-weighted mean-free projection."""
-    cs_basis = CSBasis(8)
+    cs_basis = GlobalCSBasis(8)
     rng = np.random.default_rng(20260520)
     values = rng.standard_normal(cs_basis.index_length) + 3.0
     projected = cs_basis.project_scalar_mean_free(values)
@@ -706,7 +701,7 @@ def test_csbasis_mean_free_projection_preserves_jax_arrays():
     previous_backend = use_jax()
     try:
         set_backend("jax")
-        cs_basis = CSBasis(4)
+        cs_basis = GlobalCSBasis(4)
         values = to_jax(np.arange(cs_basis.index_length, dtype=float))
 
         projected = cs_basis.project_scalar_mean_free(values)
@@ -723,7 +718,7 @@ def test_csbasis_surface_operators_preserve_jax_inputs():
     previous_backend = use_jax()
     try:
         set_backend("jax")
-        cs_basis = CSBasis(4)
+        cs_basis = GlobalCSBasis(4)
         grid = type(
             "GridLike", (), {"theta": to_jax(cs_basis.arr_theta), "phi": to_jax(cs_basis.arr_phi)}
         )()
@@ -826,7 +821,7 @@ def test_shbasis_mean_free_view_slices_parent_operators():
 
 def test_basis_view_slices_cs_surface_operators():
     """Generic basis views also slice CS coefficient-space operators."""
-    cs_basis = CSBasis(8)
+    cs_basis = GlobalCSBasis(8)
     indices = np.arange(0, cs_basis.index_length, 2)
     view = BasisView(cs_basis, indices, view_name="even")
     grid = type("GridLike", (), {"theta": cs_basis.arr_theta, "phi": cs_basis.arr_phi})()
@@ -885,7 +880,7 @@ def test_spherical_transform_reuses_sh_evaluation_context(monkeypatch):
 
 def test_csbasis_reuses_native_operator_cache():
     """Native CS surface operators are cached on the basis."""
-    cs_basis = CSBasis(8)
+    cs_basis = GlobalCSBasis(8)
     grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
     same_grid = Grid(theta=cs_basis.arr_theta.copy(), phi=cs_basis.arr_phi.copy())
 

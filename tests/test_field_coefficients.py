@@ -2,14 +2,14 @@
 
 import numpy as np
 import pytest
+from kompe import GlobalCSBasis, Grid, SHBasis
 
 from pynamit.fields import FieldCoefficients, FieldSpace
-from pynamit.sphere import CSBasis, Grid, SHBasis
 
 
 def test_field_coefficients_applies_scalar_mean_free_projection():
     """FieldCoefficients applies scalar mean-free semantics."""
-    basis = CSBasis(4)
+    basis = GlobalCSBasis(4)
     field_space = FieldSpace(basis, field_type="scalar", mean_free=True)
     coeffs = np.linspace(0.0, 1.0, basis.index_length) + 2.0
 
@@ -26,7 +26,7 @@ def test_field_coefficients_applies_scalar_mean_free_projection():
 
 def test_field_coefficients_preserves_tangential_shape():
     """Tangential coefficient fields keep their two-component layout."""
-    basis = CSBasis(4)
+    basis = GlobalCSBasis(4)
     field_space = FieldSpace(basis, field_type="tangential", mean_free=True)
     coeffs = np.vstack(
         [

@@ -12,12 +12,14 @@ import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
 import numpy as np
 from dipole import Dipole
+from kompe import GlobalCSBasis, Grid
+from kompe.constants import EARTH_RADIUS_M
+from kompe.math import identity_linear_map
+from kompe.spherical_transform import SphericalTransform
 from polplot import Polarplot
 
 from pynamit.fields import FieldCoefficients, FieldSpace
 from pynamit.geomagnetism import MagneticFieldEvaluation
-from pynamit.math import identity_linear_map
-from pynamit.math.constants import RE
 from pynamit.simulation.config import setting_value
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     electric_field_on_grid,
@@ -25,8 +27,6 @@ from pynamit.simulation.electrodynamics.ionospheric_closure import (
     pedersen_geometry_tensor,
     resistance_tensor_on_grid,
 )
-from pynamit.sphere import CSBasis, Grid
-from pynamit.sphere.spherical_transform import SphericalTransform
 from pynamit.visualization.field_maps import (
     evaluate_conductance_coefficients,
     evaluate_JS_from_maps,
@@ -130,7 +130,7 @@ class PynamEye:
         self.dp = Dipole(self.main_field_epoch)
 
         # Set up cubed sphere grid for vector plotting.
-        self.vector_cs_basis = CSBasis(NCS_plot)
+        self.vector_cs_basis = GlobalCSBasis(NCS_plot)
         k, i, j = self.vector_cs_basis.get_gridpoints(NCS_plot)
         # Crop to skip duplicate points.
         arr_xi = self.vector_cs_basis.xi(i[:, :-1, :-1] + 0.5, NCS_plot).reshape(-1)
@@ -177,12 +177,12 @@ class PynamEye:
         )
         if self.config.main_field_kind.lower() == "igrf":
             # Define a grid, then mask depending on mlatmin.
-            self.apx = apexpy.Apex(self.main_field_epoch, refh=(self.RI - RE) * 1e-3)
+            self.apx = apexpy.Apex(self.main_field_epoch, refh=(self.RI - EARTH_RADIUS_M) * 1e-3)
             self.lat_n, self.lon_n, _ = self.apx.apex2geo(
-                self.mlat, self.mlon, (self.RI - RE) * 1e-3
+                self.mlat, self.mlon, (self.RI - EARTH_RADIUS_M) * 1e-3
             )
             self.lat_s, self.lon_s, _ = self.apx.apex2geo(
-                -self.mlat, self.mlon, (self.RI - RE) * 1e-3
+                -self.mlat, self.mlon, (self.RI - EARTH_RADIUS_M) * 1e-3
             )
             self.polar_grid_n = Grid(lat=self.lat_n, lon=self.lon_n)
             self.polar_grid_s = Grid(lat=self.lat_s, lon=self.lon_s)

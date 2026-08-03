@@ -2,8 +2,9 @@
 
 import matplotlib.pyplot as plt
 import polplot
+from kompe import GlobalCSBasis
 
-from pynamit import CSBasis, MainField
+from pynamit import MainField
 
 RE = 6371.2e3
 
@@ -13,7 +14,7 @@ r_dest = RE
 fig, axes = plt.subplots(ncols=3, figsize=(15, 5))
 paxes = [polplot.Polarplot(ax) for ax in axes]
 
-cs_basis = CSBasis(N=20)
+cs_basis = GlobalCSBasis(N=20)
 
 lat, lon = 90 - cs_basis.arr_theta, cs_basis.arr_phi
 mask = lat > 50

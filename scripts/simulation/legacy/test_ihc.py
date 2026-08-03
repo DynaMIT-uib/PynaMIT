@@ -1,6 +1,7 @@
 """Script to check if the interhemispheric connection works."""
 
 from importlib import reload
+import kompe
 import pynamit
 import dipole
 import numpy as np
@@ -114,19 +115,19 @@ simulation.response.update_E()
 # Set up plotting grid and evaluators.
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
-plt_grid = pynamit.Grid(lat=lat, lon=lon)
+plt_grid = kompe.Grid(lat=lat, lon=lon)
 state_field_space = pynamit.FieldSpace.from_representation(
     simulation.geometry.horizontal_basis, field_type="scalar"
 )
-plt_state_evaluator = pynamit.SphericalTransform(state_field_space.representation, plt_grid)
+plt_state_evaluator = kompe.SphericalTransform(state_field_space.representation, plt_grid)
 
 G_Br = plt_state_evaluator.contract_scalar_coeffs_to_grid(simulation.response.m_ind_to_Br)
 Br = G_Br.dot(simulation.geometry.pfac_coupling_matrix.dot(simulation.response.m_imp.array))
 
 
 if PLOT_WIND:
-    u_spherical_transform = pynamit.SphericalTransform(
-        state_field_space.representation, pynamit.Grid(lat=u_lat, lon=u_lon)
+    u_spherical_transform = kompe.SphericalTransform(
+        state_field_space.representation, kompe.Grid(lat=u_lat, lon=u_lon)
     )
     scalar_state_space = pynamit.FieldSpace(simulation.geometry.horizontal_basis, field_type="scalar")
 

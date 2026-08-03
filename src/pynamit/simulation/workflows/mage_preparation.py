@@ -36,11 +36,11 @@ from typing import Any
 
 import h5py
 import numpy as np
+from kompe.constants import EARTH_RADIUS_M
 
 from pynamit.coordinates import wrap_longitude_180
 from pynamit.geomagnetism import MainField, decimal_year
 from pynamit.geomagnetism.kaiju_geopack import kaiju_geopack_sm
-from pynamit.math.constants import RE
 
 # Prepared-forcing contract
 IONOSPHERE_RADIUS_M = 6.5e6
@@ -116,7 +116,7 @@ def _pynamit_dipole_B0_T(mag_m0_nT: float, length_scale_m: float) -> float:
         raise ValueError("GAMERA MagM0 must be finite and nonzero.")
     if not np.isfinite(length_scale_m) or length_scale_m <= 0.0:
         raise ValueError("GAMERA length scale must be finite and positive.")
-    return abs(float(mag_m0_nT)) * 1e-9 * (float(length_scale_m) / RE) ** 3
+    return abs(float(mag_m0_nT)) * 1e-9 * (float(length_scale_m) / EARTH_RADIUS_M) ** 3
 
 
 def _centered_dipole_alignment_attrs(event_time: dt.datetime, mag_m0_nT: float) -> dict[str, Any]:
@@ -1602,7 +1602,7 @@ def _write_static_datasets(
         output.attrs[name] = value
     output.attrs["gamera_mag_m0_nT"] = float(mag_m0_nT)
     output.attrs["main_field_B0_T"] = _pynamit_dipole_B0_T(mag_m0_nT, length_scale_m)
-    output.attrs["main_field_B0_reference_radius_m"] = RE
+    output.attrs["main_field_B0_reference_radius_m"] = EARTH_RADIUS_M
 
 
 def _validate_settings(settings: PreparationSettings) -> None:

@@ -1,8 +1,7 @@
 """Analytic checks for cubed-sphere surface differentiation."""
 
 import numpy as np
-
-from pynamit.sphere import CSBasis, Grid
+from kompe import GlobalCSBasis, Grid
 
 
 def _weighted_rms(values, weights):
@@ -81,7 +80,7 @@ def _analytic_surface_cases(theta_deg, phi_deg):
 
 def test_csbasis_differentiates_low_degree_spherical_harmonics():
     """CS derivative matrices match analytic l=1 and l=2 harmonics."""
-    cs_basis = CSBasis(16)
+    cs_basis = GlobalCSBasis(16)
     grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
     weights = cs_basis.unit_area
 
@@ -110,7 +109,7 @@ def test_csbasis_differentiates_low_degree_spherical_harmonics():
 
 def test_csbasis_vector_surface_operators_match_analytic_composition():
     """Gradient, rotated gradient, and Helmholtz signs are correct."""
-    cs_basis = CSBasis(16)
+    cs_basis = GlobalCSBasis(16)
     grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
     weights = cs_basis.unit_area
     cases = _analytic_surface_cases(cs_basis.arr_theta, cs_basis.arr_phi)
@@ -142,7 +141,7 @@ def test_csbasis_differentiation_errors_converge_for_smooth_harmonics():
     """CS derivative errors converge for smooth l=1 and l=2 fields."""
 
     def aggregate_errors(N):
-        cs_basis = CSBasis(N)
+        cs_basis = GlobalCSBasis(N)
         grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
         weights = cs_basis.unit_area
 
@@ -183,7 +182,7 @@ def test_csbasis_laplacian_integrates_to_zero_and_satisfies_green_identity():
     """CS areas and derivatives satisfy integral identities."""
 
     def residuals(N):
-        cs_basis = CSBasis(N)
+        cs_basis = GlobalCSBasis(N)
         grid = Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
         weights = cs_basis.unit_area
         laplacian = cs_basis.laplacian()

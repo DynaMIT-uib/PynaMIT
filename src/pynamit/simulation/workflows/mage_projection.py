@@ -15,11 +15,13 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from kompe import Grid
+from kompe.constants import EARTH_RADIUS_M
+from kompe.spherical_transform import grid_sqrt_area_weights
 
 import pynamit
 from pynamit.coordinates import wrap_longitude_180
 from pynamit.geomagnetism import MagneticFieldEvaluation, MainField, decimal_year
-from pynamit.math.constants import RE
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     electric_field_from_weighted_winds,
     resistance_from_log_conductance_coordinates,
@@ -42,7 +44,6 @@ from pynamit.simulation.workflows.prepared_inputs import (
     clear_prepared_input_package,
     write_input_manifest,
 )
-from pynamit.sphere.spherical_transform import grid_sqrt_area_weights
 
 MAGE_MAIN_FIELD_KIND = "kaiju_dipole"
 
@@ -247,7 +248,7 @@ def _validate_prepared_forcing(h5_file: Any) -> None:
         )
     reference_radius = float(h5_file.attrs["main_field_B0_reference_radius_m"])
     if not np.isfinite(reference_radius) or not np.isclose(
-        reference_radius, RE, rtol=0.0, atol=1e-6
+        reference_radius, EARTH_RADIUS_M, rtol=0.0, atol=1e-6
     ):
         raise RuntimeError(
             "Prepared MAGE main_field_B0_T must use PynaMIT's dipole reference radius."
@@ -572,8 +573,8 @@ class _MageInputProjector:
         self,
         *,
         simulation: pynamit.Simulation,
-        ionosphere_grid: pynamit.Grid,
-        magnetosphere_grid: pynamit.Grid,
+        ionosphere_grid: Grid,
+        magnetosphere_grid: Grid,
         boundary_Br_lambda: float,
         conductance_lambda: float,
         boundary_jr_lambda: float,
@@ -770,7 +771,7 @@ def project_inputs(
             alignment = main_field.alignment_metadata(event_time)
             ionosphere_lat = np.asarray(file["ionosphere_lat"][:], dtype=float)
             ionosphere_lon = wrap_longitude_180(file["ionosphere_lon"][:])
-            ionosphere_grid = pynamit.Grid(lat=ionosphere_lat, lon=ionosphere_lon)
+            ionosphere_grid = Grid(lat=ionosphere_lat, lon=ionosphere_lon)
 
             magnetosphere_lat = np.asarray(file["boundary_lat"][:], dtype=float)
             magnetosphere_lon = wrap_longitude_180(file["boundary_lon"][:])
@@ -783,7 +784,7 @@ def project_inputs(
                 raise RuntimeError(
                     "Prepared MAGE boundary solid angles must cover the complete sphere."
                 )
-            magnetosphere_grid = pynamit.Grid(
+            magnetosphere_grid = Grid(
                 lat=magnetosphere_lat, lon=magnetosphere_lon, area_weights=boundary_solid_angle
             )
 

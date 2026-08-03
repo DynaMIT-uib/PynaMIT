@@ -23,10 +23,10 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from kompe.constants import EARTH_RADIUS_M
 
 import pynamit
 from pynamit.geomagnetism.main_field import decimal_year
-from pynamit.math.constants import RE
 from pynamit.simulation.config import dipole_fac_integration_radii
 from pynamit.simulation.schema import INPUT_DATASET_KEYS
 from pynamit.simulation.workflows.prepared_inputs import (
@@ -38,7 +38,7 @@ from pynamit.simulation.workflows.prepared_inputs import (
 )
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-RI = RE + 110e3
+RI = EARTH_RADIUS_M + 110e3
 
 
 @dataclass(frozen=True)
@@ -134,8 +134,8 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
     jr_lat = simulation.geometry.model_grid.lat
     jr_lon = simulation.geometry.model_grid.lon
     dipole_model = dipole.Dipole(settings.date.year)
-    apex = apexpy.Apex(refh=(RI - RE) * 1e-3, date=settings.date.year)
-    mlat, mlon = apex.geo2apex(jr_lat, jr_lon, (RI - RE) * 1e-3)
+    apex = apexpy.Apex(refh=(RI - EARTH_RADIUS_M) * 1e-3, date=settings.date.year)
+    mlat, mlon = apex.geo2apex(jr_lat, jr_lon, (RI - EARTH_RADIUS_M) * 1e-3)
     mlt = dipole_model.mlon2mlt(mlon, settings.date)
     amps = pyamps.AMPS(400, 5, -5, dipole_model.tilt(settings.date), 100, minlat=50)
     jr = amps.get_upward_current(mlat=mlat, mlt=mlt) * 1e-6

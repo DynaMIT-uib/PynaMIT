@@ -1,6 +1,7 @@
 """Simulation."""
 
 import numpy as np
+import kompe
 import pynamit
 import dipole
 import datetime
@@ -80,8 +81,8 @@ r = np.sqrt(x_c**2.0 + y_c**2.0 + z_c**2.0)
 theta = np.rad2deg(np.arctan2(np.sqrt(x_c**2 + y_c**2), z_c))
 phi = np.rad2deg(np.arctan2(y_c, x_c))
 
-Br_grid = pynamit.Grid(theta=theta.flatten(), phi=phi.flatten())
-Br_spherical_transform = pynamit.SphericalTransform(
+Br_grid = kompe.Grid(theta=theta.flatten(), phi=phi.flatten())
+Br_spherical_transform = kompe.SphericalTransform(
     state_field_space.representation,
     Br_grid,
     sqrt_weights=np.sqrt(np.sin(np.deg2rad(theta.flatten()))),
@@ -128,9 +129,9 @@ for step in range(0, nstep):
 
     plt_lat, plt_lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)
     plt_lat, plt_lon = np.meshgrid(plt_lat, plt_lon)
-    plt_grid = pynamit.Grid(lat=plt_lat, lon=plt_lon)
-    plt_evaluator = pynamit.SphericalTransform(state_field_space.representation, plt_grid)
-    conductance_plt_evaluator = pynamit.SphericalTransform(
+    plt_grid = kompe.Grid(lat=plt_lat, lon=plt_lon)
+    plt_evaluator = kompe.SphericalTransform(state_field_space.representation, plt_grid)
+    conductance_plt_evaluator = kompe.SphericalTransform(
         conductance_field_space.representation, plt_grid
     )
 
@@ -295,7 +296,7 @@ for step in range(0, nstep):
     )
 
     # Get and set jr input.
-    grid = pynamit.Grid(
+    grid = kompe.Grid(
         theta=full_theta_padded_centered.flatten(), phi=full_phi_padded_centered.flatten()
     )
     field_evaluation = pynamit.MagneticFieldEvaluation(simulation.geometry.main_field, grid, RI)
@@ -325,7 +326,7 @@ for step in range(0, nstep):
         plot_global_polar_map(
             plt_lon,
             plt_lat,
-            pynamit.SphericalTransform(
+            kompe.SphericalTransform(
                 simulation.response.jr.field_space.representation, plt_grid
             )
             .synthesize_scalar(simulation.response.jr)
@@ -484,8 +485,8 @@ for step in range(0, nstep):
 
         lat, lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)
         lat, lon = np.meshgrid(lat, lon)
-        plt_grid = pynamit.Grid(lat=lat, lon=lon)
-        plt_evaluator = pynamit.SphericalTransform(
+        plt_grid = kompe.Grid(lat=lat, lon=lon)
+        plt_evaluator = kompe.SphericalTransform(
             simulation.response.jr.field_space.representation, plt_grid
         )
 

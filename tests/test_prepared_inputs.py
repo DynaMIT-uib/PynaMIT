@@ -5,9 +5,9 @@ import shutil
 
 import numpy as np
 import pytest
+from kompe.constants import EARTH_RADIUS_M
 
 from pynamit.geomagnetism import MainField
-from pynamit.math.constants import RE
 from pynamit.simulation.api import Simulation
 from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.workflows import prepared_inputs as prepared_inputs_module
@@ -303,7 +303,7 @@ def test_prepare_and_run_from_inputs_smoke(tmp_path):
         run_directory=run_directory,
         final_time=0.0,
         dt=0.01,
-        RM=2 * RE,
+        RM=2 * EARTH_RADIUS_M,
         sampling_step_interval=2,
         saving_sample_interval=1,
         artifact_storage="netcdf",
@@ -326,7 +326,7 @@ def test_prepare_and_run_from_inputs_smoke(tmp_path):
         enabled_inputs=("conductance",),
         final_time=0.0,
         dt=0.01,
-        RM=2 * RE,
+        RM=2 * EARTH_RADIUS_M,
         saving_sample_interval=1,
         artifact_storage="netcdf",
     )
@@ -346,7 +346,7 @@ def test_run_from_inputs_rejects_changed_input_identity(tmp_path):
         input_directory,
         run_directory=run_directory,
         final_time=0.0,
-        RM=2 * RE,
+        RM=2 * EARTH_RADIUS_M,
         artifact_storage="netcdf",
     )
 
@@ -356,7 +356,7 @@ def test_run_from_inputs_rejects_changed_input_identity(tmp_path):
             run_directory=run_directory,
             enabled_inputs=("conductance",),
             final_time=0.0,
-            RM=2 * RE,
+            RM=2 * EARTH_RADIUS_M,
             artifact_storage="netcdf",
         )
 
@@ -375,7 +375,7 @@ def test_run_from_inputs_allows_prepared_package_relocation(tmp_path):
         input_directory,
         run_directory=run_directory,
         final_time=0.0,
-        RM=2 * RE,
+        RM=2 * EARTH_RADIUS_M,
         artifact_storage="netcdf",
     )
     shutil.copytree(input_directory, relocated_directory)
@@ -384,7 +384,7 @@ def test_run_from_inputs_allows_prepared_package_relocation(tmp_path):
         relocated_directory,
         run_directory=run_directory,
         final_time=0.0,
-        RM=2 * RE,
+        RM=2 * EARTH_RADIUS_M,
         artifact_storage="netcdf",
         skip_completed=True,
     )
@@ -403,7 +403,7 @@ def test_run_from_inputs_skips_completed_run_before_geometry(monkeypatch, tmp_pa
         input_directory,
         run_directory=run_directory,
         final_time=0.0,
-        RM=2 * RE,
+        RM=2 * EARTH_RADIUS_M,
         artifact_storage="netcdf",
     )
 
@@ -416,7 +416,7 @@ def test_run_from_inputs_skips_completed_run_before_geometry(monkeypatch, tmp_pa
         input_directory,
         run_directory=run_directory,
         final_time=0.0,
-        RM=2 * RE,
+        RM=2 * EARTH_RADIUS_M,
         artifact_storage="netcdf",
         skip_completed=True,
     )
@@ -443,7 +443,7 @@ def test_run_from_inputs_validates_batch_options_before_skipping(tmp_path, kwarg
         run_pynamit_from_inputs(
             input_directory,
             run_directory=tmp_path / "run",
-            RM=2 * RE,
+            RM=2 * EARTH_RADIUS_M,
             artifact_storage="netcdf",
             **kwargs,
         )

@@ -9,10 +9,10 @@ import datetime as dt
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
 import numpy as np
+from kompe import Grid
+from kompe.spherical_transform import SphericalTransform
 
 from pynamit.geomagnetism import MagneticFieldEvaluation
-from pynamit.sphere import Grid
-from pynamit.sphere.spherical_transform import SphericalTransform
 from pynamit.visualization.grid_evaluation import model_grid_for_geographic_display
 from pynamit.visualization.hemisphere import (
     DEFAULT_HEMISPHERE_MIN_ABS_LATITUDE,
