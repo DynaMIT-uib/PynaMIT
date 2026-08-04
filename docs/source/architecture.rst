@@ -328,6 +328,16 @@ standard runs, prepared forcing, and MAGE/GAMERA projection. Scripts under
 settings, paths, and directory naming while delegating reusable validation and
 numerical work to package modules.
 
+The default empirical scalar-input adapters use geocentric geographic
+sample positions as their common boundary. The Hardy adapter calls Lompe with
+``dipole=False``, allowing Hardy to derive its date-dependent magnetic
+coordinates while retaining the correct geographic positions for solar
+illumination. The AMPS adapter converts the same GEO positions to modified-apex
+latitude and longitude at 110 km and uses pyAMPS's magnetic-local-time
+conversion. The resulting values are attached to the original model-grid
+coordinates, which denote the same physical positions in the simulation's
+horizontal chart. Bundled scalar fallback grids follow the same GEO contract.
+
 The MAGE workflow has three stages with different reuse boundaries.
 ``mage_prepare.py`` owns optional Kaiju, NetCDF, and HDF5 access, signed GAMERA
 dipole-axis interpretation, time-dependent external-coordinate conversion, and

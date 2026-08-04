@@ -24,7 +24,6 @@ from pynamit.external_inputs import (
     get_jr_inputs,
     get_wind_inputs,
 )
-from pynamit.geomagnetism import MainField, decimal_year
 from pynamit.simulation.api import Simulation
 from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.runner import SimulationRunner
@@ -92,23 +91,6 @@ def _wind_to_model_coordinates(main_field, u_theta, u_phi, lat, lon):
         vector_lat, vector_lon, east=u_phi, north=-u_theta
     )
     return -model_north, model_east, model_lat, model_lon
-
-
-def _empirical_dipole_coordinates_for_model_grid(main_field, event_time, model_lat, model_lon):
-    """Return event-dipole coordinates for positions on a model grid.
-
-    The native Hardy and AMPS inputs are evaluated in centered-dipole
-    magnetic coordinates tied to the event epoch. The simulation grid
-    may instead use IGRF/GEO or a centered dipole from another epoch,
-    so positions must pass through GEO before model evaluation.
-    """
-    geo_lat, geo_lon = main_field.model_to_geo_coordinates(model_lat, model_lon)
-    empirical_dipole = MainField(
-        kind="dipole",
-        epoch=decimal_year(event_time),
-        ionosphere_height_km=main_field.ionosphere_height_km,
-    )
-    return empirical_dipole.geo_to_model_coordinates(geo_lat, geo_lon, event_time=event_time)
 
 
 def input_projection_settings(config_or_settings: Any) -> dict[str, Any]:
@@ -646,35 +628,40 @@ def prepare_pynamit_inputs(
 
     model_lat = simulation.geometry.model_grid.lat
     model_lon = simulation.geometry.model_grid.lon
-    native_empirical_inputs = get_input_source() == "native"
-    if native_empirical_inputs:
-        query_lat, query_lon = _empirical_dipole_coordinates_for_model_grid(
-            simulation.geometry.main_field, event_time, model_lat, model_lon
-        )
-    else:
-        # Bundled fallback values are indexed directly by their stored
-        # synthetic grid and are not an empirical coordinate model.
-        query_lat, query_lon = model_lat, model_lon
-    hall, pedersen, returned_lat, returned_lon = get_conductance_inputs(
-        event_time, query_lat, query_lon, time
+    geo_lat, geo_lon = simulation.geometry.main_field.model_to_geo_coordinates(
+        model_lat,
+        model_lon,
+        event_time=event_time,
     )
-    conductance_lat = model_lat if native_empirical_inputs else returned_lat
-    conductance_lon = model_lon if native_empirical_inputs else returned_lon
+
+    hall, pedersen, _, _ = get_conductance_inputs(
+        event_time,
+        geo_lat,
+        geo_lon,
+        time,
+    )
     simulation.set_conductance(
         hall,
         pedersen,
-        lat=conductance_lat,
-        lon=conductance_lon,
+        lat=model_lat,
+        lon=model_lon,
         reg_lambda=conductance_lambda,
         time=time,
     )
 
     if use_boundary_jr:
-        jr, returned_lat, returned_lon = get_jr_inputs(event_time, query_lat, query_lon, time)
-        jr_lat = model_lat if native_empirical_inputs else returned_lat
-        jr_lon = model_lon if native_empirical_inputs else returned_lon
+        boundary_jr, _, _ = get_jr_inputs(
+            event_time,
+            geo_lat,
+            geo_lon,
+            time,
+        )
         simulation.set_boundary_jr(
-            jr, lat=jr_lat, lon=jr_lon, reg_lambda=boundary_jr_lambda, time=time
+            boundary_jr,
+            lat=model_lat,
+            lon=model_lon,
+            reg_lambda=boundary_jr_lambda,
+            time=time,
         )
 
     wind_inputs = get_wind_inputs(event_time, use_wind=use_wind, time=time)

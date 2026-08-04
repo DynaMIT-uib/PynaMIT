@@ -26,6 +26,7 @@ import numpy as np
 from kompe.constants import EARTH_RADIUS_M
 
 import pynamit
+from pynamit.geomagnetism import decimal_year
 from pynamit.geomagnetism.main_field import decimal_year
 from pynamit.simulation.config import dipole_fac_integration_radii
 from pynamit.simulation.schema import INPUT_DATASET_KEYS
@@ -134,12 +135,12 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
     jr_lat = simulation.geometry.model_grid.lat
     jr_lon = simulation.geometry.model_grid.lon
     dipole_model = dipole.Dipole(settings.date.year)
-    apex = apexpy.Apex(refh=(RI - EARTH_RADIUS_M) * 1e-3, date=settings.date.year)
+    apex = apexpy.Apex(refh=(RI - EARTH_RADIUS_M) * 1e-3, date=settings.date)
     mlat, mlon = apex.geo2apex(jr_lat, jr_lon, (RI - EARTH_RADIUS_M) * 1e-3)
-    mlt = dipole_model.mlon2mlt(mlon, settings.date)
+    mlt = pyamps.mlon_to_mlt(mlon, settings.date, decimal_year(settings.date))
     amps = pyamps.AMPS(400, 5, -5, dipole_model.tilt(settings.date), 100, minlat=50)
     jr = amps.get_upward_current(mlat=mlat, mlt=mlt) * 1e-6
-    jr[np.abs(jr_lat) < 50] = 0.0
+    jr[np.abs(mlat) < 50] = 0.0
     simulation.set_boundary_jr(jr, lat=jr_lat, lon=jr_lon, reg_lambda=settings.boundary_jr_lambda)
 
     hwm14 = pyhwm2014.HWM142D(

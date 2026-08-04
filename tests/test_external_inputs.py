@@ -1,9 +1,12 @@
 """Tests for external input handling with fallback datasets."""
 
 import datetime
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
+
+import pynamit.external_inputs as external_inputs_module
 
 from pynamit.external_inputs import (
     _expand_time_series,
@@ -21,6 +24,121 @@ from pynamit.external_inputs import (
 def _utc_now():
     """Return a timezone-aware UTC datetime for input-source calls."""
     return datetime.datetime.now(datetime.UTC)
+
+
+def test_native_conductance_uses_geographic_coordinates(monkeypatch):
+    """Hardy receives GEO positions and performs its own conversion."""
+    captured = {}
+
+    class FakeConductance:
+        @staticmethod
+        def hardy_EUV(lon, lat, kp, date, *, starlight, dipole):
+            captured.update(
+                lon=np.asarray(lon).copy(),
+                lat=np.asarray(lat).copy(),
+                kp=kp,
+                date=date,
+                starlight=starlight,
+                dipole=dipole,
+            )
+            values = np.ones(np.asarray(lat).shape)
+            return values, 2.0 * values
+
+    monkeypatch.setattr(external_inputs_module, "get_input_source", lambda: "native")
+    monkeypatch.setattr(
+        external_inputs_module,
+        "_load_optional_module",
+        lambda _name, _package: FakeConductance,
+    )
+
+    date = datetime.datetime(2001, 5, 12, 21, 45)
+    geo_lat = np.array([20.0, 60.0])
+    geo_lon = np.array([-30.0, 80.0])
+    hall, pedersen, out_lat, out_lon = get_conductance_inputs(
+        date,
+        geo_lat,
+        geo_lon,
+        None,
+    )
+
+    assert captured["dipole"] is False
+    assert captured["kp"] == 5
+    np.testing.assert_allclose(captured["lat"], geo_lat)
+    np.testing.assert_allclose(captured["lon"], geo_lon)
+    np.testing.assert_allclose(hall, 1.0)
+    np.testing.assert_allclose(pedersen, 2.0)
+    np.testing.assert_allclose(out_lat, geo_lat)
+    np.testing.assert_allclose(out_lon, geo_lon)
+
+
+def test_native_jr_converts_geo_to_modified_apex_and_pyamps_mlt(monkeypatch):
+    """AMPS receives modified-apex latitude and its own MLT convention."""
+    captured = {}
+
+    class FakeApex:
+        def __init__(self, *, date, refh):
+            captured["apex_date"] = date
+            captured["apex_refh"] = refh
+
+        def geo2apex(self, lat, lon, height):
+            captured["geo"] = (
+                np.asarray(lat).copy(),
+                np.asarray(lon).copy(),
+                height,
+            )
+            return np.asarray(lat) + 5.0, np.asarray(lon) + 10.0
+
+    class FakeAMPS:
+        def __init__(self, *args, **kwargs):
+            captured["amps_init"] = (args, kwargs)
+
+        def get_upward_current(self, *, mlat, mlt):
+            captured["amps_query"] = (
+                np.asarray(mlat).copy(),
+                np.asarray(mlt).copy(),
+            )
+            return np.ones(np.asarray(mlat).shape)
+
+    def fake_mlon_to_mlt(mlon, date, epoch):
+        captured["mlt_conversion"] = (
+            np.asarray(mlon).copy(),
+            date,
+            epoch,
+        )
+        return np.asarray(mlon) / 15.0
+
+    fake_pyamps = SimpleNamespace(
+        __file__="/tmp/pyamps/__init__.py",
+        AMPS=FakeAMPS,
+        mlon_to_mlt=fake_mlon_to_mlt,
+    )
+
+    monkeypatch.setattr(external_inputs_module, "get_input_source", lambda: "native")
+    monkeypatch.setattr(
+        external_inputs_module,
+        "_load_optional_module",
+        lambda _name, _package: fake_pyamps,
+    )
+    monkeypatch.setattr(external_inputs_module.apexpy, "Apex", FakeApex)
+
+    date = datetime.datetime(2001, 5, 12, 21, 45)
+    geo_lat = np.array([-70.0, 20.0])
+    geo_lon = np.array([-30.0, 80.0])
+    jr, out_lat, out_lon = get_jr_inputs(date, geo_lat, geo_lon, None)
+
+    expected_mlat = geo_lat + 5.0
+    expected_mlon = geo_lon + 10.0
+    np.testing.assert_allclose(captured["geo"][0], geo_lat)
+    np.testing.assert_allclose(captured["geo"][1], geo_lon)
+    assert captured["geo"][2] == 110.0
+    np.testing.assert_allclose(captured["mlt_conversion"][0], expected_mlon)
+    assert captured["mlt_conversion"][1] == date
+    assert captured["mlt_conversion"][2] == external_inputs_module.decimal_year(date)
+    np.testing.assert_allclose(captured["amps_query"][0], expected_mlat)
+    np.testing.assert_allclose(captured["amps_query"][1], expected_mlon / 15.0)
+    np.testing.assert_allclose(jr, [1e-6, 0.0])
+    np.testing.assert_allclose(out_lat, geo_lat)
+    np.testing.assert_allclose(out_lon, geo_lon)
 
 
 @pytest.fixture
@@ -139,7 +257,8 @@ def test_fallback_roundtrip(tmp_path):
     assert saved_path == destination
 
     payload = _load_fallback(saved_path)
-    assert payload["version"] == 2
+    assert payload["version"] == 3
+    assert payload["coordinate_system"] == "GEO"
     np.testing.assert_allclose(payload["time"], time)
 
     wind = payload["wind"]

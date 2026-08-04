@@ -20,7 +20,6 @@ from pynamit.external_inputs import (
 from pynamit.simulation.api import Simulation
 from pynamit.simulation.workflows.prepared_inputs import (
     _DEFAULT_INPUT_TIME,
-    _empirical_dipole_coordinates_for_model_grid,
 )
 
 OUTPUT = Path("src/pynamit/data/fallback_inputs.json")
@@ -45,7 +44,8 @@ def main():
     event_time = _DEFAULT_INPUT_TIME
 
     payload = {
-        "version": 2,
+        "version": 3,
+        "coordinate_system": "GEO",
         "time": [0.0],
         "conductance": {},
         "jr": {},
@@ -75,39 +75,35 @@ def main():
             model_lat = np.asarray(simulation.geometry.model_grid.lat)
             model_lon = np.asarray(simulation.geometry.model_grid.lon)
 
-            # Reproduce the native-input coordinate path used by
-            # prepare_pynamit_inputs.
-            query_lat, query_lon = (
-                _empirical_dipole_coordinates_for_model_grid(
-                    simulation.geometry.main_field,
-                    event_time,
-                    model_lat,
-                    model_lon,
-                )
+            # Provider adapters receive geographic positions.
+            geo_lat, geo_lon = simulation.geometry.main_field.model_to_geo_coordinates(
+                model_lat,
+                model_lon,
+                event_time=event_time,
             )
 
             hall, pedersen, _, _ = get_conductance_inputs(
                 event_time,
-                query_lat,
-                query_lon,
+                geo_lat,
+                geo_lon,
                 time=None,
             )
             jr, _, _ = get_jr_inputs(
                 event_time,
-                query_lat,
-                query_lon,
+                geo_lat,
+                geo_lon,
                 time=None,
             )
 
             payload["conductance"][grid_id] = {
-                "lat": flattened(model_lat),
-                "lon": flattened(model_lon),
+                "lat": flattened(geo_lat),
+                "lon": flattened(geo_lon),
                 "hall": flattened(hall),
                 "pedersen": flattened(pedersen),
             }
             payload["jr"][grid_id] = {
-                "lat": flattened(model_lat),
-                "lon": flattened(model_lon),
+                "lat": flattened(geo_lat),
+                "lon": flattened(geo_lon),
                 "jr": flattened(jr),
             }
 

@@ -10,9 +10,9 @@ from tests import magnetic_potential_coordinate_array
 def test_multi_data():
     """Test simulation with multiple data points."""
     # Arrange.
-    expected_coeff_norm = 2.808363039271334e-08
-    expected_coeff_max = 8.167618918853933e-09
-    expected_coeff_min = -9.667516359188621e-09
+    expected_coeff_norm = 2.9529183282181408e-08
+    expected_coeff_max = 1.356796705171402e-08
+    expected_coeff_min = -9.55825458120396e-09
     expected_n_coeffs = 228
 
     # Act.

@@ -17,8 +17,11 @@ from importlib import import_module, resources
 from pathlib import Path
 from typing import Any
 
+import apexpy
 import numpy as np
 from kompe.grid import Grid
+
+from pynamit.geomagnetism import decimal_year
 
 FALLBACK_RESOURCE = resources.files("pynamit.data") / "fallback_inputs.json"
 _INPUT_SOURCE = os.environ.get("PYNAMIT_INPUT_SOURCE", "native").lower()
@@ -89,7 +92,7 @@ def set_input_source(source: str | None) -> str:
 
 
 def _read_fallback(path: os.PathLike[str] | str | None = None) -> dict[str, Any]:
-    """Read and normalize one fallback-input dataset."""
+    """Read and normalize one geographic fallback-input dataset."""
     if path is None:
         with resources.as_file(FALLBACK_RESOURCE) as resource_path:
             payload = json.loads(resource_path.read_text())
@@ -97,14 +100,15 @@ def _read_fallback(path: os.PathLike[str] | str | None = None) -> dict[str, Any]
         payload = json.loads(Path(path).read_text())
 
     if "version" not in payload:
-        # Legacy format: promote to version 2 with a single grid entry.
+        # Legacy unversioned files are interpreted as geographic samples.
         lat = np.asarray(payload["lat"])
         lon = np.asarray(payload["lon"])
         lat_grid, lon_grid = np.meshgrid(lat, lon, indexing="ij")
         flattened_lat = lat_grid.reshape(-1)
         flattened_lon = lon_grid.reshape(-1)
         payload = {
-            "version": 2,
+            "version": 3,
+            "coordinate_system": "GEO",
             "time": payload.get("time", [0.0]),
             "wind": {
                 "lat": flattened_lat.tolist(),
@@ -129,8 +133,17 @@ def _read_fallback(path: os.PathLike[str] | str | None = None) -> dict[str, Any]
             },
         }
 
+    version = int(payload.get("version", 0))
+    coordinate_system = str(payload.get("coordinate_system", "")).strip().upper()
+    if version != 3 or coordinate_system != "GEO":
+        raise RuntimeError(
+            "Fallback inputs do not use the version-3 geographic-coordinate contract. "
+            "Regenerate them with scripts/tools/regenerate_fallback_inputs.py."
+        )
+
     fallback: dict[str, Any] = {
-        "version": int(payload.get("version", 2)),
+        "version": version,
+        "coordinate_system": coordinate_system,
         "time": np.asarray(payload.get("time", [0.0])),
         "wind": {
             "lat": np.asarray(payload["wind"]["lat"]),
@@ -159,8 +172,6 @@ def _read_fallback(path: os.PathLike[str] | str | None = None) -> dict[str, Any]
 
     return fallback
 
-
-@lru_cache(maxsize=1)
 def _bundled_fallback() -> dict[str, Any]:
     """Return the process-local parsed bundled fallback data."""
     return _read_fallback()
@@ -197,7 +208,7 @@ def save_fallback_dataset(
     wind_lon: np.ndarray | None = None,
     indent: int | None = 2,
 ) -> Path:
-    """Save a fallback input dataset to a JSON file."""
+    """Save a geographic fallback-input dataset to a JSON file."""
     destination_path = Path(destination)
     destination_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -212,7 +223,8 @@ def save_fallback_dataset(
     wind_lon = np.asarray(wind_lon).reshape(-1)
 
     payload = {
-        "version": 2,
+        "version": 3,
+        "coordinate_system": "GEO",
         "time": np.asarray([0.0] if time is None else np.asarray(time).reshape(-1)).tolist(),
         "wind": {
             "lat": wind_lat.tolist(),
@@ -241,7 +253,6 @@ def save_fallback_dataset(
         json.dumps(payload, indent=indent, sort_keys=True, ensure_ascii=False)
     )
     return destination_path
-
 
 def _select_fallback_entry(
     entries: dict[str, dict[str, np.ndarray]], lat: np.ndarray, lon: np.ndarray, quantity: str
@@ -278,11 +289,18 @@ def _select_fallback_entry(
 def get_conductance_inputs(
     date: Any, lat: np.ndarray, lon: np.ndarray, time: np.ndarray | None
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Return Hall and Pedersen conductance on grid."""
+    """Return Hall and Pedersen conductance at geographic positions."""
     source = get_input_source()
     conductance = _load_optional_module("conductance", "lompe")
     if conductance is not None:
-        hall, pedersen = conductance.hardy_EUV(lon, lat, 5, date, starlight=1, dipole=True)
+        hall, pedersen = conductance.hardy_EUV(
+            lon,
+            lat,
+            5,
+            date,
+            starlight=1,
+            dipole=False,
+        )
         hall = _expand_time_series(hall, time)
         pedersen = _expand_time_series(pedersen, time)
         return hall, pedersen, lat, lon
@@ -296,26 +314,25 @@ def get_conductance_inputs(
 
     raise RuntimeError("Native conductance inputs are not available.")
 
-
 def get_jr_inputs(
     date: Any, lat: np.ndarray, lon: np.ndarray, time: np.ndarray | None
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Return upward current density on the requested grid."""
+    """Return upward current density at geographic positions."""
     source = get_input_source()
-    dipole = _load_optional_module("dipole", "dipole")
     pyamps = _load_optional_module("pyamps", "pyamps")
 
-    if dipole is not None and pyamps is not None:
-        d = dipole.Dipole(date.year)
+    if pyamps is not None:
+        apex = apexpy.Apex(date=date, refh=110.0)
+        mlat, mlon = apex.geo2apex(lat, lon, 110.0)
+        mlt = pyamps.mlon_to_mlt(mlon, date, decimal_year(date))
         coeff_path = os.path.join(
             os.path.dirname(pyamps.__file__),
             "coefficients",
             "SW_OPER_MIO_SHA_2E_00000000T000000_99999999T999999_0104.txt",
         )
         amps = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50, coeff_fn=coeff_path)
-        mlt = d.mlon2mlt(lon, date)
-        jr = amps.get_upward_current(mlat=lat, mlt=mlt) * 1e-6
-        jr[np.abs(lat) < 50] = 0
+        jr = amps.get_upward_current(mlat=mlat, mlt=mlt) * 1e-6
+        jr[np.abs(mlat) < 50] = 0
         jr = _expand_time_series(jr, time)
         return jr, lat, lon
 
@@ -326,7 +343,6 @@ def get_jr_inputs(
         return jr, entry["lat"], entry["lon"]
 
     raise RuntimeError("Native FAC/jr inputs are not available.")
-
 
 def get_wind_inputs(
     date: Any, use_wind: bool, time: np.ndarray | None

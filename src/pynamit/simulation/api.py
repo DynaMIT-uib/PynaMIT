@@ -1,5 +1,7 @@
 """User-facing assembly of a PynaMIT simulation."""
 
+import warnings
+
 import numpy as np
 from kompe.constants import EARTH_RADIUS_M
 from kompe.math import set_backend
@@ -400,6 +402,43 @@ class Simulation:
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
+        )
+
+    def set_jr(
+        self,
+        jr=None,
+        lat=None,
+        lon=None,
+        theta=None,
+        phi=None,
+        time=None,
+        sqrt_weights=None,
+        reg_lambda=None,
+        pinv_rtol=1e-15,
+        *,
+        jr_coefficients=None,
+    ):
+        """Set radial current through the historical ``set_jr`` name.
+
+        .. deprecated::
+            Use :meth:`set_boundary_jr` instead.
+        """
+        warnings.warn(
+            "Simulation.set_jr() is deprecated; use set_boundary_jr().",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.set_boundary_jr(
+            boundary_jr=jr,
+            lat=lat,
+            lon=lon,
+            theta=theta,
+            phi=phi,
+            time=time,
+            sqrt_weights=sqrt_weights,
+            reg_lambda=reg_lambda,
+            pinv_rtol=pinv_rtol,
+            boundary_jr_coefficients=jr_coefficients,
         )
 
     def set_boundary_jr(

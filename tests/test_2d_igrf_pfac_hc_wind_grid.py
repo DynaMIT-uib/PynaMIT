@@ -10,9 +10,9 @@ from tests import magnetic_potential_coordinate_array
 def test_2d_igrf_pfac_hc_wind_grid():
     """Test 2D grid-based simulation with IGRF, PFAC, HC, and wind."""
     # Arrange.
-    expected_coeff_norm = 8.539937195217714e-09
-    expected_coeff_max = 2.9383716319638394e-09
-    expected_coeff_min = -3.302945299283126e-09
+    expected_coeff_norm = 1.0591711253735865e-08
+    expected_coeff_max = 3.979552765976546e-09
+    expected_coeff_min = -2.212471690890744e-09
     expected_n_coeffs = 228
 
     # Act.

@@ -52,42 +52,59 @@ def test_geographic_wind_is_rotated_into_model_coordinates():
     np.testing.assert_allclose(model_lon, expected_lon)
 
 
-def test_empirical_scalar_inputs_use_event_dipole_coordinates():
-    """Native scalar models are queried at the same physical points."""
-    main_field = MainField(kind="dipole", epoch=2020)
-    event_time = prepared_inputs_module._DEFAULT_INPUT_TIME
-    model_lat = np.array([20.0, 60.0])
-    model_lon = np.array([-30.0, 80.0])
-
-    query_lat, query_lon = prepared_inputs_module._empirical_dipole_coordinates_for_model_grid(
-        main_field, event_time, model_lat, model_lon
-    )
-    geo_lat, geo_lon = main_field.model_to_geo_coordinates(model_lat, model_lon)
-    event_dipole = MainField(kind="dipole", epoch=prepared_inputs_module.decimal_year(event_time))
-    expected_lat, expected_lon = event_dipole.geo_to_model_coordinates(geo_lat, geo_lon)
-
-    np.testing.assert_allclose(query_lat, expected_lat)
-    np.testing.assert_allclose(query_lon, expected_lon)
-
-
-def test_native_scalar_inputs_are_stored_on_model_grid(tmp_path, monkeypatch):
-    """Keep native query coordinates out of stored coordinates."""
+def test_default_scalar_inputs_use_geographic_query_positions(tmp_path, monkeypatch):
+    """Providers receive GEO positions while PynaMIT stores model positions."""
     captured = {}
     original_set_conductance = prepared_inputs_module.Simulation.set_conductance
+    original_set_boundary_jr = prepared_inputs_module.Simulation.set_boundary_jr
 
     def fake_conductance(_date, lat, lon, _time):
-        captured["query"] = (np.asarray(lat), np.asarray(lon))
-        values = np.ones(np.asarray(lat).shape)
-        return values, values, np.asarray(lat), np.asarray(lon)
+        lat = np.asarray(lat)
+        lon = np.asarray(lon)
+        captured["conductance_query"] = (lat.copy(), lon.copy())
+        values = np.ones(lat.shape)
+        return values, values, lat, lon
+
+    def fake_boundary_jr(_date, lat, lon, _time):
+        lat = np.asarray(lat)
+        lon = np.asarray(lon)
+        captured["boundary_jr_query"] = (lat.copy(), lon.copy())
+        values = np.zeros(lat.shape)
+        return values, lat, lon
 
     def capture_set_conductance(self, *args, lat, lon, **kwargs):
-        captured["storage"] = (np.asarray(lat), np.asarray(lon))
+        captured["conductance_storage"] = (
+            np.asarray(lat).copy(),
+            np.asarray(lon).copy(),
+        )
         return original_set_conductance(self, *args, lat=lat, lon=lon, **kwargs)
 
-    monkeypatch.setattr(prepared_inputs_module, "get_input_source", lambda: "native")
-    monkeypatch.setattr(prepared_inputs_module, "get_conductance_inputs", fake_conductance)
+    def capture_set_boundary_jr(self, *args, lat, lon, **kwargs):
+        captured["boundary_jr_storage"] = (
+            np.asarray(lat).copy(),
+            np.asarray(lon).copy(),
+        )
+        return original_set_boundary_jr(self, *args, lat=lat, lon=lon, **kwargs)
+
     monkeypatch.setattr(
-        prepared_inputs_module.Simulation, "set_conductance", capture_set_conductance
+        prepared_inputs_module,
+        "get_conductance_inputs",
+        fake_conductance,
+    )
+    monkeypatch.setattr(
+        prepared_inputs_module,
+        "get_jr_inputs",
+        fake_boundary_jr,
+    )
+    monkeypatch.setattr(
+        prepared_inputs_module.Simulation,
+        "set_conductance",
+        capture_set_conductance,
+    )
+    monkeypatch.setattr(
+        prepared_inputs_module.Simulation,
+        "set_boundary_jr",
+        capture_set_boundary_jr,
     )
 
     prepared = prepare_pynamit_inputs(
@@ -96,14 +113,25 @@ def test_native_scalar_inputs_are_stored_on_model_grid(tmp_path, monkeypatch):
         Nmax=2,
         Mmax=1,
         Ncs=8,
-        use_boundary_jr=False,
+        use_boundary_jr=True,
         artifact_storage="netcdf",
     )
     model_grid = prepared.geometry.model_grid
+    expected_geo = prepared.geometry.main_field.model_to_geo_coordinates(
+        model_grid.lat,
+        model_grid.lon,
+        event_time=prepared_inputs_module._DEFAULT_INPUT_TIME,
+    )
 
-    np.testing.assert_allclose(captured["storage"][0], model_grid.lat)
-    np.testing.assert_allclose(captured["storage"][1], model_grid.lon)
-    assert not np.allclose(captured["query"][0], model_grid.lat)
+    for name in ("conductance_query", "boundary_jr_query"):
+        np.testing.assert_allclose(captured[name][0], expected_geo[0])
+        np.testing.assert_allclose(captured[name][1], expected_geo[1])
+
+    for name in ("conductance_storage", "boundary_jr_storage"):
+        np.testing.assert_allclose(captured[name][0], model_grid.lat)
+        np.testing.assert_allclose(captured[name][1], model_grid.lon)
+
+    assert not np.allclose(captured["conductance_query"][0], model_grid.lat)
 
 
 def test_prepared_input_compatibility_ignores_run_only_settings():
