@@ -328,15 +328,58 @@ standard runs, prepared forcing, and MAGE/GAMERA projection. Scripts under
 settings, paths, and directory naming while delegating reusable validation and
 numerical work to package modules.
 
-The default empirical scalar-input adapters use geocentric geographic
-sample positions as their common boundary. The Hardy adapter calls Lompe with
-``dipole=False``, allowing Hardy to derive its date-dependent magnetic
-coordinates while retaining the correct geographic positions for solar
-illumination. The AMPS adapter converts the same GEO positions to modified-apex
-latitude and longitude at 110 km and uses pyAMPS's magnetic-local-time
-conversion. The resulting values are attached to the original model-grid
-coordinates, which denote the same physical positions in the simulation's
-horizontal chart. Bundled scalar fallback grids follow the same GEO contract.
+External empirical inputs use immutable value objects with separate source,
+library-interface, and output semantics. ``ProviderSpec`` describes one
+library adapter and independently declares its request contract, output
+contract, fields, and vector basis. Hardy, AMPS, and HWM remain independently
+configurable even though their current request contracts are equal.
+
+PynaMIT's source grid is a geocentric spherical GEO grid at the ionospheric
+radius. The external libraries describe their interfaces as geographic or
+geodetic. PynaMIT deliberately applies a simple spherical-Earth approximation
+at this boundary: numerical latitude and longitude are passed through
+unchanged, and the same nominal 110-km altitude is supplied to the library.
+The approximation is centralized in ``pynamit.geodesy`` rather than being
+repeated implicitly in each adapter.
+
+``ExternalInputRequest`` owns the source grid and caches library-facing grid
+views by coordinate-contract signature. Hardy, AMPS, and HWM currently
+reference one interned ``LIBRARY_GEOGRAPHIC_110KM`` contract, so their
+identity-mapped request grid is constructed once and structurally shared.
+Changing one provider's contract later creates only the additional view needed
+by that provider.
+
+Lompe's ``hardy_EUV(..., dipole=False)`` and the AMPS adapter receive the
+shared library-facing positions before their Apex calculations. HWM is
+evaluated at the same requested positions through
+``pyhwm2014.hwm14_vectorized`` with the event's YYDDD date code and full UTC
+time. Under the spherical approximation, library east/north wind components
+map directly to PynaMIT ``u_phi`` and ``-u_theta``. HWM therefore introduces
+no separate regular grid, seam handling, or second spatial fit.
+
+All adapters return values associated with the original source-grid ordering.
+Prepared-input construction stores those values at the corresponding
+simulation model-grid nodes. Existing PynaMIT and Kompe caches consequently
+reuse compatible projection operators according to mathematical signatures
+rather than provider names.
+
+Fallback files contain a shared registry of source and library-request grids.
+Each ``ProviderDataset`` references both grid objects and its independent
+provider specification. Coordinate identities hash the full coordinate
+contract together with normalized ordered coordinate pairs. Equal contracts
+and grids are structurally shared after loading, while different contracts
+remain semantically distinct even when their numerical arrays happen to be
+equal.
+
+The optional multi-time expansion remains deliberately synthetic. It scales
+one empirical snapshot solely to exercise multi-step input storage,
+interpolation, and evolution; it is not provider time evolution.
+
+MAGE remains on its native spherical coordinate path. Preparation aligns
+GAMERA and ReMIX through Kaiju/Geopack, projection requires
+``main_field_kind='kaiju_dipole'``, and reusable runs reject projected packages
+whose saved main-field kind differs. No ellipsoidal conversion is introduced
+into the MAGE workflow or PynaMIT's spherical differential operators.
 
 The MAGE workflow has three stages with different reuse boundaries.
 ``mage_prepare.py`` owns optional Kaiju, NetCDF, and HDF5 access, signed GAMERA

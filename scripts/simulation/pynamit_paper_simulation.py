@@ -27,7 +27,6 @@ from kompe.constants import EARTH_RADIUS_M
 
 import pynamit
 from pynamit.geomagnetism import decimal_year
-from pynamit.geomagnetism.main_field import decimal_year
 from pynamit.simulation.config import dipole_fac_integration_radii
 from pynamit.simulation.schema import INPUT_DATASET_KEYS
 from pynamit.simulation.workflows.prepared_inputs import (
@@ -90,12 +89,15 @@ def _prepared_input_datasets(simulation: pynamit.Simulation) -> list[str]:
 
 
 def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
-    """Project the paper-simulation inputs into a reusable package."""
-    import apexpy
+    """Project paper inputs through the shared spherical library adapters."""
     import dipole
-    import pyamps
-    import pyhwm2014
-    from lompe import conductance
+
+    from pynamit.external_input_contracts import ExternalInputRequest
+    from pynamit.external_inputs import (
+        get_conductance_inputs,
+        get_jr_inputs,
+        get_wind_inputs,
+    )
 
     input_directory = Path(settings.input_directory).expanduser()
     input_directory.mkdir(parents=True, exist_ok=True)
@@ -119,50 +121,72 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
         t0=str(settings.date),
     )
 
-    conductance_lat = simulation.geometry.model_grid.lat
-    conductance_lon = simulation.geometry.model_grid.lon
-    hall, pedersen = conductance.hardy_EUV(
-        conductance_lon, conductance_lat, settings.kp, settings.date, starlight=1, dipole=False
+    source_lat = simulation.geometry.model_grid.lat
+    source_lon = simulation.geometry.model_grid.lon
+    request = ExternalInputRequest.from_geocentric_geo(
+        source_lat,
+        source_lon,
+        grid_id="paper-simulation-model-grid",
+        sampling_geometry={"type": "simulation_model_grid"},
+        provenance={"main_field_kind": "igrf"},
+    )
+
+    hall, pedersen, _, _ = get_conductance_inputs(
+        settings.date,
+        source_lat,
+        source_lon,
+        None,
+        request=request,
+        kp=settings.kp,
     )
     simulation.set_conductance(
         hall,
         pedersen,
-        lat=conductance_lat,
-        lon=conductance_lon,
+        lat=source_lat,
+        lon=source_lon,
         reg_lambda=settings.conductance_lambda,
     )
 
-    jr_lat = simulation.geometry.model_grid.lat
-    jr_lon = simulation.geometry.model_grid.lon
     dipole_model = dipole.Dipole(settings.date.year)
-    apex = apexpy.Apex(refh=(RI - EARTH_RADIUS_M) * 1e-3, date=settings.date)
-    mlat, mlon = apex.geo2apex(jr_lat, jr_lon, (RI - EARTH_RADIUS_M) * 1e-3)
-    mlt = pyamps.mlon_to_mlt(mlon, settings.date, decimal_year(settings.date))
-    amps = pyamps.AMPS(400, 5, -5, dipole_model.tilt(settings.date), 100, minlat=50)
-    jr = amps.get_upward_current(mlat=mlat, mlt=mlt) * 1e-6
-    jr[np.abs(mlat) < 50] = 0.0
-    simulation.set_boundary_jr(jr, lat=jr_lat, lon=jr_lon, reg_lambda=settings.boundary_jr_lambda)
-
-    hwm14 = pyhwm2014.HWM142D(
-        alt=110.0,
-        ap=[35, 35],
-        glatlim=[-88.5, 88.5],
-        glatstp=1.5,
-        glonlim=[-180.0, 180.0],
-        glonstp=3.0,
-        option=6,
-        verbose=False,
-        ut=settings.date.hour + settings.date.minute / 60,
-        day=settings.date.timetuple().tm_yday,
+    boundary_jr, _, _ = get_jr_inputs(
+        settings.date,
+        source_lat,
+        source_lon,
+        None,
+        request=request,
+        amps_parameters=(
+            400.0,
+            5.0,
+            -5.0,
+            float(dipole_model.tilt(settings.date)),
+            100.0,
+        ),
+        minlat=50.0,
     )
-    u_theta, u_phi = (-hwm14.Vwind.flatten(), hwm14.Uwind.flatten())
-    u_lat, u_lon = np.meshgrid(hwm14.glatbins, hwm14.glonbins, indexing="ij")
+    simulation.set_boundary_jr(
+        boundary_jr,
+        lat=source_lat,
+        lon=source_lon,
+        reg_lambda=settings.boundary_jr_lambda,
+    )
+
+    wind = get_wind_inputs(
+        settings.date,
+        use_wind=True,
+        time=None,
+        lat=source_lat,
+        lon=source_lon,
+        request=request,
+    )
+    if wind is None:
+        raise RuntimeError("HWM14 returned no wind data.")
+    u_theta, u_phi, _, _, sqrt_weights = wind
     simulation.set_neutral_wind(
         u_theta=u_theta,
         u_phi=u_phi,
-        lat=u_lat,
-        lon=u_lon,
-        sqrt_weights=np.tile(np.sqrt(np.sin(np.deg2rad(90 - u_lat.flatten()))), (2, 1)),
+        lat=source_lat,
+        lon=source_lon,
+        sqrt_weights=sqrt_weights,
         reg_lambda=settings.wind_lambda,
     )
 
@@ -172,9 +196,9 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
         input_datasets=_prepared_input_datasets(simulation),
         source="scripts.simulation.pynamit_paper_simulation",
         notes=[
-            "Paper-style inputs: Hardy EUV conductance, HWM14 wind, AMPS upward current.",
-            "The run script loads conductance/wind first, imposes equilibrium, "
-            "then enables jr for the second phase.",
+            "Paper-style inputs use the shared Hardy, AMPS, and HWM adapters.",
+            "One identity-mapped library request grid is reused by all three providers.",
+            "The run loads conductance/wind first, imposes equilibrium, then enables jr.",
         ],
         metadata={
             "date": settings.date.isoformat(),

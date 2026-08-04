@@ -1564,3 +1564,12 @@ def test_integrate_tiegcm_step_zero_conductance_returns_zero_weighted_winds():
 
     for key in ("SP", "SH", "u_p_theta", "u_p_phi", "u_h_theta", "u_h_phi"):
         np.testing.assert_allclose(integrated[key], 0.0)
+
+
+def test_mage_workflow_contract_is_kaiju_dipole():
+    """Preparation, projection, and reusable runs share Kaiju MAG alignment."""
+    event_time = dt.datetime(2011, 10, 24, 18, 0, 10)
+    attributes = _centered_dipole_alignment_attrs(event_time, -30_000.0)
+    assert MAGE_MAIN_FIELD_KIND == "kaiju_dipole"
+    assert attributes["main_field_kind"] == MAGE_MAIN_FIELD_KIND
+    assert attributes["main_field_horizontal_coordinate_system"] == "geographic"

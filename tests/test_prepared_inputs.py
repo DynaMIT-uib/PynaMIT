@@ -7,6 +7,11 @@ import numpy as np
 import pytest
 from kompe.constants import EARTH_RADIUS_M
 
+from pynamit.external_input_contracts import (
+    BOUNDARY_JR_PROVIDER_SPEC,
+    CONDUCTANCE_PROVIDER_SPEC,
+    NEUTRAL_WIND_PROVIDER_SPEC,
+)
 from pynamit.geomagnetism import MainField
 from pynamit.simulation.api import Simulation
 from pynamit.simulation.config import SimulationConfig
@@ -31,7 +36,7 @@ from pynamit.storage import ArtifactStore
 
 
 def test_geographic_wind_is_rotated_into_model_coordinates():
-    """Prepared dipole winds use magnetic positions and components."""
+    """Prepared dipole winds use transformed positions and components."""
     main_field = MainField(kind="dipole", epoch=2020)
     event_time = prepared_inputs_module._DEFAULT_INPUT_TIME
     lat = np.array([20.0, 60.0])
@@ -40,37 +45,75 @@ def test_geographic_wind_is_rotated_into_model_coordinates():
     u_phi = np.array([[5.0, 6.0], [7.0, 8.0]])
 
     theta_model, phi_model, model_lat, model_lon = (
-        prepared_inputs_module._wind_to_model_coordinates(main_field, u_theta, u_phi, lat, lon)
+        prepared_inputs_module._wind_to_model_coordinates(
+            main_field,
+            u_theta,
+            u_phi,
+            lat,
+            lon,
+            event_time=event_time,
+        )
     )
     expected_lat, expected_lon = main_field.geo_to_model_coordinates(
-        lat, lon, event_time=event_time
+        lat,
+        lon,
+        event_time=event_time,
+    )
+    vector_lat = np.broadcast_to(lat, u_theta.shape)
+    vector_lon = np.broadcast_to(lon, u_theta.shape)
+    _, _, expected_east, expected_north = main_field.geo_to_model_coordinates(
+        vector_lat,
+        vector_lon,
+        east=u_phi,
+        north=-u_theta,
+        event_time=event_time,
     )
 
-    assert theta_model.shape == u_theta.shape
-    assert phi_model.shape == u_phi.shape
     np.testing.assert_allclose(model_lat, expected_lat)
     np.testing.assert_allclose(model_lon, expected_lon)
+    np.testing.assert_allclose(theta_model, -expected_north)
+    np.testing.assert_allclose(phi_model, expected_east)
 
 
-def test_default_scalar_inputs_use_geographic_query_positions(tmp_path, monkeypatch):
-    """Providers receive GEO positions while PynaMIT stores model positions."""
-    captured = {}
+def test_default_inputs_share_one_provider_request_cache(tmp_path, monkeypatch):
+    """Hardy, AMPS, and HWM receive one shared request object."""
+    captured = {"requests": []}
     original_set_conductance = prepared_inputs_module.Simulation.set_conductance
     original_set_boundary_jr = prepared_inputs_module.Simulation.set_boundary_jr
+    original_set_neutral_wind = prepared_inputs_module.Simulation.set_neutral_wind
 
-    def fake_conductance(_date, lat, lon, _time):
-        lat = np.asarray(lat)
-        lon = np.asarray(lon)
-        captured["conductance_query"] = (lat.copy(), lon.copy())
-        values = np.ones(lat.shape)
-        return values, values, lat, lon
+    def fake_conductance(_date, _lat, _lon, _time, *, request):
+        captured["requests"].append(request)
+        source = request.source_grid
+        values = np.ones(source.size)
+        return values, values, source.lat, source.lon
 
-    def fake_boundary_jr(_date, lat, lon, _time):
-        lat = np.asarray(lat)
-        lon = np.asarray(lon)
-        captured["boundary_jr_query"] = (lat.copy(), lon.copy())
-        values = np.zeros(lat.shape)
-        return values, lat, lon
+    def fake_boundary_jr(_date, _lat, _lon, _time, *, request):
+        captured["requests"].append(request)
+        source = request.source_grid
+        return np.zeros(source.size), source.lat, source.lon
+
+    def fake_wind(
+        _date,
+        use_wind,
+        time,
+        lat=None,
+        lon=None,
+        *,
+        request,
+    ):
+        assert use_wind
+        assert time is None
+        assert lat is None and lon is None
+        captured["requests"].append(request)
+        source = request.source_grid
+        return (
+            np.zeros(source.size),
+            np.ones(source.size),
+            source.lat,
+            source.lon,
+            None,
+        )
 
     def capture_set_conductance(self, *args, lat, lon, **kwargs):
         captured["conductance_storage"] = (
@@ -86,6 +129,13 @@ def test_default_scalar_inputs_use_geographic_query_positions(tmp_path, monkeypa
         )
         return original_set_boundary_jr(self, *args, lat=lat, lon=lon, **kwargs)
 
+    def capture_set_neutral_wind(self, *args, lat, lon, **kwargs):
+        captured["wind_storage"] = (
+            np.asarray(lat).copy(),
+            np.asarray(lon).copy(),
+        )
+        return original_set_neutral_wind(self, *args, lat=lat, lon=lon, **kwargs)
+
     monkeypatch.setattr(
         prepared_inputs_module,
         "get_conductance_inputs",
@@ -97,6 +147,11 @@ def test_default_scalar_inputs_use_geographic_query_positions(tmp_path, monkeypa
         fake_boundary_jr,
     )
     monkeypatch.setattr(
+        prepared_inputs_module,
+        "get_wind_inputs",
+        fake_wind,
+    )
+    monkeypatch.setattr(
         prepared_inputs_module.Simulation,
         "set_conductance",
         capture_set_conductance,
@@ -106,6 +161,11 @@ def test_default_scalar_inputs_use_geographic_query_positions(tmp_path, monkeypa
         "set_boundary_jr",
         capture_set_boundary_jr,
     )
+    monkeypatch.setattr(
+        prepared_inputs_module.Simulation,
+        "set_neutral_wind",
+        capture_set_neutral_wind,
+    )
 
     prepared = prepare_pynamit_inputs(
         tmp_path / "inputs",
@@ -114,25 +174,64 @@ def test_default_scalar_inputs_use_geographic_query_positions(tmp_path, monkeypa
         Mmax=1,
         Ncs=8,
         use_boundary_jr=True,
+        use_wind=True,
         artifact_storage="netcdf",
     )
+    assert len(captured["requests"]) == 3
+    assert (
+        captured["requests"][0]
+        is captured["requests"][1]
+        is captured["requests"][2]
+    )
+    request = captured["requests"][0]
+    assert (
+        request.grid_for(CONDUCTANCE_PROVIDER_SPEC)
+        is request.grid_for(BOUNDARY_JR_PROVIDER_SPEC)
+        is request.grid_for(NEUTRAL_WIND_PROVIDER_SPEC)
+    )
+
     model_grid = prepared.geometry.model_grid
     expected_geo = prepared.geometry.main_field.model_to_geo_coordinates(
         model_grid.lat,
         model_grid.lon,
         event_time=prepared_inputs_module._DEFAULT_INPUT_TIME,
     )
+    np.testing.assert_allclose(request.source_grid.lat, expected_geo[0])
+    np.testing.assert_allclose(request.source_grid.lon, expected_geo[1])
 
-    for name in ("conductance_query", "boundary_jr_query"):
-        np.testing.assert_allclose(captured[name][0], expected_geo[0])
-        np.testing.assert_allclose(captured[name][1], expected_geo[1])
-
-    for name in ("conductance_storage", "boundary_jr_storage"):
+    for name in (
+        "conductance_storage",
+        "boundary_jr_storage",
+        "wind_storage",
+    ):
         np.testing.assert_allclose(captured[name][0], model_grid.lat)
         np.testing.assert_allclose(captured[name][1], model_grid.lon)
 
-    assert not np.allclose(captured["conductance_query"][0], model_grid.lat)
 
+def test_adapter_cannot_return_another_source_grid(tmp_path, monkeypatch):
+    """A provider adapter cannot silently introduce a source-grid remap."""
+
+    def wrong_conductance(_date, _lat, _lon, _time, *, request):
+        source = request.source_grid
+        values = np.ones(source.size)
+        return values, values, source.lat + 0.5, source.lon
+
+    monkeypatch.setattr(
+        prepared_inputs_module,
+        "get_conductance_inputs",
+        wrong_conductance,
+    )
+
+    with pytest.raises(ValueError, match="shared geocentric_geographic source grid"):
+        prepare_pynamit_inputs(
+            tmp_path / "inputs",
+            final_time=0.0,
+            Nmax=2,
+            Mmax=1,
+            Ncs=8,
+            use_boundary_jr=False,
+            artifact_storage="netcdf",
+        )
 
 def test_prepared_input_compatibility_ignores_run_only_settings():
     """Run-only settings can change without invalidating inputs."""

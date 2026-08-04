@@ -19,6 +19,7 @@ from pathlib import Path
 import numpy as np
 
 from pynamit.simulation.config import SimulationConfig, dipole_fac_integration_radii
+from pynamit.simulation.workflows.mage_projection import MAGE_MAIN_FIELD_KIND
 from pynamit.simulation.workflows.prepared_inputs import run_pynamit_from_inputs
 from pynamit.storage import ArtifactStore
 
@@ -116,6 +117,11 @@ def _run_targets(settings: RunSettings) -> tuple[_RunTarget, ...]:
             projection_directory, preferred_dataset_storage=settings.artifact_storage
         )
         input_config = SimulationConfig.from_settings(input_store.load_dataset("settings"))
+        if input_config.main_field_kind != MAGE_MAIN_FIELD_KIND:
+            raise RuntimeError(
+                f"MAGE projection {projection_directory} uses main_field_kind="
+                f"{input_config.main_field_kind!r}; expected {MAGE_MAIN_FIELD_KIND!r}."
+            )
         actual_resolution_name = f"N{input_config.Nmax}_M{input_config.Mmax}_Ncs{input_config.Ncs}"
         if actual_resolution_name != resolution_name:
             raise RuntimeError(

@@ -11,6 +11,10 @@ from kompe.constants import EARTH_RADIUS_M
 
 from pynamit.coordinates import decimal_year_to_datetime, wrap_longitude_180
 from pynamit.coordinates import local_noon_longitude as geographic_noon_longitude
+from pynamit.geodesy import (
+    library_geographic_to_spherical_geo,
+    spherical_geo_to_library_geographic,
+)
 from pynamit.geomagnetism.kaiju_geopack import (
     kaiju_geopack_alignment,
     kaiju_geopack_dipole,
@@ -96,6 +100,15 @@ def _normalize_field_strength(kind, B0):
     if kind == "igrf":
         raise ValueError("B0 is not supported for the IGRF main-field model.")
     return B0
+
+
+def _igrf_apex_input_from_spherical(r, theta, phi):
+    """Return the explicit spherical approximation used at the Apex boundary."""
+    return spherical_geo_to_library_geographic(
+        90.0 - np.asarray(theta, dtype=float),
+        phi,
+        (np.asarray(r, dtype=float) - EARTH_RADIUS_M) * 1e-3,
+    )
 
 
 class MainField:
@@ -250,7 +263,14 @@ class MainField:
             return np.asarray(magnetic_latitude)
         if self.kind == "dipole":
             return 90.0 - theta
-        latitude, _ = self.apex.geo2apex(90.0 - theta, phi, (r - EARTH_RADIUS_M) * 1e-3)
+        library_latitude, library_longitude, library_height = (
+            _igrf_apex_input_from_spherical(r, theta, phi)
+        )
+        latitude, _ = self.apex.geo2apex(
+            library_latitude,
+            library_longitude,
+            library_height,
+        )
         return np.asarray(latitude)
 
     def magnetic_latitude_trace_to_geographic(
@@ -282,7 +302,15 @@ class MainField:
                 np.full_like(longitude, np.nan, dtype=float),
             )
         if self.kind == "igrf":
-            geo_lat, geo_lon, _ = self.apex.apex2geo(latitude, longitude, self.apex.refh)
+            library_latitude, library_longitude, _ = self.apex.apex2geo(
+                latitude,
+                longitude,
+                self.apex.refh,
+            )
+            geo_lat, geo_lon = library_geographic_to_spherical_geo(
+                library_latitude,
+                library_longitude,
+            )
             return np.asarray(geo_lat, dtype=float), wrap_longitude_180(geo_lon)
         if self.kind == "kaiju_dipole":
             geo_lat, geo_lon = self._mag_transform.mag2geo(latitude, longitude)
@@ -302,8 +330,17 @@ class MainField:
                 np.full_like(longitude, np.nan, dtype=float),
             )
         if self.kind == "igrf":
+            library_latitude, library_longitude, library_height = (
+                spherical_geo_to_library_geographic(
+                    latitude,
+                    longitude,
+                    self.apex.refh,
+                )
+            )
             magnetic_latitude, magnetic_longitude = self.apex.geo2apex(
-                latitude, longitude, self.apex.refh
+                library_latitude,
+                library_longitude,
+                library_height,
             )
         elif self.kind == "kaiju_dipole":
             magnetic_latitude, magnetic_longitude = self._mag_transform.geo2mag(

@@ -483,3 +483,82 @@ def test_radial_undefined_magnetic_traces_are_nan_for_integer_inputs():
     )
     assert np.all(np.isnan(geo_lon))
     assert np.all(np.isnan(geo_lat))
+
+
+def test_igrf_apex_forward_boundary_uses_spherical_identity(monkeypatch):
+    """IGRF GEO-to-Apex keeps latitude/longitude and spherical altitude."""
+    captured = {}
+
+    class FakeApex:
+        refh = 110.0
+
+        def geo2apex(self, latitude, longitude, height):
+            captured["latitude"] = np.asarray(latitude)
+            captured["longitude"] = np.asarray(longitude)
+            captured["height"] = np.asarray(height)
+            return np.asarray(latitude) + 1.0, np.asarray(longitude) + 2.0
+
+    main_field = MainField(kind="igrf", epoch=2011, ionosphere_height_km=110.0)
+    main_field.apex = FakeApex()
+    latitude = np.array([0.0, 45.0, 70.0])
+    longitude = np.array([-30.0, 20.0, 100.0])
+
+    main_field.geographic_to_magnetic_coordinates(latitude, longitude)
+
+    np.testing.assert_allclose(captured["latitude"], latitude)
+    np.testing.assert_allclose(captured["longitude"], longitude)
+    np.testing.assert_allclose(captured["height"], 110.0)
+
+
+def test_igrf_magnetic_latitude_uses_spherical_radial_altitude():
+    """Apex receives h=r-EARTH_RADIUS_M under the spherical approximation."""
+    captured = {}
+
+    class FakeApex:
+        refh = 110.0
+
+        def geo2apex(self, latitude, longitude, height):
+            captured["latitude"] = np.asarray(latitude)
+            captured["longitude"] = np.asarray(longitude)
+            captured["height"] = np.asarray(height)
+            return np.asarray(latitude), np.asarray(longitude)
+
+    main_field = MainField(kind="igrf", epoch=2011, ionosphere_height_km=110.0)
+    main_field.apex = FakeApex()
+    radius = EARTH_RADIUS_M + np.array([100e3, 110e3, 120e3])
+    latitude = np.array([0.0, 45.0, 80.0])
+    longitude = np.array([-20.0, 0.0, 30.0])
+
+    main_field.magnetic_latitude(
+        radius,
+        90.0 - latitude,
+        longitude,
+    )
+
+    np.testing.assert_allclose(captured["latitude"], latitude)
+    np.testing.assert_allclose(captured["longitude"], longitude)
+    np.testing.assert_allclose(captured["height"], [100.0, 110.0, 120.0])
+
+
+def test_igrf_apex_inverse_is_interpreted_as_spherical_geo():
+    """Apex geographic output is used numerically on the PynaMIT sphere."""
+
+    class FakeApex:
+        refh = 110.0
+
+        def apex2geo(self, latitude, longitude, height):
+            return (
+                np.asarray(latitude) - 1.0,
+                np.asarray(longitude) + 2.0,
+                np.zeros_like(np.asarray(latitude), dtype=float),
+            )
+
+    main_field = MainField(kind="igrf", epoch=2011, ionosphere_height_km=110.0)
+    main_field.apex = FakeApex()
+
+    latitude, longitude = main_field.magnetic_to_geographic_coordinates(
+        np.array([60.0]),
+        np.array([179.0]),
+    )
+    np.testing.assert_allclose(latitude, [59.0])
+    np.testing.assert_allclose(longitude, [-179.0])
