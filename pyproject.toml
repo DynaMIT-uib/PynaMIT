@@ -52,7 +52,16 @@ extend-exclude = ["__init__.py", "notebooks/", "scripts/simulation/legacy/"]
 line-length = 99
 
 [tool.ruff.lint]
-extend-select = ["B", "E", "I", "UP", "W", "D"]
+# Keep the historical rule set explicit. Broad one-letter selectors such as
+# ``D`` and ``B`` also match newer, unrelated Ruff families (for example DTZ
+# and BLE), which makes a Ruff upgrade silently change the project's policy.
+select = [
+    "E4", "E7", "E9", "F",
+    "B0", "B9",
+    "I001", "I002",
+    "UP", "W",
+    "D1", "D2", "D3", "D4",
+]
 
 [tool.ruff.lint.pycodestyle]
 max-doc-length = 72

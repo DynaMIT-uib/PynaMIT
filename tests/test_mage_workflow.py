@@ -590,7 +590,13 @@ def test_mage_run_resolves_every_projected_resolution(tmp_path):
             / "comparison"
         )
         store = ArtifactStore(directory, preferred_dataset_storage="netcdf")
-        config = SimulationConfig(Nmax=resolution, Mmax=resolution, Ncs=resolution, RM=7.0e6)
+        config = SimulationConfig(
+            Nmax=resolution,
+            Mmax=resolution,
+            Ncs=resolution,
+            RM=7.0e6,
+            main_field_kind=MAGE_MAIN_FIELD_KIND,
+        )
         store.save_dataset(config.to_dataset(), "settings")
         store.save_dataset(xr.Dataset(coords={"time": [0.0, 10.0]}), "boundary_Br")
 
@@ -1567,7 +1573,7 @@ def test_integrate_tiegcm_step_zero_conductance_returns_zero_weighted_winds():
 
 
 def test_mage_workflow_contract_is_kaiju_dipole():
-    """Preparation, projection, and reusable runs share Kaiju MAG alignment."""
+    """All MAGE phases share the Kaiju MAG alignment."""
     event_time = dt.datetime(2011, 10, 24, 18, 0, 10)
     attributes = _centered_dipole_alignment_attrs(event_time, -30_000.0)
     assert MAGE_MAIN_FIELD_KIND == "kaiju_dipole"

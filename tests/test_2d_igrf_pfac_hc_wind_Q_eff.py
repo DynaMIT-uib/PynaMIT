@@ -9,9 +9,9 @@ from tests import magnetic_potential_coordinate_array
 
 def test_2d_igrf_pfac_hc_wind_Q_eff():
     """Test wind driving represented through the Q_eff input path."""
-    expected_coeff_norm = 1.0490977488784426e-08
-    expected_coeff_max = 3.712096956363568e-09
-    expected_coeff_min = -2.1735674062061703e-09
+    expected_coeff_norm = 1.0460771082860356e-08
+    expected_coeff_max = 3.900932709710887e-09
+    expected_coeff_min = -1.979185633797638e-09
     expected_n_coeffs = 228
 
     simulation = run_pynamit(

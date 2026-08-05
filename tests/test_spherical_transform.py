@@ -44,9 +44,7 @@ def test_field_space_applies_constraint_after_kompe_sample_analysis():
     values = np.linspace(0.0, 1.0, basis.index_length) + 3.0
     transform = SphericalTransform(basis, grid, grid_remap_basis=basis)
 
-    analyzed = transform.analyze_scalar_samples(
-        values, input_grid=grid, analysis_basis=basis
-    )
+    analyzed = transform.analyze_scalar_samples(values, input_grid=grid, analysis_basis=basis)
     constrained = field_space.project_mean_free(analyzed[0])
 
     assert analyzed.shape == (1, basis.index_length)

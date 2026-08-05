@@ -173,6 +173,7 @@ scripts/visualization/figures
 *.png
 *.out
 *.err
+*.json.bak
 
 # Local simulation and notebook outputs
 /simulation/

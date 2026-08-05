@@ -89,15 +89,11 @@ def _prepared_input_datasets(simulation: pynamit.Simulation) -> list[str]:
 
 
 def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
-    """Project paper inputs through the shared spherical library adapters."""
+    """Project paper inputs through the shared library adapters."""
     import dipole
 
     from pynamit.external_input_contracts import ExternalInputRequest
-    from pynamit.external_inputs import (
-        get_conductance_inputs,
-        get_jr_inputs,
-        get_wind_inputs,
-    )
+    from pynamit.external_inputs import get_conductance_inputs, get_jr_inputs, get_wind_inputs
 
     input_directory = Path(settings.input_directory).expanduser()
     input_directory.mkdir(parents=True, exist_ok=True)
@@ -132,19 +128,10 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
     )
 
     hall, pedersen, _, _ = get_conductance_inputs(
-        settings.date,
-        source_lat,
-        source_lon,
-        None,
-        request=request,
-        kp=settings.kp,
+        settings.date, source_lat, source_lon, None, request=request, kp=settings.kp
     )
     simulation.set_conductance(
-        hall,
-        pedersen,
-        lat=source_lat,
-        lon=source_lon,
-        reg_lambda=settings.conductance_lambda,
+        hall, pedersen, lat=source_lat, lon=source_lon, reg_lambda=settings.conductance_lambda
     )
 
     dipole_model = dipole.Dipole(settings.date.year)
@@ -154,29 +141,15 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
         source_lon,
         None,
         request=request,
-        amps_parameters=(
-            400.0,
-            5.0,
-            -5.0,
-            float(dipole_model.tilt(settings.date)),
-            100.0,
-        ),
+        amps_parameters=(400.0, 5.0, -5.0, float(dipole_model.tilt(settings.date)), 100.0),
         minlat=50.0,
     )
     simulation.set_boundary_jr(
-        boundary_jr,
-        lat=source_lat,
-        lon=source_lon,
-        reg_lambda=settings.boundary_jr_lambda,
+        boundary_jr, lat=source_lat, lon=source_lon, reg_lambda=settings.boundary_jr_lambda
     )
 
     wind = get_wind_inputs(
-        settings.date,
-        use_wind=True,
-        time=None,
-        lat=source_lat,
-        lon=source_lon,
-        request=request,
+        settings.date, use_wind=True, time=None, lat=source_lat, lon=source_lon, request=request
     )
     if wind is None:
         raise RuntimeError("HWM14 returned no wind data.")

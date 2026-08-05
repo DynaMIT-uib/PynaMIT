@@ -44,7 +44,7 @@ def test_simulation_reuses_input_transforms_for_shared_representations(tmp_path)
 
 
 def test_set_jr_is_deprecated_boundary_jr_alias(tmp_path):
-    """The historical radial-current setter forwards to the canonical API."""
+    """The radial-current setter forwards to the canonical API."""
     simulation = _small_simulation(tmp_path)
     n_coeffs = simulation.run_data.schema.input_field_spaces["boundary_jr"].index_length
     coefficients = np.arange(n_coeffs, dtype=float) + 0.5
@@ -53,10 +53,7 @@ def test_set_jr_is_deprecated_boundary_jr_alias(tmp_path):
         simulation.set_jr(jr_coefficients=coefficients, time=7.0)
 
     dataset = simulation.run_data.input_series.datasets["boundary_jr"]
-    np.testing.assert_allclose(
-        dataset["SH_boundary_jr"].isel(time=0).values,
-        coefficients,
-    )
+    np.testing.assert_allclose(dataset["SH_boundary_jr"].isel(time=0).values, coefficients)
     np.testing.assert_allclose(dataset.time.values, [7.0])
 
 

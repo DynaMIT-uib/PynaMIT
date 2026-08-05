@@ -103,7 +103,7 @@ def _normalize_field_strength(kind, B0):
 
 
 def _igrf_apex_input_from_spherical(r, theta, phi):
-    """Return the explicit spherical approximation used at the Apex boundary."""
+    """Return the spherical approximation used by ApexPy."""
     return spherical_geo_to_library_geographic(
         90.0 - np.asarray(theta, dtype=float),
         phi,
@@ -263,14 +263,10 @@ class MainField:
             return np.asarray(magnetic_latitude)
         if self.kind == "dipole":
             return 90.0 - theta
-        library_latitude, library_longitude, library_height = (
-            _igrf_apex_input_from_spherical(r, theta, phi)
+        library_latitude, library_longitude, library_height = _igrf_apex_input_from_spherical(
+            r, theta, phi
         )
-        latitude, _ = self.apex.geo2apex(
-            library_latitude,
-            library_longitude,
-            library_height,
-        )
+        latitude, _ = self.apex.geo2apex(library_latitude, library_longitude, library_height)
         return np.asarray(latitude)
 
     def magnetic_latitude_trace_to_geographic(
@@ -303,13 +299,10 @@ class MainField:
             )
         if self.kind == "igrf":
             library_latitude, library_longitude, _ = self.apex.apex2geo(
-                latitude,
-                longitude,
-                self.apex.refh,
+                latitude, longitude, self.apex.refh
             )
             geo_lat, geo_lon = library_geographic_to_spherical_geo(
-                library_latitude,
-                library_longitude,
+                library_latitude, library_longitude
             )
             return np.asarray(geo_lat, dtype=float), wrap_longitude_180(geo_lon)
         if self.kind == "kaiju_dipole":
@@ -331,16 +324,10 @@ class MainField:
             )
         if self.kind == "igrf":
             library_latitude, library_longitude, library_height = (
-                spherical_geo_to_library_geographic(
-                    latitude,
-                    longitude,
-                    self.apex.refh,
-                )
+                spherical_geo_to_library_geographic(latitude, longitude, self.apex.refh)
             )
             magnetic_latitude, magnetic_longitude = self.apex.geo2apex(
-                library_latitude,
-                library_longitude,
-                library_height,
+                library_latitude, library_longitude, library_height
             )
         elif self.kind == "kaiju_dipole":
             magnetic_latitude, magnetic_longitude = self._mag_transform.geo2mag(
@@ -551,9 +538,17 @@ class MainField:
 
         elif self.kind == "igrf":
             # Use apexpy to map along IGRF field lines.
-            mlat, mlon = self.apex.geo2apex(90 - theta, phi, (r - EARTH_RADIUS_M) * 1e-3)
-            lat_out, phi_out, _ = self.apex.apex2geo(mlat, mlon, (r_dest - EARTH_RADIUS_M) * 1e-3)
-            theta_out = 90 - lat_out
+            library_latitude, library_longitude, library_height = _igrf_apex_input_from_spherical(
+                r, theta, phi
+            )
+            mlat, mlon = self.apex.geo2apex(library_latitude, library_longitude, library_height)
+            library_latitude_out, library_longitude_out, _ = self.apex.apex2geo(
+                mlat, mlon, (np.asarray(r_dest, dtype=float) - EARTH_RADIUS_M) * 1e-3
+            )
+            latitude_out, phi_out = library_geographic_to_spherical_geo(
+                library_latitude_out, library_longitude_out
+            )
+            theta_out = 90.0 - latitude_out
 
         return (theta_out, phi_out)
 
@@ -605,10 +600,17 @@ class MainField:
         elif self.kind == "dipole":
             theta_conj, phi_conj = (180 - theta, phi)
         elif self.kind == "igrf":
-            h = (r - EARTH_RADIUS_M) * 1e-3
-            mlat, mlon = self.apex.geo2apex(90 - theta, phi, h)
-            glat, phi_conj, _ = self.apex.apex2geo(-mlat, mlon, h)
-            theta_conj = 90 - glat
+            library_latitude, library_longitude, library_height = _igrf_apex_input_from_spherical(
+                r, theta, phi
+            )
+            mlat, mlon = self.apex.geo2apex(library_latitude, library_longitude, library_height)
+            library_latitude_conj, library_longitude_conj, _ = self.apex.apex2geo(
+                -mlat, mlon, library_height
+            )
+            latitude_conj, phi_conj = library_geographic_to_spherical_geo(
+                library_latitude_conj, library_longitude_conj
+            )
+            theta_conj = 90.0 - latitude_conj
 
         return (theta_conj, phi_conj)
 
@@ -675,8 +677,11 @@ class MainField:
                 90 - theta, r * 1e-3, R=EARTH_RADIUS_M * 1e-3
             )
         else:
+            library_latitude, library_longitude, library_height = _igrf_apex_input_from_spherical(
+                r, theta, phi
+            )
             vectors = self.apex.basevectors_apex(
-                90 - theta, phi, (r - EARTH_RADIUS_M) * 1e-3, coords="geo"
+                library_latitude, library_longitude, library_height, coords="geo"
             )[6:]
 
         return tuple(_east_north_up_to_spherical(vector) for vector in vectors)

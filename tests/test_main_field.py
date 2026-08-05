@@ -486,7 +486,7 @@ def test_radial_undefined_magnetic_traces_are_nan_for_integer_inputs():
 
 
 def test_igrf_apex_forward_boundary_uses_spherical_identity(monkeypatch):
-    """IGRF GEO-to-Apex keeps latitude/longitude and spherical altitude."""
+    """IGRF GEO-to-Apex keeps spherical positions."""
     captured = {}
 
     class FakeApex:
@@ -511,7 +511,7 @@ def test_igrf_apex_forward_boundary_uses_spherical_identity(monkeypatch):
 
 
 def test_igrf_magnetic_latitude_uses_spherical_radial_altitude():
-    """Apex receives h=r-EARTH_RADIUS_M under the spherical approximation."""
+    """Apex receives spherical radial altitude."""
     captured = {}
 
     class FakeApex:
@@ -529,11 +529,7 @@ def test_igrf_magnetic_latitude_uses_spherical_radial_altitude():
     latitude = np.array([0.0, 45.0, 80.0])
     longitude = np.array([-20.0, 0.0, 30.0])
 
-    main_field.magnetic_latitude(
-        radius,
-        90.0 - latitude,
-        longitude,
-    )
+    main_field.magnetic_latitude(radius, 90.0 - latitude, longitude)
 
     np.testing.assert_allclose(captured["latitude"], latitude)
     np.testing.assert_allclose(captured["longitude"], longitude)
@@ -541,7 +537,7 @@ def test_igrf_magnetic_latitude_uses_spherical_radial_altitude():
 
 
 def test_igrf_apex_inverse_is_interpreted_as_spherical_geo():
-    """Apex geographic output is used numerically on the PynaMIT sphere."""
+    """Apex output is interpreted on the PynaMIT sphere."""
 
     class FakeApex:
         refh = 110.0
@@ -557,8 +553,7 @@ def test_igrf_apex_inverse_is_interpreted_as_spherical_geo():
     main_field.apex = FakeApex()
 
     latitude, longitude = main_field.magnetic_to_geographic_coordinates(
-        np.array([60.0]),
-        np.array([179.0]),
+        np.array([60.0]), np.array([179.0])
     )
     np.testing.assert_allclose(latitude, [59.0])
     np.testing.assert_allclose(longitude, [-179.0])

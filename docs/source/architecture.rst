@@ -353,9 +353,11 @@ Lompe's ``hardy_EUV(..., dipole=False)`` and the AMPS adapter receive the
 shared library-facing positions before their Apex calculations. HWM is
 evaluated at the same requested positions through
 ``pyhwm2014.hwm14_vectorized`` with the event's YYDDD date code and full UTC
-time. Under the spherical approximation, library east/north wind components
-map directly to PynaMIT ``u_phi`` and ``-u_theta``. HWM therefore introduces
-no separate regular grid, seam handling, or second spatial fit.
+time. Naive datetimes retain PynaMIT's historical UTC interpretation; aware
+datetimes are normalized to UTC before any provider is called. Under the
+spherical approximation, library east/north wind components map directly to
+PynaMIT ``u_phi`` and ``-u_theta``. HWM therefore introduces no separate
+regular grid, seam handling, or second spatial fit.
 
 All adapters return values associated with the original source-grid ordering.
 Prepared-input construction stores those values at the corresponding
@@ -452,13 +454,14 @@ discretization remains a run choice rather than a projection side effect.
 For generic prepared inputs, coordinates name physical positions, not just
 array axes.
 Geographic wind positions and tangent-vector components are rotated into the
-configured model coordinates before projection. Native Hardy/AMPS scalar
-models are instead queried in their event-epoch centered-dipole coordinates;
-their values are then attached to the corresponding positions on the model
-grid. This two-sided conversion is necessary when the run uses IGRF/GEO or a
-centered dipole with another epoch. The forcing event time is persisted
-as the input time origin ``t0``; ``main_field_epoch`` remains an independent
-choice for the Earth-fixed background-field coefficients and coordinate axis.
+configured model coordinates before projection. Native Hardy, AMPS, and HWM
+adapters all receive one shared spherical-GEO source grid through their
+declared library-interface contract. Providers may derive Apex or magnetic
+coordinates internally, but their returned values remain attached to the
+original ordered positions before those values are transformed into model
+coordinates. The forcing event time is persisted as the input time origin
+``t0``; ``main_field_epoch`` remains an independent choice for the Earth-fixed
+background-field coefficients and coordinate axis.
 
 The versioned prepared-input manifest has one canonical ``input_contract``.
 Coefficient-space settings, geometry requirements, and the dataset list live

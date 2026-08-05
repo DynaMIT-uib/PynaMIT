@@ -10,6 +10,7 @@ from pynamit.coordinates import (
     longitude_to_local_time_from_noon_longitude,
     wrap_longitude_180,
 )
+from pynamit.geodesy import library_geographic_to_spherical_geo
 
 _VALID_LONGITUDE_KINDS = {"geographic", "magnetic"}
 _VALID_LOCAL_TIME_KINDS = {"solar", "magnetic"}
@@ -103,7 +104,10 @@ class MapCoordinateContext:
                 label="MLT",
                 reference_time=reference_time,
             )
-        _, geographic_noon, _ = apex.apex2geo(0, magnetic_noon, apex_height)
+        library_latitude, library_longitude, _ = apex.apex2geo(0, magnetic_noon, apex_height)
+        _, geographic_noon = library_geographic_to_spherical_geo(
+            library_latitude, library_longitude
+        )
         return cls(
             noon_longitude=_as_float_scalar(geographic_noon, "geographic noon longitude"),
             longitude_kind="geographic",
