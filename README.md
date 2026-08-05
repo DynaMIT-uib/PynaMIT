@@ -35,7 +35,7 @@ pip install -r requirements/pip-data.txt
 pip install -e .
 ```
 
-`pip install -e .` performs an editable install: the environment imports the
+`pip install -e .` performs an editable install. The environment imports the
 package from this source tree, so local source-code changes are picked up
 without reinstalling. Use `pip install .` instead for a regular non-editable
 install.
