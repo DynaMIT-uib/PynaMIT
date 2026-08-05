@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from kompe import GlobalCSBasis, Grid, SHBasis
+from kompe import GlobalCSBasis, SHBasis, SphericalGrid
 
 from pynamit.fields import FieldCoefficients, FieldSpace
 
@@ -80,8 +80,8 @@ def test_field_coefficients_validates_coefficient_length():
 
 
 def test_field_space_accepts_grid_representation():
-    """Grid samples define a field space without becoming a basis."""
-    grid = Grid(theta=[30.0, 60.0], phi=[0.0, 90.0])
+    """Treat spherical samples as a non-basis field space."""
+    grid = SphericalGrid(theta=[30.0, 60.0], phi=[0.0, 90.0])
     field_space = FieldSpace.from_representation(grid)
     field = FieldCoefficients(field_space, [1.0, 2.0])
 

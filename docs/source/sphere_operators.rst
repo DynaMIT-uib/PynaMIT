@@ -6,10 +6,11 @@ bases, transforms, and solid-harmonic radial operations. PynaMIT imports
 these objects directly; ``pynamit.sphere`` retains only the historical
 ``BasisEvaluator`` spelling for ``kompe.SphericalTransform``.
 
-``Grid`` and the basis classes are spherical representations.  ``Grid``
-stores sampled values, while ``SHBasis`` and ``GlobalCSBasis`` reconstruct
-functions and provide surface operators.  Both basis classes implement
-the same ``SurfaceOperators`` interface.
+``SphericalGrid`` and the basis classes are spherical representations.
+``SphericalGrid`` stores sample coordinates and optional weights, while
+``SHBasis`` and ``GlobalCSBasis`` reconstruct functions and provide surface
+operators.  Both basis classes implement
+the same ``SurfaceDifferentialBasis`` interface.
 
 ``SphericalTransform`` also belongs to this package.  It performs
 analysis and synthesis between a surface basis and a spherical grid for
@@ -34,7 +35,7 @@ and
 
 ``radial_curl(F) = surface_laplacian(psi)``.
 
-These identities are exposed by the shared ``SurfaceOperators`` methods,
+These identities are exposed by the shared ``SurfaceDifferentialBasis`` methods,
 so code outside the basis implementations can ask for scalar evaluation,
 surface gradients, Helmholtz synthesis, surface divergence, radial curl,
 and surface Laplacian through the same interface for SH and CS bases.
@@ -45,7 +46,7 @@ Surface Bases Versus Solid Harmonics
 ------------------------------------
 
 The surface basis describes functions on one spherical surface.
-``SolidHarmonics`` is a separate object wrapping an ``SHBasis``.  It
+``SolidHarmonicOperators`` is a separate object wrapping an ``SHBasis``.  It
 describes how the wrapped angular coefficients participate in regular
 and irregular three-dimensional Laplace solutions.  Radial operations
 are deliberately not methods on ``SHBasis`` because a surface basis does
@@ -77,13 +78,13 @@ and
 
 Consequently, ``B_r = n(n+1) m_nm Y_nm`` and
 ``(V_irregular - V_regular) / R = (2n+1) m_nm Y_nm``.  These conversions
-are explicit ``SolidHarmonics`` operations.  No additional conversion
+are explicit ``SolidHarmonicOperators`` operations.  No additional conversion
 factor is needed for a reference-radius shift because the
 degree-dependent coefficient conversions cancel in the ratio.
 
 When the horizontal basis is CS, radial terms are handled by projecting
 between CS horizontal coefficients and the SH basis wrapped by
-``SolidHarmonics``.  This keeps the CS finite-difference operators local
+``SolidHarmonicOperators``.  This keeps the CS finite-difference operators local
 to the surface while retaining SH angular coefficients for radial
 Laplace physics.
 

@@ -178,11 +178,12 @@ def test_area_weighted_least_squares_option_is_persisted(tmp_path):
     assert simulation.run_data.config.area_weighted_least_squares
     assert geometry.area_weighted_least_squares
     np.testing.assert_allclose(
-        geometry.model_grid_sqrt_weights(), np.sqrt(simulation.run_data.schema.cs_basis.unit_area)
+        geometry.model_grid_sqrt_weights(),
+        np.sqrt(simulation.run_data.schema.cs_basis.mesh.cell_areas.reshape(-1)),
     )
     np.testing.assert_allclose(
         geometry.model_grid_sqrt_weights(vector=True),
-        np.tile(np.sqrt(simulation.run_data.schema.cs_basis.unit_area), (2, 1)),
+        np.tile(np.sqrt(simulation.run_data.schema.cs_basis.mesh.cell_areas.reshape(-1)), (2, 1)),
     )
 
 
@@ -297,7 +298,7 @@ def test_cs_horizontal_basis_supports_connected_hemispheres(tmp_path):
 
     geometry = simulation.geometry
 
-    assert geometry.conjugate_horizontal_transform.helmholtz_coeffs_to_gridded_vector.shape == (
+    assert geometry.conjugate_horizontal_transform.helmholtz_synthesis_matrix.shape == (
         2,
         geometry.conjugate_grid.size,
         2,
@@ -307,9 +308,7 @@ def test_cs_horizontal_basis_supports_connected_hemispheres(tmp_path):
         2,
         simulation.geometry.horizontal_basis.index_length,
     )
-    assert np.all(
-        np.isfinite(geometry.conjugate_horizontal_transform.helmholtz_coeffs_to_gridded_vector)
-    )
+    assert np.all(np.isfinite(geometry.conjugate_horizontal_transform.helmholtz_synthesis_matrix))
     assert np.all(np.isfinite(geometry.interhemispheric_electric_field_difference_matrix))
 
 
@@ -395,7 +394,7 @@ def test_surface_to_poloidal_projection_matches_grid_least_squares(tmp_path):
     geometry = simulation.geometry
     assert not hasattr(geometry.horizontal_transform, "_scalar_coeffs_to_grid")
     expected = tensor_pinv(
-        geometry.poloidal_transform.scalar_coeffs_to_grid, n_leading_flattened=1
+        geometry.poloidal_transform.scalar_synthesis_matrix, n_leading_flattened=1
     )
 
     surface_to_poloidal = geometry.surface_to_poloidal_operator.to_matrix(backend="numpy")
@@ -403,7 +402,7 @@ def test_surface_to_poloidal_projection_matches_grid_least_squares(tmp_path):
 
     rng = np.random.default_rng(20260520)
     radial_coeffs = rng.standard_normal(simulation.geometry.solid_harmonics.basis.index_length)
-    cs_coeffs = geometry.poloidal_transform.scalar_coeffs_to_grid @ radial_coeffs
+    cs_coeffs = geometry.poloidal_transform.scalar_synthesis_matrix @ radial_coeffs
 
     np.testing.assert_allclose(surface_to_poloidal @ cs_coeffs, radial_coeffs, atol=1e-10)
 
@@ -424,8 +423,8 @@ def test_surface_to_poloidal_supports_area_weighted_projection(tmp_path):
     geometry = simulation.geometry
     assert not hasattr(geometry.horizontal_transform, "_scalar_coeffs_to_grid")
     expected = weighted_tensor_pinv(
-        geometry.poloidal_transform.scalar_coeffs_to_grid,
-        sqrt_weights=np.sqrt(simulation.run_data.schema.cs_basis.unit_area),
+        geometry.poloidal_transform.scalar_synthesis_matrix,
+        sqrt_weights=np.sqrt(simulation.run_data.schema.cs_basis.mesh.cell_areas.reshape(-1)),
         n_leading_flattened=1,
     )
 

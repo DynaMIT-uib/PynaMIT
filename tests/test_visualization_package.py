@@ -185,8 +185,8 @@ def test_saved_output_joule_uses_pedersen_dissipation():
     run_fields = importlib.import_module("pynamit.visualization.run_fields")
 
     class IdentityEvaluator:
-        scalar_coeffs_to_grid = np.eye(2)
-        scalar_coeffs_to_grid_operator = np.eye(2)
+        scalar_synthesis_matrix = np.eye(2)
+        scalar_synthesis_operator = np.eye(2)
 
         @staticmethod
         def synthesize_helmholtz(coeffs):
@@ -316,7 +316,7 @@ def test_saved_field_view_aligns_inputs_by_time_not_index(tmp_path):
     fields = view.input_grid_fields(1)
     expected = (
         view.input_evaluators["boundary_Br"]
-        .scalar_coeffs_to_grid.dot(br_coefficients[2])
+        .scalar_synthesis_matrix.dot(br_coefficients[2])
         .reshape(view.lat.shape)
     )
 

@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from kompe import GlobalCSBasis, Grid, SHBasis, SphericalTransform
+from kompe import GlobalCSBasis, SHBasis, SphericalGrid, SphericalTransform
 
 from pynamit.simulation.workflows.standard import run_pynamit
 from pynamit.visualization.figure_specs import PynamitFigureSpec
@@ -42,15 +42,13 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
 
     geometry = simulation.geometry
     spherical_transform = geometry.horizontal_transform
-    expected_helmholtz = simulation.geometry.horizontal_basis.get_helmholtz_synthesis_matrix(
+    expected_helmholtz = simulation.geometry.horizontal_basis.helmholtz_synthesis_matrix(
         geometry.model_grid
     )
-    np.testing.assert_allclose(
-        spherical_transform.helmholtz_coeffs_to_gridded_vector, expected_helmholtz
-    )
+    np.testing.assert_allclose(spherical_transform.helmholtz_synthesis_matrix, expected_helmholtz)
     np.testing.assert_allclose(
         geometry.surface_laplacian_operator.to_matrix(backend="numpy"),
-        simulation.geometry.horizontal_basis.get_surface_laplacian_matrix(geometry.RI),
+        simulation.geometry.horizontal_basis.surface_laplacian_matrix(geometry.RI),
     )
     expected_boundary_potential_jump_factor = np.diag(
         simulation.geometry.solid_harmonics.poloidal_to_boundary_potential_jump_factor
@@ -70,7 +68,9 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
         simulation.geometry.horizontal_basis.index_length,
     )
 
-    plot_grid = Grid(theta=geometry.model_grid.theta[:10], phi=geometry.model_grid.phi[:10])
+    plot_grid = SphericalGrid(
+        theta=geometry.model_grid.theta[:10], phi=geometry.model_grid.phi[:10]
+    )
     plot_transform = SphericalTransform(simulation.geometry.horizontal_basis, plot_grid)
     assert geometry.poloidal_transform_for(plot_transform) is geometry.poloidal_transform_for(
         plot_transform

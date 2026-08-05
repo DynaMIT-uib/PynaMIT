@@ -12,9 +12,9 @@ from kompe import (
     BasisView,
     GlobalCSBasis,
     SHBasis,
-    SolidHarmonics,
+    SolidHarmonicOperators,
     SphericalBasis,
-    SurfaceOperators,
+    SurfaceDifferentialBasis,
 )
 
 from pynamit.fields import FieldSpace
@@ -71,13 +71,13 @@ class SimulationSchema:
     cs_basis: GlobalCSBasis
     sh_basis: SHBasis
     mean_free_sh_basis: BasisView
-    horizontal_basis: SurfaceOperators
-    solid_harmonics: SolidHarmonics
+    horizontal_basis: SurfaceDifferentialBasis
+    solid_harmonics: SolidHarmonicOperators
     input_variables: Mapping[str, tuple[str, ...]]
     output_variables: Mapping[str, tuple[str, ...]]
     input_field_spaces: Mapping[str, FieldSpace]
     output_field_spaces: Mapping[str, Mapping[str, FieldSpace]]
-    input_projection_bases: Mapping[str, SurfaceOperators]
+    input_projection_bases: Mapping[str, SurfaceDifferentialBasis]
 
     def __post_init__(self):
         """Own immutable copies of the canonical schema mappings."""
@@ -133,7 +133,7 @@ def build_simulation_schema(config: SimulationConfig, *, operator_cache=None) ->
     mean_free_sh_basis = sh_basis.with_mean_free(True)
     cs_basis = GlobalCSBasis(config.Ncs)
     horizontal_basis = cs_basis if horizontal_basis_kind == "CS" else mean_free_sh_basis
-    solid_harmonics = SolidHarmonics(mean_free_sh_basis)
+    solid_harmonics = SolidHarmonicOperators(mean_free_sh_basis)
 
     projection_basis_kinds = {
         key: getattr(config, f"{key}_projection_basis") for key in PROJECTION_BASIS_KEYS

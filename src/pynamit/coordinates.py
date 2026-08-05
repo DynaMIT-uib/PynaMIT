@@ -112,8 +112,8 @@ def local_time_longitude_to_geographic(lon, *, noon_longitude, local_noon_longit
 
 __all__ = [
     "DEFAULT_LOCAL_TIME_GRID_HOURS",
-    "decimal_year_to_datetime",
     "datetime_to_utc_hours",
+    "decimal_year_to_datetime",
     "local_noon_longitude",
     "local_time_hours_to_longitude",
     "local_time_longitude_to_geographic",

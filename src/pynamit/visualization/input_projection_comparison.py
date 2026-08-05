@@ -10,7 +10,7 @@ import cartopy.crs as ccrs
 import h5py
 import matplotlib.pyplot as plt
 import numpy as np
-from kompe import Grid
+from kompe import SphericalGrid
 from kompe.spherical_transform import SphericalTransform, grid_sqrt_area_weights
 
 from pynamit.simulation.electrodynamics.ionospheric_closure import CONDUCTANCE_REFERENCE_S
@@ -145,8 +145,10 @@ def _comparison_grids(h5_file):
     boundary_lon = np.asarray(h5_file["boundary_lon"][:], dtype=float)
     boundary_weights = np.asarray(h5_file["boundary_solid_angle"][:], dtype=float)
 
-    ionosphere_grid = Grid(lat=ionosphere_lat, lon=ionosphere_lon)
-    boundary_grid = Grid(lat=boundary_lat, lon=boundary_lon, area_weights=boundary_weights)
+    ionosphere_grid = SphericalGrid(lat=ionosphere_lat, lon=ionosphere_lon)
+    boundary_grid = SphericalGrid(
+        lat=boundary_lat, lon=boundary_lon, area_weights=boundary_weights
+    )
     return {
         "ionosphere": {
             "grid": ionosphere_grid,

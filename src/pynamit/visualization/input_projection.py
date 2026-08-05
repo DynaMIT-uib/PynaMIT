@@ -48,7 +48,7 @@ def evaluate_projected_input(
         ``"E_neutral_wind"``.
     time : float
         Time value to select from the input time series.
-    grid : Grid, optional
+    grid : SphericalGrid, optional
         Target grid. Required unless ``transform`` is supplied or
         ``source`` is a ``Simulation`` with a model geometry grid.
     transform : SphericalTransform, optional

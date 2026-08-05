@@ -1,7 +1,7 @@
-"""Grid and coefficient-evaluation helpers for visualization."""
+"""Spherical-grid and coefficient-evaluation visualization helpers."""
 
 import numpy as np
-from kompe import Grid, SolidHarmonics, SphericalTransform
+from kompe import SolidHarmonicOperators, SphericalGrid, SphericalTransform
 from kompe.constants import MU0
 from kompe.math import as_linear_map
 
@@ -14,7 +14,7 @@ def build_plot_grid(nlat=60, nlon=100, lat_range=(-89.9, 89.9), lon_range=(-180.
     lat_1d = np.linspace(lat_range[0], lat_range[1], int(nlat))
     lon_1d = np.linspace(lon_range[0], lon_range[1], int(nlon))
     lon_2d, lat_2d = np.meshgrid(lon_1d, lat_1d)
-    return lat_2d, lon_2d, Grid(lat=lat_2d, lon=lon_2d)
+    return lat_2d, lon_2d, SphericalGrid(lat=lat_2d, lon=lon_2d)
 
 
 def build_evaluator(basis, grid, **kwargs):
@@ -25,7 +25,7 @@ def build_evaluator(basis, grid, **kwargs):
 def model_grid_for_geographic_display(main_field, lat, lon, *, event_time=None):
     """Return the model-coordinate grid underlying a geographic map."""
     model_lat, model_lon = main_field.geo_to_model_coordinates(lat, lon, event_time=event_time)
-    return Grid(lat=model_lat, lon=model_lon)
+    return SphericalGrid(lat=model_lat, lon=model_lon)
 
 
 def transform_for_basis(basis, transform):
@@ -53,7 +53,7 @@ def build_JS_operators(settings, sh_basis, transform, boundary_jr_to_gap_Br_matr
         rm = float(rm)
     else:
         rm = None
-    solid_harmonics = SolidHarmonics(sh_basis)
+    solid_harmonics = SolidHarmonicOperators(sh_basis)
     radius = float(setting_value(settings, "RI"))
     induced_Br_to_JS = magnetic_boundary.induced_Br_to_gridded_JS_operator(
         solid_harmonics,
@@ -63,7 +63,7 @@ def build_JS_operators(settings, sh_basis, transform, boundary_jr_to_gap_Br_matr
         boundary_shielding=bool(setting_value(settings, "magnetic_boundary_shielding", False)),
     ).array
     boundary_jr_to_toroidal_potential = (
-        MU0 / radius * sh_basis.get_mean_free_surface_poisson_operator(radius)
+        MU0 / radius * sh_basis.mean_free_surface_poisson_operator(radius)
     )
     if boundary_jr_to_gap_Br_matrix is None:
         boundary_jr_to_gap_Br_matrix = np.zeros((sh_basis.index_length, sh_basis.index_length))
@@ -89,9 +89,9 @@ def build_JS_operators(settings, sh_basis, transform, boundary_jr_to_gap_Br_matr
 
 
 __all__ = [
+    "build_JS_operators",
     "build_evaluator",
     "build_plot_grid",
-    "build_JS_operators",
     "model_grid_for_geographic_display",
     "transform_for_basis",
 ]

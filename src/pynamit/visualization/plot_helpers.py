@@ -421,7 +421,7 @@ __all__ = [
     "style_global_axis",
     "style_global_comparison_axis",
     "style_global_input_axis",
-    "symmetric_contour_levels",
     "suppress_empty_contour_warnings",
+    "symmetric_contour_levels",
     "symmetric_contour_levels_without_zero",
 ]

@@ -12,7 +12,7 @@ import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
 import numpy as np
 from dipole import Dipole
-from kompe import GlobalCSBasis, Grid
+from kompe import GlobalCSBasis, SphericalGrid
 from kompe.constants import EARTH_RADIUS_M
 from kompe.math import identity_linear_map
 from kompe.spherical_transform import SphericalTransform
@@ -59,7 +59,7 @@ class PynamEye:
     main_field : MainField
         An instance of the MainField class representing the magnetic
         field model in use.
-    global_grid : Grid
+    global_grid : SphericalGrid
         Global grid used for evaluations.
     transforms : dict
         Spherical transforms for different regions.
@@ -131,14 +131,7 @@ class PynamEye:
 
         # Set up cubed sphere grid for vector plotting.
         self.vector_cs_basis = GlobalCSBasis(NCS_plot)
-        k, i, j = self.vector_cs_basis.get_gridpoints(NCS_plot)
-        # Crop to skip duplicate points.
-        arr_xi = self.vector_cs_basis.xi(i[:, :-1, :-1] + 0.5, NCS_plot).reshape(-1)
-        arr_eta = self.vector_cs_basis.eta(j[:, :-1, :-1] + 0.5, NCS_plot).reshape(-1)
-        _, arr_theta, arr_phi = self.vector_cs_basis.cube2spherical(
-            arr_xi, arr_eta, k[:, :-1, :-1].reshape(-1), deg=True
-        )
-        self.global_vector_grid = Grid(theta=arr_theta, lon=arr_phi)
+        self.global_vector_grid = self.vector_cs_basis.mesh.cell_centers
         self.global_vector_lat, self.global_vector_lon = self.main_field.model_to_geo_coordinates(
             self.global_vector_grid.lat, self.global_vector_grid.lon, event_time=self.time
         )
@@ -184,8 +177,8 @@ class PynamEye:
             self.lat_s, self.lon_s, _ = self.apx.apex2geo(
                 -self.mlat, self.mlon, (self.RI - EARTH_RADIUS_M) * 1e-3
             )
-            self.polar_grid_n = Grid(lat=self.lat_n, lon=self.lon_n)
-            self.polar_grid_s = Grid(lat=self.lat_s, lon=self.lon_s)
+            self.polar_grid_n = SphericalGrid(lat=self.lat_n, lon=self.lon_n)
+            self.polar_grid_s = SphericalGrid(lat=self.lat_s, lon=self.lon_s)
             self._add_transforms("north", self.polar_grid_n)
             self._add_transforms("south", self.polar_grid_s)
         elif self.config.main_field_kind.lower() == "kaiju_dipole":
@@ -195,13 +188,13 @@ class PynamEye:
             self.lat_s, self.lon_s = self.main_field.magnetic_to_geographic_coordinates(
                 -self.mlat, self.mlon
             )
-            self.polar_grid_n = Grid(lat=self.lat_n, lon=self.lon_n)
-            self.polar_grid_s = Grid(lat=self.lat_s, lon=self.lon_s)
+            self.polar_grid_n = SphericalGrid(lat=self.lat_n, lon=self.lon_n)
+            self.polar_grid_s = SphericalGrid(lat=self.lat_s, lon=self.lon_s)
             self._add_transforms("north", self.polar_grid_n)
             self._add_transforms("south", self.polar_grid_s)
         else:
             # The generic dipole model uses magnetic coordinates.
-            self.polar_grid = Grid(lat=self.mlat, lon=self.mlon)
+            self.polar_grid = SphericalGrid(lat=self.mlat, lon=self.mlon)
             self._add_transforms("north", self.polar_grid)
             self.transforms["south"] = self.transforms["north"]
             self.conductance_transforms["south"] = self.conductance_transforms["north"]
@@ -327,10 +320,8 @@ class PynamEye:
         )
 
         E_coeffs = self.transforms["num"].analyze_helmholtz(np.array([Eth, Eph]))
-        self.Phi_coeffs = self.basis.get_helmholtz_curl_free_potential_operator().matvec(E_coeffs)
-        self.W_coeffs = self.basis.get_helmholtz_divergence_free_potential_operator().matvec(
-            E_coeffs
-        )
+        self.Phi_coeffs = self.basis.helmholtz_curl_free_potential_operator().matvec(E_coeffs)
+        self.W_coeffs = self.basis.helmholtz_divergence_free_potential_operator().matvec(E_coeffs)
         self.m_Phi = self.Phi_coeffs * self.RI
         self.m_W = self.W_coeffs * self.RI
 

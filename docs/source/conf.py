@@ -29,7 +29,7 @@ nitpick_ignore = [
     ("py:class", "optional"),
     ("py:class", "kompe.math.LeastSquaresProblem"),
     ("py:class", "kompe.SphericalRepresentation"),
-    ("py:class", "kompe.SurfaceOperators"),
+    ("py:class", "kompe.SurfaceDifferentialBasis"),
     ("py:class", "kompe.spherical_transform.SphericalTransform"),
     ("py:class", "pynamit.storage.ArrayCache"),
     ("py:class", "xarray.core.dataset.Dataset"),

@@ -137,11 +137,11 @@ def _output_evaluation_context(config, geometry, evaluator):
     poloidal_evaluator = geometry.poloidal_transform_for(evaluator)
     return {
         "RI": ri,
-        "induced_Br_to_Br": poloidal_evaluator.scalar_coeffs_to_grid_operator,
-        "boundary_jr_to_jr": evaluator.scalar_coeffs_to_grid_operator,
+        "induced_Br_to_Br": poloidal_evaluator.scalar_synthesis_operator,
+        "boundary_jr_to_jr": evaluator.scalar_synthesis_operator,
         "induced_Br_to_Jeq": (-ri / MU0)
         * (
-            poloidal_evaluator.scalar_coeffs_to_grid_operator
+            poloidal_evaluator.scalar_synthesis_operator
             @ geometry.poloidal_to_boundary_potential_jump_factor_operator
             @ geometry.induced_Br_to_poloidal_potential_operator
         ),
@@ -190,11 +190,11 @@ def _output_fields_from_coefficients(
     radius_scale = float(output_evaluation_context["RI"]) * 1e-3
     if "Phi" in field_names:
         fields["Phi"] = _apply_flat_operator(
-            evaluator.scalar_coeffs_to_grid_operator, radius_scale * phi_coeffs
+            evaluator.scalar_synthesis_operator, radius_scale * phi_coeffs
         )
     if "W" in field_names:
         fields["W"] = _apply_flat_operator(
-            evaluator.scalar_coeffs_to_grid_operator, radius_scale * w_coeffs
+            evaluator.scalar_synthesis_operator, radius_scale * w_coeffs
         )
     return fields
 
@@ -222,7 +222,7 @@ def _input_scalar_grid_at_time(
     if stored_name is None:
         return _nan_field(shape)
     index = _dataset_index_at_time(dataset, timestamp, fallback_start_time=fallback_start_time)
-    return evaluator.scalar_coeffs_to_grid.dot(
+    return evaluator.scalar_synthesis_matrix.dot(
         dataset[stored_name].isel(time=index).values
     ).reshape(shape)
 
@@ -309,10 +309,10 @@ def compute_solution_comparison_fields_at_index(
             conductance_index = _dataset_index_at_time(
                 datasets["conductance"], target_time, fallback_start_time=fallback_start_time
             )
-            log_magnitude = conductance_evaluator.scalar_coeffs_to_grid.dot(
+            log_magnitude = conductance_evaluator.scalar_synthesis_matrix.dot(
                 datasets["conductance"][log_magnitude_var].isel(time=conductance_index).values
             )
-            log_ratio = conductance_evaluator.scalar_coeffs_to_grid.dot(
+            log_ratio = conductance_evaluator.scalar_synthesis_matrix.dot(
                 datasets["conductance"][log_ratio_var].isel(time=conductance_index).values
             )
             etaP = evaluate_conductance_values(log_magnitude, log_ratio)["etaP"]

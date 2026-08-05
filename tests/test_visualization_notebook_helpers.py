@@ -4,7 +4,7 @@ import datetime as dt
 
 import cartopy.crs as ccrs
 import numpy as np
-from kompe import SHBasis, SolidHarmonics
+from kompe import SHBasis, SolidHarmonicOperators
 from kompe.constants import EARTH_RADIUS_M, MU0
 
 from pynamit.coordinates import (
@@ -388,7 +388,7 @@ def test_style_global_axis_keeps_coastlines_and_gridlines_geographic():
 
 
 def test_grid_helpers_are_importable_from_visualization():
-    """Grid/evaluation helpers are available through the package."""
+    """Expose spherical-grid helpers through the package."""
     lat, lon, grid = build_plot_grid(nlat=3, nlon=4)
     assert lat.shape == (3, 4)
     assert lon.shape == (3, 4)
@@ -404,7 +404,7 @@ def test_build_JS_operators_matches_core_formulas():
         magnetic_boundary_shielding = True
 
     sh_basis = SHBasis(3, 2, mean_free=True)
-    solid_harmonics = SolidHarmonics(sh_basis)
+    solid_harmonics = SolidHarmonicOperators(sh_basis)
     _, _, grid = build_plot_grid(nlat=4, nlon=5)
     transform = build_evaluator(sh_basis, grid)
     boundary_jr_to_gap_Br = np.eye(sh_basis.index_length)
@@ -414,17 +414,19 @@ def test_build_JS_operators_matches_core_formulas():
     )
 
     poloidal_to_JS = (
-        -transform.scalar_coeffs_to_gridded_rhat_cross_gradient
+        -transform.rhat_cross_gradient_matrix
         * solid_harmonics.poloidal_to_boundary_potential_jump_factor.reshape(1, 1, -1)
         / MU0
     )
-    toroidal_to_JS = -transform.scalar_coeffs_to_gridded_gradient / MU0
+    toroidal_to_JS = -transform.surface_gradient_matrix / MU0
     regular_shift = solid_harmonics.regular_reference_shift(Settings.RM, Settings.RI)
     irregular_shift = solid_harmonics.irregular_reference_shift(Settings.RI, Settings.RM)
     denominator = 1.0 - regular_shift * irregular_shift
-    induced_potential_to_Br = -(Settings.RI**2) * sh_basis.laplacian(Settings.RI)
+    induced_potential_to_Br = -(Settings.RI**2) * np.diag(
+        sh_basis.surface_laplacian_matrix(Settings.RI)
+    )
     boundary_jr_to_toroidal = (
-        MU0 / Settings.RI * sh_basis.get_mean_free_surface_poisson_operator(Settings.RI).array
+        MU0 / Settings.RI * sh_basis.mean_free_surface_poisson_operator(Settings.RI).array
     )
 
     np.testing.assert_allclose(
@@ -454,18 +456,18 @@ def test_build_JS_operators_defaults_to_unshielded_rm():
         RM = 2.0
 
     sh_basis = SHBasis(3, 2, mean_free=True)
-    solid_harmonics = SolidHarmonics(sh_basis)
+    solid_harmonics = SolidHarmonicOperators(sh_basis)
     _, _, grid = build_plot_grid(nlat=4, nlon=5)
     transform = build_evaluator(sh_basis, grid)
 
     operators = build_JS_operators(Settings, sh_basis, transform)
     poloidal_to_JS = (
-        -transform.scalar_coeffs_to_gridded_rhat_cross_gradient
+        -transform.rhat_cross_gradient_matrix
         * solid_harmonics.poloidal_to_boundary_potential_jump_factor.reshape(1, 1, -1)
         / MU0
     )
 
-    degree_factor = -(Settings.RI**2) * sh_basis.laplacian(Settings.RI)
+    degree_factor = -(Settings.RI**2) * np.diag(sh_basis.surface_laplacian_matrix(Settings.RI))
     np.testing.assert_allclose(operators["induced_Br_to_JS"], poloidal_to_JS / degree_factor)
 
 

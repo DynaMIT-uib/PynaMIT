@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from kompe import Grid
+from kompe import SphericalGrid
 from kompe.constants import EARTH_RADIUS_M
 from kompe.spherical_transform import grid_sqrt_area_weights
 
@@ -573,8 +573,8 @@ class _MageInputProjector:
         self,
         *,
         simulation: pynamit.Simulation,
-        ionosphere_grid: Grid,
-        magnetosphere_grid: Grid,
+        ionosphere_grid: SphericalGrid,
+        magnetosphere_grid: SphericalGrid,
         boundary_Br_lambda: float,
         conductance_lambda: float,
         boundary_jr_lambda: float,
@@ -595,8 +595,8 @@ class _MageInputProjector:
         self._ionosphere_sqrt_weights = grid_sqrt_area_weights(ionosphere_grid)
         self._ionosphere_tangential_sqrt_weights = np.tile(self._ionosphere_sqrt_weights, (2, 1))
         conductance_space = simulation.run_data.schema.input_field_spaces["conductance"]
-        self._conductance_evaluator = (
-            conductance_space.representation.get_scalar_evaluation_operator(ionosphere_grid)
+        self._conductance_evaluator = conductance_space.representation.scalar_evaluation_operator(
+            ionosphere_grid
         )
 
     def project_step(self, h5_file: Any, step: int, input_time: float) -> None:
@@ -771,7 +771,7 @@ def project_inputs(
             alignment = main_field.alignment_metadata(event_time)
             ionosphere_lat = np.asarray(file["ionosphere_lat"][:], dtype=float)
             ionosphere_lon = wrap_longitude_180(file["ionosphere_lon"][:])
-            ionosphere_grid = Grid(lat=ionosphere_lat, lon=ionosphere_lon)
+            ionosphere_grid = SphericalGrid(lat=ionosphere_lat, lon=ionosphere_lon)
 
             magnetosphere_lat = np.asarray(file["boundary_lat"][:], dtype=float)
             magnetosphere_lon = wrap_longitude_180(file["boundary_lon"][:])
@@ -784,7 +784,7 @@ def project_inputs(
                 raise RuntimeError(
                     "Prepared MAGE boundary solid angles must cover the complete sphere."
                 )
-            magnetosphere_grid = Grid(
+            magnetosphere_grid = SphericalGrid(
                 lat=magnetosphere_lat, lon=magnetosphere_lon, area_weights=boundary_solid_angle
             )
 

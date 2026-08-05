@@ -36,9 +36,9 @@ PynaMIT has four API tiers:
   ``simulation._runner``, caches, and scheduling helpers are internal. Tests
   may exercise these objects directly without turning them into user API.
 
-The ``BasisEvaluator`` compatibility spelling remains supported by PynaMIT.
-Kompe retains the documented ``SphericalTransform.G*`` properties. New code
-uses the canonical descriptive names rather than adding further aliases.
+The ``BasisEvaluator`` compatibility subclass remains supported by PynaMIT.
+It retains only ``G`` and ``G_helmholtz`` for collaborator compatibility;
+Kompe itself exposes the canonical descriptive synthesis names.
 
 High-level flow
 ---------------
@@ -204,7 +204,7 @@ cached normal-system factor replaces the tall SVD while retaining a
 structured adjoint. Spaces retaining a mean mode, undersampled grids, and
 otherwise rank-deficient transforms keep the pseudoinverse fallback.
 
-``Grid`` is an immutable coordinate value. Its coordinate signature defines
+``SphericalGrid`` is an immutable coordinate value. Its coordinate signature defines
 grid-value compatibility and remapping identity. Its separate analysis
 signature also includes optional area weights: equal coordinates can share
 synthesis matrices while requiring different weighted least-squares analyses.
@@ -242,17 +242,17 @@ possible. ``GlobalCSBasis`` is Kompe's public cubed-sphere basis. Its private
 implementation is split into:
 
 * ``cs_coordinates`` for panel and coordinate transforms.
-* ``CSGridGeometry`` and ``CSGridRemapper`` for grid shape, indexing, and
+* ``GlobalCSMesh`` and ``CSGridRemapper`` for mesh shape, indexing, and
   remapping, including scattered scalar and vector interpolation.
 * ``CSFiniteDifferences`` for derivative stencils and sparse operators.
 * ``cs_vectors`` for vector-basis conversions.
 
 Prefer adding focused CS behavior to one of these collaborators instead of
-growing ``GlobalCSBasis`` again. Stateless coordinate and vector calculations are
-module functions rather than artificial namespace objects. The familiar
-coordinate and interpolation methods remain on ``GlobalCSBasis`` as its public
-surface, while their implementations belong to those focused modules. Keep the
-``CS`` abbreviation in class names that represent actual objects.
+growing ``GlobalCSBasis`` again. ``GlobalCSProjection`` owns the public
+continuous coordinate and vector transformations; ``GlobalCSMesh`` owns
+sampled geometry; and ``GlobalCSBasis`` owns expansion, interpolation, and
+closed-surface differential behavior. Keep the ``CS`` abbreviation in class
+names that represent actual objects.
 
 ``kompe`` is a warranted standalone package because its bases, grids,
 analysis/synthesis transforms, and solid-harmonic continuation form a coherent

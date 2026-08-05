@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-from kompe import Grid
+from kompe import SphericalGrid
 from kompe.spherical_transform import SphericalTransform
 
 from pynamit.geomagnetism import MagneticFieldEvaluation
@@ -73,7 +73,7 @@ class InputPipeline:
         vector. An upward-positive convention must first be converted to
         that signed field-parallel convention.
         """
-        input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
+        input_grid = SphericalGrid(lat=lat, lon=lon, theta=theta, phi=phi)
         field = MagneticFieldEvaluation(
             self.simulation.geometry.main_field, input_grid, self.simulation.config.RI
         )
@@ -290,7 +290,7 @@ class InputPipeline:
         """Project tangential samples."""
         input_data = self.tangential_input_data(key, theta_component, phi_component)
         input_time = self.resolve_input_times(time, input_data)
-        input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
+        input_grid = SphericalGrid(lat=lat, lon=lon, theta=theta, phi=phi)
         coeff_rows = self.projection_transform_for(key).analyze_helmholtz_samples(
             input_data[key],
             input_grid=input_grid,
@@ -309,7 +309,7 @@ class InputPipeline:
         wind_representation = self.simulation.run_data.schema.input_field_spaces[
             "u"
         ].representation
-        wind_synthesis = wind_representation.get_helmholtz_synthesis_operator(grid)
+        wind_synthesis = wind_representation.helmholtz_synthesis_operator(grid)
         Q_eff_values = []
         for time_value, wind_coeffs in zip(input_time, wind_coeff_rows, strict=True):
             response.activate_inputs_at_time(self.simulation.run_data.input_series, time_value)
@@ -331,7 +331,7 @@ class InputPipeline:
         """Fit stored Q_eff coefficients to wind-driven E."""
         response = self.simulation.response
         q_field_space = self.simulation.run_data.schema.input_field_spaces["Q_eff"]
-        q_synthesis = q_field_space.representation.get_helmholtz_synthesis_operator(
+        q_synthesis = q_field_space.representation.helmholtz_synthesis_operator(
             self.simulation.geometry.model_grid
         )
         q_coeff_rows = []
@@ -372,7 +372,7 @@ class InputPipeline:
     ) -> None:
         """Project gridded input data and store coefficient entries."""
         input_time = self.resolve_input_times(time, input_data)
-        input_grid = Grid(lat=lat, lon=lon, theta=theta, phi=phi)
+        input_grid = SphericalGrid(lat=lat, lon=lon, theta=theta, phi=phi)
         transform = self.projection_transform_for(key)
         field_space = self.simulation.run_data.schema.input_field_spaces[key]
         if field_space.field_type == "scalar" and len(input_data) > 1:
@@ -422,7 +422,7 @@ class InputPipeline:
         """Project scalar input variables in one batched transform."""
         transform = self.projection_transform_for(key)
         normalized = {
-            var: transform.normalize_scalar_value_batch(values, input_grid)
+            var: transform.normalize_scalar_samples(values, input_grid)
             for var, values in input_data.items()
         }
         for var, values in normalized.items():

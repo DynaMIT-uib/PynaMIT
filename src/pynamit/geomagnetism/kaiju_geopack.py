@@ -454,8 +454,8 @@ def kaiju_geopack_alignment(
 
 
 __all__ = [
-    "GEOPACK_DIPOLE_COEFFICIENTS",
     "GEOPACK_2020_SECULAR_VARIATION",
+    "GEOPACK_DIPOLE_COEFFICIENTS",
     "GeopackDipoleCoefficients",
     "KaijuGeopackMAG",
     "KaijuGeopackSM",

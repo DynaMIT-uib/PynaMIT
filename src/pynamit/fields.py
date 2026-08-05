@@ -134,8 +134,8 @@ class FieldCoefficients:
     """Realized coefficient values in a :class:`FieldSpace`.
 
     The container owns its values, validates their shape, and applies
-    the field space's gauge policy. Grid projection and evaluation
-    remain responsibilities of the coefficient representation.
+    the field space's gauge policy. Sampling and projection remain the
+    coefficient representation's responsibility.
     """
 
     def __init__(self, field_space: FieldSpace, coeffs: Any, *, name: str | None = None):

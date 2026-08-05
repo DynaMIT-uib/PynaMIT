@@ -37,11 +37,7 @@ def poloidal_potential_to_gridded_JS_operator(solid_harmonics, transform, *, pol
     scale = _coefficient_scale(solid_harmonics.poloidal_to_boundary_potential_jump_factor)
     if poloidal_scale is not None:
         scale *= np.asarray(poloidal_scale)
-    return (
-        (-1.0 / MU0)
-        * transform.scalar_coeffs_to_gridded_rhat_cross_gradient_operator
-        @ diagonal_linear_map(scale)
-    )
+    return (-1.0 / MU0) * transform.rhat_cross_gradient_operator @ diagonal_linear_map(scale)
 
 
 def external_Br_to_gridded_JS_operator(solid_harmonics, transform):
@@ -117,9 +113,7 @@ def toroidal_potential_to_gridded_JS_operator(
     boundary_jr_to_gap_Br=None,
 ):
     """Map private toroidal potential to total sheet current."""
-    direct_sheet_current = (
-        -1.0 / MU0
-    ) * horizontal_transform.scalar_coeffs_to_gridded_gradient_operator
+    direct_sheet_current = (-1.0 / MU0) * horizontal_transform.surface_gradient_operator
     if boundary_jr_to_gap_Br is None:
         return direct_sheet_current
     gap_shielding_current = (
@@ -146,7 +140,7 @@ def boundary_jr_to_gridded_JS_operator(
     """
     direct_sheet_current = (
         (-1.0 / MU0)
-        * horizontal_transform.scalar_coeffs_to_gridded_gradient_operator
+        * horizontal_transform.surface_gradient_operator
         @ boundary_jr_to_toroidal_potential
     )
     if boundary_jr_to_gap_Br is None:

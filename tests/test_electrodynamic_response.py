@@ -100,7 +100,7 @@ def test_u_coeffs_to_E_coeffs_is_linear_map_on_jax():
         ),
         wind_motional_E_tensor=jnp.asarray(bu),
         horizontal_transform=SimpleNamespace(
-            helmholtz_coeffs_to_gridded_vector_operator=as_linear_map(
+            helmholtz_synthesis_operator=as_linear_map(
                 jnp.asarray(helmholtz_synthesis), input_shape=(2, n), output_shape=(2, 4)
             )
         ),
@@ -136,7 +136,7 @@ def test_Q_eff_coeffs_to_E_coeffs_uses_resistance_tensor_operator():
     expected = np.einsum("cmpg,pg->cm", helmholtz_analysis, E_on_grid, optimize=True)
 
     q_representation = SimpleNamespace(
-        get_helmholtz_synthesis_operator=lambda grid: as_linear_map(
+        helmholtz_synthesis_operator=lambda grid: as_linear_map(
             synthesis, input_shape=(2, n), output_shape=(2, n_grid)
         )
     )
@@ -447,7 +447,7 @@ def test_toroidal_potential_problem_uses_radial_current_constraint_operator_dire
     problem = response._toroidal_potential_problem
 
     np.testing.assert_allclose(
-        problem.get_system_linear_map().to_matrix(backend="numpy"),
+        problem.system_operator().to_matrix(backend="numpy"),
         radial_current_constraint @ toroidal_potential_to_boundary_jr,
     )
 
@@ -497,11 +497,11 @@ def test_resistance_tensor_uses_conductance_synthesis_operator_without_matrix():
         def coefficients_are_compatible_with(self, _basis):
             return False
 
-        def get_scalar_evaluation_operator(self, grid):
+        def scalar_evaluation_operator(self, grid):
             assert grid is model_grid
             return as_linear_map(synthesis, input_shape=(n_coeffs,), output_shape=(n_grid,))
 
-        def get_scalar_evaluation_matrix(self, _grid):
+        def scalar_evaluation_matrix(self, _grid):
             raise AssertionError("conductance synthesis should use the operator API")
 
     conductance_basis = ConductanceBasis()
@@ -543,7 +543,7 @@ def test_resistance_tensor_rejects_incompatible_conductance_storage_bases():
         def coefficients_are_compatible_with(self, other):
             return self.name == getattr(other, "name", None)
 
-        def get_scalar_evaluation_operator(self, _grid):
+        def scalar_evaluation_operator(self, _grid):
             return as_linear_map(synthesis, input_shape=(n_coeffs,), output_shape=(n_grid,))
 
     response = object.__new__(ElectrodynamicResponse)

@@ -8,7 +8,7 @@ import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from kompe import Grid
+from kompe import SphericalGrid
 from kompe.constants import EARTH_RADIUS_M
 from matplotlib.lines import Line2D
 
@@ -332,16 +332,14 @@ class GroundFigureRenderer:
             return cached
 
         geometry = self.view.require_geometry()
-        grid = Grid(lat=lat_arr, lon=lon_arr)
+        grid = SphericalGrid(lat=lat_arr, lon=lon_arr)
         ri = float(self.view.run_view.config.RI)
         solid_harmonics = geometry.solid_harmonics
         solid_basis = solid_harmonics.basis
         evaluator = build_evaluator(solid_basis, grid)
         ve_to_ground = solid_harmonics.regular_reference_shift(ri, EARTH_RADIUS_M)
-        induced_Br_to_br_ground = ve_to_ground * evaluator.scalar_coeffs_to_grid
-        induced_Br_to_bh_ground = (
-            ve_to_ground / solid_basis.n * evaluator.scalar_coeffs_to_gridded_gradient
-        )
+        induced_Br_to_br_ground = ve_to_ground * evaluator.scalar_synthesis_matrix
+        induced_Br_to_bh_ground = ve_to_ground / solid_basis.n * evaluator.surface_gradient_matrix
 
         induced_Br = self.view.dataset_values("dynamic", "induced_Br").T
         equilibrium_dataset = self.view.run_view.datasets.get("equilibrium")

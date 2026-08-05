@@ -235,7 +235,7 @@ def test_vector_magnitude_helpers_preserve_nan_only_columns():
 
 
 def test_vector_magnitude_preserve_shape_keeps_grid_shape():
-    """Grid-shaped component arrays should produce grid magnitudes."""
+    """Preserve grid shape when computing vector magnitudes."""
     first = np.array([[3.0, np.nan], [0.0, np.nan]])
     second = np.array([[4.0, 5.0], [0.0, np.nan]])
 

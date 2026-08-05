@@ -98,9 +98,7 @@ class ElectrodynamicResponse:
 
     def _create_u_to_E_operator(self) -> LinearMap:
         """Operator mapping wind coefficients to E coefficients."""
-        helmholtz_synthesis = (
-            self.geometry.horizontal_transform.helmholtz_coeffs_to_gridded_vector_operator
-        )
+        helmholtz_synthesis = self.geometry.horizontal_transform.helmholtz_synthesis_operator
         return ionospheric_closure.wind_to_E_coeffs_operator(
             self.geometry.helmholtz_analysis_operator,
             self.geometry.wind_motional_E_tensor,
@@ -117,12 +115,12 @@ class ElectrodynamicResponse:
     def _Q_eff_synthesis_operator_for_representation(self, representation) -> LinearMap:
         """Return Q_eff coefficient synthesis to the model grid."""
         if self._Q_eff_synthesis_operator_cache is None:
-            get_operator = getattr(representation, "get_helmholtz_synthesis_operator", None)
-            if not callable(get_operator):
+            synthesis_operator = getattr(representation, "helmholtz_synthesis_operator", None)
+            if not callable(synthesis_operator):
                 raise ValueError(
                     "Q_eff storage basis cannot evaluate tangential fields on the model grid."
                 )
-            self._Q_eff_synthesis_operator_cache = get_operator(self.geometry.model_grid)
+            self._Q_eff_synthesis_operator_cache = synthesis_operator(self.geometry.model_grid)
         return self._Q_eff_synthesis_operator_cache
 
     def _create_Q_eff_to_E_operator_for_representation(self, representation) -> LinearMap:
@@ -151,12 +149,12 @@ class ElectrodynamicResponse:
         if representation.coefficients_are_compatible_with(self.geometry.horizontal_basis):
             return identity_linear_map((2, self.geometry.horizontal_basis.index_length))
 
-        get_operator = getattr(representation, "get_helmholtz_synthesis_operator", None)
-        if not callable(get_operator):
+        synthesis_operator = getattr(representation, "helmholtz_synthesis_operator", None)
+        if not callable(synthesis_operator):
             raise ValueError(
                 "E_neutral_wind storage basis cannot evaluate tangential fields on the model grid."
             )
-        source_synthesis = get_operator(self.geometry.model_grid)
+        source_synthesis = synthesis_operator(self.geometry.model_grid)
         grid_to_coeffs = self.geometry.helmholtz_analysis_operator
         return grid_to_coeffs @ source_synthesis
 
@@ -278,13 +276,13 @@ class ElectrodynamicResponse:
         """Return log-conductance synthesis to the model grid."""
         basis = self._conductance_storage_basis()
 
-        get_operator = getattr(basis, "get_scalar_evaluation_operator", None)
-        if callable(get_operator):
-            return get_operator(self.geometry.model_grid)
+        evaluation_operator = getattr(basis, "scalar_evaluation_operator", None)
+        if callable(evaluation_operator):
+            return evaluation_operator(self.geometry.model_grid)
 
-        get_matrix = getattr(basis, "get_scalar_evaluation_matrix", None)
-        if callable(get_matrix):
-            return as_linear_map(get_matrix(self.geometry.model_grid))
+        evaluation_matrix = getattr(basis, "scalar_evaluation_matrix", None)
+        if callable(evaluation_matrix):
+            return as_linear_map(evaluation_matrix(self.geometry.model_grid))
 
         raise ValueError("Conductance storage basis cannot be evaluated on the model grid.")
 

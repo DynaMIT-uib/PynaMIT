@@ -9,7 +9,7 @@ import datetime as dt
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
 import numpy as np
-from kompe import Grid
+from kompe import SphericalGrid
 from kompe.spherical_transform import SphericalTransform
 
 from pynamit.geomagnetism import MagneticFieldEvaluation
@@ -222,7 +222,7 @@ def plot_output_diagnostics(
     # Evaluate hemisphere fields on the model grid, then express the
     # sample positions in magnetic coordinates for polar display.
     model_lat, model_lon = map(np.ravel, np.meshgrid(latitude, longitude))
-    model_grid = Grid(lat=model_lat, lon=model_lon)
+    model_grid = SphericalGrid(lat=model_lat, lon=model_lon)
     model_transform = SphericalTransform(simulation.geometry.horizontal_basis, model_grid)
     model_field_evaluation = MagneticFieldEvaluation(
         simulation.geometry.main_field, model_grid, simulation.config.RI

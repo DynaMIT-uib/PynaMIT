@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from kompe import SHBasis, SolidHarmonics
+from kompe import SHBasis, SolidHarmonicOperators
 from kompe.constants import EARTH_RADIUS_M
 
 from pynamit.simulation.electrodynamics.magnetic_boundary import (
@@ -15,7 +15,7 @@ from tests import magnetic_potential_coordinate_array
 
 def test_boundary_br_continuation_reproduces_prescribed_outer_field():
     """Regular source plus irregular response must equal Br at RM."""
-    solid_harmonics = SolidHarmonics(SHBasis(Nmax=4, Mmax=3))
+    solid_harmonics = SolidHarmonicOperators(SHBasis(max_degree=4, max_order=3))
     inner_radius = 6.5e6
     boundary_radius = 10.0e6
     regular_to_inner = np.asarray(
@@ -25,8 +25,10 @@ def test_boundary_br_continuation_reproduces_prescribed_outer_field():
         solid_harmonics.irregular_reference_shift(inner_radius, boundary_radius)
     )
     denominator = 1.0 - regular_to_inner * irregular_to_boundary
-    inner_br_per_poloidal = np.asarray(
-        -(inner_radius**2) * solid_harmonics.basis.laplacian(inner_radius)
+    inner_br_per_poloidal = -(inner_radius**2) * np.asarray(
+        solid_harmonics.basis.surface_laplacian_operator(inner_radius).matvec(
+            np.ones(solid_harmonics.basis.index_length)
+        )
     )
     continued_Br = boundary_Br_to_ionosphere_external_Br_scale(
         solid_harmonics, boundary_radius, inner_radius
@@ -46,7 +48,7 @@ def test_boundary_br_continuation_reproduces_prescribed_outer_field():
 
 def test_optional_induced_Br_shielding_cancels_field_at_outer_boundary():
     """The optional image response must cancel induced Br at RM."""
-    solid_harmonics = SolidHarmonics(SHBasis(Nmax=4, Mmax=3))
+    solid_harmonics = SolidHarmonicOperators(SHBasis(max_degree=4, max_order=3))
     inner_radius = 6.5e6
     boundary_radius = 10.0e6
     regular_to_inner = np.asarray(

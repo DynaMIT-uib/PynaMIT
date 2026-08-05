@@ -6,7 +6,13 @@ import logging
 from functools import cached_property
 
 import numpy as np
-from kompe import GlobalCSBasis, Grid, SolidHarmonics, SurfaceOperators, is_sh_basis
+from kompe import (
+    GlobalCSBasis,
+    SHBasis,
+    SolidHarmonicOperators,
+    SphericalGrid,
+    SurfaceDifferentialBasis,
+)
 from kompe.constants import EARTH_RADIUS_M, MU0
 from kompe.math import (
     LinearMap,
@@ -52,26 +58,32 @@ class SimulationGeometry:
 
     def __init__(
         self,
-        horizontal_basis: SurfaceOperators,
+        horizontal_basis: SurfaceDifferentialBasis,
         cs_basis: GlobalCSBasis,
         main_field: MainField,
         config: SimulationConfig,
         gap_Br_response_matrix: ArrayLike | None = None,
-        solid_harmonics: SolidHarmonics | None = None,
+        solid_harmonics: SolidHarmonicOperators | None = None,
         operator_cache=None,
     ) -> None:
         """Initialize the geometric context."""
-        if not isinstance(horizontal_basis, SurfaceOperators):
-            raise TypeError("SimulationGeometry horizontal_basis must implement SurfaceOperators.")
+        if not isinstance(horizontal_basis, SurfaceDifferentialBasis):
+            raise TypeError(
+                "SimulationGeometry horizontal_basis must implement SurfaceDifferentialBasis."
+            )
         if not isinstance(config, SimulationConfig):
             raise TypeError("SimulationGeometry requires a validated SimulationConfig.")
-        if solid_harmonics is not None and not isinstance(solid_harmonics, SolidHarmonics):
-            raise TypeError("solid_harmonics must be a SolidHarmonics object.")
+        if solid_harmonics is not None and not isinstance(solid_harmonics, SolidHarmonicOperators):
+            raise TypeError("solid_harmonics must be a SolidHarmonicOperators object.")
         self.horizontal_basis = horizontal_basis
         self.solid_harmonics = (
             solid_harmonics
             if solid_harmonics is not None
-            else (SolidHarmonics(horizontal_basis) if is_sh_basis(horizontal_basis) else None)
+            else (
+                SolidHarmonicOperators(horizontal_basis)
+                if isinstance(getattr(horizontal_basis, "root_basis", horizontal_basis), SHBasis)
+                else None
+            )
         )
         if self.solid_harmonics is None:
             raise NotImplementedError(
@@ -106,17 +118,13 @@ class SimulationGeometry:
 
     def _init_surface_operators(self) -> None:
         """Compile surface and magnetic-boundary coefficient maps."""
-        self.surface_laplacian_operator = self.horizontal_basis.get_surface_laplacian_operator(
-            self.RI
-        )
-        self.poloidal_laplacian_operator = self.poloidal_basis.get_surface_laplacian_operator(
-            self.RI
-        )
+        self.surface_laplacian_operator = self.horizontal_basis.surface_laplacian_operator(self.RI)
+        self.poloidal_laplacian_operator = self.poloidal_basis.surface_laplacian_operator(self.RI)
         self.helmholtz_curl_free_potential_operator = (
-            self.horizontal_basis.get_helmholtz_curl_free_potential_operator()
+            self.horizontal_basis.helmholtz_curl_free_potential_operator()
         )
         self.helmholtz_divergence_free_potential_operator = (
-            self.horizontal_basis.get_helmholtz_divergence_free_potential_operator()
+            self.horizontal_basis.helmholtz_divergence_free_potential_operator()
         )
         self.surface_gauge_operator = self._build_surface_gauge_operator()
         self.toroidal_potential_to_boundary_jr_operator = (
@@ -170,9 +178,7 @@ class SimulationGeometry:
 
     def _init_spatial_context(self, cs_basis: GlobalCSBasis) -> None:
         """Set up grid, transforms, and background-field evaluators."""
-        self.model_grid = Grid(
-            theta=cs_basis.arr_theta, phi=cs_basis.arr_phi, area_weights=cs_basis.unit_area
-        )
+        self.model_grid = cs_basis.mesh.cell_centers
         self.horizontal_transform = SphericalTransform(
             self.horizontal_basis, self.model_grid, area_weighted=self.area_weighted_least_squares
         )
@@ -196,7 +202,7 @@ class SimulationGeometry:
             cp_theta, cp_phi = self.main_field.conjugate_coordinates(
                 self.RI, self.model_grid.theta, self.model_grid.phi
             )
-            self.conjugate_grid = Grid(theta=cp_theta, phi=cp_phi)
+            self.conjugate_grid = SphericalGrid(theta=cp_theta, phi=cp_phi)
             self.conjugate_horizontal_transform = SphericalTransform(
                 self.horizontal_basis,
                 self.conjugate_grid,
@@ -250,14 +256,14 @@ class SimulationGeometry:
         """
         if self.poloidal_basis.coefficients_are_compatible_with(self.horizontal_basis):
             return identity_linear_map((self.horizontal_basis.index_length,))
-        poloidal_to_grid_matrix = self.poloidal_transform.scalar_coeffs_to_grid
+        poloidal_to_grid_matrix = self.poloidal_transform.scalar_synthesis_matrix
         grid_to_poloidal_operator = dense_full_rank_least_squares_map(
             poloidal_to_grid_matrix,
             sqrt_weights=self.model_grid_sqrt_weights(),
             input_shape=(self.model_grid.size,),
             output_shape=(self.poloidal_basis.index_length,),
         )
-        return grid_to_poloidal_operator @ self.horizontal_transform.scalar_coeffs_to_grid_operator
+        return grid_to_poloidal_operator @ self.horizontal_transform.scalar_synthesis_operator
 
     def poloidal_transform_for(self, transform: SphericalTransform) -> SphericalTransform:
         """Return a poloidal transform for ``transform.grid``."""
@@ -329,9 +335,7 @@ class SimulationGeometry:
     @cached_property
     def boundary_jr_to_toroidal_potential_operator(self) -> LinearMap:
         """Return the gauge-fixed boundary-current inverse."""
-        return (
-            MU0 / self.RI * self.horizontal_basis.get_mean_free_surface_poisson_operator(self.RI)
-        )
+        return MU0 / self.RI * self.horizontal_basis.mean_free_surface_poisson_operator(self.RI)
 
     def toroidal_potential_to_gridded_JS(
         self,
@@ -445,7 +449,7 @@ class SimulationGeometry:
             input_shape=(transform.grid.size,),
             output_shape=(transform.grid.size,),
         )
-        return scale_operator @ transform.scalar_coeffs_to_grid_operator
+        return scale_operator @ transform.scalar_synthesis_operator
 
     def _build_horizontal_grid_to_apex_operator(
         self, *, evaluator=None, grid=None, output_mask=None
@@ -479,7 +483,7 @@ class SimulationGeometry:
             self._build_horizontal_grid_to_apex_operator(
                 evaluator=evaluator, grid=transform.grid, output_mask=output_mask
             )
-            @ transform.helmholtz_coeffs_to_gridded_vector_operator
+            @ transform.helmholtz_synthesis_operator
         )
 
     @cached_property
@@ -551,7 +555,7 @@ class SimulationGeometry:
         theta_footpoint, phi_footpoint = self.main_field.map_along_field_lines(
             r_dest=self.RI, r=radius, theta=self.model_grid.theta, phi=self.model_grid.phi
         )
-        footpoint_grid = Grid(theta=theta_footpoint, phi=phi_footpoint)
+        footpoint_grid = SphericalGrid(theta=theta_footpoint, phi=phi_footpoint)
         shell_field = MagneticFieldEvaluation(self.main_field, self.model_grid, radius)
         footpoint_field = MagneticFieldEvaluation(self.main_field, footpoint_grid, self.RI)
         footpoint_transform = SphericalTransform(
@@ -577,7 +581,7 @@ class SimulationGeometry:
             diagonal_linear_map(poloidal_scale)
             @ gridded_JS_to_poloidal_operator
             @ jr_to_gridded_JS
-            @ footpoint_transform.scalar_coeffs_to_grid_operator
+            @ footpoint_transform.scalar_synthesis_operator
         )
         return np.asarray(integrand_operator.to_matrix(backend="numpy"))
 

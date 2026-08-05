@@ -4,7 +4,7 @@ import json
 
 import numpy as np
 import pytest
-from kompe import Grid, SHBasis
+from kompe import SHBasis, SphericalGrid
 from kompe.constants import EARTH_RADIUS_M
 from kompe.math import array_fingerprint, content_fingerprint
 from kompe.spherical_transform import SphericalTransform
@@ -60,9 +60,9 @@ def test_array_cache_rejects_a_mismatched_manifest(tmp_path):
 def test_sh_evaluation_cache_uses_exact_grid_coordinates(tmp_path, monkeypatch):
     """Persisted SH evaluations use exact grid identities."""
     cache = ArrayCache(tmp_path / "cache")
-    grid = Grid(lat=[10.0, 20.0], lon=[30.0, 40.0])
+    grid = SphericalGrid(lat=[10.0, 20.0], lon=[30.0, 40.0])
     first_basis = SHBasis(2, 2, mean_free=False, operator_cache=cache)
-    expected = first_basis.evaluate_on_grid(grid)
+    expected = first_basis.scalar_evaluation_matrix(grid)
 
     second_basis = SHBasis(2, 2, mean_free=False, operator_cache=cache)
     monkeypatch.setattr(
@@ -70,10 +70,10 @@ def test_sh_evaluation_cache_uses_exact_grid_coordinates(tmp_path, monkeypatch):
         "_evaluate_on_grid",
         lambda *_args, **_kwargs: pytest.fail("cached evaluation was rebuilt"),
     )
-    observed = second_basis.evaluate_on_grid(grid)
+    observed = second_basis.scalar_evaluation_matrix(grid)
     np.testing.assert_array_equal(observed, expected)
 
-    shifted_grid = Grid(lat=[10.0 + 1e-12, 20.0], lon=[30.0, 40.0])
+    shifted_grid = SphericalGrid(lat=[10.0 + 1e-12, 20.0], lon=[30.0, 40.0])
     third_basis = SHBasis(2, 2, mean_free=False, operator_cache=cache)
     original_evaluate = third_basis._evaluate_on_grid
     rebuilds = []
@@ -83,14 +83,14 @@ def test_sh_evaluation_cache_uses_exact_grid_coordinates(tmp_path, monkeypatch):
         return original_evaluate(*args, **kwargs)
 
     monkeypatch.setattr(third_basis, "_evaluate_on_grid", track_rebuild)
-    third_basis.evaluate_on_grid(shifted_grid)
+    third_basis.scalar_evaluation_matrix(shifted_grid)
     assert rebuilds == [True]
 
 
 def test_transform_reuses_persisted_normal_pinv(tmp_path, monkeypatch):
     """A repeated regularized fit restores its expensive inverse."""
     cache = ArrayCache(tmp_path / "cache")
-    grid = Grid(
+    grid = SphericalGrid(
         lat=np.repeat(np.linspace(-60.0, 60.0, 7), 12), lon=np.tile(np.arange(0.0, 360.0, 30.0), 7)
     )
     first_basis = SHBasis(3, 3, mean_free=True, operator_cache=cache)
@@ -117,7 +117,7 @@ def test_transform_reuses_persisted_normal_pinv(tmp_path, monkeypatch):
 def test_transform_reuses_persisted_helmholtz_factor(tmp_path, monkeypatch):
     """A repeated transform restores its Cholesky factor."""
     cache = ArrayCache(tmp_path / "cache")
-    grid = Grid(
+    grid = SphericalGrid(
         lat=np.repeat(np.linspace(-75.0, 75.0, 8), 16), lon=np.tile(np.arange(0.0, 360.0, 22.5), 8)
     )
     first_basis = SHBasis(3, 3, mean_free=True, operator_cache=cache)
