@@ -398,7 +398,7 @@ def get_conductance_inputs(
     time: np.ndarray | None,
     *,
     request: ExternalInputRequest | None = None,
-    kp: float = 5.0,
+    kp: int = 5,
     starlight: float = 1.0,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Return Hardy/EUV conductance on the source PynaMIT grid."""
@@ -412,7 +412,7 @@ def get_conductance_inputs(
         hall, pedersen = conductance.hardy_EUV(
             provider_grid.lon,
             provider_grid.lat,
-            float(kp),
+            int(kp),
             provider_date,
             starlight=float(starlight),
             dipole=False,
