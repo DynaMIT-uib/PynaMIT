@@ -1,33 +1,33 @@
 #!/usr/bin/env python3
-"""Compare native and fallback inputs through PynaMIT's full input pipeline.
+"""Compare native and fallback inputs through PynaMIT.
 
-This diagnostic deliberately uses PynaMIT's existing machinery:
+This diagnostic uses PynaMIT's existing input machinery:
 
-1. ``prepare_pynamit_inputs`` obtains provider samples and calls the normal
-   ``Simulation.set_*`` input methods.
-2. The input pipeline converts conductance to its canonical logarithmic
-   coordinates and projects all fields into their configured storage bases.
-3. Stored coefficient rows are read back from ``FieldTimeSeries``.
-4. ``evaluate_projected_input`` synthesizes the coefficients on the model grid
-   and reconstructs physical conductance values.
+1. ``prepare_pynamit_inputs`` obtains provider samples and calls
+   the normal ``Simulation.set_*`` input methods.
+2. The input pipeline converts conductance to canonical logarithmic
+   coordinates and projects fields into their storage bases.
+3. Stored coefficient rows are read from ``FieldTimeSeries``.
+4. ``evaluate_projected_input`` synthesizes coefficients on the
+   model grid and reconstructs physical conductance values.
 
-Native and fallback executions are compared at all four boundaries:
+Native and fallback executions are compared at four boundaries:
 
 * provider samples;
 * canonical pre-projection values;
-* projected/stored coefficients;
+* projected and stored coefficients;
 * synthesized values on the model grid.
 
-The default cases match the three distinct input-projection configurations
-used by the currently failing non-wind regression tests:
+The default cases match the three input-projection configurations
+used by the failing non-wind regression tests:
 
 * Nmax=12, Mmax=12, Ncs=22;
 * Nmax=10, Mmax=10, Ncs=20;
-* Nmax=10, Mmax=8,  Ncs=18.
+* Nmax=10, Mmax=8, Ncs=18.
 
 Examples
 --------
-Run the failing-test projection profiles and write a CI artifact::
+Run the failing-test profiles and write a CI artifact::
 
     python scripts/tools/compare_native_fallback_pipeline.py \
         --json native-fallback-pipeline.json
@@ -37,8 +37,8 @@ Collect diagnostics without failing the workflow::
     python scripts/tools/compare_native_fallback_pipeline.py \
         --no-fail --json native-fallback-pipeline.json
 
-Run every exact source grid bundled in the fallback collection, using the
-Nmax=Mmax=4 projection space used by the fallback-generation utility::
+Run all source grids in the fallback collection. This uses the
+Nmax=Mmax=4 space from the fallback-generation utility::
 
     python scripts/tools/compare_native_fallback_pipeline.py \
         --all-fallback-grids --json all-native-fallback-pipeline.json
@@ -57,14 +57,14 @@ import os
 import platform
 import sys
 import tempfile
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import numpy as np
 
-import pynamit.simulation.workflows.prepared_inputs as prepared_inputs_module
 from pynamit.external_inputs import (
     _load_fallback,
     get_input_source,
@@ -72,11 +72,13 @@ from pynamit.external_inputs import (
     set_input_source,
 )
 from pynamit.simulation.electrodynamics import ionospheric_closure
+from pynamit.simulation.workflows import prepared_inputs as prepared_inputs_module
 from pynamit.simulation.workflows.prepared_inputs import prepare_pynamit_inputs
 from pynamit.visualization.input_projection import evaluate_projected_input
 
 
-SCRIPT_VERSION = "2026-08-06.2"
+SCRIPT_VERSION = "2026-08-06.3"
+
 
 @dataclass(frozen=True)
 class ProjectionCase:
@@ -431,12 +433,11 @@ def _environment_report() -> dict[str, Any]:
 
 @contextmanager
 def _capture_prepared_provider_inputs() -> Iterator[dict[str, Any]]:
-    """Capture the exact provider arrays consumed by prepare_pynamit_inputs.
+    """Capture provider arrays consumed by input preparation.
 
-    The workflow imports provider functions into its own module namespace.
-    Temporarily wrapping those names lets this diagnostic observe the exact
-    request and return values without reimplementing the workflow's coordinate
-    construction or projection calls.
+    The workflow imports provider functions into its module namespace.
+    Wrapping those names observes the exact request and return values
+    without reimplementing coordinate construction or projection.
     """
 
     captured: dict[str, Any] = {}
@@ -482,7 +483,7 @@ def _prepare_one_source(
     directory: Path,
     artifact_storage: str,
 ):
-    """Prepare one native or fallback package through the normal workflow."""
+    """Prepare one package through the normal workflow."""
 
     set_input_source(source)
     with _capture_prepared_provider_inputs() as captured:
@@ -528,7 +529,7 @@ def _coefficient_entries(simulation) -> dict[str, dict[str, np.ndarray]]:
 
 
 def _synthesized_values(simulation) -> dict[str, dict[str, np.ndarray]]:
-    """Evaluate stored coefficients using PynaMIT's inspection machinery."""
+    """Evaluate coefficients with PynaMIT's inspection machinery."""
 
     return {
         "conductance": {
@@ -557,7 +558,7 @@ def _synthesized_values(simulation) -> dict[str, dict[str, np.ndarray]]:
 
 
 def _canonical_conductance(captured: dict[str, Any]) -> dict[str, np.ndarray]:
-    """Return the exact conductance variables projected by Simulation.set_conductance."""
+    """Return the conductance variables used by the projection."""
 
     values = captured["conductance"]
     log_magnitude, log_ratio = ionospheric_closure.conductance_to_log_coordinates(
@@ -777,6 +778,7 @@ def _run_case(
 
 
 def main() -> int:
+    """Run the native and fallback pipeline comparison."""
     args = _parse_args()
     print(f"PynaMIT native/fallback pipeline comparator {SCRIPT_VERSION}")
     for name in ("raw_rtol", "coefficient_rtol", "synthesized_rtol", "atol"):
