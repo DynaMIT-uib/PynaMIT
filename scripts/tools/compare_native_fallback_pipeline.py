@@ -76,7 +76,6 @@ from pynamit.simulation.workflows import prepared_inputs as prepared_inputs_modu
 from pynamit.simulation.workflows.prepared_inputs import prepare_pynamit_inputs
 from pynamit.visualization.input_projection import evaluate_projected_input
 
-
 SCRIPT_VERSION = "2026-08-06.3"
 
 
@@ -120,11 +119,7 @@ FAILING_TEST_CASES = (
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--version",
-        action="version",
-        version=f"%(prog)s {SCRIPT_VERSION}",
-    )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {SCRIPT_VERSION}")
     parser.add_argument(
         "--case",
         action="append",
@@ -171,11 +166,7 @@ def _parse_args() -> argparse.Namespace:
         help="Storage backend used by temporary prepared-input packages.",
     )
     parser.add_argument(
-        "--json",
-        type=Path,
-        default=None,
-        metavar="PATH",
-        help="Write a machine-readable report.",
+        "--json", type=Path, default=None, metavar="PATH", help="Write a machine-readable report."
     )
     parser.add_argument(
         "--no-fail",
@@ -187,16 +178,13 @@ def _parse_args() -> argparse.Namespace:
 
 def _json_default(value: Any) -> Any:
     """Return JSON-compatible forms for NumPy and path-like values."""
-
     if isinstance(value, np.generic):
         return value.item()
     if isinstance(value, np.ndarray):
         return value.tolist()
     if isinstance(value, Path):
         return str(value)
-    raise TypeError(
-        f"Object of type {value.__class__.__name__} is not JSON serializable"
-    )
+    raise TypeError(f"Object of type {value.__class__.__name__} is not JSON serializable")
 
 
 def _event_time(value: Any) -> Any:
@@ -231,11 +219,7 @@ def _array_summary(values: np.ndarray) -> dict[str, Any]:
 
 
 def _scaled_error(
-    candidate: np.ndarray,
-    reference: np.ndarray,
-    *,
-    rtol: float,
-    atol: float,
+    candidate: np.ndarray, reference: np.ndarray, *, rtol: float, atol: float
 ) -> np.ndarray:
     difference = np.abs(candidate - reference)
     denominator = atol + rtol * np.abs(reference)
@@ -288,9 +272,7 @@ def _compare_array(
     scaled = _scaled_error(native_array, fallback_array, rtol=rtol, atol=atol)
     worst_flat = int(np.argmax(scaled)) if scaled.size else 0
     worst_index = (
-        [int(index) for index in np.unravel_index(worst_flat, scaled.shape)]
-        if scaled.size
-        else []
+        [int(index) for index in np.unravel_index(worst_flat, scaled.shape)] if scaled.size else []
     )
 
     if scaled.size:
@@ -304,13 +286,7 @@ def _compare_array(
 
     result.update(
         passed=bool(
-            np.allclose(
-                native_array,
-                fallback_array,
-                rtol=rtol,
-                atol=atol,
-                equal_nan=False,
-            )
+            np.allclose(native_array, fallback_array, rtol=rtol, atol=atol, equal_nan=False)
         ),
         exact_equal=bool(np.array_equal(native_array, fallback_array)),
         max_abs_difference=(
@@ -364,11 +340,7 @@ def _distribution_metadata(name: str) -> dict[str, Any]:
         if text:
             direct_url = json.loads(text)
 
-    return {
-        "installed": True,
-        "version": distribution.version,
-        "direct_url": direct_url,
-    }
+    return {"installed": True, "version": distribution.version, "direct_url": direct_url}
 
 
 def _pyamps_coefficient_metadata() -> dict[str, Any] | None:
@@ -397,15 +369,7 @@ def _environment_report() -> dict[str, Any]:
     with contextlib.redirect_stdout(numpy_config):
         np.show_config()
 
-    packages = (
-        "numpy",
-        "scipy",
-        "apexpy",
-        "pyamps",
-        "lompe",
-        "kompe",
-        "pynamit",
-    )
+    packages = ("numpy", "scipy", "apexpy", "pyamps", "lompe", "kompe", "pynamit")
     return {
         "platform": platform.platform(),
         "machine": platform.machine(),
@@ -439,7 +403,6 @@ def _capture_prepared_provider_inputs() -> Iterator[dict[str, Any]]:
     Wrapping those names observes the exact request and return values
     without reimplementing coordinate construction or projection.
     """
-
     captured: dict[str, Any] = {}
     original_conductance = prepared_inputs_module.get_conductance_inputs
     original_jr = prepared_inputs_module.get_jr_inputs
@@ -477,14 +440,9 @@ def _capture_prepared_provider_inputs() -> Iterator[dict[str, Any]]:
 
 
 def _prepare_one_source(
-    case: ProjectionCase,
-    *,
-    source: str,
-    directory: Path,
-    artifact_storage: str,
+    case: ProjectionCase, *, source: str, directory: Path, artifact_storage: str
 ):
     """Prepare one package through the normal workflow."""
-
     set_input_source(source)
     with _capture_prepared_provider_inputs() as captured:
         simulation = prepare_pynamit_inputs(
@@ -513,24 +471,19 @@ def _prepare_one_source(
 
 def _coefficient_entries(simulation) -> dict[str, dict[str, np.ndarray]]:
     """Read the stored coefficient rows through FieldTimeSeries."""
-
     entries: dict[str, dict[str, np.ndarray]] = {}
     for key in ("conductance", "boundary_jr"):
-        entry = simulation.run_data.input_series.get_entry(
-            key, 0.0, interpolation=False
-        )
+        entry = simulation.run_data.input_series.get_entry(key, 0.0, interpolation=False)
         if entry is None:
             raise RuntimeError(f"Prepared simulation has no {key!r} entry at t=0.")
         entries[key] = {
-            variable: np.array(values, copy=True)
-            for variable, values in entry.items()
+            variable: np.array(values, copy=True) for variable, values in entry.items()
         }
     return entries
 
 
 def _synthesized_values(simulation) -> dict[str, dict[str, np.ndarray]]:
     """Evaluate coefficients with PynaMIT's inspection machinery."""
-
     return {
         "conductance": {
             key: np.asarray(value)
@@ -559,7 +512,6 @@ def _synthesized_values(simulation) -> dict[str, dict[str, np.ndarray]]:
 
 def _canonical_conductance(captured: dict[str, Any]) -> dict[str, np.ndarray]:
     """Return the conductance variables used by the projection."""
-
     values = captured["conductance"]
     log_magnitude, log_ratio = ionospheric_closure.conductance_to_log_coordinates(
         values["pedersen"], values["hall"]
@@ -643,12 +595,7 @@ def _compare_mapping(
         _print_result(result)
 
 
-def _run_case(
-    case: ProjectionCase,
-    *,
-    root: Path,
-    args: argparse.Namespace,
-) -> dict[str, Any]:
+def _run_case(case: ProjectionCase, *, root: Path, args: argparse.Namespace) -> dict[str, Any]:
     print(
         f"\n=== {case.name}: Nmax={case.Nmax}, Mmax={case.Mmax}, "
         f"Ncs={case.Ncs}, main_field={case.main_field_kind}, "
@@ -762,9 +709,7 @@ def _run_case(
         if value is None:
             continue
         stage = result["stage"]
-        stage_max_relative_l2[stage] = max(
-            stage_max_relative_l2.get(stage, 0.0), float(value)
-        )
+        stage_max_relative_l2[stage] = max(stage_max_relative_l2.get(stage, 0.0), float(value))
 
     print(f"--- {case.name}: {len(failed)} failure(s) / {len(comparisons)} comparisons")
     return {
@@ -817,9 +762,7 @@ def main() -> int:
 
     report["passed"] = all(case["passed"] for case in report["cases"])
     report["failure_count"] = sum(case["failure_count"] for case in report["cases"])
-    report["comparison_count"] = sum(
-        case["comparison_count"] for case in report["cases"]
-    )
+    report["comparison_count"] = sum(case["comparison_count"] for case in report["cases"])
 
     print(
         f"\nCompared {len(report['cases'])} projection case(s), "
