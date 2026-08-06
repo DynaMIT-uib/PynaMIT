@@ -1,3 +1,2 @@
 pyamps
 lompe      @ git+https://github.com/klaundal/lompe.git@main
-pyhwm2014  @ git+https://github.com/rilma/pyHWM14.git@main

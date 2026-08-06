@@ -16,3 +16,4 @@ RUN mamba install -y \
       --file conda-common.txt \
   && mamba clean -afy
 RUN pip install -r pip-common.txt -r pip-data.txt
+RUN pip install --no-deps pyhwm2014@git+https://github.com/rilma/pyHWM14.git@main
