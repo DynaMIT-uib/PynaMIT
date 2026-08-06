@@ -47,8 +47,23 @@ jobs:
       - name: Build PynaMIT documentation
         run: sphinx-apidoc -o docs/source src && sphinx-build -b html docs/source docs/build
 
+      - name: Compare native and fallback input pipelines
+        if: matrix.variant == 'data'
+        continue-on-error: true
+        run: |
+          python scripts/tools/compare_native_fallback_pipeline.py \
+            --json native-fallback-pipeline.json
+
       - name: Run PynaMIT tests
         run: pytest -v
+
+      - name: Upload native/fallback pipeline diagnostics
+        if: always() && matrix.variant == 'data'
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-fallback-pipeline-${{ github.run_attempt }}
+          path: native-fallback-pipeline.json
+          if-no-files-found: warn
 
       # Upload docs from only one variant to avoid duplicate artifacts
       - name: Upload documentation artifact
