@@ -1,3 +1,5 @@
+"""Compare native and fallback pipeline outputs for reproducibility diagnostics."""
+
 import datetime as dt
 import hashlib
 import importlib.metadata
@@ -17,11 +19,13 @@ from pynamit.simulation.workflows.prepared_inputs import _DEFAULT_INPUT_TIME
 
 
 def digest(values):
+    """Return a short SHA-256 digest for numeric values."""
     array = np.ascontiguousarray(np.asarray(values, dtype=np.float64))
     return hashlib.sha256(array.tobytes()).hexdigest()[:20]
 
 
 def show(name, values):
+    """Print a compact diagnostic summary for an array-like value."""
     array = np.asarray(values)
     indices = [1, 23, 2231, 2555, 2652, 2712]
     indices = [i for i in indices if i < array.size]
