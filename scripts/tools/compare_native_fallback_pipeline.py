@@ -1,4 +1,4 @@
-"""Compare native and fallback pipeline outputs for reproducibility diagnostics."""
+"""Compare native and fallback pipeline outputs."""
 
 import datetime as dt
 import hashlib
