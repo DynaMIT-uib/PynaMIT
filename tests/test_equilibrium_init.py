@@ -5,10 +5,11 @@ import pytest
 
 from pynamit.simulation.api import Simulation
 from pynamit.simulation.workflows.standard import run_pynamit
-from tests import magnetic_potential_coordinate_array
+from tests import DETERMINISTIC_REGRESSION_RTOL, magnetic_potential_coordinate_array
 
 
-def test_equilibrium_init():
+@pytest.mark.native_hwm_precision
+def test_equilibrium_init(regression_approx):
     """Test simulation with equilibrium initialization."""
     # Arrange.
     # HWM winds are rotated from geographic into dipole coordinates.
@@ -48,11 +49,10 @@ def test_equilibrium_init():
     print("actual_coeff_min: ", actual_coeff_min)
     print("actual_n_coeffs: ", actual_n_coeffs)
 
-    # pyHWM uses single precision, relax tolerances for wind tests.
-    assert actual_coeff_norm == pytest.approx(expected_coeff_norm, abs=0.0, rel=1e-5)
-    assert actual_coeff_max == pytest.approx(expected_coeff_max, abs=0.0, rel=1e-5)
-    assert actual_coeff_min == pytest.approx(expected_coeff_min, abs=0.0, rel=1e-5)
-    assert actual_n_coeffs == pytest.approx(expected_n_coeffs, abs=0.0, rel=1e-5)
+    assert actual_coeff_norm == regression_approx(expected_coeff_norm)
+    assert actual_coeff_max == regression_approx(expected_coeff_max)
+    assert actual_coeff_min == regression_approx(expected_coeff_min)
+    assert actual_n_coeffs == expected_n_coeffs
 
 
 def test_impose_equilibrium_at_current_time(tmp_path, monkeypatch):
@@ -236,7 +236,7 @@ def test_evolve_to_time_can_run_dynamic_output_without_equilibrium(tmp_path):
     assert not (tmp_path / "inductive-only" / "equilibrium.ncdf").exists()
 
 
-def test_evolve_to_time_split_modes_match_combined_numerically(tmp_path, rel_tol):
+def test_evolve_to_time_split_modes_match_combined_numerically(tmp_path):
     """Separate dynamic and equilibrium runs match a combined run."""
     common_kwargs = dict(
         final_time=0.1,
@@ -284,13 +284,13 @@ def test_evolve_to_time_split_modes_match_combined_numerically(tmp_path, rel_tol
         np.testing.assert_allclose(
             dynamic_split[variable].values,
             dynamic_combined[variable].values,
-            rtol=rel_tol,
+            rtol=DETERMINISTIC_REGRESSION_RTOL,
             atol=0.0,
         )
         np.testing.assert_allclose(
             equilibrium_split[variable].values,
             equilibrium_combined[variable].values,
-            rtol=rel_tol,
+            rtol=DETERMINISTIC_REGRESSION_RTOL,
             atol=0.0,
         )
 

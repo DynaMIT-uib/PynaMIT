@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import numpy as np
 
+DETERMINISTIC_REGRESSION_RTOL = 1e-10
+SINGLE_PRECISION_REGRESSION_RTOL = 1e-5
+
 
 def magnetic_potential_coordinate_array(simulation, output="dynamic"):
     """Return the former numerical coordinates for regression comparisons.

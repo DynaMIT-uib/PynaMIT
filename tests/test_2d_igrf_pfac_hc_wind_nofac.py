@@ -7,7 +7,9 @@ from pynamit.simulation.workflows.standard import run_pynamit
 from tests import magnetic_potential_coordinate_array
 
 
-def test_2d_igrf_pfac_hc_wind_nofac():
+@pytest.mark.apexpy_precision
+@pytest.mark.native_hwm_precision
+def test_2d_igrf_pfac_hc_wind_nofac(regression_approx):
     """Test 2D IGRF/PFAC/HC/wind simulation without jr input."""
     # Arrange.
     expected_coeff_norm = 4.697819564788567e-09
@@ -45,8 +47,7 @@ def test_2d_igrf_pfac_hc_wind_nofac():
     print("actual_n_coeffs: ", actual_n_coeffs)
 
     assert "jr" not in simulation.run_data.input_series.datasets
-    # pyHWM uses single precision, relax tolerances for wind tests.
-    assert actual_coeff_norm == pytest.approx(expected_coeff_norm, abs=0.0, rel=1e-5)
-    assert actual_coeff_max == pytest.approx(expected_coeff_max, abs=0.0, rel=1e-5)
-    assert actual_coeff_min == pytest.approx(expected_coeff_min, abs=0.0, rel=1e-5)
-    assert actual_n_coeffs == pytest.approx(expected_n_coeffs, abs=0.0, rel=1e-5)
+    assert actual_coeff_norm == regression_approx(expected_coeff_norm)
+    assert actual_coeff_max == regression_approx(expected_coeff_max)
+    assert actual_coeff_min == regression_approx(expected_coeff_min)
+    assert actual_n_coeffs == expected_n_coeffs

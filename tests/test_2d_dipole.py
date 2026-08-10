@@ -1,13 +1,12 @@
 """Dipole test."""
 
 import numpy as np
-import pytest
 
 from pynamit.simulation.workflows.standard import run_pynamit
 from tests import magnetic_potential_coordinate_array
 
 
-def test_2d_dipole():
+def test_2d_dipole(regression_approx):
     """Test 2D simulation with dipole."""
     # Arrange.
     expected_coeff_norm = 1.1675212829673576e-08
@@ -39,7 +38,7 @@ def test_2d_dipole():
     print("actual_coeff_min: ", actual_coeff_min)
     print("actual_n_coeffs: ", actual_n_coeffs)
 
-    assert actual_coeff_norm == pytest.approx(expected_coeff_norm, abs=0.0, rel=1e-10)
-    assert actual_coeff_max == pytest.approx(expected_coeff_max, abs=0.0, rel=1e-10)
-    assert actual_coeff_min == pytest.approx(expected_coeff_min, abs=0.0, rel=1e-10)
-    assert actual_n_coeffs == pytest.approx(expected_n_coeffs, abs=0.0, rel=1e-10)
+    assert actual_coeff_norm == regression_approx(expected_coeff_norm)
+    assert actual_coeff_max == regression_approx(expected_coeff_max)
+    assert actual_coeff_min == regression_approx(expected_coeff_min)
+    assert actual_n_coeffs == expected_n_coeffs

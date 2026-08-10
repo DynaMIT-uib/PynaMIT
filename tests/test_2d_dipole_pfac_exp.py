@@ -6,7 +6,7 @@ from pynamit.simulation.workflows.standard import run_pynamit
 from tests import magnetic_potential_coordinate_array
 
 
-def test_2d_dipole_pfac_exp(pynamit_approx):
+def test_2d_dipole_pfac_exp(regression_approx):
     """Test 2D simulation with dipole, PFAC and exponential."""
     # Arrange.
     expected_coeff_norm = 1.1342057514803807e-08
@@ -40,7 +40,7 @@ def test_2d_dipole_pfac_exp(pynamit_approx):
     print("actual_coeff_min: ", actual_coeff_min)
     print("actual_n_coeffs: ", actual_n_coeffs)
 
-    assert actual_coeff_norm == pynamit_approx(expected_coeff_norm)
-    assert actual_coeff_max == pynamit_approx(expected_coeff_max)
-    assert actual_coeff_min == pynamit_approx(expected_coeff_min)
-    assert actual_n_coeffs == pynamit_approx(expected_n_coeffs)
+    assert actual_coeff_norm == regression_approx(expected_coeff_norm)
+    assert actual_coeff_max == regression_approx(expected_coeff_max)
+    assert actual_coeff_min == regression_approx(expected_coeff_min)
+    assert actual_n_coeffs == expected_n_coeffs

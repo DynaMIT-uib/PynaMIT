@@ -17,6 +17,7 @@ from kompe.math import (
 
 from pynamit.external_inputs import get_input_source, native_inputs_available, set_input_source
 from pynamit.storage import ArtifactStore
+from tests import DETERMINISTIC_REGRESSION_RTOL, SINGLE_PRECISION_REGRESSION_RTOL
 
 BACKEND_OPTION_NAME = "--backend"
 DATA_OPTION_NAME = "--data-source"
@@ -265,16 +266,21 @@ def isolate_default_run_directories(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def rel_tol(backend: str, data_source: str) -> float:
-    """Return regression tolerance for the active runtime."""
-    if data_source == "native":
-        return 1e-5
-    return 1e-10
+def regression_rtol(request: pytest.FixtureRequest, data_source: str) -> float:
+    """Return the tolerance implied by the test's numerical path."""
+    uses_apexpy = request.node.get_closest_marker("apexpy_precision") is not None
+    uses_native_hwm = (
+        data_source == "native"
+        and request.node.get_closest_marker("native_hwm_precision") is not None
+    )
+    if uses_apexpy or uses_native_hwm:
+        return SINGLE_PRECISION_REGRESSION_RTOL
+    return DETERMINISTIC_REGRESSION_RTOL
 
 
 @pytest.fixture
-def pynamit_approx(rel_tol: float):
-    """Return a configured ``pytest.approx`` helper."""
+def regression_approx(regression_rtol: float):
+    """Return ``pytest.approx`` configured for a stored regression."""
     from functools import partial
 
-    return partial(pytest.approx, rel=rel_tol, abs=0.0)
+    return partial(pytest.approx, rel=regression_rtol, abs=0.0)

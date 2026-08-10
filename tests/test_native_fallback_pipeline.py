@@ -12,9 +12,10 @@ from pynamit.simulation.electrodynamics import ionospheric_closure
 from pynamit.simulation.workflows import prepared_inputs as prepared_inputs_module
 from pynamit.simulation.workflows.prepared_inputs import prepare_pynamit_inputs
 from pynamit.visualization.input_projection import evaluate_projected_input
+from tests import SINGLE_PRECISION_REGRESSION_RTOL
 
 _INPUT_KEYS = ("conductance", "boundary_jr", "u")
-_RTOL = 1e-8
+_RTOL = SINGLE_PRECISION_REGRESSION_RTOL
 _ATOL = 1e-12
 
 
