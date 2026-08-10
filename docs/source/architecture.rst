@@ -267,10 +267,11 @@ maps used by ``SimulationGeometry``. Full field components use ``Br``, ``Btheta`
 ``unit_btheta``, and ``unit_bphi`` so a case-only spelling difference cannot
 change the physics.
 
-Simulation coordinates are Earth-fixed. ``kaiju_dipole``, ``igrf``, and
-``radial`` use geocentric geographic coordinates, so the SH and cubed-sphere
-positions denote locations on Earth directly. The generic idealized ``dipole``
-model retains centered-dipole ``MAG`` coordinates. For ``kaiju_dipole``,
+The simulation frame is explicit and follows the main-field kind.
+``kaiju_dipole``, ``igrf``, and ``radial`` use
+``geocentric_geographic`` coordinates, so the SH and cubed-sphere positions
+denote locations on Earth directly. The generic idealized ``dipole`` model
+uses ``centered_dipole`` coordinates. For ``kaiju_dipole``,
 ``MainField`` alone owns the fixed GEO-to-MAG rotation: it evaluates the
 analytic dipole, field-line mapping, conjugacy, magnetic latitude, and apex
 basis vectors in MAG and returns coordinates and vector components in GEO.
@@ -342,15 +343,22 @@ unchanged, and the same nominal 110-km altitude is supplied to the library.
 The approximation is centralized in ``pynamit.geodesy`` rather than being
 repeated implicitly in each adapter.
 
-``ExternalInputRequest`` owns the source grid and caches library-facing grid
-views by coordinate-contract signature. Hardy, AMPS, and HWM currently
-reference one interned ``LIBRARY_GEOGRAPHIC_110KM`` contract, so their
-identity-mapped request grid is constructed once and structurally shared.
-Changing one provider's contract later creates only the additional view needed
-by that provider.
+``ExternalInputRequest`` owns the physical GEO source grid and the model-frame
+view of the same ordered samples, then caches library-facing views by
+coordinate-contract signature. In a GEO simulation the source and model grids
+are the same object. A generic dipole simulation retains an additional
+``centered_dipole`` model grid. Hardy, AMPS, and HWM reference one interned
+``LIBRARY_GEOGRAPHIC_110KM`` contract for their shared physical sampling grid.
 
-Lompe's ``hardy_EUV(..., dipole=False)`` and the AMPS adapter receive the
-shared library-facing positions before their Apex calculations. HWM is
+The PynaMIT adapter evaluates Lompe's Hardy and EUV primitives explicitly.
+For a generic dipole simulation, Hardy receives the retained centered-dipole
+model coordinates and magnetic local time uses the simulation's decimal-year
+dipole epoch. For a GEO model frame, Hardy receives modified-Apex coordinates
+derived at the full event time and MLT uses the event's decimal year. EUV
+always receives the paired physical GEO positions. This avoids Lompe's
+``hardy_EUV`` convenience path, which constructs its MLT dipole from the
+integer event year. AMPS always starts from the physical GEO positions and
+derives its QD/Apex coordinates independently. HWM is
 evaluated at the same requested positions through
 ``pyhwm2014.hwm14_vectorized`` with the event's YYDDD date code and full UTC
 time. Naive datetimes retain PynaMIT's historical UTC interpretation; aware
@@ -454,14 +462,16 @@ discretization remains a run choice rather than a projection side effect.
 For generic prepared inputs, coordinates name physical positions, not just
 array axes.
 Geographic wind positions and tangent-vector components are rotated into the
-configured model coordinates before projection. Native Hardy, AMPS, and HWM
-adapters all receive one shared spherical-GEO source grid through their
-declared library-interface contract. Providers may derive Apex or magnetic
-coordinates internally, but their returned values remain attached to the
-original ordered positions before those values are transformed into model
-coordinates. The forcing event time is persisted as the input time origin
-``t0``; ``main_field_epoch`` remains an independent choice for the Earth-fixed
-background-field coefficients and coordinate axis.
+configured model coordinates before projection. Native providers share one
+physical spherical-GEO sample grid, while Hardy may also consume the retained
+centered-dipole model view. Providers may derive Apex or magnetic coordinates
+internally, but their returned values remain attached to the original ordered
+physical positions before projection in model coordinates. The forcing event
+time is persisted as the input time origin ``t0``. By default,
+``main_field_epoch`` resolves to that event's decimal year and defines both the
+background-field coefficients and centered-dipole axis. An explicit epoch may
+still select a deliberately fixed reference field; the resolved value is always
+persisted.
 
 The versioned prepared-input manifest has one canonical ``input_contract``.
 Coefficient-space settings, geometry requirements, and the dataset list live

@@ -39,27 +39,70 @@ def _request(grid_id="test-source"):
     )
 
 
-def test_native_conductance_uses_shared_library_request_grid(monkeypatch):
-    """Hardy receives the shared identity-mapped request grid."""
+def _centered_dipole_request(grid_id="test-dipole-source"):
+    model_epoch = 2001.3613869863013
+    model_lat = np.array([-75.0, 10.0, 65.0])
+    model_lon = np.array([-90.0, 20.0, 130.0])
+    geographic_lat, geographic_lon = external_inputs_module.dipole.Dipole(model_epoch).mag2geo(
+        model_lat, model_lon
+    )
+    return ExternalInputRequest.from_model_coordinates(
+        model_lat,
+        model_lon,
+        geographic_lat=geographic_lat,
+        geographic_lon=geographic_lon,
+        coordinate_system="centered_dipole",
+        model_epoch=model_epoch,
+        grid_id=grid_id,
+    )
+
+
+def test_native_geographic_conductance_uses_shared_library_request_grid(monkeypatch):
+    """Let Hardy derive modified-Apex coordinates for a GEO request."""
     captured = {}
+
+    class FakeSunlight:
+        @staticmethod
+        def sza(lat, lon, date):
+            captured["sza"] = (np.asarray(lat), np.asarray(lon), date)
+            return np.full(np.asarray(lat).shape, 60.0)
 
     class FakeConductance:
         @staticmethod
-        def hardy_EUV(lon, lat, kp, date, *, starlight, dipole):
-            captured.update(
-                lon=np.asarray(lon).copy(),
-                lat=np.asarray(lat).copy(),
-                kp=kp,
-                date=date,
-                starlight=starlight,
-                dipole=dipole,
-            )
+        def EUV_conductance(sza, f107, components, *, calibration):
+            captured["euv"] = (np.asarray(sza), f107, components, calibration)
+            values = np.ones(np.asarray(sza).shape)
+            return 3.0 * values, 4.0 * values
+
+        @staticmethod
+        def hardy(lat, mlt, kp, components):
+            captured["hardy"] = (np.asarray(lat), np.asarray(mlt), kp, components)
             values = np.ones(np.asarray(lat).shape)
             return values, 2.0 * values
+
+        sunlight = FakeSunlight
+
+    class FakeApex:
+        def __init__(self, *, date, refh):
+            captured["apex"] = (date, refh)
+
+        def geo2apex(self, lat, lon, height):
+            captured["geo"] = (np.asarray(lat), np.asarray(lon), height)
+            return np.asarray(lat) + 5.0, np.asarray(lon) + 10.0
+
+    class FakeDipole:
+        def __init__(self, epoch):
+            captured["epoch"] = epoch
+
+        def mlon2mlt(self, lon, date):
+            captured["mlt_date"] = date
+            return np.asarray(lon) / 15.0
 
     monkeypatch.setattr(
         external_inputs_module, "_load_optional_module", lambda _name, _package: FakeConductance
     )
+    monkeypatch.setattr(external_inputs_module.apexpy, "Apex", FakeApex)
+    monkeypatch.setattr(external_inputs_module.dipole, "Dipole", FakeDipole)
     request = _request()
     provider_grid = request.grid_for(CONDUCTANCE_PROVIDER_SPEC)
     source = request.source_grid
@@ -71,18 +114,88 @@ def test_native_conductance_uses_shared_library_request_grid(monkeypatch):
         date, None, None, None, request=request
     )
 
-    assert captured["dipole"] is False
-    assert captured["kp"] == 5
-    assert captured["date"] == datetime.datetime(2001, 5, 12, 21, 45)
-    np.testing.assert_allclose(captured["lat"], provider_grid.lat)
-    np.testing.assert_allclose(captured["lon"], provider_grid.lon)
+    provider_date = datetime.datetime(2001, 5, 12, 21, 45)
+    assert captured["apex"] == (provider_date, 110.0)
+    assert captured["epoch"] == pytest.approx(external_inputs_module.decimal_year(provider_date))
+    np.testing.assert_allclose(captured["geo"][0], provider_grid.lat)
+    np.testing.assert_allclose(captured["geo"][1], provider_grid.lon)
+    assert captured["geo"][2] == 110.0
+    np.testing.assert_allclose(captured["hardy"][0], provider_grid.lat + 5.0)
+    np.testing.assert_allclose(captured["hardy"][1], (provider_grid.lon + 10.0) / 15.0)
+    assert captured["hardy"][2:] == (5, "hp")
+    np.testing.assert_allclose(captured["sza"][0], source.lat)
+    np.testing.assert_allclose(captured["sza"][1], source.lon)
+    assert captured["sza"][2] == provider_date
+    assert captured["euv"][1:] == (100, "hp", "MoenBrekke1993")
     assert provider_grid.coordinate_contract is LIBRARY_GEOGRAPHIC_110KM
-    np.testing.assert_allclose(hall, 1.0)
-    np.testing.assert_allclose(pedersen, 2.0)
+    np.testing.assert_allclose(hall, np.sqrt(11.0))
+    np.testing.assert_allclose(pedersen, np.sqrt(21.0))
     np.testing.assert_allclose(out_lat, source.lat)
     np.testing.assert_allclose(out_lon, source.lon)
     np.testing.assert_array_equal(provider_grid.lat, source.lat)
     np.testing.assert_array_equal(provider_grid.lon, source.lon)
+
+
+def test_native_dipole_conductance_uses_explicit_model_and_geo_views(monkeypatch):
+    """Evaluate auroral and solar terms in their declared views."""
+    captured = {}
+
+    class FakeSunlight:
+        @staticmethod
+        def sza(lat, lon, date):
+            captured["sza"] = (np.asarray(lat), np.asarray(lon), date)
+            return np.full(np.asarray(lat).shape, 60.0)
+
+    class FakeConductance:
+        @staticmethod
+        def EUV_conductance(sza, f107, components, *, calibration):
+            captured["euv"] = (np.asarray(sza), f107, components, calibration)
+            values = np.ones(np.asarray(sza).shape)
+            return 3.0 * values, 4.0 * values
+
+        @staticmethod
+        def hardy(lat, mlt, kp, components):
+            captured["hardy"] = (np.asarray(lat), np.asarray(mlt), kp, components)
+            values = np.ones(np.asarray(lat).shape)
+            return values, 2.0 * values
+
+        sunlight = FakeSunlight
+
+    monkeypatch.setattr(
+        external_inputs_module, "_load_optional_module", lambda _name, _package: FakeConductance
+    )
+    request = _centered_dipole_request()
+    real_dipole = external_inputs_module.dipole.Dipole(request.model_epoch)
+
+    class FakeDipole:
+        def __init__(self, epoch):
+            captured["epoch"] = epoch
+
+        def mag2geo(self, lat, lon):
+            return real_dipole.mag2geo(lat, lon)
+
+        def mlon2mlt(self, lon, date):
+            captured["mlt_date"] = date
+            return np.asarray(lon) / 15.0
+
+    monkeypatch.setattr(external_inputs_module.dipole, "Dipole", FakeDipole)
+
+    date = _utc_now()
+    hall, pedersen, out_lat, out_lon = get_conductance_inputs(
+        date, None, None, None, request=request
+    )
+
+    assert captured["epoch"] == pytest.approx(request.model_epoch)
+    np.testing.assert_allclose(captured["hardy"][0], request.model_grid.lat)
+    np.testing.assert_allclose(captured["hardy"][1], request.model_grid.lon / 15.0)
+    assert captured["hardy"][2:] == (5, "hp")
+    np.testing.assert_allclose(captured["sza"][0], request.source_grid.lat)
+    np.testing.assert_allclose(captured["sza"][1], request.source_grid.lon)
+    assert captured["euv"][1:] == (100, "hp", "MoenBrekke1993")
+    np.testing.assert_allclose(hall, np.sqrt(11.0))
+    np.testing.assert_allclose(pedersen, np.sqrt(21.0))
+    np.testing.assert_allclose(out_lat, request.source_grid.lat)
+    np.testing.assert_allclose(out_lon, request.source_grid.lon)
 
 
 def test_native_jr_uses_same_library_request_grid(monkeypatch):
@@ -187,12 +300,26 @@ def test_native_wind_uses_requested_positions_and_correct_date(monkeypatch):
 def test_native_conductance_rejects_wrong_sample_count(monkeypatch):
     """Provider results must remain aligned with the requested grid."""
 
+    class FakeSunlight:
+        @staticmethod
+        def sza(lat, lon, date):
+            del lon, date
+            return np.ones(np.asarray(lat).shape)
+
     class FakeConductance:
         @staticmethod
-        def hardy_EUV(lon, lat, kp, date, *, starlight, dipole):
-            del lon, kp, date, starlight, dipole
+        def EUV_conductance(sza, f107, components, *, calibration):
+            del f107, components, calibration
+            values = np.ones(np.asarray(sza).size - 1)
+            return values, values
+
+        @staticmethod
+        def hardy(lat, mlt, kp, components):
+            del mlt, kp, components
             values = np.ones(np.asarray(lat).size - 1)
             return values, values
+
+        sunlight = FakeSunlight
 
     monkeypatch.setattr(
         external_inputs_module, "_load_optional_module", lambda _name, _package: FakeConductance
@@ -221,10 +348,26 @@ def force_fallback():
     set_input_source(previous)
 
 
+def test_fallback_rejects_inconsistent_dipole_and_geo_views(force_fallback):
+    """Fallback enforces the native paired-frame contract."""
+    valid = _centered_dipole_request()
+    inconsistent = ExternalInputRequest.from_model_coordinates(
+        valid.model_grid.lat,
+        valid.model_grid.lon,
+        geographic_lat=valid.source_grid.lat + 0.1,
+        geographic_lon=valid.source_grid.lon,
+        coordinate_system="centered_dipole",
+        model_epoch=valid.model_epoch,
+    )
+
+    with pytest.raises(ValueError, match="physical GEO samples disagree"):
+        get_conductance_inputs(_utc_now(), None, None, None, request=inconsistent)
+
+
 def test_loaded_collection_shares_both_grid_views():
     """Providers share source and request-grid objects."""
     fallback = _load_fallback()
-    assert fallback.version == 4
+    assert fallback.version == 6
     for source_grid_id in fallback.datasets["conductance"]:
         hardy = fallback.datasets["conductance"][source_grid_id]
         amps = fallback.datasets["boundary_jr"][source_grid_id]
@@ -298,7 +441,7 @@ def test_fallback_error_lists_compatible_grid_geometry():
         )
     message = str(error.value)
     assert "Available compatible grids:" in message
-    assert "geographic-ncs-18 (geographic, Ncs=18" in message
+    assert "geographic-ncs-18 (geocentric_geographic, Ncs=18" in message
 
 
 def test_synthetic_multi_time_scaling_is_preserved(force_fallback):
@@ -366,12 +509,27 @@ def test_native_conductance_accepts_explicit_kp(monkeypatch):
     """Provider physics parameters are separate from contracts."""
     captured = {}
 
+    class FakeSunlight:
+        @staticmethod
+        def sza(lat, lon, date):
+            del lon, date
+            return np.ones(np.asarray(lat).shape)
+
     class FakeConductance:
         @staticmethod
-        def hardy_EUV(lon, lat, kp, date, *, starlight, dipole):
+        def EUV_conductance(sza, f107, components, *, calibration):
+            del f107, components, calibration
+            values = np.zeros(np.asarray(sza).shape)
+            return values, values
+
+        @staticmethod
+        def hardy(lat, mlt, kp, components):
+            del mlt, components
             captured["kp"] = kp
             values = np.ones(np.asarray(lat).shape)
             return values, values
+
+        sunlight = FakeSunlight
 
     request = ExternalInputRequest.from_geocentric_geo(np.array([60.0]), np.array([10.0]))
     monkeypatch.setattr(

@@ -13,6 +13,7 @@ from pynamit.external_input_contracts import (
     LIBRARY_GEOGRAPHIC_110KM,
     NEUTRAL_WIND_PROVIDER_SPEC,
     PROVIDER_SPECS,
+    PYNAMIT_CENTERED_DIPOLE_110KM,
     PYNAMIT_SPHERICAL_GEO_110KM,
     CoordinateContract,
     ExternalInputRequest,
@@ -48,6 +49,11 @@ def test_provider_specs_are_independent_but_share_request_contract():
         is PYNAMIT_SPHERICAL_GEO_110KM
     )
     assert CONDUCTANCE_PROVIDER_SPEC.fields == ("hall", "pedersen")
+    assert CONDUCTANCE_PROVIDER_SPEC.request_coordinate_views == {
+        "model": PYNAMIT_CENTERED_DIPOLE_110KM
+    }
+    assert not BOUNDARY_JR_PROVIDER_SPEC.request_coordinate_views
+    assert not NEUTRAL_WIND_PROVIDER_SPEC.request_coordinate_views
     assert BOUNDARY_JR_PROVIDER_SPEC.fields == ("jr",)
     assert NEUTRAL_WIND_PROVIDER_SPEC.fields == ("u_theta", "u_phi")
 
@@ -62,6 +68,65 @@ def test_shared_request_reuses_one_converted_grid_object():
     assert hardy_grid.coordinate_contract is LIBRARY_GEOGRAPHIC_110KM
     np.testing.assert_array_equal(hardy_grid.lat, request.source_grid.lat)
     np.testing.assert_array_equal(hardy_grid.lon, request.source_grid.lon)
+
+
+def test_model_request_retains_centered_dipole_and_geographic_views():
+    """Expose both required views of one ordered sample set."""
+    model_lat = np.array([75.0, -60.0])
+    model_lon = np.array([-20.0, 130.0])
+    geo_lat = np.array([68.0, -52.0])
+    geo_lon = np.array([70.0, -140.0])
+
+    request = ExternalInputRequest.from_model_coordinates(
+        model_lat,
+        model_lon,
+        geographic_lat=geo_lat,
+        geographic_lon=geo_lon,
+        coordinate_system="centered_dipole",
+        model_epoch=2001.5,
+    )
+
+    assert request.model_grid.coordinate_contract is PYNAMIT_CENTERED_DIPOLE_110KM
+    np.testing.assert_array_equal(request.model_grid.lat, model_lat)
+    np.testing.assert_array_equal(request.model_grid.lon, model_lon)
+    np.testing.assert_array_equal(request.source_grid.lat, geo_lat)
+    np.testing.assert_array_equal(request.source_grid.lon, geo_lon)
+    assert request.model_epoch == pytest.approx(2001.5)
+    assert request.grid_for(PYNAMIT_CENTERED_DIPOLE_110KM) is request.model_grid
+
+
+def test_centered_dipole_model_request_requires_epoch():
+    """A magnetic coordinate view requires its axis epoch."""
+    with pytest.raises(ValueError, match="require model_epoch"):
+        ExternalInputRequest.from_model_coordinates(
+            np.array([60.0]),
+            np.array([10.0]),
+            geographic_lat=np.array([50.0]),
+            geographic_lon=np.array([20.0]),
+            coordinate_system="centered_dipole",
+        )
+
+
+def test_geographic_model_request_reuses_source_view():
+    """A GEO model frame does not create a redundant coordinate grid."""
+    lat = np.array([60.0, -40.0])
+    lon = np.array([10.0, 120.0])
+    request = ExternalInputRequest.from_model_coordinates(
+        lat, lon, geographic_lat=lat, geographic_lon=lon, coordinate_system="geocentric_geographic"
+    )
+    assert request.model_grid is request.source_grid
+
+
+def test_geographic_model_request_rejects_inconsistent_views():
+    """Reject inconsistent GEO model and physical coordinates."""
+    with pytest.raises(ValueError, match="must match geographic samples"):
+        ExternalInputRequest.from_model_coordinates(
+            np.array([60.0]),
+            np.array([10.0]),
+            geographic_lat=np.array([61.0]),
+            geographic_lon=np.array([10.0]),
+            coordinate_system="geocentric_geographic",
+        )
 
 
 def test_changing_one_provider_contract_does_not_change_the_others():

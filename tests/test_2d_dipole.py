@@ -10,9 +10,9 @@ from tests import magnetic_potential_coordinate_array
 def test_2d_dipole():
     """Test 2D simulation with dipole."""
     # Arrange.
-    expected_coeff_norm = 1.2291000277932488e-08
-    expected_coeff_max = 2.4399381047360073e-09
-    expected_coeff_min = -4.779822728342031e-09
+    expected_coeff_norm = 1.2308747791254524e-08
+    expected_coeff_max = 2.454228429042869e-09
+    expected_coeff_min = -4.73861613355283e-09
     expected_n_coeffs = 336
 
     # Act.

@@ -15,6 +15,7 @@ import numpy as np
 from kompe.constants import EARTH_RADIUS_M
 from kompe.math import block_until_ready, to_numpy
 
+from pynamit.external_input_contracts import ExternalInputRequest
 from pynamit.external_inputs import get_conductance_inputs
 from pynamit.simulation.api import Simulation
 
@@ -53,8 +54,20 @@ def build_simulation(
 
     grid = simulation.geometry.model_grid
     date = datetime.datetime(2001, 5, 12, 21, 45)
-    hall, pedersen, cond_lat, cond_lon = get_conductance_inputs(date, grid.lat, grid.lon, None)
-    simulation.set_conductance(hall, pedersen, lat=cond_lat, lon=cond_lon)
+    geo_lat, geo_lon = simulation.geometry.main_field.model_to_geo_coordinates(
+        grid.lat, grid.lon, event_time=date
+    )
+    request = ExternalInputRequest.from_model_coordinates(
+        grid.lat,
+        grid.lon,
+        geographic_lat=geo_lat,
+        geographic_lon=geo_lon,
+        coordinate_system=simulation.geometry.main_field.horizontal_coordinate_system,
+        model_epoch=simulation.geometry.main_field.epoch,
+        grid_id="matrix-extraction-model-grid",
+    )
+    hall, pedersen, _, _ = get_conductance_inputs(date, None, None, None, request=request)
+    simulation.set_conductance(hall, pedersen, lat=grid.lat, lon=grid.lon)
     simulation.response.activate_inputs_at_time(
         simulation.run_data.input_series, time=0.0, interpolation=False
     )

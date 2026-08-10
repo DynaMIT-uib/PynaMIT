@@ -10,9 +10,9 @@ from tests import magnetic_potential_coordinate_array
 def test_multi_data_dop853():
     """Test simulation with multiple data points and DOP853."""
     # Arrange.
-    expected_coeff_norm = 3.16356146341528e-08
-    expected_coeff_max = 1.3201991031220852e-08
-    expected_coeff_min = -8.971543670936353e-09
+    expected_coeff_norm = 3.285977797942148e-08
+    expected_coeff_max = 1.333489725683519e-08
+    expected_coeff_min = -1.0749905511304751e-08
     expected_n_coeffs = 228
 
     # Act.

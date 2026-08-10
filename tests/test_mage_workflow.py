@@ -1578,4 +1578,4 @@ def test_mage_workflow_contract_is_kaiju_dipole():
     attributes = _centered_dipole_alignment_attrs(event_time, -30_000.0)
     assert MAGE_MAIN_FIELD_KIND == "kaiju_dipole"
     assert attributes["main_field_kind"] == MAGE_MAIN_FIELD_KIND
-    assert attributes["main_field_horizontal_coordinate_system"] == "geographic"
+    assert attributes["main_field_horizontal_coordinate_system"] == "geocentric_geographic"

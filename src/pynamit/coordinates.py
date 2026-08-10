@@ -5,6 +5,8 @@ import datetime as dt
 import numpy as np
 
 DEFAULT_LOCAL_TIME_GRID_HOURS = (3, 9, 15, 21)
+GEOCENTRIC_GEOGRAPHIC = "geocentric_geographic"
+CENTERED_DIPOLE = "centered_dipole"
 
 
 def wrap_longitude_180(lon):
@@ -111,7 +113,9 @@ def local_time_longitude_to_geographic(lon, *, noon_longitude, local_noon_longit
 
 
 __all__ = [
+    "CENTERED_DIPOLE",
     "DEFAULT_LOCAL_TIME_GRID_HOURS",
+    "GEOCENTRIC_GEOGRAPHIC",
     "datetime_to_utc_hours",
     "decimal_year_to_datetime",
     "local_noon_longitude",

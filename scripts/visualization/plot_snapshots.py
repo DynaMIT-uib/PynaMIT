@@ -7,6 +7,7 @@ import polplot
 from kompe import Grid, SphericalTransform
 from matplotlib.gridspec import GridSpec
 
+from pynamit.geomagnetism import decimal_year
 from pynamit.visualization.output_fields import evaluate_Phi_coefficients
 from pynamit.visualization.pynameye import PynamEye
 
@@ -234,7 +235,7 @@ if EQUATORIAL_EFIELD:
     mlt = np.linspace(0, 24, 361) % 24
     dl = np.diff(mlt)[0] * 15 * np.pi / 180 * a.RI
     mlat = np.full_like(mlt, 0)
-    d = dipole.Dipole(a.time.year)
+    d = dipole.Dipole(decimal_year(a.time))
 
     fig, ax = plt.subplots()
     for t in ts:

@@ -2,7 +2,7 @@
 
 The input package boundary is intentionally narrower than a full run
 directory.  It stores projected input coefficients on a chosen grid,
-basis, and Earth-fixed main-field coordinate system. The time origin
+basis, and explicit main-field coordinate system. The time origin
 locates those coefficients in physical time; it is not part of the
 spatial frame. Most evolution choices belong to the consuming run, but
 ``boundary_Br`` also declares the magnetospheric radius it requires.
@@ -34,7 +34,7 @@ from pynamit.storage.field_time_series import TIME_TOLERANCE_SECONDS
 
 INPUT_MANIFEST_FILENAME = "pynamit_input_manifest.json"
 RUN_MANIFEST_FILENAME = "pynamit_run_manifest.json"
-_INPUT_MANIFEST_VERSION = 5
+_INPUT_MANIFEST_VERSION = 7
 _RUN_MANIFEST_VERSION = 3
 
 _INPUT_PROJECTION_SETTING_KEYS = (
@@ -127,6 +127,7 @@ def input_geometry_settings(config_or_settings: Any) -> dict[str, Any]:
         else SimulationConfig.from_settings(config_or_settings)
     )
     geometry = {name: getattr(config, name) for name in _INPUT_GEOMETRY_SETTING_KEYS}
+    geometry["horizontal_coordinate_system"] = config.horizontal_coordinate_system
     geometry["input_time_origin"] = config.t0
     return geometry
 
@@ -583,7 +584,7 @@ def prepare_pynamit_inputs(
     Mmax=20,
     Ncs=30,
     main_field_kind="dipole",
-    main_field_epoch=2020,
+    main_field_epoch=None,
     main_field_B0=None,
     use_wind=False,
     use_Q_eff=False,
@@ -611,7 +612,8 @@ def prepare_pynamit_inputs(
 
     ``main_field_*`` is part of the prepared-input contract because
     inputs may be projected in model magnetic coordinates or converted
-    from FAC to ``boundary_jr`` using the main field.
+    from FAC to ``boundary_jr`` using the main field. When no epoch is
+    supplied, it resolves to the decimal year of the input event.
     """
     if use_Q_eff and not use_wind:
         raise ValueError("use_Q_eff=True requires use_wind=True in prepare_pynamit_inputs.")
@@ -647,9 +649,13 @@ def prepare_pynamit_inputs(
     geo_lat, geo_lon = simulation.geometry.main_field.model_to_geo_coordinates(
         model_lat, model_lon, event_time=event_time
     )
-    external_request = ExternalInputRequest.from_geocentric_geo(
-        geo_lat,
-        geo_lon,
+    external_request = ExternalInputRequest.from_model_coordinates(
+        model_lat,
+        model_lon,
+        geographic_lat=geo_lat,
+        geographic_lon=geo_lon,
+        coordinate_system=simulation.geometry.main_field.horizontal_coordinate_system,
+        model_epoch=simulation.geometry.main_field.epoch,
         grid_id="prepared-input-source",
         sampling_geometry={"type": "simulation_model_grid"},
         provenance={

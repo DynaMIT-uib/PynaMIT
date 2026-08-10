@@ -50,7 +50,7 @@ class Simulation:
         RM=None,
         magnetic_boundary_shielding=False,
         main_field_kind="dipole",
-        main_field_epoch=2020,
+        main_field_epoch=None,
         main_field_B0=None,
         fac_integration_radii=None,
         enable_pfac_coupling=True,
@@ -100,7 +100,8 @@ class Simulation:
         main_field_kind : {'dipole', 'kaiju_dipole', 'igrf', 'radial'}
             Type of main magnetic field model.
         main_field_epoch : float, optional
-            Decimal year for main field model.
+            Decimal year for the main field. Defaults to the decimal
+            year of ``t0``.
         main_field_B0 : float, optional
             Main field strength.
         fac_integration_radii : array-like, optional
@@ -376,9 +377,10 @@ class Simulation:
             Signed field-parallel current density in A/m². Positive
             values follow the background magnetic-field vector.
         lat, lon : array-like, optional
-            Latitude/longitude coordinates in degrees.
+            Latitude/longitude in the simulation model frame, in
+            degrees.
         theta, phi : array-like, optional
-            Colatitude/azimuth coordinates in degrees.
+            Model-frame colatitude/azimuth in degrees.
         time : array-like, optional
             Time points for the FAC data.
         sqrt_weights : array-like, optional
@@ -464,9 +466,10 @@ class Simulation:
         boundary_jr_coefficients : array-like, optional
             Radial-current coefficients in the input storage basis.
         lat, lon : array-like, optional
-            Latitude/longitude coordinates in degrees.
+            Latitude/longitude in the simulation model frame, in
+            degrees.
         theta, phi : array-like, optional
-            Colatitude/azimuth coordinates in degrees.
+            Model-frame colatitude/azimuth in degrees.
         time : array-like, optional
             Time points for the current data.
         sqrt_weights : array-like, optional
@@ -516,9 +519,10 @@ class Simulation:
             Radial magnetic-field coefficients in the input storage
             basis.
         lat, lon : array-like, optional
-            Latitude/longitude coordinates in degrees.
+            Latitude/longitude in the simulation model frame, in
+            degrees.
         theta, phi : array-like, optional
-            Colatitude/azimuth coordinates in degrees.
+            Model-frame colatitude/azimuth in degrees.
         time : array-like, optional
             Time points for the magnetic-field data.
         sqrt_weights : array-like, optional
@@ -569,9 +573,10 @@ class Simulation:
         etaH : array-like
             Strictly positive Hall resistance values.
         lat, lon : array-like, optional
-            Latitude/longitude coordinates in degrees.
+            Latitude/longitude in the simulation model frame, in
+            degrees.
         theta, phi : array-like, optional
-            Colatitude/azimuth coordinates in degrees.
+            Model-frame colatitude/azimuth in degrees.
         time : array-like, optional
             Time points for the resistance data.
         sqrt_weights : array-like, optional
@@ -634,9 +639,10 @@ class Simulation:
             Canonical conductance coordinates already represented in
             the configured input storage basis.
         lat, lon : array-like, optional
-            Latitude/longitude coordinates in degrees.
+            Latitude/longitude in the simulation model frame, in
+            degrees.
         theta, phi : array-like, optional
-            Colatitude/azimuth coordinates in degrees.
+            Model-frame colatitude/azimuth in degrees.
         time : array-like, optional
             Time points for the conductance data.
         sqrt_weights : array-like, optional
@@ -744,9 +750,10 @@ class Simulation:
             Curl-free and divergence-free Helmholtz coefficients in the
             input storage basis.
         lat, lon : array-like, optional
-            Latitude/longitude coordinates in degrees.
+            Latitude/longitude in the simulation model frame, in
+            degrees.
         theta, phi : array-like, optional
-            Colatitude/azimuth coordinates in degrees.
+            Model-frame colatitude/azimuth in degrees.
         time : array-like, optional
             Time points for the wind data.
         sqrt_weights : array-like, optional
@@ -811,9 +818,10 @@ class Simulation:
             Curl-free and divergence-free Helmholtz coefficients in the
             input storage basis.
         lat, lon : array-like, optional
-            Latitude/longitude coordinates in degrees.
+            Latitude/longitude in the simulation model frame, in
+            degrees.
         theta, phi : array-like, optional
-            Colatitude/azimuth coordinates in degrees.
+            Model-frame colatitude/azimuth in degrees.
         time : array-like, optional
             Time points for the Q_eff data.
         sqrt_weights : array-like, optional
@@ -877,9 +885,10 @@ class Simulation:
             Curl-free and divergence-free Helmholtz coefficients in the
             input storage basis.
         lat, lon : array-like, optional
-            Latitude/longitude coordinates in degrees.
+            Latitude/longitude in the simulation model frame, in
+            degrees.
         theta, phi : array-like, optional
-            Colatitude/azimuth coordinates in degrees.
+            Model-frame colatitude/azimuth in degrees.
         time : array-like, optional
             Time points for the neutral-wind electric-field data.
         sqrt_weights : array-like, optional

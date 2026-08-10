@@ -9,7 +9,12 @@ import numpy as np
 import ppigrf
 from kompe.constants import EARTH_RADIUS_M
 
-from pynamit.coordinates import decimal_year_to_datetime, wrap_longitude_180
+from pynamit.coordinates import (
+    CENTERED_DIPOLE,
+    GEOCENTRIC_GEOGRAPHIC,
+    decimal_year_to_datetime,
+    wrap_longitude_180,
+)
 from pynamit.coordinates import local_noon_longitude as geographic_noon_longitude
 from pynamit.geodesy import (
     library_geographic_to_spherical_geo,
@@ -37,6 +42,12 @@ def normalize_main_field_kind(kind: str) -> str:
 def is_dipole_kind(kind):
     """Return whether a kind uses centered-dipole geometry."""
     return str(kind).lower() in _DIPOLE_KINDS
+
+
+def horizontal_coordinate_system_for_kind(kind):
+    """Return the canonical horizontal frame for a main-field kind."""
+    normalized = normalize_main_field_kind(kind)
+    return CENTERED_DIPOLE if normalized == "dipole" else GEOCENTRIC_GEOGRAPHIC
 
 
 def decimal_year(epoch):
@@ -188,9 +199,7 @@ class MainField:
     @property
     def horizontal_coordinate_system(self):
         """Return this model's horizontal coordinate system."""
-        if self.kind == "dipole":
-            return "centered_dipole_magnetic"
-        return "geographic"
+        return horizontal_coordinate_system_for_kind(self.kind)
 
     @staticmethod
     def _has_tangent_vector(east, north):
@@ -209,8 +218,8 @@ class MainField:
         east, north : array-like, optional
             Tangential vector components in geographic east/north basis.
         event_time : datetime, optional
-            Accepted for a uniform coordinate API. Earth-fixed
-            main-field transformations do not use it.
+            Accepted for a uniform coordinate API. Frame orientation is
+            fixed by the main-field epoch, so transforms do not use it.
 
         Returns
         -------
@@ -360,7 +369,7 @@ class MainField:
 
     def local_noon_longitude(self, event_time):
         """Return the local-noon longitude in model coordinates."""
-        if self.horizontal_coordinate_system == "geographic":
+        if self.horizontal_coordinate_system == GEOCENTRIC_GEOGRAPHIC:
             return geographic_noon_longitude(event_time)
         return self.magnetic_noon_longitude(event_time)
 

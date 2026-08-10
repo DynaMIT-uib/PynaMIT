@@ -6,7 +6,9 @@ import kompe
 import numpy as np
 import ppigrf
 import pyhwm2014  # https://github.com/rilma/pyHWM14
-from lompe import conductance
+
+from pynamit.external_input_contracts import ExternalInputRequest
+from pynamit.external_inputs import get_conductance_inputs
 
 Nmax, Mmax = 20, 20
 Ncs = 30
@@ -18,9 +20,6 @@ ubasis = kompe.SHBasis(Nmax, Mmax)
 
 # Fit wind pattern using a spherical harmonic Helmholtz representation.
 date = datetime.datetime(2000, 5, 12, 21, 45)
-# Since IGRF coefficients are used without interpolation (fix if used by
-# something different).
-assert date.year % 5 == 0
 
 ### CONDUCTANCE EXPERIMENT
 cbasis = kompe.SHBasis(Nmax, Mmax, Nmin=0)
@@ -28,9 +27,10 @@ cbasis = kompe.SHBasis(Nmax, Mmax, Nmin=0)
 cs_basis = kompe.GlobalCSBasis(Ncs)
 conductance_lat = 90 - cs_basis.arr_theta
 conductance_lon = cs_basis.arr_phi
-hall, pedersen = conductance.hardy_EUV(
-    conductance_lon, conductance_lat, Kp, date, starlight=1, dipole=False
+request = ExternalInputRequest.from_geocentric_geo(
+    conductance_lat, conductance_lon, grid_id="sh-experiment-grid"
 )
+hall, pedersen, _, _ = get_conductance_inputs(date, None, None, None, request=request, kp=Kp)
 
 etaH, etaP = hall / (hall**2 + pedersen**2), pedersen / (hall**2 + pedersen**2)
 

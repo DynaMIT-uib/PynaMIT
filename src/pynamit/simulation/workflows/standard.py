@@ -23,7 +23,7 @@ def run_pynamit(
     Ncs=30,
     RM=None,
     main_field_kind="dipole",
-    main_field_epoch=2020,
+    main_field_epoch=None,
     main_field_B0=None,
     enable_pfac_coupling=False,
     enable_interhemispheric_coupling=False,
@@ -76,6 +76,7 @@ def run_pynamit(
         The type of main field model.
     main_field_epoch : float, optional
         Decimal year used for the background-field coefficients.
+        Defaults to the input event time.
     main_field_B0 : float, optional
         Optional background-field magnitude override in tesla.
     enable_pfac_coupling : bool, optional

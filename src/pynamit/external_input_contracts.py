@@ -13,6 +13,7 @@ from typing import Any
 import numpy as np
 from kompe.constants import EARTH_RADIUS_M
 
+from pynamit.coordinates import CENTERED_DIPOLE, GEOCENTRIC_GEOGRAPHIC
 from pynamit.geodesy import spherical_geo_to_library_geographic
 
 _COORDINATE_IDENTITY_VERSION = 3
@@ -225,9 +226,20 @@ def intern_coordinate_contract(
 
 
 PYNAMIT_SPHERICAL_GEO_110KM = intern_coordinate_contract(
-    coordinate_system="geocentric_geographic",
+    coordinate_system=GEOCENTRIC_GEOGRAPHIC,
     angular_units="degrees",
     latitude_definition="geocentric",
+    longitude_definition="east_positive",
+    longitude_wrap="[-180,180)",
+    reference_surface=ReferenceSurface(
+        kind="sphere", radius_m=float(EARTH_RADIUS_M + _IONOSPHERE_ALTITUDE_KM * 1e3)
+    ),
+)
+
+PYNAMIT_CENTERED_DIPOLE_110KM = intern_coordinate_contract(
+    coordinate_system=CENTERED_DIPOLE,
+    angular_units="degrees",
+    latitude_definition="centered_dipole",
     longitude_definition="east_positive",
     longitude_wrap="[-180,180)",
     reference_surface=ReferenceSurface(
@@ -257,6 +269,7 @@ class ProviderSpec:
     request_coordinate_contract: CoordinateContract
     output_coordinate_contract: CoordinateContract
     fields: tuple[str, ...]
+    request_coordinate_views: Mapping[str, CoordinateContract] = field(default_factory=dict)
     request_vector_basis: str | None = None
     output_vector_basis: str | None = None
     derived_coordinates: Mapping[str, Any] = field(default_factory=dict)
@@ -279,6 +292,14 @@ class ProviderSpec:
         object.__setattr__(self, "implementation", implementation)
         object.__setattr__(self, "sampling_policy", policy)
         object.__setattr__(self, "fields", fields)
+        coordinate_views = {
+            str(name).strip(): contract for name, contract in self.request_coordinate_views.items()
+        }
+        if any(not name for name in coordinate_views) or not all(
+            isinstance(contract, CoordinateContract) for contract in coordinate_views.values()
+        ):
+            raise ValueError("Provider coordinate views require named CoordinateContract values.")
+        object.__setattr__(self, "request_coordinate_views", MappingProxyType(coordinate_views))
         object.__setattr__(self, "derived_coordinates", _freeze_mapping(self.derived_coordinates))
         object.__setattr__(self, "adapter_assumptions", _freeze_mapping(self.adapter_assumptions))
         for name in ("request_vector_basis", "output_vector_basis"):
@@ -301,6 +322,10 @@ class ProviderSpec:
                 payload["output_coordinate_contract"]
             ),
             fields=tuple(payload["fields"]),
+            request_coordinate_views={
+                name: CoordinateContract.from_dict(contract)
+                for name, contract in payload.get("request_coordinate_views", {}).items()
+            },
             request_vector_basis=payload.get("request_vector_basis"),
             output_vector_basis=payload.get("output_vector_basis"),
             derived_coordinates=payload.get("derived_coordinates", {}),
@@ -323,6 +348,11 @@ class ProviderSpec:
             result["request_vector_basis"] = self.request_vector_basis
         if self.output_vector_basis is not None:
             result["output_vector_basis"] = self.output_vector_basis
+        if self.request_coordinate_views:
+            result["request_coordinate_views"] = {
+                name: contract.to_dict()
+                for name, contract in self.request_coordinate_views.items()
+            }
         return result
 
     @property
@@ -337,20 +367,30 @@ class ProviderSpec:
 
 CONDUCTANCE_PROVIDER_SPEC = ProviderSpec(
     key="conductance",
-    implementation="lompe.conductance.hardy_EUV",
+    implementation="lompe.conductance",
     sampling_policy="requested_positions",
     request_coordinate_contract=LIBRARY_GEOGRAPHIC_110KM,
     output_coordinate_contract=PYNAMIT_SPHERICAL_GEO_110KM,
     fields=("hall", "pedersen"),
+    request_coordinate_views={"model": PYNAMIT_CENTERED_DIPOLE_110KM},
     derived_coordinates={
-        "auroral_model": "apexpy_modified_apex_at_110_km",
+        "auroral_model": {
+            CENTERED_DIPOLE: "originating_model_coordinates",
+            GEOCENTRIC_GEOGRAPHIC: "apexpy_modified_apex_at_110_km",
+        },
         "solar_zenith_angle": "geographic",
     },
     adapter_assumptions={
         "request_mapping": (
-            "PynaMIT spherical latitude/longitude are passed through numerically "
-            "at the same nominal 110-km altitude."
-        )
+            "The physical sample grid is geocentric geographic at 110 km. "
+            "Centered-dipole simulations additionally provide their model-grid view."
+        ),
+        "coordinate_selection": (
+            "Centered-dipole requests evaluate Hardy in the model view at model_epoch "
+            "and GEO requests derive modified-Apex coordinates at the full event time. "
+            "Both evaluate EUV illumination in the paired physical GEO view and use a "
+            "decimal-year dipole for magnetic local time."
+        ),
     },
 )
 
@@ -520,12 +560,42 @@ register_coordinate_converter(
 
 
 class ExternalInputRequest:
-    """One source grid with cached provider-interface grid views."""
+    """One ordered physical grid with explicit coordinate views."""
 
-    def __init__(self, source_grid: SampleGrid):
+    def __init__(
+        self,
+        source_grid: SampleGrid,
+        *,
+        model_grid: SampleGrid | None = None,
+        model_epoch: float | None = None,
+    ):
+        if source_grid.coordinate_contract is not PYNAMIT_SPHERICAL_GEO_110KM:
+            raise ValueError("External-input source_grid must be geocentric geographic.")
+        model_grid = source_grid if model_grid is None else model_grid
+        if model_grid.size != source_grid.size:
+            raise ValueError("Model and geographic grids must contain the same ordered samples.")
+        if model_grid.coordinate_contract not in {
+            PYNAMIT_SPHERICAL_GEO_110KM,
+            PYNAMIT_CENTERED_DIPOLE_110KM,
+        }:
+            raise ValueError("External-input model_grid uses an unsupported coordinate system.")
+        if (
+            model_grid.coordinate_contract is PYNAMIT_SPHERICAL_GEO_110KM
+            and model_grid.coordinate_identity != source_grid.coordinate_identity
+        ):
+            raise ValueError("Geographic model and source grids must be identical.")
+        if model_epoch is not None:
+            model_epoch = float(model_epoch)
+            if not np.isfinite(model_epoch):
+                raise ValueError("model_epoch must be finite.")
+        if model_grid.coordinate_contract is PYNAMIT_CENTERED_DIPOLE_110KM and model_epoch is None:
+            raise ValueError("Centered-dipole model coordinates require model_epoch.")
         self.source_grid = source_grid
+        self.model_grid = model_grid
+        self.model_epoch = model_epoch
         self._request_grids: dict[str, SampleGrid] = {
-            source_grid.coordinate_contract.signature: source_grid
+            source_grid.coordinate_contract.signature: source_grid,
+            model_grid.coordinate_contract.signature: model_grid,
         }
 
     @classmethod
@@ -549,6 +619,60 @@ class ExternalInputRequest:
                 provenance={} if provenance is None else provenance,
             )
         )
+
+    @classmethod
+    def from_model_coordinates(
+        cls,
+        lat: np.ndarray,
+        lon: np.ndarray,
+        *,
+        geographic_lat: np.ndarray,
+        geographic_lon: np.ndarray,
+        coordinate_system: str,
+        model_epoch: float | None = None,
+        grid_id: str = "runtime-model-grid",
+        sampling_geometry: Mapping[str, Any] | None = None,
+        provenance: Mapping[str, Any] | None = None,
+    ) -> ExternalInputRequest:
+        """Construct model and GEO views of the same ordered samples."""
+        coordinate_system = str(coordinate_system).strip().lower()
+        try:
+            model_contract = {
+                CENTERED_DIPOLE: PYNAMIT_CENTERED_DIPOLE_110KM,
+                GEOCENTRIC_GEOGRAPHIC: PYNAMIT_SPHERICAL_GEO_110KM,
+            }[coordinate_system]
+        except KeyError as exc:
+            raise ValueError(
+                "coordinate_system must be 'centered_dipole' or 'geocentric_geographic'."
+            ) from exc
+
+        source = SampleGrid(
+            grid_id=grid_id,
+            coordinate_contract=PYNAMIT_SPHERICAL_GEO_110KM,
+            lat=geographic_lat,
+            lon=geographic_lon,
+            sampling_geometry={} if sampling_geometry is None else sampling_geometry,
+            provenance={} if provenance is None else provenance,
+        )
+        if model_contract is PYNAMIT_SPHERICAL_GEO_110KM:
+            model_identity = model_contract.coordinate_identity(lat, lon)
+            if model_identity != source.coordinate_identity:
+                raise ValueError("Geographic model coordinates must match geographic samples.")
+            model_grid = source
+        else:
+            model_grid = SampleGrid(
+                grid_id=f"{grid_id}--model",
+                coordinate_contract=model_contract,
+                lat=lat,
+                lon=lon,
+                sampling_geometry={"type": "coordinate_view", "source_grid_id": source.grid_id},
+                provenance={
+                    **({} if provenance is None else provenance),
+                    "model_epoch": float(model_epoch) if model_epoch is not None else None,
+                    "source_coordinate_identity": source.coordinate_identity,
+                },
+            )
+        return cls(source, model_grid=model_grid, model_epoch=model_epoch)
 
     def grid_for(self, spec_or_contract: ProviderSpec | CoordinateContract) -> SampleGrid:
         """Return the cached request grid for a provider or contract."""

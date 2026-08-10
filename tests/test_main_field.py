@@ -96,13 +96,18 @@ def test_kaiju_dipole_main_field_B0_override_preserves_kaiju_alignment():
 
 def test_main_field_horizontal_coordinate_system_labels_are_explicit():
     """Main-field kinds advertise their horizontal coordinates."""
-    assert MainField(kind="kaiju_dipole", epoch=2011).horizontal_coordinate_system == "geographic"
     assert (
-        MainField(kind="dipole", epoch=2011).horizontal_coordinate_system
-        == "centered_dipole_magnetic"
+        MainField(kind="kaiju_dipole", epoch=2011).horizontal_coordinate_system
+        == "geocentric_geographic"
     )
-    assert MainField(kind="igrf", epoch=2011).horizontal_coordinate_system == "geographic"
-    assert MainField(kind="radial", epoch=2011).horizontal_coordinate_system == "geographic"
+    assert MainField(kind="dipole", epoch=2011).horizontal_coordinate_system == "centered_dipole"
+    assert (
+        MainField(kind="igrf", epoch=2011).horizontal_coordinate_system == "geocentric_geographic"
+    )
+    assert (
+        MainField(kind="radial", epoch=2011).horizontal_coordinate_system
+        == "geocentric_geographic"
+    )
 
 
 def test_main_field_kind_uses_configuration_normalization():
@@ -172,6 +177,25 @@ def test_main_field_vector_transform_requires_east_and_north_pair():
 
     with pytest.raises(ValueError, match="east and north"):
         main_field.geo_to_model_coordinates(65.0, -30.0, east=1.0)
+
+
+def test_dipole_model_geo_coordinates_and_vectors_round_trip():
+    """Round-trip centered-dipole positions and tangent components."""
+    main_field = MainField(kind="dipole", epoch=2011.5)
+    model_lat = np.array([-75.0, -20.0, 35.0, 80.0])
+    model_lon = np.array([-170.0, -30.0, 65.0, 150.0])
+    model_east = np.array([1.0, -2.0, 3.0, -4.0])
+    model_north = np.array([5.0, 6.0, -7.0, -8.0])
+
+    geo = main_field.model_to_geo_coordinates(
+        model_lat, model_lon, east=model_east, north=model_north
+    )
+    restored = main_field.geo_to_model_coordinates(geo[0], geo[1], east=geo[2], north=geo[3])
+
+    np.testing.assert_allclose(restored[0], model_lat, atol=1e-12)
+    np.testing.assert_allclose(restored[1], model_lon, atol=1e-12)
+    np.testing.assert_allclose(restored[2], model_east, atol=1e-12)
+    np.testing.assert_allclose(restored[3], model_north, atol=1e-12)
 
 
 def test_kaiju_main_field_evaluates_dipole_in_mag_and_returns_geo_components():
@@ -269,7 +293,7 @@ def test_kaiju_main_field_alignment_metadata_distinguishes_geo_mag_and_sm():
 
     metadata = main_field.alignment_metadata(event_time)
 
-    assert metadata["main_field_horizontal_coordinate_system"] == "geographic"
+    assert metadata["main_field_horizontal_coordinate_system"] == "geocentric_geographic"
     assert metadata["dipole_alignment_model"] == "kaiju_geopack_centered_dipole"
     assert metadata["noon_model_longitude_deg"] != pytest.approx(0.0)
     np.testing.assert_allclose(metadata["axis_geo_cartesian"], main_field.dipole.axis)

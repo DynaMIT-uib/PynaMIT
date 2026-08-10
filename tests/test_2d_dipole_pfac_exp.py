@@ -9,9 +9,9 @@ from tests import magnetic_potential_coordinate_array
 def test_2d_dipole_pfac_exp(pynamit_approx):
     """Test 2D simulation with dipole, PFAC and exponential."""
     # Arrange.
-    expected_coeff_norm = 1.2049082557908e-08
-    expected_coeff_max = 2.469631942439048e-09
-    expected_coeff_min = -4.747215466647287e-09
+    expected_coeff_norm = 1.2064700116547968e-08
+    expected_coeff_max = 2.4632594321555923e-09
+    expected_coeff_min = -4.719596570090808e-09
     expected_n_coeffs = 240
 
     # Act.

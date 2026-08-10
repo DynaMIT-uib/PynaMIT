@@ -43,20 +43,19 @@ class GridSpec:
     ncs: int
     main_field_kind: str
     main_field_epoch: float
-    horizontal_coordinate_system: str
 
 
 EVENT_TIME = _DEFAULT_INPUT_TIME
 EVENT_EPOCH = float(decimal_year(EVENT_TIME))
 
 GRID_SPECS = (
-    GridSpec("centered-dipole-2020-ncs-08", 8, "dipole", 2020.0, "centered_dipole_magnetic"),
-    GridSpec("centered-dipole-2020-ncs-12", 12, "dipole", 2020.0, "centered_dipole_magnetic"),
-    GridSpec("centered-dipole-2020-ncs-18", 18, "dipole", 2020.0, "centered_dipole_magnetic"),
-    GridSpec("centered-dipole-2020-ncs-20", 20, "dipole", 2020.0, "centered_dipole_magnetic"),
-    GridSpec("centered-dipole-2020-ncs-22", 22, "dipole", 2020.0, "centered_dipole_magnetic"),
-    GridSpec("geographic-ncs-18", 18, "igrf", EVENT_EPOCH, "geographic"),
-    GridSpec("geographic-ncs-20", 20, "igrf", EVENT_EPOCH, "geographic"),
+    GridSpec("centered-dipole-event-ncs-08", 8, "dipole", EVENT_EPOCH),
+    GridSpec("centered-dipole-event-ncs-12", 12, "dipole", EVENT_EPOCH),
+    GridSpec("centered-dipole-event-ncs-18", 18, "dipole", EVENT_EPOCH),
+    GridSpec("centered-dipole-event-ncs-20", 20, "dipole", EVENT_EPOCH),
+    GridSpec("centered-dipole-event-ncs-22", 22, "dipole", EVENT_EPOCH),
+    GridSpec("geographic-ncs-18", 18, "igrf", EVENT_EPOCH),
+    GridSpec("geographic-ncs-20", 20, "igrf", EVENT_EPOCH),
 )
 
 
@@ -120,14 +119,20 @@ def main() -> None:
             geo_lat, geo_lon = simulation.geometry.main_field.model_to_geo_coordinates(
                 model_lat, model_lon, event_time=EVENT_TIME
             )
-            request = ExternalInputRequest.from_geocentric_geo(
-                geo_lat,
-                geo_lon,
+            request = ExternalInputRequest.from_model_coordinates(
+                model_lat,
+                model_lon,
+                geographic_lat=geo_lat,
+                geographic_lon=geo_lon,
+                coordinate_system=simulation.geometry.main_field.horizontal_coordinate_system,
+                model_epoch=simulation.geometry.main_field.epoch,
                 grid_id=spec.grid_id,
                 sampling_geometry={"type": "cubed_sphere", "ncs": spec.ncs},
                 provenance={
                     "originating_model_frame": {
-                        "horizontal_coordinate_system": (spec.horizontal_coordinate_system),
+                        "horizontal_coordinate_system": (
+                            simulation.geometry.main_field.horizontal_coordinate_system
+                        ),
                         "main_field_kind": spec.main_field_kind,
                         "epoch": spec.main_field_epoch,
                     }

@@ -11,9 +11,9 @@ def test_regularization():
     """Test simulation with regularization."""
     # Arrange.
     # HWM winds are rotated from geographic into dipole coordinates.
-    expected_coeff_norm = 1.4608991630915762e-08
-    expected_coeff_max = 1.503766858383628e-09
-    expected_coeff_min = -6.512291867154452e-09
+    expected_coeff_norm = 1.468677532491006e-08
+    expected_coeff_max = 1.9006176708011862e-09
+    expected_coeff_min = -5.877216185764682e-09
     expected_n_coeffs = 228
 
     # Act.

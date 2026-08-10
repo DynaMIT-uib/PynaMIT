@@ -1,10 +1,13 @@
 """Tests for simulation configuration normalization."""
 
+import datetime as dt
+
 import numpy as np
 import pytest
 import xarray as xr
 from kompe.constants import EARTH_RADIUS_M
 
+from pynamit.geomagnetism import decimal_year
 from pynamit.simulation import Simulation
 from pynamit.simulation.config import SimulationConfig, dipole_fac_integration_radii, setting_value
 
@@ -139,6 +142,19 @@ def test_simulation_config_preserves_decimal_main_field_epoch():
     assert restored.main_field_epoch == pytest.approx(config.main_field_epoch)
 
 
+def test_simulation_config_derives_main_field_epoch_from_start_time():
+    """The physical event time supplies the default field epoch."""
+    config = SimulationConfig(t0="2001-05-12 21:45:00")
+
+    assert config.main_field_epoch == pytest.approx(
+        decimal_year(dt.datetime.fromisoformat(config.t0))
+    )
+    assert config.to_dataset().attrs["main_field_epoch"] == pytest.approx(config.main_field_epoch)
+
+    explicit = SimulationConfig(t0=config.t0, main_field_epoch=2000.0)
+    assert explicit.main_field_epoch == pytest.approx(2000.0)
+
+
 def test_simulation_config_normalizes_start_time_to_utc():
     """Equivalent start-time spellings share one persisted identity."""
     config = SimulationConfig(t0="2020-01-01T01:30:00+01:00")
@@ -150,10 +166,25 @@ def test_simulation_config_normalizes_start_time_to_utc():
 
 def test_simulation_config_normalizes_and_validates_main_field_kind():
     """Main-field model names are canonical persisted configuration."""
-    assert SimulationConfig(main_field_kind=" IGRF ").main_field_kind == "igrf"
+    config = SimulationConfig(main_field_kind=" IGRF ")
+    assert config.main_field_kind == "igrf"
+    assert config.horizontal_coordinate_system == "geocentric_geographic"
+    assert config.to_dataset().attrs["horizontal_coordinate_system"] == "geocentric_geographic"
+
+    dipole_config = SimulationConfig(main_field_kind="dipole")
+    assert dipole_config.horizontal_coordinate_system == "centered_dipole"
 
     with pytest.raises(ValueError, match="main_field_kind"):
         SimulationConfig(main_field_kind="unknown")
+
+
+def test_simulation_config_rejects_stale_persisted_coordinate_frame():
+    """The persisted frame cannot disagree with its main-field kind."""
+    settings = SimulationConfig(main_field_kind="dipole").to_dataset()
+    settings.attrs["horizontal_coordinate_system"] = "geocentric_geographic"
+
+    with pytest.raises(ValueError, match="does not match main_field_kind"):
+        SimulationConfig.from_settings(settings)
 
 
 def test_simulation_config_normalizes_executable_policies():

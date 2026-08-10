@@ -10,6 +10,9 @@ import numpy as np
 import pyhwm2014  # https://github.com/rilma/pyHWM14
 
 import pynamit
+from pynamit.external_input_contracts import ExternalInputRequest
+from pynamit.external_inputs import get_conductance_inputs
+from pynamit.geomagnetism import decimal_year
 
 plt.rcParams["figure.constrained_layout.use"] = True
 
@@ -35,7 +38,7 @@ rtol = 1e-15
 Ncs = 70
 
 date = datetime.datetime(2001, 5, 12, 17, 0)
-d = dipole.Dipole(date.year)
+d = dipole.Dipole(decimal_year(date))
 noon_lon = d.mlt2mlon(12, date)  # noon longitude
 
 # Define cubed sphere basis and grid
@@ -63,12 +66,11 @@ input_grid = kompe.Grid(lat=u_lat.flatten(), lon=u_lon.flatten())
 
 if CONDUCTANCE:
     # Get and set conductance input.
-    from lompe import conductance
-
     Kp = 5
-    hall, pedersen = conductance.hardy_EUV(
-        input_grid.lon, input_grid.lat, Kp, date, starlight=1, dipole=True
+    request = ExternalInputRequest.from_geocentric_geo(
+        input_grid.lat, input_grid.lon, grid_id="interpolation-input-grid"
     )
+    hall, pedersen, _, _ = get_conductance_inputs(date, None, None, None, request=request, kp=Kp)
 
     input_grid_values = hall
     input_weights = None

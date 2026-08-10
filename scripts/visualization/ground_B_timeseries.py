@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from kompe.constants import EARTH_RADIUS_M
 
+from pynamit.geomagnetism import decimal_year
 from pynamit.storage import ArtifactStore
 
 periods = [50, 25, 10, 5, 1]
@@ -31,8 +32,8 @@ RI = settings_list[0].RI
 sh_basis = kompe.SHBasis(settings_list[0].Nmax, settings_list[0].Mmax)
 
 t0 = datetime.datetime.strptime(settings_list[0].t0, "%Y-%m-%d %H:%M:%S")
-d = dipole.Dipole(t0.year)
-a = apexpy.Apex(t0.year)
+d = dipole.Dipole(decimal_year(t0))
+a = apexpy.Apex(t0)
 
 # Construct plot grid in mlt/mlat, then convert to glat/glon.
 mlt, mlat = np.meshgrid([4, 9, 12, 15, 20], [-80, -60, -20, 20, 60, 80][::-1], indexing="ij")

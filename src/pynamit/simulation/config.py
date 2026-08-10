@@ -12,9 +12,13 @@ import xarray as xr
 from kompe.constants import EARTH_RADIUS_M
 from kompe.math import LeastSquaresSolver, get_default_least_squares_solver
 
-from pynamit.geomagnetism.main_field import normalize_main_field_kind
+from pynamit.geomagnetism.main_field import (
+    decimal_year,
+    horizontal_coordinate_system_for_kind,
+    normalize_main_field_kind,
+)
 
-SIMULATION_SCHEMA_VERSION = 2
+SIMULATION_SCHEMA_VERSION = 4
 INDEPENDENT_PROJECTION_BASIS_KEYS = (
     "boundary_jr",
     "boundary_Br",
@@ -252,7 +256,7 @@ class SimulationConfig:
     fac_integration_radii: Any = None
     interhemispheric_electric_field_weight: float = 1e-5
     main_field_kind: str = "dipole"
-    main_field_epoch: float = 2020.0
+    main_field_epoch: float | None = None
     main_field_B0: float | None = None
     boundary_jr_projection_basis: str | None = None
     boundary_Br_projection_basis: str | None = None
@@ -275,6 +279,7 @@ class SimulationConfig:
         self._normalize_resolution()
         self._normalize_radial_domain()
         self._normalize_coupling()
+        object.__setattr__(self, "t0", _normalize_start_time(self.t0))
         self._normalize_main_field()
         self._normalize_bases()
         self._normalize_numerical_policy()
@@ -371,7 +376,12 @@ class SimulationConfig:
         object.__setattr__(
             self, "main_field_kind", normalize_main_field_kind(self.main_field_kind)
         )
-        object.__setattr__(self, "main_field_epoch", float(self.main_field_epoch))
+        epoch = (
+            decimal_year(pd.Timestamp(self.t0).to_pydatetime())
+            if self.main_field_epoch is None
+            else float(self.main_field_epoch)
+        )
+        object.__setattr__(self, "main_field_epoch", epoch)
         if not np.isfinite(self.main_field_epoch):
             raise ValueError("main_field_epoch must be finite.")
         if self.main_field_B0 is not None:
@@ -403,7 +413,6 @@ class SimulationConfig:
             "area_weighted_least_squares",
             _boolean_setting(self.area_weighted_least_squares, name="area_weighted_least_squares"),
         )
-        object.__setattr__(self, "t0", _normalize_start_time(self.t0))
         object.__setattr__(
             self, "save_equilibria", _boolean_setting(self.save_equilibria, name="save_equilibria")
         )
@@ -457,6 +466,11 @@ class SimulationConfig:
             else self.least_squares_preconditioner
         )
 
+    @property
+    def horizontal_coordinate_system(self):
+        """Return the horizontal frame implied by the main field."""
+        return horizontal_coordinate_system_for_kind(self.main_field_kind)
+
     def to_attrs(self) -> dict[str, Any]:
         """Return canonical xarray attributes for persisted settings."""
         return {
@@ -475,6 +489,7 @@ class SimulationConfig:
             "main_field_kind": self.main_field_kind,
             "main_field_epoch": self.main_field_epoch,
             "main_field_B0": self.stored_main_field_B0,
+            "horizontal_coordinate_system": self.horizontal_coordinate_system,
             "boundary_jr_projection_basis": self.boundary_jr_projection_basis,
             "boundary_Br_projection_basis": self.boundary_Br_projection_basis,
             "conductance_projection_basis": self.conductance_projection_basis,
@@ -528,4 +543,12 @@ class SimulationConfig:
                     raise ValueError(f"{name} argument does not match settings.")
             kwargs[name] = explicit
 
-        return cls(**kwargs)
+        config = cls(**kwargs)
+        if _setting_is_present(settings, "horizontal_coordinate_system"):
+            stored_frame = setting_value(settings, "horizontal_coordinate_system")
+            if stored_frame != config.horizontal_coordinate_system:
+                raise ValueError(
+                    "horizontal_coordinate_system does not match main_field_kind: "
+                    f"stored={stored_frame!r}, expected={config.horizontal_coordinate_system!r}."
+                )
+        return config

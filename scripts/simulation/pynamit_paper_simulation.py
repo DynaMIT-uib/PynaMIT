@@ -26,7 +26,6 @@ import numpy as np
 from kompe.constants import EARTH_RADIUS_M
 
 import pynamit
-from pynamit.geomagnetism import decimal_year
 from pynamit.simulation.config import dipole_fac_integration_radii
 from pynamit.simulation.schema import INPUT_DATASET_KEYS
 from pynamit.simulation.workflows.prepared_inputs import (
@@ -108,7 +107,6 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
         Ncs=settings.ncs,
         RI=RI,
         main_field_kind="igrf",
-        main_field_epoch=decimal_year(settings.date),
         artifact_storage=settings.artifact_storage,
         enable_pfac_coupling=False,
         enable_interhemispheric_coupling=False,
@@ -119,9 +117,13 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
 
     source_lat = simulation.geometry.model_grid.lat
     source_lon = simulation.geometry.model_grid.lon
-    request = ExternalInputRequest.from_geocentric_geo(
+    request = ExternalInputRequest.from_model_coordinates(
         source_lat,
         source_lon,
+        geographic_lat=source_lat,
+        geographic_lon=source_lon,
+        coordinate_system=simulation.geometry.main_field.horizontal_coordinate_system,
+        model_epoch=simulation.geometry.main_field.epoch,
         grid_id="paper-simulation-model-grid",
         sampling_geometry={"type": "simulation_model_grid"},
         provenance={"main_field_kind": "igrf"},
@@ -134,7 +136,7 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
         hall, pedersen, lat=source_lat, lon=source_lon, reg_lambda=settings.conductance_lambda
     )
 
-    dipole_model = dipole.Dipole(settings.date.year)
+    dipole_model = dipole.Dipole(simulation.geometry.main_field.epoch)
     boundary_jr, _, _ = get_jr_inputs(
         settings.date,
         source_lat,

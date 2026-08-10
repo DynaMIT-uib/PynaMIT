@@ -11,8 +11,9 @@ from pynamit.external_input_contracts import (
     BOUNDARY_JR_PROVIDER_SPEC,
     CONDUCTANCE_PROVIDER_SPEC,
     NEUTRAL_WIND_PROVIDER_SPEC,
+    PYNAMIT_CENTERED_DIPOLE_110KM,
 )
-from pynamit.geomagnetism import MainField
+from pynamit.geomagnetism import MainField, decimal_year
 from pynamit.simulation.api import Simulation
 from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.workflows import prepared_inputs as prepared_inputs_module
@@ -140,6 +141,10 @@ def test_default_inputs_share_one_provider_request_cache(tmp_path, monkeypatch):
     )
     np.testing.assert_allclose(request.source_grid.lat, expected_geo[0])
     np.testing.assert_allclose(request.source_grid.lon, expected_geo[1])
+    assert request.model_grid.coordinate_contract is PYNAMIT_CENTERED_DIPOLE_110KM
+    assert request.model_epoch == pytest.approx(prepared.geometry.main_field.epoch)
+    np.testing.assert_allclose(request.model_grid.lat, model_grid.lat)
+    np.testing.assert_allclose(request.model_grid.lon, model_grid.lon)
 
     for name in ("conductance_storage", "boundary_jr_storage", "wind_storage"):
         np.testing.assert_allclose(captured[name][0], model_grid.lat)
@@ -209,13 +214,16 @@ def test_input_manifest_records_projection_settings(tmp_path):
     loaded = read_input_manifest(tmp_path)
     assert loaded == manifest
     assert loaded["kind"] == "pynamit_prepared_inputs"
-    assert loaded["version"] == 5
+    assert loaded["version"] == 7
     assert "input_datasets" not in loaded
     assert "input_projection_settings" not in loaded
     assert "t0" not in loaded["input_contract"]["coefficient_space"]
     assert loaded["input_contract"]["coefficient_space"] == input_projection_settings(config)
     assert loaded["input_contract"]["geometry"] == input_geometry_settings(config)
     assert loaded["input_contract"]["geometry"]["input_time_origin"] == config.t0
+    assert (
+        loaded["input_contract"]["geometry"]["horizontal_coordinate_system"] == "centered_dipole"
+    )
     assert loaded["input_contract"]["input_datasets"] == ["conductance", "boundary_jr"]
     assert loaded["input_contract"]["dataset_requirements"] == {}
     assert (
@@ -354,7 +362,9 @@ def test_prepare_and_run_from_inputs_smoke(tmp_path):
     )
     assert prepared.run_data.run_directory == str(input_directory.resolve())
     assert prepared.config.t0 == "2001-05-12 21:45:00"
-    assert prepared.config.main_field_epoch == pytest.approx(2020.0)
+    assert prepared.config.main_field_epoch == pytest.approx(
+        decimal_year(prepared_inputs_module._DEFAULT_INPUT_TIME)
+    )
     assert (input_directory / INPUT_MANIFEST_FILENAME).exists()
     manifest = read_input_manifest(input_directory)
     assert manifest["input_contract"]["coefficient_space"]["Nmax"] == 2

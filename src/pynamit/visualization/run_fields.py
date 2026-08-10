@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 from kompe.constants import MU0
 
+from pynamit.coordinates import GEOCENTRIC_GEOGRAPHIC
 from pynamit.geomagnetism import MagneticFieldEvaluation
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     joule_heating_from_current,
@@ -520,8 +521,8 @@ class SavedCoefficientFieldView:
         """Return evaluators sampled on the geographic display grid.
 
         Saved coefficients live in the simulation's horizontal
-        coordinate system. The model frame is Earth-fixed, so this
-        model-to-geographic sampling geometry is immutable.
+        coordinate system. Its orientation is fixed by the persisted
+        main-field epoch, so this sampling geometry is immutable.
         """
         del event_time
         if self._geographic_evaluation is not None:
@@ -581,7 +582,7 @@ class SavedCoefficientFieldView:
             reference_time = self.run_view.config.t0
         reference_time = pd.Timestamp(reference_time).to_pydatetime()
         main_field = self.run_view.main_field
-        if main_field.horizontal_coordinate_system == "geographic":
+        if main_field.horizontal_coordinate_system == GEOCENTRIC_GEOGRAPHIC:
             return MapCoordinateContext.geographic(reference_time)
         return MapCoordinateContext.from_noon_longitude(
             main_field.local_noon_longitude(reference_time),

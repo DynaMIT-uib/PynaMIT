@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import apexpy
+import dipole
 import numpy as np
 
 from pynamit.external_input_contracts import (
@@ -29,7 +30,7 @@ from pynamit.geodesy import library_horizontal_to_spherical
 from pynamit.geomagnetism import decimal_year
 
 FALLBACK_RESOURCE = resources.files("pynamit.data") / "fallback_inputs.json"
-FALLBACK_SCHEMA_VERSION = 4
+FALLBACK_SCHEMA_VERSION = 6
 _INPUT_SOURCE = os.environ.get("PYNAMIT_INPUT_SOURCE", "native").lower()
 if _INPUT_SOURCE == "auto":
     _INPUT_SOURCE = "native"
@@ -338,7 +339,7 @@ def _dataset_sort_key(item: tuple[str, ProviderDataset]) -> tuple[Any, ...]:
     geometry = dataset.source_grid.sampling_geometry
     origin = dataset.source_grid.provenance.get("originating_model_frame", {})
     horizontal = str(origin.get("horizontal_coordinate_system", ""))
-    geometry_order = {"geographic": 0, "centered_dipole_magnetic": 1}.get(horizontal, 2)
+    geometry_order = {"geocentric_geographic": 0, "centered_dipole": 1}.get(horizontal, 2)
     try:
         ncs = int(geometry.get("ncs"))
     except (TypeError, ValueError):
@@ -391,6 +392,61 @@ def _select_fallback_entry(
     )
 
 
+def _validated_centered_dipole(request: ExternalInputRequest) -> dipole.Dipole:
+    """Return the request dipole after checking its paired GEO view."""
+    model_epoch = request.model_epoch
+    if model_epoch is None:
+        raise ValueError("Centered-dipole conductance requires a model epoch.")
+
+    model_grid = request.model_grid
+    source_grid = request.source_grid
+    centered_dipole = dipole.Dipole(model_epoch)
+    geographic_lat, geographic_lon = centered_dipole.mag2geo(model_grid.lat, model_grid.lon)
+    longitude_error = (np.asarray(geographic_lon) - source_grid.lon + 180.0) % 360.0 - 180.0
+    if not np.allclose(geographic_lat, source_grid.lat, rtol=0.0, atol=1e-8) or not np.allclose(
+        longitude_error, 0.0, rtol=0.0, atol=1e-8
+    ):
+        raise ValueError(
+            "Centered-dipole model coordinates, model_epoch, and physical GEO samples disagree."
+        )
+    return centered_dipole
+
+
+def _hardy_euv_from_coordinate_views(
+    conductance,
+    request: ExternalInputRequest,
+    provider_date: dt.datetime,
+    centered_dipole: dipole.Dipole | None,
+    *,
+    kp: int,
+    starlight: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Evaluate Hardy magnetically and EUV in physical GEO."""
+    model_grid = request.model_grid
+    source_grid = request.source_grid
+    if centered_dipole is None:
+        provider_grid = request.grid_for(CONDUCTANCE_PROVIDER_SPEC)
+        apex = apexpy.Apex(date=provider_date, refh=_HWM_ALTITUDE_KM)
+        auroral_lat, auroral_lon = apex.geo2apex(
+            provider_grid.lat, provider_grid.lon, _HWM_ALTITUDE_KM
+        )
+        centered_dipole = dipole.Dipole(decimal_year(provider_date))
+    else:
+        auroral_lat, auroral_lon = model_grid.lat, model_grid.lon
+
+    mlt = centered_dipole.mlon2mlt(auroral_lon, provider_date)
+    solar_zenith_angle = conductance.sunlight.sza(source_grid.lat, source_grid.lon, provider_date)
+    euv_hall, euv_pedersen = conductance.EUV_conductance(
+        solar_zenith_angle, 100, "hp", calibration="MoenBrekke1993"
+    )
+    auroral_hall, auroral_pedersen = conductance.hardy(auroral_lat, mlt, int(kp), "hp")
+    background_squared = float(starlight) ** 2
+    return (
+        np.sqrt(auroral_hall**2 + euv_hall**2 + background_squared),
+        np.sqrt(auroral_pedersen**2 + euv_pedersen**2 + background_squared),
+    )
+
+
 def get_conductance_inputs(
     date: Any,
     lat: np.ndarray | None,
@@ -404,18 +460,23 @@ def get_conductance_inputs(
     """Return Hardy/EUV conductance on the source PynaMIT grid."""
     request = _coerce_request(lat, lon, request, grid_id="runtime-conductance-source")
     source_grid = request.source_grid
-    provider_grid = request.grid_for(CONDUCTANCE_PROVIDER_SPEC)
+    centered_dipole_contract = CONDUCTANCE_PROVIDER_SPEC.request_coordinate_views["model"]
+    centered_dipole = (
+        _validated_centered_dipole(request)
+        if request.model_grid.coordinate_contract is centered_dipole_contract
+        else None
+    )
     conductance = _load_optional_module("conductance", "lompe")
 
     if conductance is not None:
         provider_date = _provider_utc_datetime(date)
-        hall, pedersen = conductance.hardy_EUV(
-            provider_grid.lon,
-            provider_grid.lat,
-            int(kp),
+        hall, pedersen = _hardy_euv_from_coordinate_views(
+            conductance,
+            request,
             provider_date,
+            centered_dipole,
+            kp=int(kp),
             starlight=float(starlight),
-            dipole=False,
         )
         hall = _provider_values(
             hall, provider="Lompe Hardy/EUV", field="hall", expected_size=source_grid.size
