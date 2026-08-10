@@ -52,7 +52,9 @@ def test_provider_specs_are_independent_but_share_request_contract():
     assert CONDUCTANCE_PROVIDER_SPEC.request_coordinate_views == {
         "model": PYNAMIT_CENTERED_DIPOLE_110KM
     }
-    assert not BOUNDARY_JR_PROVIDER_SPEC.request_coordinate_views
+    assert BOUNDARY_JR_PROVIDER_SPEC.request_coordinate_views == {
+        "model": PYNAMIT_CENTERED_DIPOLE_110KM
+    }
     assert not NEUTRAL_WIND_PROVIDER_SPEC.request_coordinate_views
     assert BOUNDARY_JR_PROVIDER_SPEC.fields == ("jr",)
     assert NEUTRAL_WIND_PROVIDER_SPEC.fields == ("u_theta", "u_phi")

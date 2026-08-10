@@ -198,8 +198,8 @@ def test_native_dipole_conductance_uses_explicit_model_and_geo_views(monkeypatch
     np.testing.assert_allclose(out_lon, request.source_grid.lon)
 
 
-def test_native_jr_uses_same_library_request_grid(monkeypatch):
-    """AMPS receives the shared view before Apex conversion."""
+def test_native_geographic_jr_uses_shared_library_request_grid(monkeypatch):
+    """Let ApexPy derive real-Earth AMPS coordinates for GEO."""
     captured = {}
 
     class FakeApex:
@@ -255,6 +255,67 @@ def test_native_jr_uses_same_library_request_grid(monkeypatch):
     np.testing.assert_allclose(jr, expected_jr)
     np.testing.assert_allclose(out_lat, request.source_grid.lat)
     np.testing.assert_allclose(out_lon, request.source_grid.lon)
+
+
+def test_native_dipole_jr_uses_explicit_model_view_and_epoch(monkeypatch):
+    """Evaluate AMPS directly in the simulation's ideal-dipole frame."""
+    captured = {}
+    request = _centered_dipole_request()
+    real_dipole = external_inputs_module.dipole.Dipole(request.model_epoch)
+
+    class FakeDipole:
+        def __init__(self, epoch):
+            captured["epoch"] = epoch
+
+        def mag2geo(self, lat, lon):
+            return real_dipole.mag2geo(lat, lon)
+
+        def mlon2mlt(self, lon, date):
+            captured["mlt_conversion"] = (np.asarray(lon).copy(), date)
+            return np.asarray(lon) / 15.0
+
+    class FakeApex:
+        def __init__(self, **kwargs):
+            del kwargs
+            raise AssertionError("Dipole AMPS input must not use ApexPy.")
+
+    class FakeAMPS:
+        def __init__(self, *args, **kwargs):
+            captured["amps_init"] = (args, kwargs)
+
+        def get_upward_current(self, *, mlat, mlt):
+            captured["amps_query"] = (np.asarray(mlat).copy(), np.asarray(mlt).copy())
+            return np.ones(np.asarray(mlat).shape)
+
+    def fake_mlon_to_mlt(*args, **kwargs):
+        del args, kwargs
+        raise AssertionError("Dipole AMPS input must use the simulation dipole for MLT.")
+
+    fake_pyamps = SimpleNamespace(
+        __file__="/tmp/pyamps/__init__.py", AMPS=FakeAMPS, mlon_to_mlt=fake_mlon_to_mlt
+    )
+    monkeypatch.setattr(
+        external_inputs_module, "_load_optional_module", lambda _name, _package: fake_pyamps
+    )
+    monkeypatch.setattr(external_inputs_module.dipole, "Dipole", FakeDipole)
+    monkeypatch.setattr(external_inputs_module.apexpy, "Apex", FakeApex)
+    date = datetime.datetime(
+        2001, 5, 13, 0, 45, tzinfo=datetime.timezone(datetime.timedelta(hours=3))
+    )
+
+    jr, out_lat, out_lon = get_jr_inputs(date, None, None, None, request=request)
+
+    expected_date = datetime.datetime(2001, 5, 12, 21, 45)
+    assert captured["epoch"] == pytest.approx(request.model_epoch)
+    np.testing.assert_array_equal(captured["mlt_conversion"][0], request.model_grid.lon)
+    assert captured["mlt_conversion"][1] == expected_date
+    np.testing.assert_array_equal(captured["amps_query"][0], request.model_grid.lat)
+    np.testing.assert_allclose(captured["amps_query"][1], request.model_grid.lon / 15.0)
+    expected_jr = np.full(request.source_grid.size, 1e-6)
+    expected_jr[np.abs(request.model_grid.lat) < 50.0] = 0.0
+    np.testing.assert_allclose(jr, expected_jr)
+    np.testing.assert_array_equal(out_lat, request.source_grid.lat)
+    np.testing.assert_array_equal(out_lon, request.source_grid.lon)
 
 
 def test_native_wind_uses_requested_positions_and_correct_date(monkeypatch):

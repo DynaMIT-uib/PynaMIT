@@ -10,9 +10,9 @@ from tests import magnetic_potential_coordinate_array
 def test_2d_dipole_pfac():
     """Test 2D simulation with dipole and PFAC."""
     # Arrange.
-    expected_coeff_norm = 1.2064700204724392e-08
-    expected_coeff_max = 2.4632594321555923e-09
-    expected_coeff_min = -4.719596570090808e-09
+    expected_coeff_norm = 1.1342057598179127e-08
+    expected_coeff_max = 8.006258968168764e-10
+    expected_coeff_min = -5.064947292772487e-09
     expected_n_coeffs = 240
 
     # Act.

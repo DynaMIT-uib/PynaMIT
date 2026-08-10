@@ -401,16 +401,27 @@ BOUNDARY_JR_PROVIDER_SPEC = ProviderSpec(
     request_coordinate_contract=LIBRARY_GEOGRAPHIC_110KM,
     output_coordinate_contract=PYNAMIT_SPHERICAL_GEO_110KM,
     fields=("jr",),
+    request_coordinate_views={"model": PYNAMIT_CENTERED_DIPOLE_110KM},
     derived_coordinates={
-        "magnetic_latitude": "apexpy_modified_apex_at_110_km",
-        "magnetic_longitude": "apexpy_modified_apex_at_110_km",
-        "magnetic_local_time": "pyamps",
+        "magnetic_model": {
+            CENTERED_DIPOLE: "originating_model_coordinates",
+            GEOCENTRIC_GEOGRAPHIC: "apexpy_modified_apex_at_110_km",
+        },
+        "magnetic_local_time": {
+            CENTERED_DIPOLE: "simulation_dipole_at_model_epoch",
+            GEOCENTRIC_GEOGRAPHIC: "pyamps_at_event_decimal_year",
+        },
     },
     adapter_assumptions={
         "request_mapping": (
-            "PynaMIT spherical latitude/longitude are passed through numerically "
-            "at the same nominal 110-km altitude."
-        )
+            "The physical sample grid is geocentric geographic at 110 km. "
+            "Centered-dipole simulations additionally provide their model-grid view."
+        ),
+        "coordinate_selection": (
+            "Centered-dipole requests interpret AMPS in the simulation dipole frame "
+            "at model_epoch. GEO requests derive IGRF modified-Apex coordinates at "
+            "the full event time."
+        ),
     },
 )
 

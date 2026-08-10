@@ -12,9 +12,9 @@ def test_equilibrium_init():
     """Test simulation with equilibrium initialization."""
     # Arrange.
     # HWM winds are rotated from geographic into dipole coordinates.
-    expected_coeff_norm = 1.4698145226079577e-08
-    expected_coeff_max = 1.9011323341595123e-09
-    expected_coeff_min = -5.880238614945656e-09
+    expected_coeff_norm = 1.386247549581183e-08
+    expected_coeff_max = 1.4793812255289844e-09
+    expected_coeff_min = -5.880610756713653e-09
     expected_n_coeffs = 228
 
     # Act.

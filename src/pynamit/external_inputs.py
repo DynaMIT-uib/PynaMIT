@@ -396,7 +396,7 @@ def _validated_centered_dipole(request: ExternalInputRequest) -> dipole.Dipole:
     """Return the request dipole after checking its paired GEO view."""
     model_epoch = request.model_epoch
     if model_epoch is None:
-        raise ValueError("Centered-dipole conductance requires a model epoch.")
+        raise ValueError("A centered-dipole external-input view requires a model epoch.")
 
     model_grid = request.model_grid
     source_grid = request.source_grid
@@ -527,14 +527,24 @@ def get_jr_inputs(
     """Return AMPS upward radial current on the source PynaMIT grid."""
     request = _coerce_request(lat, lon, request, grid_id="runtime-boundary-jr-source")
     source_grid = request.source_grid
-    provider_grid = request.grid_for(BOUNDARY_JR_PROVIDER_SPEC)
+    centered_dipole_contract = BOUNDARY_JR_PROVIDER_SPEC.request_coordinate_views["model"]
+    centered_dipole = (
+        _validated_centered_dipole(request)
+        if request.model_grid.coordinate_contract is centered_dipole_contract
+        else None
+    )
     pyamps = _load_optional_module("pyamps", "pyamps")
 
     if pyamps is not None:
         provider_date = _provider_utc_datetime(date)
-        apex = apexpy.Apex(date=provider_date, refh=_HWM_ALTITUDE_KM)
-        mlat, mlon = apex.geo2apex(provider_grid.lat, provider_grid.lon, _HWM_ALTITUDE_KM)
-        mlt = pyamps.mlon_to_mlt(mlon, provider_date, decimal_year(provider_date))
+        if centered_dipole is None:
+            provider_grid = request.grid_for(BOUNDARY_JR_PROVIDER_SPEC)
+            apex = apexpy.Apex(date=provider_date, refh=_HWM_ALTITUDE_KM)
+            mlat, mlon = apex.geo2apex(provider_grid.lat, provider_grid.lon, _HWM_ALTITUDE_KM)
+            mlt = pyamps.mlon_to_mlt(mlon, provider_date, decimal_year(provider_date))
+        else:
+            mlat, mlon = request.model_grid.lat, request.model_grid.lon
+            mlt = centered_dipole.mlon2mlt(mlon, provider_date)
         coeff_path = os.path.join(
             os.path.dirname(pyamps.__file__),
             "coefficients",

@@ -75,9 +75,9 @@ def test_optional_induced_Br_shielding_cancels_field_at_outer_boundary():
 def test_magnetic_boundary_shielding():
     """Test 2D simulation with magnetosphere boundary currents."""
     # Arrange.
-    expected_coeff_norm = 8.989954989993381e-09
-    expected_coeff_max = 9.589334253643606e-10
-    expected_coeff_min = -3.842608036607627e-09
+    expected_coeff_norm = 8.926152422900569e-09
+    expected_coeff_max = 1.7074729543055983e-09
+    expected_coeff_min = -3.7995225478677866e-09
     expected_n_coeffs = 228
 
     # Act.

@@ -11,9 +11,9 @@ from tests import magnetic_potential_coordinate_array
 def test_magnetic_boundary():
     """Test 2D simulation with magnetosphere boundary currents."""
     # Arrange.
-    expected_coeff_norm = 8.989963768639318e-09
-    expected_coeff_max = 9.589185307875615e-10
-    expected_coeff_min = -3.842619388015088e-09
+    expected_coeff_norm = 8.9261704404571e-09
+    expected_coeff_max = 1.7075065015179051e-09
+    expected_coeff_min = -3.7995246711133095e-09
     expected_n_coeffs = 228
 
     # Act.

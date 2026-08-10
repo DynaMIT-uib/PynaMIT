@@ -11,9 +11,9 @@ def test_equilibrium_init_grid():
     """Test grid-based simulation with equilibrium initialization."""
     # Arrange.
     # HWM winds are rotated from geographic into dipole coordinates.
-    expected_coeff_norm = 1.4703745414063862e-08
-    expected_coeff_max = 2.0205729219745835e-09
-    expected_coeff_min = -5.545201454294866e-09
+    expected_coeff_norm = 1.3445084598553368e-08
+    expected_coeff_max = 1.5164526056028662e-09
+    expected_coeff_min = -5.642220202358395e-09
     expected_n_coeffs = 228
 
     # Act.
