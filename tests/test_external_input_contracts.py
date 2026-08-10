@@ -167,6 +167,21 @@ def test_coordinate_identity_normalizes_longitude_and_preserves_order():
     assert first != reordered
 
 
+def test_coordinate_identity_ignores_float64_reconstruction_roundoff():
+    """Sub-storage-precision differences identify the same grid."""
+    contract = PYNAMIT_SPHERICAL_GEO_110KM
+    lat = np.array([-40.14552, 13.086702597441118])
+    lon = np.array([-20.99691648166619, 5.544013180231985])
+    perturbed_lat = np.nextafter(lat, np.inf)
+    perturbed_lon = np.nextafter(lon, -np.inf)
+
+    assert not np.array_equal(lat, perturbed_lat)
+    assert not np.array_equal(lon, perturbed_lon)
+    assert contract.coordinate_identity(lat, lon) == contract.coordinate_identity(
+        perturbed_lat, perturbed_lon
+    )
+
+
 def test_equal_arrays_under_different_contracts_are_different_grids():
     """Coordinate semantics are part of ordered-grid identity."""
     lat = np.array([10.0, 20.0])

@@ -195,14 +195,16 @@ def test_native_and_fallback_inputs_match_through_projection(
     for view in ("source_grid", "model_grid"):
         native_grid = getattr(native_request, view)
         fallback_grid = getattr(fallback_request, view)
-        np.testing.assert_array_equal(native_grid.lat, fallback_grid.lat)
-        np.testing.assert_array_equal(native_grid.lon, fallback_grid.lon)
+        assert native_grid.coordinate_identity == fallback_grid.coordinate_identity
 
-    for key in _INPUT_KEYS:
-        assert native_raw[key]["request"] is native_request
-        assert fallback_raw[key]["request"] is fallback_request
-        np.testing.assert_array_equal(native_raw[key]["lat"], fallback_raw[key]["lat"])
-        np.testing.assert_array_equal(native_raw[key]["lon"], fallback_raw[key]["lon"])
+    for request, raw_inputs in ((native_request, native_raw), (fallback_request, fallback_raw)):
+        source_grid = request.source_grid
+        for key in _INPUT_KEYS:
+            assert raw_inputs[key]["request"] is request
+            returned_identity = source_grid.coordinate_contract.coordinate_identity(
+                raw_inputs[key]["lat"], raw_inputs[key]["lon"]
+            )
+            assert returned_identity == source_grid.coordinate_identity
 
     _assert_mappings_close(
         "provider:conductance",
