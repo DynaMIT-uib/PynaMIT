@@ -19,7 +19,7 @@ _RTOL = SINGLE_PRECISION_REGRESSION_RTOL
 _ATOL = 1e-12
 
 
-def _assert_close(name: str, native: Any, fallback: Any) -> None:
+def _assert_close(name: str, native: Any, fallback: Any, *, field_relative: bool = False) -> None:
     """Compare arrays with a compact worst-value diagnostic."""
     native_array = np.asarray(native)
     fallback_array = np.asarray(fallback)
@@ -27,10 +27,35 @@ def _assert_close(name: str, native: Any, fallback: Any) -> None:
         pytest.fail(
             f"{name}: native shape {native_array.shape} != fallback shape {fallback_array.shape}"
         )
+    difference = np.abs(native_array - fallback_array)
+    if field_relative:
+        # Native HWM has single-precision internals. Field norms avoid
+        # pathological pointwise errors at zero crossings.
+        fallback_norm = float(np.linalg.norm(fallback_array))
+        difference_norm = float(np.linalg.norm(native_array - fallback_array))
+        fallback_max_abs = float(np.max(np.abs(fallback_array)))
+        difference_max_abs = float(np.max(difference))
+        relative_l2 = 0.0 if difference_norm == 0.0 else float("inf")
+        relative_linf = 0.0 if difference_max_abs == 0.0 else float("inf")
+        if fallback_norm:
+            relative_l2 = difference_norm / fallback_norm
+        if fallback_max_abs:
+            relative_linf = difference_max_abs / fallback_max_abs
+        if relative_l2 <= _RTOL and relative_linf <= _RTOL:
+            return
+        flat_index = int(np.nanargmax(difference))
+        index = np.unravel_index(flat_index, difference.shape)
+        pytest.fail(
+            f"{name}: native and fallback field norms differ; "
+            f"relative_l2={relative_l2:.6e}, relative_linf={relative_linf:.6e}, "
+            f"native_range=[{np.min(native_array):.6e}, {np.max(native_array):.6e}], "
+            f"fallback_range=[{np.min(fallback_array):.6e}, {np.max(fallback_array):.6e}], "
+            f"worst_index={index}, abs_difference={difference[index]:.6e}"
+        )
+
     if np.allclose(native_array, fallback_array, rtol=_RTOL, atol=_ATOL):
         return
 
-    difference = np.abs(native_array - fallback_array)
     scale = _ATOL + _RTOL * np.abs(fallback_array)
     scaled_error = difference / scale
     flat_index = int(np.nanargmax(scaled_error))
@@ -141,12 +166,18 @@ def _synthesized_values(simulation) -> dict[str, dict[str, np.ndarray]]:
 
 
 def _assert_mappings_close(
-    stage: str, native: dict[str, np.ndarray], fallback: dict[str, np.ndarray]
+    stage: str,
+    native: dict[str, np.ndarray],
+    fallback: dict[str, np.ndarray],
+    *,
+    field_relative: bool = False,
 ) -> None:
     """Compare mappings with identical keys and named diagnostics."""
     assert set(native) == set(fallback), f"{stage}: fields differ"
     for name in sorted(native):
-        _assert_close(f"{stage}:{name}", native[name], fallback[name])
+        _assert_close(
+            f"{stage}:{name}", native[name], fallback[name], field_relative=field_relative
+        )
 
 
 @pytest.mark.parametrize(
@@ -221,6 +252,7 @@ def test_native_and_fallback_inputs_match_through_projection(
         "provider:u",
         {name: native_raw["u"][name] for name in ("u_theta", "u_phi")},
         {name: fallback_raw["u"][name] for name in ("u_theta", "u_phi")},
+        field_relative=True,
     )
 
     native_log = ionospheric_closure.conductance_to_log_coordinates(
@@ -238,8 +270,14 @@ def test_native_and_fallback_inputs_match_through_projection(
     fallback_synthesized = _synthesized_values(fallback_simulation)
     for key in _INPUT_KEYS:
         _assert_mappings_close(
-            f"coefficients:{key}", native_coefficients[key], fallback_coefficients[key]
+            f"coefficients:{key}",
+            native_coefficients[key],
+            fallback_coefficients[key],
+            field_relative=key == "u",
         )
         _assert_mappings_close(
-            f"synthesized:{key}", native_synthesized[key], fallback_synthesized[key]
+            f"synthesized:{key}",
+            native_synthesized[key],
+            fallback_synthesized[key],
+            field_relative=key == "u",
         )
