@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import h5py
+import matplotlib as mpl
 import numpy as np
 import pytest
 import xarray as xr
@@ -1371,9 +1372,10 @@ def test_projection_diagnostics_write_figure_and_area_weighted_metrics(monkeypat
         lambda *args, **kwargs: None,
     )
 
-    result = write_input_projection_diagnostics(
-        forcing_path, projection_directory, timesteps=None, fields=("etaP", "SigmaP")
-    )
+    with mpl.rc_context({"text.usetex": False}):
+        result = write_input_projection_diagnostics(
+            forcing_path, projection_directory, timesteps=None, fields=("etaP", "SigmaP")
+        )
 
     assert result["figure"].is_file()
     assert result["metrics"].is_file()
