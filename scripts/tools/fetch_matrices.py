@@ -52,7 +52,7 @@ def build_simulation(
         artifact_storage=artifact_storage,
     )
 
-    grid = simulation.geometry.model_grid
+    grid = simulation.model_grid
     date = datetime.datetime(2001, 5, 12, 21, 45)
     geo_lat, geo_lon = simulation.geometry.main_field.model_to_geo_coordinates(
         grid.lat, grid.lon, event_time=date
@@ -66,7 +66,7 @@ def build_simulation(
         model_epoch=simulation.geometry.main_field.epoch,
         grid_id="matrix-extraction-model-grid",
     )
-    hall, pedersen, _, _ = get_conductance_inputs(date, None, None, None, request=request)
+    hall, pedersen, _, _ = get_conductance_inputs(date, request=request)
     simulation.set_conductance(hall, pedersen, lat=grid.lat, lon=grid.lon)
     simulation.response.activate_inputs_at_time(
         simulation.run_data.input_series, time=0.0, interpolation=False

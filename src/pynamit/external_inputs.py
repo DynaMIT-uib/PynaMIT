@@ -60,9 +60,12 @@ def _load_optional_module(name: str, package: str) -> Any | None:
     try:
         if name == package:
             return import_module(package)
+        module_name = f"{package}.{name}"
         try:
-            return import_module(f"{package}.{name}")
-        except ModuleNotFoundError:
+            return import_module(module_name)
+        except ModuleNotFoundError as exc:
+            if exc.name != module_name:
+                raise
             return getattr(import_module(package), name)
     except Exception as exc:
         raise RuntimeError(
@@ -77,7 +80,9 @@ def native_inputs_available() -> bool:
     try:
         try:
             import_module("lompe.conductance")
-        except ModuleNotFoundError:
+        except ModuleNotFoundError as exc:
+            if exc.name != "lompe.conductance":
+                return False
             module = import_module("lompe")
             _ = module.conductance
         import_module("pyamps")
@@ -121,7 +126,7 @@ def _read_fallback(path: os.PathLike[str] | str | None = None) -> FallbackCollec
         collection = FallbackCollection.read(Path(path), expected_version=FALLBACK_SCHEMA_VERSION)
 
     if set(collection.providers) != set(PROVIDER_SPECS):
-        raise RuntimeError("Fallback provider set differs from the current adapter registry.")
+        raise RuntimeError("Fallback provider set differs from the current provider specs.")
     for key, expected in PROVIDER_SPECS.items():
         if collection.providers[key] != expected:
             raise RuntimeError(
@@ -449,9 +454,9 @@ def _hardy_euv_from_coordinate_views(
 
 def get_conductance_inputs(
     date: Any,
-    lat: np.ndarray | None,
-    lon: np.ndarray | None,
-    time: np.ndarray | None,
+    lat: np.ndarray | None = None,
+    lon: np.ndarray | None = None,
+    time: np.ndarray | None = None,
     *,
     request: ExternalInputRequest | None = None,
     kp: int = 5,
@@ -463,7 +468,7 @@ def get_conductance_inputs(
     centered_dipole_contract = CONDUCTANCE_PROVIDER_SPEC.request_coordinate_views["model"]
     centered_dipole = (
         _validated_centered_dipole(request)
-        if request.model_grid.coordinate_contract is centered_dipole_contract
+        if request.model_grid.coordinate_contract == centered_dipole_contract
         else None
     )
     conductance = _load_optional_module("conductance", "lompe")
@@ -516,9 +521,9 @@ def get_conductance_inputs(
 
 def get_jr_inputs(
     date: Any,
-    lat: np.ndarray | None,
-    lon: np.ndarray | None,
-    time: np.ndarray | None,
+    lat: np.ndarray | None = None,
+    lon: np.ndarray | None = None,
+    time: np.ndarray | None = None,
     *,
     request: ExternalInputRequest | None = None,
     amps_parameters: tuple[float, float, float, float, float] = (300.0, 0.0, -4.0, 20.0, 100.0),
@@ -530,7 +535,7 @@ def get_jr_inputs(
     centered_dipole_contract = BOUNDARY_JR_PROVIDER_SPEC.request_coordinate_views["model"]
     centered_dipole = (
         _validated_centered_dipole(request)
-        if request.model_grid.coordinate_contract is centered_dipole_contract
+        if request.model_grid.coordinate_contract == centered_dipole_contract
         else None
     )
     pyamps = _load_optional_module("pyamps", "pyamps")
@@ -629,8 +634,8 @@ def _library_horizontal_wind_to_spherical(
 
 def get_wind_inputs(
     date: Any,
-    use_wind: bool,
-    time: np.ndarray | None,
+    use_wind: bool = True,
+    time: np.ndarray | None = None,
     lat: np.ndarray | None = None,
     lon: np.ndarray | None = None,
     *,

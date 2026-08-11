@@ -6,7 +6,6 @@ This module centralizes the basis and ``FieldSpace`` choices used by
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from types import MappingProxyType
 
 from kompe import (
     BasisView,
@@ -60,12 +59,13 @@ __all__ = [
 ]
 
 
-@dataclass(frozen=True)
+@dataclass
 class SimulationSchema:
-    """Field-space schema for one simulation configuration.
+    """Basis and field-space choices for one simulation configuration.
 
-    ``FieldSpace`` mappings are canonical persisted coefficient-space
-    metadata for inputs and outputs.
+    The mappings are ordinary dictionaries, making the complete schema
+    easy to inspect interactively. The builder creates them once;
+    simulation code treats them as configuration, not mutable state.
     """
 
     cs_basis: GlobalCSBasis
@@ -73,31 +73,11 @@ class SimulationSchema:
     mean_free_sh_basis: BasisView
     horizontal_basis: SurfaceDifferentialBasis
     solid_harmonics: SolidHarmonicOperators
-    input_variables: Mapping[str, tuple[str, ...]]
-    output_variables: Mapping[str, tuple[str, ...]]
-    input_field_spaces: Mapping[str, FieldSpace]
-    output_field_spaces: Mapping[str, Mapping[str, FieldSpace]]
-    input_projection_bases: Mapping[str, SurfaceDifferentialBasis]
-
-    def __post_init__(self):
-        """Own immutable copies of the canonical schema mappings."""
-        for name in (
-            "input_variables",
-            "output_variables",
-            "input_field_spaces",
-            "input_projection_bases",
-        ):
-            object.__setattr__(self, name, MappingProxyType(dict(getattr(self, name))))
-        object.__setattr__(
-            self,
-            "output_field_spaces",
-            MappingProxyType(
-                {
-                    key: MappingProxyType(dict(variable_spaces))
-                    for key, variable_spaces in self.output_field_spaces.items()
-                }
-            ),
-        )
+    input_variables: dict[str, tuple[str, ...]]
+    output_variables: dict[str, tuple[str, ...]]
+    input_field_spaces: dict[str, FieldSpace]
+    output_field_spaces: dict[str, dict[str, FieldSpace]]
+    input_projection_bases: dict[str, SurfaceDifferentialBasis]
 
 
 def field_spaces_from_bases(
@@ -125,8 +105,6 @@ def field_spaces_from_bases(
 
 def build_simulation_schema(config: SimulationConfig, *, operator_cache=None) -> SimulationSchema:
     """Build the basis and storage schema for one ``Simulation``."""
-    if not isinstance(config, SimulationConfig):
-        raise TypeError("build_simulation_schema requires a SimulationConfig.")
     horizontal_basis_kind = config.horizontal_basis_kind
 
     sh_basis = SHBasis(config.Nmax, config.Mmax, mean_free=False, operator_cache=operator_cache)
@@ -140,53 +118,23 @@ def build_simulation_schema(config: SimulationConfig, *, operator_cache=None) ->
     }
     conductance_projection_basis = projection_basis_kinds["conductance"]
 
-    if horizontal_basis_kind == "CS":
-        input_bases = {
-            "boundary_jr": cs_basis,
-            # Boundary Br participates in radial continuation and is
-            # therefore stored in the poloidal SH space even when its
-            # input samples are remapped through the CS grid.
-            "boundary_Br": mean_free_sh_basis,
-            "conductance": cs_basis,
-            "u": cs_basis,
-            "Q_eff": cs_basis,
-            "E_neutral_wind": cs_basis,
-        }
-        input_mean_free = {
-            "boundary_jr": True,
-            "boundary_Br": True,
-            "conductance": False,
-            "u": True,
-            "Q_eff": True,
-            "E_neutral_wind": True,
-        }
-        input_projection_bases = {
-            "boundary_jr": cs_basis,
-            "boundary_Br": cs_basis,
-            "conductance": cs_basis,
-            "u": cs_basis,
-            "Q_eff": cs_basis,
-            "E_neutral_wind": cs_basis,
-        }
-    else:
-        projection_bases = {"SH": mean_free_sh_basis, "CS": cs_basis}
-        input_bases = {
-            "boundary_jr": mean_free_sh_basis,
-            "boundary_Br": mean_free_sh_basis,
-            "conductance": (sh_basis if conductance_projection_basis == "SH" else cs_basis),
-            "u": mean_free_sh_basis,
-            "Q_eff": mean_free_sh_basis,
-            "E_neutral_wind": mean_free_sh_basis,
-        }
-        input_mean_free = None
-        input_projection_bases = {
-            "boundary_jr": projection_bases[projection_basis_kinds["boundary_jr"]],
-            "boundary_Br": projection_bases[projection_basis_kinds["boundary_Br"]],
-            "conductance": (sh_basis if conductance_projection_basis == "SH" else cs_basis),
-            "u": projection_bases[projection_basis_kinds["u"]],
-            "Q_eff": projection_bases[projection_basis_kinds["Q_eff"]],
-            "E_neutral_wind": projection_bases[projection_basis_kinds["E_neutral_wind"]],
-        }
+    projection_bases = {"SH": mean_free_sh_basis, "CS": cs_basis}
+    input_projection_bases = {
+        key: projection_bases[kind] for key, kind in projection_basis_kinds.items()
+    }
+    input_bases = {
+        "boundary_jr": horizontal_basis,
+        # Boundary Br participates in radial continuation, so it is
+        # always stored in poloidal SH space.
+        "boundary_Br": mean_free_sh_basis,
+        # Conductance has a nonzero mean, so SH needs the full basis.
+        "conductance": sh_basis if conductance_projection_basis == "SH" else cs_basis,
+        "u": horizontal_basis,
+        "Q_eff": horizontal_basis,
+        "E_neutral_wind": horizontal_basis,
+    }
+    input_projection_bases["conductance"] = input_bases["conductance"]
+    input_mean_free = {key: key != "conductance" for key in input_bases}
 
     input_field_spaces = field_spaces_from_bases(
         input_bases, INPUT_FIELD_TYPES, mean_free_by_key=input_mean_free
@@ -222,8 +170,8 @@ def build_simulation_schema(config: SimulationConfig, *, operator_cache=None) ->
         mean_free_sh_basis=mean_free_sh_basis,
         horizontal_basis=horizontal_basis,
         solid_harmonics=solid_harmonics,
-        input_variables=INPUT_VARIABLES,
-        output_variables=OUTPUT_VARIABLES,
+        input_variables=dict(INPUT_VARIABLES),
+        output_variables=dict(OUTPUT_VARIABLES),
         input_field_spaces=input_field_spaces,
         output_field_spaces=output_field_spaces,
         input_projection_bases=input_projection_bases,

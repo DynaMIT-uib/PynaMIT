@@ -10,29 +10,6 @@ from pynamit.visualization.field_maps import (
 from pynamit.visualization.grid_evaluation import transform_for_basis
 
 
-def _input_series(source):
-    """Return input series from a source object."""
-    run_data = getattr(source, "run_data", None)
-    return getattr(run_data, "input_series", source)
-
-
-def _default_grid(source):
-    """Return the model grid for a Simulation-like object."""
-    try:
-        return source.geometry.model_grid
-    except AttributeError:
-        return None
-
-
-def _make_transform(field_space, grid, transform):
-    """Return a transform targeting ``grid`` for ``field_space``."""
-    if transform is not None:
-        return transform_for_basis(field_space.representation, transform)
-    if grid is None:
-        raise ValueError("A target grid or transform is required.")
-    return SphericalTransform(field_space.representation, grid)
-
-
 def evaluate_projected_input(
     source, key, time, *, grid=None, transform=None, interpolation=False, include_derived=True
 ):
@@ -64,14 +41,21 @@ def evaluate_projected_input(
     dict
         Evaluated input values keyed by variable/component name.
     """
-    series = _input_series(source)
+    series = source.run_data.input_series if hasattr(source, "run_data") else source
     entry = series.get_entry(key, time, interpolation=interpolation)
     if entry is None:
         raise ValueError(f"No {key!r} input is available at t={float(time):.3f}.")
 
     field_space = series.get_field_space(key)
-    target_grid = _default_grid(source) if grid is None else grid
-    evaluator = _make_transform(field_space, target_grid, transform)
+    target_grid = grid
+    if target_grid is None and hasattr(source, "geometry"):
+        target_grid = source.geometry.model_grid
+    if transform is not None:
+        evaluator = transform_for_basis(field_space.representation, transform)
+    elif target_grid is not None:
+        evaluator = SphericalTransform(field_space.representation, target_grid)
+    else:
+        raise ValueError("A target grid or transform is required.")
 
     values = {}
     if field_space.field_type == "tangential":

@@ -145,7 +145,7 @@ class GroundFigureRenderer:
         low_latitude_legend_handles = []
         if show_low_latitude_guides:
             low_latitude_legend_handles = self._draw_low_latitude_curves(
-                axis, data_projection, central_longitude, target_times[0]
+                axis, data_projection, central_longitude
             )
         conductance_legend_handles = self._draw_conductance_overlays(
             axis, data_projection, target_times[0]
@@ -642,7 +642,7 @@ class GroundFigureRenderer:
         """Return magnetic latitude used for low-latitude selection."""
         lat_arr = np.asarray(lat, dtype=float)
         lon_arr = np.asarray(lon, dtype=float)
-        main_field = self._main_field_for_saved_run()
+        main_field = self.view.require_geometry().main_field
         if main_field.kind in {"igrf", "kaiju_dipole"}:
             mlat = main_field.magnetic_latitude(
                 self.view.run_view.config.RI, 90.0 - lat_arr, lon_arr
@@ -908,11 +908,8 @@ class GroundFigureRenderer:
             )
         return handles
 
-    def _main_field_for_saved_run(self):
-        return self.view.require_geometry().main_field
-
-    def _draw_low_latitude_curves(self, axis, data_projection, central_longitude, reference_time):
-        main_field = self._main_field_for_saved_run()
+    def _draw_low_latitude_curves(self, axis, data_projection, central_longitude):
+        main_field = self.view.require_geometry().main_field
         boundary = float(self.spec.min_abs_dip_latitude)
         dip_equator_style = {
             "color": "#0072B2",

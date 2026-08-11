@@ -342,8 +342,9 @@ def test_set_conductance_can_store_native_cs_grid_values(tmp_path):
     simulation.response.activate_inputs_at_time(simulation.run_data.input_series, time=6.0)
     np.testing.assert_allclose(simulation.response.log_conductance_magnitude.array, log_magnitude)
     np.testing.assert_allclose(simulation.response.log_hall_to_pedersen_ratio.array, log_ratio)
+    conductance_basis = simulation.response.log_conductance_magnitude.field_space.representation
     np.testing.assert_allclose(
-        simulation.response._conductance_synthesis_operator().to_matrix(backend="numpy"),
+        conductance_basis.scalar_evaluation_operator(grid).to_matrix(backend="numpy"),
         np.eye(grid.size),
         atol=1e-12,
     )

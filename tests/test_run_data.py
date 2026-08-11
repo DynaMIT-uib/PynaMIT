@@ -58,9 +58,9 @@ def test_run_data_owns_schema_artifacts_and_field_series(tmp_path):
         },
         time=0.0,
     )
-    data.save_input_dataset("boundary_jr")
-    data.add_output_entry("dynamic", _output_payload(n_magnetic, n_surface), time=0.0)
-    data.save_output_dataset("dynamic")
+    data.input_series.save("boundary_jr", data.artifact_store)
+    data.output_series.add_entry("dynamic", _output_payload(n_magnetic, n_surface), time=0.0)
+    data.output_series.save("dynamic", data.artifact_store)
 
     reloaded = RunData.open(settings, run_directory=run_dir, artifact_storage="netcdf")
 
@@ -107,8 +107,8 @@ def test_run_data_rejects_legacy_magnetic_schema(tmp_path):
         RunData.open(legacy_settings, run_directory=run_dir, artifact_storage="netcdf")
 
 
-def test_simulation_has_one_persistence_and_spatial_ownership_path(tmp_path):
-    """Run data and geometry have one canonical owner each."""
+def test_simulation_exposes_interactive_views_without_copying_run_data(tmp_path):
+    """Common notebook data is available without internal navigation."""
     simulation = Simulation(
         run_directory=str(tmp_path / "run"),
         Nmax=2,
@@ -121,10 +121,14 @@ def test_simulation_has_one_persistence_and_spatial_ownership_path(tmp_path):
     assert simulation.config is simulation.run_data.config
     assert simulation.geometry.horizontal_basis is simulation.run_data.schema.horizontal_basis
     assert simulation.response.geometry is simulation.geometry
+    assert simulation.run_directory == simulation.run_data.run_directory
+    assert simulation.model_grid is simulation.geometry.model_grid
+    assert simulation.inputs is simulation.run_data.input_series.datasets
+    assert simulation.outputs is simulation.run_data.output_series.datasets
+    assert repr(simulation).startswith("Simulation(Nmax=2, Mmax=1, Ncs=8, current_time=0")
     for redundant_name in (
         "settings",
         "io",
-        "run_directory",
         "schema",
         "cs_basis",
         "horizontal_basis",

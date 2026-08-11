@@ -122,14 +122,7 @@ def _required_dataset_values(dataset, variable_name, index):
 
 def _apply_flat_operator(operator, coeffs):
     """Apply an operator and return a flat NumPy vector."""
-    coeffs = np.asarray(coeffs)
-    if hasattr(operator, "matvec"):
-        values = operator.matvec(coeffs)
-    elif hasattr(operator, "dot"):
-        values = operator.dot(coeffs)
-    else:
-        values = operator @ coeffs
-    return np.asarray(values).reshape(-1)
+    return np.asarray(operator.matvec(np.asarray(coeffs))).reshape(-1)
 
 
 def _output_evaluation_context(config, geometry, evaluator):

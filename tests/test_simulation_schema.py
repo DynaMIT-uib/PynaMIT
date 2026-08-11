@@ -11,19 +11,17 @@ from pynamit.simulation.config import (
     resolve_projection_basis_settings,
     setting_value,
 )
-from pynamit.simulation.schema import build_simulation_schema, field_spaces_from_bases
+from pynamit.simulation.schema import (
+    INPUT_VARIABLES,
+    build_simulation_schema,
+    field_spaces_from_bases,
+)
 
 
 def _settings(**attrs):
     defaults = {"Nmax": 3, "Mmax": 2, "Ncs": 4}
     defaults.update(attrs)
     return SimulationConfig(**defaults)
-
-
-def test_schema_builder_requires_normalized_config():
-    """Schema construction starts after configuration normalization."""
-    with pytest.raises(TypeError, match="SimulationConfig"):
-        build_simulation_schema(xr.Dataset(attrs={"Nmax": 3, "Mmax": 2, "Ncs": 4}))
 
 
 def test_horizontal_basis_kind_is_simulation_policy():
@@ -87,6 +85,7 @@ def test_sh_schema_uses_mean_free_sh_inputs_and_outputs():
     assert schema.input_field_spaces["u"].representation is schema.mean_free_sh_basis
     assert schema.input_field_spaces["Q_eff"].representation is schema.mean_free_sh_basis
     assert schema.input_field_spaces["conductance"].representation is schema.sh_basis
+    assert schema.input_projection_bases["conductance"] is schema.sh_basis
     assert all(
         space.representation is schema.horizontal_basis
         for space in schema.output_field_spaces["dynamic"].values()
@@ -185,15 +184,12 @@ def test_schema_mean_free_projection_is_operational_for_cs_potential_space():
     np.testing.assert_allclose(schema.cs_basis.scalar_mean(projected), 0.0, atol=1e-12)
 
 
-def test_schema_mappings_cannot_be_mutated_after_construction():
-    """Storage metadata cannot drift after construction."""
+def test_schema_mappings_are_ordinary_independent_dictionaries():
+    """Keep storage metadata inspectable without aliasing constants."""
     schema = build_simulation_schema(_settings())
 
-    with pytest.raises(TypeError):
-        schema.input_variables["new"] = ("value",)
-    with pytest.raises(TypeError):
-        schema.input_field_spaces["boundary_jr"] = schema.output_field_spaces["dynamic"]
-    with pytest.raises(TypeError):
-        schema.output_field_spaces["dynamic"]["induced_Br"] = schema.input_field_spaces[
-            "boundary_jr"
-        ]
+    schema.input_variables["new"] = ("value",)
+
+    assert isinstance(schema.input_variables, dict)
+    assert isinstance(schema.output_field_spaces["dynamic"], dict)
+    assert "new" not in INPUT_VARIABLES

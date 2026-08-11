@@ -114,8 +114,8 @@ def main() -> None:
                 enable_pfac_coupling=False,
                 backend="numpy",
             )
-            model_lat = np.asarray(simulation.geometry.model_grid.lat)
-            model_lon = np.asarray(simulation.geometry.model_grid.lon)
+            model_lat = np.asarray(simulation.model_grid.lat)
+            model_lon = np.asarray(simulation.model_grid.lon)
             geo_lat, geo_lon = simulation.geometry.main_field.model_to_geo_coordinates(
                 model_lat, model_lon, event_time=EVENT_TIME
             )
@@ -141,10 +141,10 @@ def main() -> None:
             _register_request_grids(grids, request)
 
             hall, pedersen, hall_lat, hall_lon = get_conductance_inputs(
-                EVENT_TIME, None, None, time=None, request=request
+                EVENT_TIME, request=request
             )
-            jr, jr_lat, jr_lon = get_jr_inputs(EVENT_TIME, None, None, time=None, request=request)
-            wind = get_wind_inputs(EVENT_TIME, use_wind=True, time=None, request=request)
+            jr, jr_lat, jr_lon = get_jr_inputs(EVENT_TIME, request=request)
+            wind = get_wind_inputs(EVENT_TIME, request=request)
             if wind is None:
                 raise RuntimeError("Native HWM14 returned no wind data.")
             u_theta, u_phi, wind_lat, wind_lon, weights = wind

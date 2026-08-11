@@ -91,7 +91,6 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
     """Project paper inputs through the shared library adapters."""
     import dipole
 
-    from pynamit.external_input_contracts import ExternalInputRequest
     from pynamit.external_inputs import get_conductance_inputs, get_jr_inputs, get_wind_inputs
 
     input_directory = Path(settings.input_directory).expanduser()
@@ -115,22 +114,10 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
         t0=str(settings.date),
     )
 
-    source_lat = simulation.geometry.model_grid.lat
-    source_lon = simulation.geometry.model_grid.lon
-    request = ExternalInputRequest.from_model_coordinates(
-        source_lat,
-        source_lon,
-        geographic_lat=source_lat,
-        geographic_lon=source_lon,
-        coordinate_system=simulation.geometry.main_field.horizontal_coordinate_system,
-        model_epoch=simulation.geometry.main_field.epoch,
-        grid_id="paper-simulation-model-grid",
-        sampling_geometry={"type": "simulation_model_grid"},
-        provenance={"main_field_kind": "igrf"},
-    )
-
+    source_lat = simulation.model_grid.lat
+    source_lon = simulation.model_grid.lon
     hall, pedersen, _, _ = get_conductance_inputs(
-        settings.date, source_lat, source_lon, None, request=request, kp=settings.kp
+        settings.date, source_lat, source_lon, kp=settings.kp
     )
     simulation.set_conductance(
         hall, pedersen, lat=source_lat, lon=source_lon, reg_lambda=settings.conductance_lambda
@@ -141,8 +128,6 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
         settings.date,
         source_lat,
         source_lon,
-        None,
-        request=request,
         amps_parameters=(400.0, 5.0, -5.0, float(dipole_model.tilt(settings.date)), 100.0),
         minlat=50.0,
     )
@@ -150,9 +135,7 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
         boundary_jr, lat=source_lat, lon=source_lon, reg_lambda=settings.boundary_jr_lambda
     )
 
-    wind = get_wind_inputs(
-        settings.date, use_wind=True, time=None, lat=source_lat, lon=source_lon, request=request
-    )
+    wind = get_wind_inputs(settings.date, lat=source_lat, lon=source_lon)
     if wind is None:
         raise RuntimeError("HWM14 returned no wind data.")
     u_theta, u_phi, _, _, sqrt_weights = wind
@@ -172,7 +155,7 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
         source="scripts.simulation.pynamit_paper_simulation",
         notes=[
             "Paper-style inputs use the shared Hardy, AMPS, and HWM adapters.",
-            "One identity-mapped library request grid is reused by all three providers.",
+            "The three providers are sampled on the simulation model grid.",
             "The run loads conductance/wind first, imposes equilibrium, then enables jr.",
         ],
         metadata={
@@ -239,7 +222,7 @@ def run_paper_simulation(settings: PaperSimulationSettings = SETTINGS) -> pynami
         run_equilibrium=False,
     )
 
-    manifest_path = Path(simulation.run_data.run_directory) / RUN_MANIFEST_FILENAME
+    manifest_path = Path(simulation.run_directory) / RUN_MANIFEST_FILENAME
     manifest = (
         json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {}
     )

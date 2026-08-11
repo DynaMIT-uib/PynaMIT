@@ -9,7 +9,7 @@ from pynamit.visualization.grid_evaluation import transform_for_basis
 
 def current_output_key(simulation, preferred=None):
     """Return the available output key to visualize."""
-    datasets = simulation.run_data.output_series.datasets
+    datasets = simulation.outputs
     if preferred is not None:
         if preferred not in datasets:
             raise ValueError(f"No output dataset named {preferred!r} is available.")
@@ -100,7 +100,7 @@ def evaluate_JS(simulation, transform, *, key=None):
     """Evaluate total horizontal JS."""
     entry = current_output_entry(simulation, key=key)
     boundary_Br = None
-    if "boundary_Br" in simulation.run_data.input_series.datasets:
+    if "boundary_Br" in simulation.inputs:
         boundary_entry = simulation.run_data.input_series.get_entry(
             "boundary_Br", simulation.current_time
         )

@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from functools import cache
 from types import MappingProxyType
 from typing import Any
 
@@ -143,8 +142,8 @@ class CoordinateContract:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> CoordinateContract:
-        """Return the interned contract represented by metadata."""
-        return intern_coordinate_contract(
+        """Construct a coordinate contract from metadata."""
+        return cls(
             coordinate_system=str(payload["coordinate_system"]),
             angular_units=str(payload["angular_units"]),
             latitude_definition=str(payload["latitude_definition"]),
@@ -204,28 +203,7 @@ class CoordinateContract:
         return digest.hexdigest()
 
 
-@cache
-def intern_coordinate_contract(
-    *,
-    coordinate_system: str,
-    angular_units: str,
-    latitude_definition: str,
-    longitude_definition: str,
-    longitude_wrap: str,
-    reference_surface: ReferenceSurface,
-) -> CoordinateContract:
-    """Return one structurally shared immutable coordinate contract."""
-    return CoordinateContract(
-        coordinate_system=coordinate_system,
-        angular_units=angular_units,
-        latitude_definition=latitude_definition,
-        longitude_definition=longitude_definition,
-        longitude_wrap=longitude_wrap,
-        reference_surface=reference_surface,
-    )
-
-
-PYNAMIT_SPHERICAL_GEO_110KM = intern_coordinate_contract(
+PYNAMIT_SPHERICAL_GEO_110KM = CoordinateContract(
     coordinate_system=GEOCENTRIC_GEOGRAPHIC,
     angular_units="degrees",
     latitude_definition="geocentric",
@@ -236,7 +214,7 @@ PYNAMIT_SPHERICAL_GEO_110KM = intern_coordinate_contract(
     ),
 )
 
-PYNAMIT_CENTERED_DIPOLE_110KM = intern_coordinate_contract(
+PYNAMIT_CENTERED_DIPOLE_110KM = CoordinateContract(
     coordinate_system=CENTERED_DIPOLE,
     angular_units="degrees",
     latitude_definition="centered_dipole",
@@ -247,7 +225,7 @@ PYNAMIT_CENTERED_DIPOLE_110KM = intern_coordinate_contract(
     ),
 )
 
-LIBRARY_GEOGRAPHIC_110KM = intern_coordinate_contract(
+LIBRARY_GEOGRAPHIC_110KM = CoordinateContract(
     coordinate_system="library_geographic",
     angular_units="degrees",
     latitude_definition="numerical_identity_from_geocentric",
@@ -524,23 +502,6 @@ class SampleGrid:
         }
 
 
-CoordinateConverter = Callable[[SampleGrid, CoordinateContract], SampleGrid]
-_COORDINATE_CONVERTERS: dict[tuple[str, str], CoordinateConverter] = {}
-
-
-def register_coordinate_converter(
-    source_contract: CoordinateContract,
-    target_contract: CoordinateContract,
-    converter: CoordinateConverter,
-) -> None:
-    """Register one explicit coordinate-grid conversion."""
-    key = (source_contract.signature, target_contract.signature)
-    existing = _COORDINATE_CONVERTERS.get(key)
-    if existing is not None and existing is not converter:
-        raise ValueError("A different converter is already registered.")
-    _COORDINATE_CONVERTERS[key] = converter
-
-
 def _spherical_geo_to_library_110km(
     source_grid: SampleGrid, target_contract: CoordinateContract
 ) -> SampleGrid:
@@ -565,11 +526,6 @@ def _spherical_geo_to_library_110km(
     )
 
 
-register_coordinate_converter(
-    PYNAMIT_SPHERICAL_GEO_110KM, LIBRARY_GEOGRAPHIC_110KM, _spherical_geo_to_library_110km
-)
-
-
 class ExternalInputRequest:
     """One ordered physical grid with explicit coordinate views."""
 
@@ -580,7 +536,7 @@ class ExternalInputRequest:
         model_grid: SampleGrid | None = None,
         model_epoch: float | None = None,
     ):
-        if source_grid.coordinate_contract is not PYNAMIT_SPHERICAL_GEO_110KM:
+        if source_grid.coordinate_contract != PYNAMIT_SPHERICAL_GEO_110KM:
             raise ValueError("External-input source_grid must be geocentric geographic.")
         model_grid = source_grid if model_grid is None else model_grid
         if model_grid.size != source_grid.size:
@@ -591,7 +547,7 @@ class ExternalInputRequest:
         }:
             raise ValueError("External-input model_grid uses an unsupported coordinate system.")
         if (
-            model_grid.coordinate_contract is PYNAMIT_SPHERICAL_GEO_110KM
+            model_grid.coordinate_contract == PYNAMIT_SPHERICAL_GEO_110KM
             and model_grid.coordinate_identity != source_grid.coordinate_identity
         ):
             raise ValueError("Geographic model and source grids must be identical.")
@@ -599,7 +555,10 @@ class ExternalInputRequest:
             model_epoch = float(model_epoch)
             if not np.isfinite(model_epoch):
                 raise ValueError("model_epoch must be finite.")
-        if model_grid.coordinate_contract is PYNAMIT_CENTERED_DIPOLE_110KM and model_epoch is None:
+        if (
+            model_grid.coordinate_contract == PYNAMIT_CENTERED_DIPOLE_110KM
+            and model_epoch is None
+        ):
             raise ValueError("Centered-dipole model coordinates require model_epoch.")
         self.source_grid = source_grid
         self.model_grid = model_grid
@@ -665,7 +624,7 @@ class ExternalInputRequest:
             sampling_geometry={} if sampling_geometry is None else sampling_geometry,
             provenance={} if provenance is None else provenance,
         )
-        if model_contract is PYNAMIT_SPHERICAL_GEO_110KM:
+        if model_contract == PYNAMIT_SPHERICAL_GEO_110KM:
             model_identity = model_contract.coordinate_identity(lat, lon)
             if model_identity != source.coordinate_identity:
                 raise ValueError("Geographic model coordinates must match geographic samples.")
@@ -696,16 +655,16 @@ class ExternalInputRequest:
         if cached is not None:
             return cached
 
-        converter = _COORDINATE_CONVERTERS.get(
-            (self.source_grid.coordinate_contract.signature, contract.signature)
-        )
-        if converter is None:
+        if not (
+            self.source_grid.coordinate_contract == PYNAMIT_SPHERICAL_GEO_110KM
+            and contract == LIBRARY_GEOGRAPHIC_110KM
+        ):
             raise ValueError(
-                "No coordinate converter is registered from "
+                "No coordinate conversion is defined from "
                 f"{self.source_grid.coordinate_contract.coordinate_system!r} "
                 f"to {contract.coordinate_system!r}."
             )
-        converted = converter(self.source_grid, contract)
+        converted = _spherical_geo_to_library_110km(self.source_grid, contract)
         self._request_grids[contract.signature] = converted
         return converted
 
@@ -798,9 +757,9 @@ class FallbackCollection:
                 if source_grid_id != dataset.source_grid.grid_id:
                     raise ValueError("Dataset mapping key must be source_grid_id.")
                 if grids.get(dataset.source_grid.grid_id) is not dataset.source_grid:
-                    raise ValueError("Dataset source grid must be the registered shared object.")
+                    raise ValueError("Dataset source grid must be the collection's shared object.")
                 if grids.get(dataset.request_grid.grid_id) is not dataset.request_grid:
-                    raise ValueError("Dataset request grid must be the registered shared object.")
+                    raise ValueError("Dataset request grid must be the collection's shared object.")
             normalized[provider_key] = MappingProxyType(current)
 
         object.__setattr__(self, "version", version)
@@ -813,7 +772,7 @@ class FallbackCollection:
     def from_payload(
         cls, payload: Mapping[str, Any], *, expected_version: int
     ) -> FallbackCollection:
-        """Construct a collection while sharing all registered grids."""
+        """Construct a collection while sharing its grid objects."""
         version = int(payload.get("version", 0))
         if version != expected_version:
             raise ValueError(f"Expected fallback schema {expected_version}, got {version}.")

@@ -72,13 +72,15 @@ def test_default_inputs_share_one_provider_request_cache(tmp_path, monkeypatch):
     original_set_boundary_jr = prepared_inputs_module.Simulation.set_boundary_jr
     original_set_neutral_wind = prepared_inputs_module.Simulation.set_neutral_wind
 
-    def fake_conductance(_date, _lat, _lon, _time, *, request):
+    def fake_conductance(_date, lat=None, lon=None, time=None, *, request):
+        assert lat is None and lon is None and time is None
         captured["requests"].append(request)
         source = request.source_grid
         values = np.ones(source.size)
         return values, values, source.lat, source.lon
 
-    def fake_boundary_jr(_date, _lat, _lon, _time, *, request):
+    def fake_boundary_jr(_date, lat=None, lon=None, time=None, *, request):
+        assert lat is None and lon is None and time is None
         captured["requests"].append(request)
         source = request.source_grid
         return np.zeros(source.size), source.lat, source.lon
@@ -154,7 +156,8 @@ def test_default_inputs_share_one_provider_request_cache(tmp_path, monkeypatch):
 def test_adapter_cannot_return_another_source_grid(tmp_path, monkeypatch):
     """An adapter cannot silently remap the source grid."""
 
-    def wrong_conductance(_date, _lat, _lon, _time, *, request):
+    def wrong_conductance(_date, lat=None, lon=None, time=None, *, request):
+        assert lat is None and lon is None and time is None
         source = request.source_grid
         values = np.ones(source.size)
         return values, values, source.lat + 0.5, source.lon

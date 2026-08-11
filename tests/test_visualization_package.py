@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import xarray as xr
+from kompe.math import as_linear_map
 
 import pynamit
 
@@ -186,7 +187,7 @@ def test_saved_output_joule_uses_pedersen_dissipation():
 
     class IdentityEvaluator:
         scalar_synthesis_matrix = np.eye(2)
-        scalar_synthesis_operator = np.eye(2)
+        scalar_synthesis_operator = as_linear_map(np.eye(2))
 
         @staticmethod
         def synthesize_helmholtz(coeffs):
@@ -212,7 +213,7 @@ def test_saved_output_joule_uses_pedersen_dissipation():
         },
         coords={"time": [0.0]},
     )
-    zero_map = np.zeros((2, 2))
+    zero_map = as_linear_map(np.zeros((2, 2)))
     output_evaluation_context = {
         "RI": 2.0,
         "induced_Br_to_Br": zero_map,

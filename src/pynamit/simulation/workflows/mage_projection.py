@@ -885,7 +885,7 @@ def project_inputs(
             projected_datasets = [
                 key
                 for key in simulation.run_data.schema.input_variables
-                if key in simulation.run_data.input_series.datasets
+                if key in simulation.inputs
             ]
             source_tiegcm = file.attrs.get("tiegcm_nc", None)
             if isinstance(source_tiegcm, bytes):

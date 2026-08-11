@@ -221,7 +221,7 @@ def test_induction_matrix_assembly_stays_on_jax():
 
     try:
         set_backend("jax")
-        response._build_induced_poloidal_potential_feedback_matrix()
+        _ = response.induced_poloidal_potential_feedback_matrix
     finally:
         set_backend(previous_backend)
 

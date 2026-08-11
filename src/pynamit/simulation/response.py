@@ -56,10 +56,6 @@ class ElectrodynamicResponse:
 
     def __init__(self, geometry: SimulationGeometry, config: SimulationConfig) -> None:
         """Initialize the response model."""
-        if not isinstance(geometry, SimulationGeometry):
-            raise TypeError("ElectrodynamicResponse requires a SimulationGeometry object.")
-        if not isinstance(config, SimulationConfig):
-            raise TypeError("ElectrodynamicResponse requires a validated SimulationConfig.")
         self.config = config
         self.geometry = geometry
         self._toroidal_potential_solver = LeastSquaresSolver(
@@ -96,42 +92,16 @@ class ElectrodynamicResponse:
             return coeffs
         return projector(coeffs)
 
-    def _create_u_to_E_operator(self) -> LinearMap:
-        """Operator mapping wind coefficients to E coefficients."""
-        helmholtz_synthesis = self.geometry.horizontal_transform.helmholtz_synthesis_operator
-        return ionospheric_closure.wind_to_E_coeffs_operator(
-            self.geometry.helmholtz_analysis_operator,
-            self.geometry.wind_motional_E_tensor,
-            helmholtz_synthesis,
-        )
-
     @property
     def u_coeffs_to_E_coeffs(self) -> LinearMap:
         """Linear map from wind coefficients to E coefficients."""
         if self._u_coeffs_to_E_coeffs_cache is None:
-            self._u_coeffs_to_E_coeffs_cache = self._create_u_to_E_operator()
+            self._u_coeffs_to_E_coeffs_cache = ionospheric_closure.wind_to_E_coeffs_operator(
+                self.geometry.helmholtz_analysis_operator,
+                self.geometry.wind_motional_E_tensor,
+                self.geometry.horizontal_transform.helmholtz_synthesis_operator,
+            )
         return self._u_coeffs_to_E_coeffs_cache
-
-    def _Q_eff_synthesis_operator_for_representation(self, representation) -> LinearMap:
-        """Return Q_eff coefficient synthesis to the model grid."""
-        if self._Q_eff_synthesis_operator_cache is None:
-            synthesis_operator = getattr(representation, "helmholtz_synthesis_operator", None)
-            if not callable(synthesis_operator):
-                raise ValueError(
-                    "Q_eff storage basis cannot evaluate tangential fields on the model grid."
-                )
-            self._Q_eff_synthesis_operator_cache = synthesis_operator(self.geometry.model_grid)
-        return self._Q_eff_synthesis_operator_cache
-
-    def _create_Q_eff_to_E_operator_for_representation(self, representation) -> LinearMap:
-        """Map effective-current coefficients to E coefficients."""
-        q_synthesis = self._Q_eff_synthesis_operator_for_representation(representation)
-
-        return ionospheric_closure.tangential_current_to_E_coeffs_operator(
-            self.geometry.helmholtz_analysis_operator,
-            xp.asarray(self.resistance_tensor_on_grid),
-            q_synthesis,
-        )
 
     @property
     def Q_eff_to_E_coeffs(self) -> LinearMap | None:
@@ -139,24 +109,26 @@ class ElectrodynamicResponse:
         if self.Q_eff is None:
             return None
         if self._Q_eff_to_E_coeffs_cache is None:
-            self._Q_eff_to_E_coeffs_cache = self._create_Q_eff_to_E_operator_for_representation(
-                self.Q_eff.field_space.representation
+            if self._Q_eff_synthesis_operator_cache is None:
+                representation = self.Q_eff.field_space.representation
+                synthesis_operator = getattr(
+                    representation, "helmholtz_synthesis_operator", None
+                )
+                if not callable(synthesis_operator):
+                    raise ValueError(
+                        "Q_eff storage basis cannot evaluate tangential fields on the model grid."
+                    )
+                self._Q_eff_synthesis_operator_cache = synthesis_operator(
+                    self.geometry.model_grid
+                )
+            self._Q_eff_to_E_coeffs_cache = (
+                ionospheric_closure.tangential_current_to_E_coeffs_operator(
+                    self.geometry.helmholtz_analysis_operator,
+                    xp.asarray(self.resistance_tensor_on_grid),
+                    self._Q_eff_synthesis_operator_cache,
+                )
             )
         return self._Q_eff_to_E_coeffs_cache
-
-    def _create_E_neutral_wind_to_E_operator_for_representation(self, representation) -> LinearMap:
-        """Map neutral-wind E coefficients to model E coefficients."""
-        if representation.coefficients_are_compatible_with(self.geometry.horizontal_basis):
-            return identity_linear_map((2, self.geometry.horizontal_basis.index_length))
-
-        synthesis_operator = getattr(representation, "helmholtz_synthesis_operator", None)
-        if not callable(synthesis_operator):
-            raise ValueError(
-                "E_neutral_wind storage basis cannot evaluate tangential fields on the model grid."
-            )
-        source_synthesis = synthesis_operator(self.geometry.model_grid)
-        grid_to_coeffs = self.geometry.helmholtz_analysis_operator
-        return grid_to_coeffs @ source_synthesis
 
     @property
     def E_neutral_wind_to_E_coeffs(self) -> LinearMap | None:
@@ -164,11 +136,26 @@ class ElectrodynamicResponse:
         if self.E_neutral_wind is None:
             return None
         if self._E_neutral_wind_to_E_coeffs_cache is None:
-            self._E_neutral_wind_to_E_coeffs_cache = (
-                self._create_E_neutral_wind_to_E_operator_for_representation(
-                    self.E_neutral_wind.field_space.representation
+            representation = self.E_neutral_wind.field_space.representation
+            if representation.coefficients_are_compatible_with(
+                self.geometry.horizontal_basis
+            ):
+                self._E_neutral_wind_to_E_coeffs_cache = identity_linear_map(
+                    (2, self.geometry.horizontal_basis.index_length)
                 )
-            )
+            else:
+                synthesis_operator = getattr(
+                    representation, "helmholtz_synthesis_operator", None
+                )
+                if not callable(synthesis_operator):
+                    raise ValueError(
+                        "E_neutral_wind storage basis cannot evaluate tangential fields "
+                        "on the model grid."
+                    )
+                self._E_neutral_wind_to_E_coeffs_cache = (
+                    self.geometry.helmholtz_analysis_operator
+                    @ synthesis_operator(self.geometry.model_grid)
+                )
         return self._E_neutral_wind_to_E_coeffs_cache
 
     def _invalidate_closure_caches(self) -> None:
@@ -180,7 +167,6 @@ class ElectrodynamicResponse:
         self._toroidal_potential_to_E_coeffs_cache: LinearMap | None = None
         self._boundary_Br_to_E_coeffs_cache: LinearMap | None = None
         self._Q_eff_to_E_coeffs_cache: LinearMap | None = None
-        self._runtime_induced_poloidal_potential_to_E_coeffs_cache: LinearMap | None = None
         self._runtime_induced_Br_to_E_coeffs_cache: LinearMap | None = None
         self._runtime_toroidal_potential_to_E_coeffs_cache: LinearMap | None = None
         self._runtime_boundary_Br_to_E_coeffs_cache: LinearMap | None = None
@@ -245,7 +231,18 @@ class ElectrodynamicResponse:
                 ],
                 axis=1,
             )
-            conductance_synthesis = self._conductance_synthesis_operator()
+            magnitude_basis = self.log_conductance_magnitude.field_space.representation
+            ratio_basis = self.log_hall_to_pedersen_ratio.field_space.representation
+            if (
+                ratio_basis is not magnitude_basis
+                and not ratio_basis.coefficients_are_compatible_with(magnitude_basis)
+            ):
+                raise ValueError(
+                    "Conductance log-coordinate storage bases must be coefficient-compatible."
+                )
+            conductance_synthesis = magnitude_basis.scalar_evaluation_operator(
+                self.geometry.model_grid
+            )
             log_coordinates_on_grid = xp.asarray(
                 conductance_synthesis.matmat(log_coordinate_coefficients)
             )
@@ -259,32 +256,6 @@ class ElectrodynamicResponse:
                 self.geometry.hall_geometry_tensor,
             )
         return self._resistance_tensor_on_grid
-
-    def _conductance_storage_basis(self):
-        """Return the shared log-conductance storage basis."""
-        basis = self.log_conductance_magnitude.field_space.representation
-        ratio_basis = self.log_hall_to_pedersen_ratio.field_space.representation
-        if ratio_basis is not basis:
-            compatible = getattr(ratio_basis, "coefficients_are_compatible_with", None)
-            if not callable(compatible) or not compatible(basis):
-                raise ValueError(
-                    "Conductance log-coordinate storage bases must be coefficient-compatible."
-                )
-        return basis
-
-    def _conductance_synthesis_operator(self) -> LinearMap:
-        """Return log-conductance synthesis to the model grid."""
-        basis = self._conductance_storage_basis()
-
-        evaluation_operator = getattr(basis, "scalar_evaluation_operator", None)
-        if callable(evaluation_operator):
-            return evaluation_operator(self.geometry.model_grid)
-
-        evaluation_matrix = getattr(basis, "scalar_evaluation_matrix", None)
-        if callable(evaluation_matrix):
-            return as_linear_map(evaluation_matrix(self.geometry.model_grid))
-
-        raise ValueError("Conductance storage basis cannot be evaluated on the model grid.")
 
     def _sheet_current_source_to_E_coeffs_operator(self, source_to_JS: LinearMap) -> LinearMap:
         """Map a magnetic source through derived sheet current to E."""
@@ -348,17 +319,6 @@ class ElectrodynamicResponse:
         if compact_input or spaces_coincide:
             _ = op.array
         return op
-
-    @property
-    def _runtime_induced_poloidal_potential_to_E_coeffs(self) -> LinearMap:
-        """Private runtime map from induced poloidal potential to E."""
-        if self._runtime_induced_poloidal_potential_to_E_coeffs_cache is None:
-            self._runtime_induced_poloidal_potential_to_E_coeffs_cache = (
-                self._optimize_repeated_E_operator(
-                    self.induced_poloidal_potential_to_E_coeffs, compact_input=True
-                )
-            )
-        return self._runtime_induced_poloidal_potential_to_E_coeffs_cache
 
     @property
     def _runtime_induced_Br_to_E_coeffs(self) -> LinearMap:
@@ -595,46 +555,28 @@ class ElectrodynamicResponse:
     def driving_E_to_total_E_operator(self) -> LinearMap:
         """Map driving E to total model E."""
         if self._driving_E_to_total_E_operator is None:
-            self._driving_E_to_total_E_operator = self._create_driving_E_to_total_E_operator()
+            identity = identity_linear_map((2, self.geometry.horizontal_basis.index_length))
+            if (
+                not self.config.enable_interhemispheric_coupling
+                or self._interhemispheric_electric_field_constraint is None
+            ):
+                self._driving_E_to_total_E_operator = identity
+            else:
+                driving_E_to_toroidal = self.driving_E_to_toroidal_potential_operator
+                self._driving_E_to_total_E_operator = (
+                    identity + self.toroidal_potential_to_E_coeffs @ driving_E_to_toroidal
+                )
         return self._driving_E_to_total_E_operator
 
     @property
     def driving_E_to_E_df_operator(self) -> LinearMap:
         """Map driving E to total E_df."""
         if self._driving_E_to_E_df_operator is None:
-            self._driving_E_to_E_df_operator = self._create_driving_E_to_E_df_operator()
+            self._driving_E_to_E_df_operator = (
+                self.geometry.helmholtz_divergence_free_potential_operator
+                @ self.driving_E_to_total_E_operator
+            )
         return self._driving_E_to_E_df_operator
-
-    def _toroidal_potential_feedback_maps(self) -> tuple[LinearMap, LinearMap] | None:
-        """Return the toroidal-potential feedback maps."""
-        if (
-            not self.config.enable_interhemispheric_coupling
-            or self._interhemispheric_electric_field_constraint is None
-        ):
-            return None
-
-        driving_E_to_toroidal_potential = self.driving_E_to_toroidal_potential_operator
-        if driving_E_to_toroidal_potential is None:
-            return None
-
-        return self.toroidal_potential_to_E_coeffs, driving_E_to_toroidal_potential
-
-    def _create_driving_E_to_total_E_operator(self) -> LinearMap:
-        """Construct the driving-E to total-E map."""
-        identity = identity_linear_map((2, self.geometry.horizontal_basis.index_length))
-        feedback = self._toroidal_potential_feedback_maps()
-        if feedback is None:
-            return identity
-
-        toroidal_potential_to_E, driving_E_to_toroidal_potential = feedback
-        return identity + (toroidal_potential_to_E @ driving_E_to_toroidal_potential)
-
-    def _create_driving_E_to_E_df_operator(self) -> LinearMap:
-        """Construct the driving-E to divergence-free E map."""
-        return (
-            self.geometry.helmholtz_divergence_free_potential_operator
-            @ self.driving_E_to_total_E_operator
-        )
 
     def _create_driving_source_to_E_df_operator(self, source_to_driving_E: LinearMap) -> LinearMap:
         """Complete a source and extract its E_df."""
@@ -830,7 +772,11 @@ class ElectrodynamicResponse:
     def induced_poloidal_potential_feedback_matrix(self) -> np.ndarray:
         """Return private feedback before Faraday scaling."""
         if self._induced_poloidal_potential_feedback_matrix is None:
-            self._build_induced_poloidal_potential_feedback_matrix()
+            logger.info("Building dense induction feedback matrix...")
+            self._induced_poloidal_potential_feedback_matrix = (
+                self.induced_poloidal_potential_feedback_operator.to_matrix()
+            )
+            logger.info("Dense induction operator built.")
         return self._induced_poloidal_potential_feedback_matrix
 
     @property
@@ -838,7 +784,8 @@ class ElectrodynamicResponse:
         """Map private induced potential to Faraday-driving W."""
         if self._induced_poloidal_potential_feedback_operator is None:
             self._induced_poloidal_potential_feedback_operator = (
-                self._create_induced_poloidal_potential_feedback_operator()
+                self.geometry.surface_to_poloidal_operator
+                @ self.induced_poloidal_potential_to_E_df_operator
             )
         return self._induced_poloidal_potential_feedback_operator
 
@@ -891,21 +838,6 @@ class ElectrodynamicResponse:
                 @ self.noninductive_E_df_to_equilibrium_induced_poloidal_potential_operator
             )
         return self._noninductive_E_df_to_equilibrium_induced_Br_operator
-
-    def _create_induced_poloidal_potential_feedback_operator(self) -> LinearMap:
-        """Construct private potential-coordinate feedback."""
-        return (
-            self.geometry.surface_to_poloidal_operator
-            @ self.induced_poloidal_potential_to_E_df_operator
-        )
-
-    def _build_induced_poloidal_potential_feedback_matrix(self) -> None:
-        """Construct the dense private induction feedback matrix."""
-        logger.info("Building dense induction feedback matrix...")
-        self._induced_poloidal_potential_feedback_matrix = (
-            self.induced_poloidal_potential_feedback_operator.to_matrix()
-        )
-        logger.info("Dense induction operator built.")
 
     def E_df_operators(
         self,

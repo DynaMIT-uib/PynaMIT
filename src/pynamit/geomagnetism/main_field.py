@@ -1,7 +1,6 @@
 """Background main-field models and magnetic coordinates."""
 
 from datetime import datetime, timezone
-from functools import partial
 
 import apexpy
 import dipole
@@ -64,53 +63,10 @@ def decimal_year(epoch):
     )
 
 
-def _dipole_for_epoch(epoch, B0=None):
-    """Return an epoch-aligned dipole."""
-    base = dipole.Dipole(epoch)
-    if B0 is None:
-        return base
-    return dipole.Dipole(dipole_pole=tuple(base.north_pole), B0=float(B0) * 1e9)
-
-
-def _kaiju_dipole_for_epoch(epoch, B0=None):
-    """Return a Kaiju/Geopack-aligned dipole."""
-    return kaiju_geopack_dipole(decimal_year_to_datetime(epoch), B0=B0)
-
-
 def _east_north_up_to_spherical(vector):
     """Convert east/north/up components to radial/theta/phi."""
     vector = np.asarray(vector)
     return np.stack((vector[2], -vector[1], vector[0]))
-
-
-def _dipole_field_components(model, r, theta, _phi):
-    """Evaluate a centered-dipole field in spherical components."""
-    Bn, Br = model.B(90 - theta, r * 1e-3)
-    return (Br * 1e-9, -Bn * 1e-9, Bn * 0)
-
-
-def _igrf_field_components(epoch, r, theta, phi):
-    """Evaluate IGRF in spherical components."""
-    Br, Btheta, Bphi = ppigrf.igrf_gc(r * 1e-3, theta, phi, epoch)
-    return (Br * 1e-9, Btheta * 1e-9, Bphi * 1e-9)
-
-
-def _radial_field_components(B0, r, theta, phi):
-    """Evaluate an inverse-square radial field."""
-    r, theta, phi = np.broadcast_arrays(r, theta, phi)
-    return ((EARTH_RADIUS_M / r) ** 2 * B0, r * 0, r * 0)
-
-
-def _normalize_field_strength(kind, B0):
-    """Validate and normalize an optional reference field strength."""
-    if B0 is None:
-        return None
-    B0 = float(B0)
-    if not np.isfinite(B0) or B0 <= 0.0:
-        raise ValueError("B0 must be finite and greater than zero.")
-    if kind == "igrf":
-        raise ValueError("B0 is not supported for the IGRF main-field model.")
-    return B0
 
 
 def _igrf_apex_input_from_spherical(r, theta, phi):
@@ -173,28 +129,33 @@ class MainField:
             raise ValueError("epoch must be finite.")
         if not np.isfinite(self.ionosphere_height_km):
             raise ValueError("ionosphere_height_km must be finite.")
-        B0 = _normalize_field_strength(self.kind, B0)
+        self.epoch_datetime = decimal_year_to_datetime(self.epoch)
+        if B0 is not None:
+            B0 = float(B0)
+            if not np.isfinite(B0) or B0 <= 0.0:
+                raise ValueError("B0 must be finite and greater than zero.")
+            if self.kind == "igrf":
+                raise ValueError("B0 is not supported for the IGRF main-field model.")
+        self.B0 = B0
 
         if is_dipole_kind(self.kind):
             if self.kind == "kaiju_dipole":
-                self.dipole = _kaiju_dipole_for_epoch(self.epoch, B0=B0)
-                self._mag_transform = kaiju_geopack_mag(decimal_year_to_datetime(self.epoch))
+                self.dipole = kaiju_geopack_dipole(self.epoch_datetime, B0=B0)
+                self._mag_transform = kaiju_geopack_mag(self.epoch_datetime)
             else:
-                self.dipole = _dipole_for_epoch(self.epoch, B0=B0)
-            self._evaluate_components = partial(_dipole_field_components, self.dipole)
+                self.dipole = dipole.Dipole(self.epoch)
+                if B0 is not None:
+                    self.dipole = dipole.Dipole(
+                        dipole_pole=tuple(self.dipole.north_pole), B0=B0 * 1e9
+                    )
+            self.B0 = self.dipole.B0 * 1e-9
 
         elif self.kind == "igrf":
             self.apex = apexpy.Apex(self.epoch, refh=self.ionosphere_height_km)
-            epoch_datetime = decimal_year_to_datetime(self.epoch)
-            self._evaluate_components = partial(_igrf_field_components, epoch_datetime)
-
-        elif self.kind == "radial":
-            # Use Dipole B0 as default.
-            B0 = dipole.Dipole(self.epoch).B0 * 1e-9 if B0 is None else B0
-            self._evaluate_components = partial(_radial_field_components, B0)
 
         else:
-            raise RuntimeError("unreachable main-field kind")
+            # Use Dipole B0 as default.
+            self.B0 = dipole.Dipole(self.epoch).B0 * 1e-9 if B0 is None else B0
 
     @property
     def horizontal_coordinate_system(self):
@@ -381,12 +342,10 @@ class MainField:
                 "main_field_horizontal_coordinate_system": self.horizontal_coordinate_system,
             }
         if self.kind == "kaiju_dipole":
-            alignment_time = (
-                decimal_year_to_datetime(self.epoch) if event_time is None else event_time
-            )
+            alignment_time = self.epoch_datetime if event_time is None else event_time
             dipole_model = self.dipole
             alignment = kaiju_geopack_alignment(
-                alignment_time, magnetic_epoch=decimal_year_to_datetime(self.epoch)
+                alignment_time, magnetic_epoch=self.epoch_datetime
             )
             noon_longitude = self.local_noon_longitude(alignment_time)
             alignment["magnetic_noon_longitude_deg"] = self.magnetic_noon_longitude(alignment_time)
@@ -437,17 +396,29 @@ class MainField:
         spherical coordinate basis.
         """
         r, theta, phi = np.broadcast_arrays(r, theta, phi)
+        field_theta = theta
         if self.kind == "kaiju_dipole":
             magnetic_latitude, magnetic_longitude = self._mag_transform.geo2mag(90.0 - theta, phi)
-            Br, Btheta_magnetic, Bphi_magnetic = self._evaluate_components(
-                r, 90.0 - magnetic_latitude, magnetic_longitude
+            field_theta = 90.0 - magnetic_latitude
+
+        if is_dipole_kind(self.kind):
+            Bnorth, Br = self.dipole.B(90.0 - field_theta, r * 1e-3)
+            components = (Br * 1e-9, -Bnorth * 1e-9, Bnorth * 0.0)
+        elif self.kind == "igrf":
+            Br, Btheta, Bphi = ppigrf.igrf_gc(
+                r * 1e-3, theta, phi, self.epoch_datetime
             )
+            components = (Br * 1e-9, Btheta * 1e-9, Bphi * 1e-9)
+        else:
+            components = ((EARTH_RADIUS_M / r) ** 2 * self.B0, r * 0.0, r * 0.0)
+
+        if self.kind == "kaiju_dipole":
+            Br, Btheta_magnetic, Bphi_magnetic = components
             _, _, Bphi, north = self._mag_transform.mag2geo(
                 magnetic_latitude, magnetic_longitude, east=Bphi_magnetic, north=-Btheta_magnetic
             )
             components = (Br, -north, Bphi)
-        else:
-            components = self._evaluate_components(r, theta, phi)
+
         shaped_components = []
         for component in components:
             values = np.asarray(component)

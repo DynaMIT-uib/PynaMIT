@@ -67,6 +67,37 @@ is available from PyPI, `requirements/pip-common.txt` installs it directly
 from that repository; install the requirements file before invoking
 `pip install .` on a fresh environment.
 
+## Interactive use
+
+The main workflow is deliberately usable as a short IPython session. Create a
+simulation, inspect its model grid, add inputs, and evolve it:
+
+```python
+import numpy as np
+import pynamit
+
+simulation = pynamit.Simulation(Nmax=4, Mmax=4, Ncs=8)
+grid = simulation.model_grid
+
+# Replace these uniform arrays with measured or modelled grid samples.
+simulation.set_conductance(
+    hall=np.ones(grid.size),
+    pedersen=2 * np.ones(grid.size),
+    lat=grid.lat,
+    lon=grid.lon,
+)
+simulation.set_boundary_jr(
+    np.zeros(grid.size), lat=grid.lat, lon=grid.lon
+)
+simulation.evolve_to_time(0.01, quiet=True)
+```
+
+The live xarray datasets are available directly as `simulation.inputs` and
+`simulation.outputs`; for example, `simulation.outputs["dynamic"]`. The more
+specialized `simulation.geometry`, `simulation.response`, and
+`simulation.run_data` objects remain available when their lower-level
+operators or persistence details are needed.
+
 ## Testing
 
 After installation, run the test suite from the repository root:

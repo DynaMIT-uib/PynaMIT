@@ -644,7 +644,7 @@ class PynamitPanelApp:
                 multi_data=bool(self.prepare_multi_data.value),
                 horizontal_basis_kind=self.prepare_horizontal_basis.value,
             )
-            prepared_path = Path(simulation.run_data.run_directory)
+            prepared_path = Path(simulation.run_directory)
             set_widget_value(self.prepared_input_directory, str(prepared_path))
             set_widget_value(self.simulation_input_directory, str(prepared_path))
             self._set_status(f"Prepared inputs in [`{prepared_path}`]({prepared_path}).")
@@ -688,7 +688,7 @@ class PynamitPanelApp:
                 integrator=self.sim_integrator.value,
                 magnetic_boundary_shielding=bool(self.sim_magnetic_boundary_shielding.value),
             )
-            run_path = Path(simulation.run_data.run_directory)
+            run_path = Path(simulation.run_directory)
             set_widget_value(self.simulation_run_directory, str(run_path))
             set_widget_value(self.run_directory, str(run_path))
             set_widget_value(self.app_mode, "visualize")

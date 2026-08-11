@@ -644,8 +644,8 @@ def prepare_pynamit_inputs(
 
     time = np.linspace(0, final_time, 4) if multi_data else None
 
-    model_lat = simulation.geometry.model_grid.lat
-    model_lon = simulation.geometry.model_grid.lon
+    model_lat = simulation.model_grid.lat
+    model_lon = simulation.model_grid.lon
     geo_lat, geo_lon = simulation.geometry.main_field.model_to_geo_coordinates(
         model_lat, model_lon, event_time=event_time
     )
@@ -670,7 +670,7 @@ def prepare_pynamit_inputs(
     )
 
     hall, pedersen, hall_lat, hall_lon = get_conductance_inputs(
-        event_time, None, None, time, request=external_request
+        event_time, time=time, request=external_request
     )
     _require_source_grid("Conductance adapter", external_request, hall_lat, hall_lon)
     simulation.set_conductance(
@@ -679,7 +679,7 @@ def prepare_pynamit_inputs(
 
     if use_boundary_jr:
         boundary_jr, jr_lat, jr_lon = get_jr_inputs(
-            event_time, None, None, time, request=external_request
+            event_time, time=time, request=external_request
         )
         _require_source_grid("AMPS boundary-jr adapter", external_request, jr_lat, jr_lon)
         simulation.set_boundary_jr(
@@ -884,7 +884,7 @@ def run_pynamit_from_inputs(
         operator_cache_directory=operator_cache_directory,
     )
     existing_inputs = [
-        key for key in INPUT_DATASET_KEYS if key in simulation.run_data.input_series.datasets
+        key for key in INPUT_DATASET_KEYS if key in simulation.inputs
     ]
     loaded_inputs = (
         existing_inputs

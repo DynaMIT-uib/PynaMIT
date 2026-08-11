@@ -39,7 +39,7 @@ def _maxrss_label():
         import sys
 
         maxrss = float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
-    except Exception:
+    except (ImportError, OSError):
         return ""
     if not np.isfinite(maxrss) or maxrss <= 0.0:
         return ""
@@ -131,7 +131,6 @@ class SimulationRunner:
 
     def __init__(self, simulation: Simulation):
         self.simulation = simulation
-        self._cached_exponential_operator = None
         self._cached_exponential_conductance_fingerprint = None
         self._cached_exponential_dt = None
         self._cached_exponential_propagator = None
@@ -232,9 +231,13 @@ class SimulationRunner:
             )
 
         if save:
-            self.simulation.run_data.save_output_dataset("dynamic")
+            self.simulation.run_data.output_series.save(
+                "dynamic", self.simulation.run_data.artifact_store
+            )
             if self.simulation.config.save_equilibria:
-                self.simulation.run_data.save_output_dataset("equilibrium")
+                self.simulation.run_data.output_series.save(
+                    "equilibrium", self.simulation.run_data.artifact_store
+                )
 
         if not quiet:
             persisted = " and persisted" if save else ""
@@ -431,17 +434,10 @@ class SimulationRunner:
             return None
 
         operator = self.simulation.response.induced_poloidal_potential_feedback_matrix
-        conductance_fingerprint = getattr(
-            self.simulation.response, "conductance_fingerprint", None
-        )
+        conductance_fingerprint = self.simulation.response.conductance_fingerprint
         dt = float(dt)
-        same_closure = (
-            conductance_fingerprint == self._cached_exponential_conductance_fingerprint
-            if conductance_fingerprint is not None
-            else operator is self._cached_exponential_operator
-        )
+        same_closure = conductance_fingerprint == self._cached_exponential_conductance_fingerprint
         if not same_closure or dt != self._cached_exponential_dt:
-            self._cached_exponential_operator = operator
             self._cached_exponential_conductance_fingerprint = conductance_fingerprint
             self._cached_exponential_dt = dt
             self._cached_exponential_propagator = (
@@ -498,19 +494,23 @@ class SimulationRunner:
                 )
             ),
         }
-        self.simulation.run_data.add_output_entry(
-            key, output_data, time=self.simulation.current_time
+        self.simulation.run_data.output_series.add_entry(
+            key, output_data, self.simulation.current_time
         )
 
     def _save_sample_outputs(self, options: _EvolutionOptions) -> None:
         """Persist enabled output datasets for the current sample."""
         saved_outputs = []
         if options.run_dynamic:
-            self.simulation.run_data.save_output_dataset("dynamic")
+            self.simulation.run_data.output_series.save(
+                "dynamic", self.simulation.run_data.artifact_store
+            )
             saved_outputs.append("dynamic")
 
         if options.run_equilibrium:
-            self.simulation.run_data.save_output_dataset("equilibrium")
+            self.simulation.run_data.output_series.save(
+                "equilibrium", self.simulation.run_data.artifact_store
+            )
             saved_outputs.append("equilibrium")
 
         if not options.quiet and saved_outputs:

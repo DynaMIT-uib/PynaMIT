@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -16,26 +15,7 @@ from pynamit.simulation.schema import INPUT_VARIABLES
 if TYPE_CHECKING:
     from pynamit.simulation.api import Simulation
 
-_WIND_FORCING_GROUP = "wind_forcing"
-
-
-@dataclass(frozen=True)
-class _InputSpec:
-    """Declarative metadata for one simulation input stream."""
-
-    variables: tuple[str, ...]
-    exclusive_group: str | None = None
-    reject_least_squares_for_cs_projection: bool = False
-
-
-_INPUT_SPECS = {
-    key: _InputSpec(
-        variables=tuple(variables),
-        exclusive_group=_WIND_FORCING_GROUP if key in {"u", "Q_eff", "E_neutral_wind"} else None,
-        reject_least_squares_for_cs_projection=(key == "conductance"),
-    )
-    for key, variables in INPUT_VARIABLES.items()
-}
+_WIND_FORCING_KEYS = frozenset({"u", "Q_eff", "E_neutral_wind"})
 
 
 class InputPipeline:
@@ -48,14 +28,10 @@ class InputPipeline:
 
     def projection_transform_for(self, key: str) -> SphericalTransform:
         """Return the shared projection transform for one input."""
-        self._spec(key)
+        self._variables_for(key)
         if key not in self.projection_transforms:
             representation = self.simulation.run_data.schema.input_field_spaces[key].representation
-            cache_key = getattr(
-                representation,
-                "signature",
-                getattr(representation, "coefficient_space_signature", id(representation)),
-            )
+            cache_key = representation.signature
             if cache_key not in self._transforms_by_representation:
                 self._transforms_by_representation[cache_key] = SphericalTransform(
                     representation,
@@ -80,10 +56,10 @@ class InputPipeline:
         return FAC * field.unit_br
 
     @staticmethod
-    def _spec(key: str) -> _InputSpec:
-        """Return the specification for one input key."""
+    def _variables_for(key: str) -> tuple[str, ...]:
+        """Return the stored variables for one input key."""
         try:
-            return _INPUT_SPECS[key]
+            return INPUT_VARIABLES[key]
         except KeyError as exc:
             raise KeyError(f"Unknown simulation input {key!r}.") from exc
 
@@ -133,17 +109,12 @@ class InputPipeline:
 
     def require_no_exclusive_conflict(self, key: str) -> None:
         """Reject mutually exclusive input streams."""
-        spec = self._spec(key)
-        if spec.exclusive_group is None:
+        self._variables_for(key)
+        if key not in _WIND_FORCING_KEYS:
             return
-        group_keys = {
-            other_key
-            for other_key, item in _INPUT_SPECS.items()
-            if item.exclusive_group == spec.exclusive_group and other_key != key
-        }
         present = [
             other
-            for other in sorted(group_keys)
+            for other in sorted(_WIND_FORCING_KEYS - {key})
             if other in self.simulation.run_data.input_series.datasets
         ]
         if present:
@@ -178,9 +149,9 @@ class InputPipeline:
         pinv_rtol=1e-15,
     ) -> None:
         """Validate, project, and store one scalar input stream."""
-        spec = self._spec(key)
-        self._validate_variables(key, spec, samples, "samples")
-        self._validate_variables(key, spec, coefficients, "coefficients")
+        variables = self._variables_for(key)
+        self._validate_variables(key, variables, samples, "samples")
+        self._validate_variables(key, variables, coefficients, "coefficients")
 
         if any(value is not None for value in coefficients.values()):
             self.validate_only_coefficients(
@@ -194,13 +165,13 @@ class InputPipeline:
             )
             self.require_complete_values(coefficient_label, **coefficients)
             self.require_no_sample_values(coefficient_label, **samples)
-            input_data = {var: np.atleast_2d(coefficients[var]) for var in spec.variables}
+            input_data = {var: np.atleast_2d(coefficients[var]) for var in variables}
             self.add_input_coefficients(key, input_data, time)
             return
 
         self.require_complete_values(sample_label, **samples)
         self._validate_projection_controls(key, sqrt_weights=sqrt_weights, reg_lambda=reg_lambda)
-        input_data = {var: np.atleast_2d(samples[var]) for var in spec.variables}
+        input_data = {var: np.atleast_2d(samples[var]) for var in variables}
         self.project_and_add_input(
             key,
             input_data,
@@ -405,8 +376,7 @@ class InputPipeline:
                 self._validate_projected_time_rows(key, var, projected_values, input_time)
                 projected_data[var] = projected_values
 
-        self.add_projected_rows(key, projected_data, input_time)
-        self.simulation.run_data.save_input_dataset(key)
+        self._store_input_rows(key, projected_data, input_time)
 
     def project_scalar_input_variables(
         self,
@@ -443,21 +413,23 @@ class InputPipeline:
             for index, var in enumerate(variables)
         }
 
-    def add_projected_rows(self, key: str, projected_data: dict[str, Any], input_time) -> None:
-        """Store projected coefficient rows."""
+    def _store_input_rows(self, key: str, projected_data: dict[str, Any], input_time) -> None:
+        """Store and persist coefficient rows for one input."""
         for time_index in range(input_time.size):
             self.simulation.run_data.input_series.add_entry(
                 key,
                 {var: projected_data[var][time_index] for var in projected_data},
                 input_time[time_index],
             )
+        self.simulation.run_data.input_series.save(
+            key, self.simulation.run_data.artifact_store
+        )
 
     def add_input_coefficients(self, key: str, input_data: dict[str, Any], time) -> None:
         """Store input-basis coefficients directly in a time series."""
         input_time = self.resolve_input_times(time, input_data)
         self.validate_input_time_rows(key, input_time, input_data)
-        self.add_projected_rows(key, input_data, input_time)
-        self.simulation.run_data.save_input_dataset(key)
+        self._store_input_rows(key, input_data, input_time)
 
     def resolve_input_times(self, time, data: dict[str, Any]):
         """Resolve times, defaulting one row to the current time."""
@@ -489,10 +461,10 @@ class InputPipeline:
 
     @staticmethod
     def _validate_variables(
-        key: str, spec: _InputSpec, values: dict[str, Any], value_kind: str
+        key: str, variables: tuple[str, ...], values: dict[str, Any], value_kind: str
     ) -> None:
         """Require input dictionaries to match their declared spec."""
-        expected = set(spec.variables)
+        expected = set(variables)
         actual = set(values)
         if actual != expected:
             raise ValueError(
@@ -510,10 +482,10 @@ class InputPipeline:
 
     def _validate_projection_controls(self, key: str, *, sqrt_weights, reg_lambda) -> None:
         """Reject controls unsupported by CS storage."""
-        spec = self._spec(key)
+        self._variables_for(key)
         projection_basis = getattr(self.simulation.config, f"{key}_projection_basis", None)
         if (
-            spec.reject_least_squares_for_cs_projection
+            key == "conductance"
             and projection_basis == "CS"
             and (sqrt_weights is not None or reg_lambda is not None)
         ):

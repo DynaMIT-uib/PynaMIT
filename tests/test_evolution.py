@@ -13,6 +13,7 @@ from pynamit.simulation.runner import SimulationRunner
 class _FakeResponse:
     def __init__(self):
         self.induced_poloidal_potential_feedback_matrix = np.eye(1)
+        self.conductance_fingerprint = "initial"
         self.geometry = SimpleNamespace(main_field=SimpleNamespace(kind="radial"))
 
     @staticmethod
@@ -35,13 +36,18 @@ class _FakeSimulation:
         self.current_time = np.float64(0.0)
         self.recorded = []
         self.saved = []
+
+        def save_output(key, _store):
+            self.saved.append((key, float(self.current_time)))
+
+        output_series = SimpleNamespace(datasets={}, save=save_output)
         self.run_data = SimpleNamespace(
             input_series=SimpleNamespace(),
-            output_series=SimpleNamespace(datasets={}),
+            output_series=output_series,
+            artifact_store=SimpleNamespace(),
             schema=SimpleNamespace(
                 output_field_spaces={"dynamic": {"induced_Br": SimpleNamespace(index_length=1)}}
             ),
-            save_output_dataset=lambda key: self.saved.append((key, float(self.current_time))),
         )
 
 
@@ -123,8 +129,8 @@ def test_evolution_records_and_saves_exact_off_grid_target(monkeypatch):
     assert simulation.saved == [("dynamic", 0.0), ("dynamic", 0.25)]
 
 
-def test_exponential_propagator_reused_until_operator_or_dt_changes(monkeypatch):
-    """Cache exponentials for one closure operator and dt."""
+def test_exponential_propagator_reused_until_conductance_or_dt_changes(monkeypatch):
+    """Cache exponentials for one conductance field and dt."""
     simulation = _FakeSimulation(integrator="exponential")
     runner = SimulationRunner(simulation)
     calls = []
@@ -139,6 +145,7 @@ def test_exponential_propagator_reused_until_operator_or_dt_changes(monkeypatch)
     second = runner._exponential_propagator_for_step(0.1)
     third = runner._exponential_propagator_for_step(0.05)
     simulation.response.induced_poloidal_potential_feedback_matrix = np.eye(1) * 2.0
+    simulation.response.conductance_fingerprint = "changed"
     fourth = runner._exponential_propagator_for_step(0.05)
 
     assert first is second

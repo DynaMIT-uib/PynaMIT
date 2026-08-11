@@ -121,15 +121,3 @@ class RunData:
         )
         self.artifact_store.save_dataarray(dataarray, "gap_Br_response", print_info=print_info)
         self.gap_Br_response = dataarray
-
-    def save_input_dataset(self, key, *, print_info=False):
-        """Persist one loaded input time series."""
-        self.input_series.save(key, self.artifact_store, print_info=print_info)
-
-    def add_output_entry(self, key, data, *, time):
-        """Append one output entry to a loaded output time series."""
-        self.output_series.add_entry(key, data, time=time)
-
-    def save_output_dataset(self, key, *, print_info=False):
-        """Persist one loaded output time series."""
-        self.output_series.save(key, self.artifact_store, print_info=print_info)

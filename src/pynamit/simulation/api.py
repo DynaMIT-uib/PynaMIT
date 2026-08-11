@@ -32,6 +32,12 @@ class Simulation:
         Normalized immutable simulation configuration.
     run_data : RunData
         Persisted settings, schema, and input/output time series.
+    run_directory : str
+        Directory containing this run's artifacts.
+    model_grid : kompe.SphericalGrid
+        Grid on which the simulation equations are evaluated.
+    inputs, outputs : dict
+        Loaded input and output xarray datasets, keyed by stream name.
     geometry : SimulationGeometry
         Run-invariant spatial realization of the model equations.
     response : ElectrodynamicResponse
@@ -227,6 +233,9 @@ class Simulation:
             print_info=True,
         )
         self.config = self.run_data.config
+        self.run_directory = self.run_data.run_directory
+        self.inputs = self.run_data.input_series.datasets
+        self.outputs = self.run_data.output_series.datasets
         schema = self.run_data.schema
         main_field = build_main_field(self.config)
 
@@ -240,6 +249,7 @@ class Simulation:
             operator_cache=self.operator_cache,
         )
         self.response = ElectrodynamicResponse(self.geometry, self.config)
+        self.model_grid = self.geometry.model_grid
         self._input_pipeline = InputPipeline(self)
         self._runner = SimulationRunner(self)
 
@@ -252,6 +262,17 @@ class Simulation:
         )
 
         self.run_data.save_settings_if_missing(print_info=True)
+
+    def __repr__(self):
+        """Summarize the live simulation for interactive sessions."""
+        inputs = ", ".join(sorted(self.inputs)) or "none"
+        outputs = ", ".join(sorted(self.outputs)) or "none"
+        return (
+            f"Simulation(Nmax={self.config.Nmax}, Mmax={self.config.Mmax}, "
+            f"Ncs={self.config.Ncs}, current_time={float(self.current_time):g}, "
+            f"inputs=[{inputs}], outputs=[{outputs}], "
+            f"run_directory={self.run_directory!r})"
+        )
 
     @classmethod
     def from_config(

@@ -448,25 +448,6 @@ class SimulationConfig:
             )
 
     @property
-    def stored_RM(self):
-        """Return the persisted radius-magnetosphere setting."""
-        return 0 if self.RM is None else self.RM
-
-    @property
-    def stored_main_field_B0(self):
-        """Return the persisted main-field-strength setting."""
-        return 0 if self.main_field_B0 is None else self.main_field_B0
-
-    @property
-    def stored_least_squares_preconditioner(self):
-        """Return the storage-safe preconditioner setting."""
-        return (
-            "none"
-            if self.least_squares_preconditioner is None
-            else self.least_squares_preconditioner
-        )
-
-    @property
     def horizontal_coordinate_system(self):
         """Return the horizontal frame implied by the main field."""
         return horizontal_coordinate_system_for_kind(self.main_field_kind)
@@ -479,7 +460,7 @@ class SimulationConfig:
             "Mmax": self.Mmax,
             "Ncs": self.Ncs,
             "RI": self.RI,
-            "RM": self.stored_RM,
+            "RM": 0 if self.RM is None else self.RM,
             "magnetic_boundary_shielding": int(self.magnetic_boundary_shielding),
             "interhemispheric_coupling_latitude": self.interhemispheric_coupling_latitude,
             "enable_pfac_coupling": int(self.enable_pfac_coupling),
@@ -488,7 +469,7 @@ class SimulationConfig:
             "interhemispheric_electric_field_weight": self.interhemispheric_electric_field_weight,
             "main_field_kind": self.main_field_kind,
             "main_field_epoch": self.main_field_epoch,
-            "main_field_B0": self.stored_main_field_B0,
+            "main_field_B0": 0 if self.main_field_B0 is None else self.main_field_B0,
             "horizontal_coordinate_system": self.horizontal_coordinate_system,
             "boundary_jr_projection_basis": self.boundary_jr_projection_basis,
             "boundary_Br_projection_basis": self.boundary_Br_projection_basis,
@@ -502,7 +483,11 @@ class SimulationConfig:
             "save_equilibria": int(self.save_equilibria),
             "integrator": self.integrator,
             "least_squares_solver": self.least_squares_solver,
-            "least_squares_preconditioner": self.stored_least_squares_preconditioner,
+            "least_squares_preconditioner": (
+                "none"
+                if self.least_squares_preconditioner is None
+                else self.least_squares_preconditioner
+            ),
             "reuse_preconditioner": int(self.reuse_preconditioner),
             "toroidal_potential_regularization_lambda": (
                 self.toroidal_potential_regularization_lambda

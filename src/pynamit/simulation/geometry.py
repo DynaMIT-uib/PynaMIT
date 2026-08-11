@@ -38,8 +38,6 @@ _GAP_BR_RESPONSE_CACHE_VERSION = 1
 
 def build_main_field(config: SimulationConfig) -> MainField:
     """Build the background field selected by a simulation config."""
-    if not isinstance(config, SimulationConfig):
-        raise TypeError("build_main_field requires a SimulationConfig.")
     return MainField(
         kind=config.main_field_kind,
         epoch=config.main_field_epoch,
@@ -67,14 +65,6 @@ class SimulationGeometry:
         operator_cache=None,
     ) -> None:
         """Initialize the geometric context."""
-        if not isinstance(horizontal_basis, SurfaceDifferentialBasis):
-            raise TypeError(
-                "SimulationGeometry horizontal_basis must implement SurfaceDifferentialBasis."
-            )
-        if not isinstance(config, SimulationConfig):
-            raise TypeError("SimulationGeometry requires a validated SimulationConfig.")
-        if solid_harmonics is not None and not isinstance(solid_harmonics, SolidHarmonicOperators):
-            raise TypeError("solid_harmonics must be a SolidHarmonicOperators object.")
         self.horizontal_basis = horizontal_basis
         self.solid_harmonics = (
             solid_harmonics
@@ -270,7 +260,7 @@ class SimulationGeometry:
         if self.poloidal_basis.coefficients_are_compatible_with(transform.basis):
             return transform
         cache_key = (
-            getattr(self.poloidal_basis, "signature", id(self.poloidal_basis)),
+            self.poloidal_basis.signature,
             (
                 transform.grid.analysis_signature
                 if self.area_weighted_least_squares

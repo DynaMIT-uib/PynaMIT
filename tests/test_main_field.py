@@ -32,6 +32,7 @@ def test_dipole_B0_override_preserves_epoch_alignment():
 
     np.testing.assert_allclose(main_field.dipole.north_pole, reference.north_pole)
     assert main_field.dipole.B0 == b0 * 1e9
+    assert main_field.B0 == pytest.approx(b0)
 
     Br, Btheta, Bphi = main_field.field_components(EARTH_RADIUS_M, 90.0, 0.0)
     np.testing.assert_allclose(Br, 0.0, atol=1e-20)
@@ -85,6 +86,7 @@ def test_kaiju_dipole_main_field_B0_override_preserves_kaiju_alignment():
     np.testing.assert_allclose(main_field.dipole.north_pole, reference.north_pole)
     np.testing.assert_allclose(main_field.dipole.axis, reference.axis)
     assert main_field.dipole.B0 == b0 * 1e9
+    assert main_field.B0 == pytest.approx(b0)
 
     geo_latitude, geo_longitude = kaiju_geopack_mag(epoch).mag2geo(0.0, 0.0)
     Br, Btheta, Bphi = main_field.field_components(
@@ -473,6 +475,7 @@ def test_radial_default_B0_is_in_tesla():
 
     main_field = MainField(kind="radial", epoch=epoch)
 
+    assert main_field.B0 == pytest.approx(reference_b0)
     Br, Btheta, Bphi = main_field.field_components(EARTH_RADIUS_M, 90.0, 0.0)
     np.testing.assert_allclose(Br, reference_b0)
     np.testing.assert_allclose(Btheta, 0.0, atol=0.0)

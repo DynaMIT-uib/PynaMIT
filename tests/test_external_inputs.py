@@ -437,9 +437,9 @@ def test_loaded_collection_shares_both_grid_views():
         assert hardy.request_grid is amps.request_grid is hwm.request_grid
         assert (
             hardy.spec.request_coordinate_contract
-            is amps.spec.request_coordinate_contract
-            is hwm.spec.request_coordinate_contract
-            is LIBRARY_GEOGRAPHIC_110KM
+            == amps.spec.request_coordinate_contract
+            == hwm.spec.request_coordinate_contract
+            == LIBRARY_GEOGRAPHIC_110KM
         )
 
 

@@ -33,7 +33,7 @@ def _request(grid_id="source"):
 
 
 def test_provider_specs_are_independent_but_share_request_contract():
-    """Each library owns a spec while equal contracts are interned."""
+    """Provider specs share coordinate semantics."""
     assert CONDUCTANCE_PROVIDER_SPEC is not BOUNDARY_JR_PROVIDER_SPEC
     assert BOUNDARY_JR_PROVIDER_SPEC is not NEUTRAL_WIND_PROVIDER_SPEC
     assert (
@@ -281,6 +281,6 @@ def test_collection_roundtrip_shares_source_and_request_grids():
     assert hardy.request_grid is amps.request_grid is hwm.request_grid
     assert (
         hardy.spec.request_coordinate_contract
-        is amps.spec.request_coordinate_contract
-        is hwm.spec.request_coordinate_contract
+        == amps.spec.request_coordinate_contract
+        == hwm.spec.request_coordinate_contract
     )

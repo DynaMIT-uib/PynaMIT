@@ -37,7 +37,7 @@ simulation = pynamit.Simulation(
     t0=str(date),
 )
 
-model_grid = simulation.geometry.model_grid
+model_grid = simulation.model_grid
 dipole_model = dipole.Dipole(simulation.geometry.main_field.epoch)
 noon_longitude = dipole_model.mlt2mlon(12, date)
 geographic_lat, geographic_lon = dipole_model.mag2geo(model_grid.lat, model_grid.lon)
@@ -50,7 +50,7 @@ request = ExternalInputRequest.from_model_coordinates(
     model_epoch=simulation.geometry.main_field.epoch,
     grid_id="figlayout-model-grid",
 )
-hall, pedersen, _, _ = get_conductance_inputs(date, None, None, None, request=request, kp=Kp)
+hall, pedersen, _, _ = get_conductance_inputs(date, request=request, kp=Kp)
 simulation.set_conductance(hall, pedersen, lat=model_grid.lat, lon=model_grid.lon)
 
 amps = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50)
