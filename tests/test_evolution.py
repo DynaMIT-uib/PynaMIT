@@ -41,7 +41,7 @@ class _FakeSimulation:
             self.saved.append((key, float(self.current_time)))
 
         output_series = SimpleNamespace(datasets={}, save=save_output)
-        self.run_data = SimpleNamespace(
+        self.data = SimpleNamespace(
             input_series=SimpleNamespace(),
             output_series=output_series,
             artifact_store=SimpleNamespace(),
@@ -88,7 +88,7 @@ def test_evolution_rejects_ambiguous_runtime_option_types(kwargs, match):
 def test_evolution_rejects_backfill_from_later_checkpoint():
     """A later checkpoint cannot generate earlier missing output."""
     simulation = _FakeSimulation()
-    simulation.run_data.output_series = SimpleNamespace(
+    simulation.data.output_series = SimpleNamespace(
         datasets={"dynamic": xr.Dataset(coords={"time": [10.0]})},
         get_entry=lambda *_args, **_kwargs: {"induced_Br": np.zeros(1)},
     )

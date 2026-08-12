@@ -30,7 +30,7 @@ def build_simulation(
     horizontal_basis_kind: str,
     enable_pfac_coupling: bool,
     enable_interhemispheric_coupling: bool,
-    run_directory: str | None,
+    simulation_directory: str | None,
     artifact_storage: str,
     least_squares_solver: str,
 ) -> Simulation:
@@ -38,7 +38,7 @@ def build_simulation(
     RI = EARTH_RADIUS_M + 110.0e3
     RM = None if rm_re is None else float(rm_re) * EARTH_RADIUS_M
     simulation = Simulation(
-        run_directory=run_directory,
+        simulation_directory=simulation_directory,
         Nmax=nmax,
         Mmax=mmax,
         Ncs=ncs,
@@ -69,7 +69,7 @@ def build_simulation(
     hall, pedersen, _, _ = get_conductance_inputs(date, request=request)
     simulation.set_conductance(hall, pedersen, lat=grid.lat, lon=grid.lon)
     simulation.response.activate_inputs_at_time(
-        simulation.run_data.input_series, time=0.0, interpolation=False
+        simulation.data.input_series, time=0.0, interpolation=False
     )
     return simulation
 
@@ -157,10 +157,10 @@ def main() -> None:
         help="Storage backend for the temporary Simulation artifacts.",
     )
     parser.add_argument(
-        "--run-directory",
+        "--simulation-directory",
         type=str,
         default=None,
-        help="Optional run directory. Defaults to a temporary directory.",
+        help="Optional simulation directory. Defaults to a temporary directory.",
     )
     parser.add_argument(
         "--out",
@@ -187,7 +187,7 @@ def main() -> None:
         horizontal_basis_kind=args.horizontal_basis_kind,
         enable_pfac_coupling=bool(args.enable_pfac_coupling),
         enable_interhemispheric_coupling=bool(args.enable_interhemispheric_coupling),
-        run_directory=args.run_directory,
+        simulation_directory=args.simulation_directory,
         artifact_storage=args.artifact_storage,
         least_squares_solver=args.least_squares_solver,
     )

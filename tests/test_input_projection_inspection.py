@@ -4,16 +4,16 @@ import numpy as np
 from kompe import SphericalTransform
 
 import pynamit
-from pynamit.visualization.input_projection import evaluate_projected_input
+from pynamit.results.input_projection import evaluate_projected_input
 
 
 def test_evaluate_projected_scalar_input_on_model_grid(tmp_path):
     """Projected scalar inputs can be inspected on the model grid."""
     simulation = pynamit.Simulation(
-        run_directory=tmp_path, Nmax=2, Mmax=1, Ncs=8, enable_pfac_coupling=False
+        simulation_directory=tmp_path, Nmax=2, Mmax=1, Ncs=8, enable_pfac_coupling=False
     )
     coeffs = np.zeros(
-        simulation.run_data.schema.input_field_spaces["boundary_jr"].coefficient_shape
+        simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
     )
     coeffs[0] = 1.0
     simulation.set_boundary_jr(boundary_jr_coefficients=coeffs, time=0.0)
@@ -28,16 +28,16 @@ def test_evaluate_projected_scalar_input_on_model_grid(tmp_path):
 def test_evaluate_projected_input_corrects_explicit_transform_source(tmp_path):
     """Explicit target transforms keep the input source basis."""
     simulation = pynamit.Simulation(
-        run_directory=tmp_path, Nmax=2, Mmax=1, Ncs=8, enable_pfac_coupling=False
+        simulation_directory=tmp_path, Nmax=2, Mmax=1, Ncs=8, enable_pfac_coupling=False
     )
     coeffs = np.zeros(
-        simulation.run_data.schema.input_field_spaces["boundary_jr"].coefficient_shape
+        simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
     )
     coeffs[0] = 1.0
     simulation.set_boundary_jr(boundary_jr_coefficients=coeffs, time=0.0)
 
     grid = simulation.geometry.model_grid
-    wrong_source_transform = SphericalTransform(simulation.run_data.schema.sh_basis, grid)
+    wrong_source_transform = SphericalTransform(simulation.data.schema.sh_basis, grid)
 
     corrected = evaluate_projected_input(
         simulation, "boundary_jr", 0.0, transform=wrong_source_transform
@@ -50,9 +50,9 @@ def test_evaluate_projected_input_corrects_explicit_transform_source(tmp_path):
 def test_evaluate_projected_conductance_returns_physical_conductance(tmp_path):
     """Conductance inspection includes SigmaP/SigmaH derived values."""
     simulation = pynamit.Simulation(
-        run_directory=tmp_path, Nmax=2, Mmax=1, Ncs=8, enable_pfac_coupling=False
+        simulation_directory=tmp_path, Nmax=2, Mmax=1, Ncs=8, enable_pfac_coupling=False
     )
-    coeff_shape = simulation.run_data.schema.input_field_spaces["conductance"].coefficient_shape
+    coeff_shape = simulation.data.schema.input_field_spaces["conductance"].coefficient_shape
     log_magnitude = np.zeros(coeff_shape)
     log_ratio = np.zeros(coeff_shape)
     simulation.set_conductance(
@@ -80,9 +80,9 @@ def test_evaluate_projected_conductance_returns_physical_conductance(tmp_path):
 def test_evaluate_projected_tangential_input_returns_components(tmp_path):
     """Tangential inputs expose theta, phi, and magnitude maps."""
     simulation = pynamit.Simulation(
-        run_directory=tmp_path, Nmax=2, Mmax=1, Ncs=8, enable_pfac_coupling=False
+        simulation_directory=tmp_path, Nmax=2, Mmax=1, Ncs=8, enable_pfac_coupling=False
     )
-    coeff_length = simulation.run_data.schema.input_field_spaces["u"].index_length
+    coeff_length = simulation.data.schema.input_field_spaces["u"].index_length
     cf_coeffs = np.zeros(coeff_length)
     df_coeffs = np.zeros(coeff_length)
     cf_coeffs[0] = 1.0

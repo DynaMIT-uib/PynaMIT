@@ -30,7 +30,7 @@ from pynamit.external_inputs import (
 )
 from pynamit.geomagnetism import decimal_year
 from pynamit.simulation.api import Simulation
-from pynamit.simulation.workflows.prepared_inputs import _DEFAULT_INPUT_TIME
+from pynamit.workflows.example_inputs import _EXAMPLE_EVENT_TIME
 
 OUTPUT = Path("src/pynamit/data/fallback_inputs.json")
 
@@ -45,7 +45,7 @@ class GridSpec:
     main_field_epoch: float
 
 
-EVENT_TIME = _DEFAULT_INPUT_TIME
+EVENT_TIME = _EXAMPLE_EVENT_TIME
 EVENT_EPOCH = float(decimal_year(EVENT_TIME))
 
 GRID_SPECS = (
@@ -103,7 +103,7 @@ def main() -> None:
         root = Path(root)
         for spec in GRID_SPECS:
             simulation = Simulation(
-                run_directory=root / spec.grid_id,
+                simulation_directory=root / spec.grid_id,
                 Nmax=4,
                 Mmax=4,
                 Ncs=spec.ncs,

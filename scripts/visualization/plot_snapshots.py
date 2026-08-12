@@ -8,8 +8,8 @@ from kompe import Grid, SphericalTransform
 from matplotlib.gridspec import GridSpec
 
 from pynamit.geomagnetism import decimal_year
-from pynamit.visualization.output_fields import evaluate_Phi_coefficients
-from pynamit.visualization.pynameye import PynamEye
+from pynamit.plotting.legacy import PynamEye
+from pynamit.results.output_fields import evaluate_Phi_coefficients
 
 ts = [0, 0.5, 1, 2, 3, 5, 10, 15, 20, 30, 40, 50, 60, 90, 120, 150, 180, 240, 300, 420]
 DT = 480  # An offset to apply to all the ts

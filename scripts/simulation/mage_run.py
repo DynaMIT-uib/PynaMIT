@@ -5,10 +5,12 @@ The MAGE workflow has three explicit stages:
 1. ``mage_prepare.py`` creates resolution-independent forcing.
 2. ``mage_project.py`` creates one input package for each configured
    resolution.
-3. This script creates one named run for each configured resolution.
+3. This script creates one named simulation for each configured
+   resolution.
 
-Edit ``SETTINGS`` below for the run sweep. Completed runs are skipped,
-while interrupted runs resume from their last saved checkpoint.
+Edit ``SETTINGS`` below for the simulation sweep. Completed simulations
+are skipped, while interrupted simulations resume from their last saved
+checkpoint.
 """
 
 from __future__ import annotations
@@ -19,9 +21,9 @@ from pathlib import Path
 import numpy as np
 
 from pynamit.simulation.config import SimulationConfig, dipole_fac_integration_radii
-from pynamit.simulation.workflows.mage_projection import MAGE_MAIN_FIELD_KIND
-from pynamit.simulation.workflows.prepared_inputs import run_pynamit_from_inputs
 from pynamit.storage import ArtifactStore
+from pynamit.workflows.mage.projection import MAGE_MAIN_FIELD_KIND
+from pynamit.workflows.prepared_inputs import run_from_inputs
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 CASE_DIRECTORY = SCRIPT_DIR / "mage_output" / "2011-10-24"
@@ -29,13 +31,13 @@ DEFAULT_RESOLUTIONS_DIRECTORY = CASE_DIRECTORY / "resolutions"
 
 
 @dataclass(frozen=True)
-class RunSettings:
-    """Defaults intended to be edited for a MAGE simulation sweep."""
+class SimulationSweep:
+    """Editable settings for a MAGE simulation sweep."""
 
     resolutions_directory: Path = DEFAULT_RESOLUTIONS_DIRECTORY
     resolutions: tuple[int, ...] = (20, 40, 60, 80)
     projection_name: str = "default"
-    run_name: str = "default"
+    simulation_name: str = "default"
     cache_operators: bool = True
     magnetic_boundary_shielding: bool = False
     fac_integration_points: int = 40
@@ -52,16 +54,16 @@ class RunSettings:
     artifact_storage: str = "auto"
 
 
-SETTINGS = RunSettings()
+SETTINGS = SimulationSweep()
 
 
 @dataclass(frozen=True)
-class _RunTarget:
+class _SimulationTarget:
     """Resolved paths and geometry for one projected resolution."""
 
     resolution_name: str
     projection_directory: Path
-    run_directory: Path
+    simulation_directory: Path
     operator_cache_directory: Path | None
     final_time: float
     fac_integration_radii: np.ndarray
@@ -81,8 +83,8 @@ def _last_projected_input_time(input_store: ArtifactStore) -> float:
     return float(time[-1])
 
 
-def _run_targets(settings: RunSettings) -> tuple[_RunTarget, ...]:
-    """Validate the full sweep and resolve every run target."""
+def _build_simulation_targets(settings: SimulationSweep) -> tuple[_SimulationTarget, ...]:
+    """Validate the sweep and resolve every simulation target."""
     resolutions = tuple(settings.resolutions)
     if not resolutions:
         raise ValueError("resolutions must contain at least one positive integer.")
@@ -94,9 +96,13 @@ def _run_targets(settings: RunSettings) -> tuple[_RunTarget, ...]:
     if len(set(resolutions)) != len(resolutions):
         raise ValueError("resolutions must not contain duplicates.")
 
-    run_name = settings.run_name.strip()
-    if not run_name or run_name in {".", ".."} or Path(run_name).name != run_name:
-        raise ValueError("run_name must be one non-empty directory name.")
+    simulation_name = settings.simulation_name.strip()
+    if (
+        not simulation_name
+        or simulation_name in {".", ".."}
+        or Path(simulation_name).name != simulation_name
+    ):
+        raise ValueError("simulation_name must be one non-empty directory name.")
     projection_name = settings.projection_name.strip()
     if (
         not projection_name
@@ -136,10 +142,12 @@ def _run_targets(settings: RunSettings) -> tuple[_RunTarget, ...]:
             else float(settings.final_time)
         )
         targets.append(
-            _RunTarget(
+            _SimulationTarget(
                 resolution_name=resolution_name,
                 projection_directory=projection_directory,
-                run_directory=resolution_directory / "runs" / run_name,
+                simulation_directory=(
+                    resolution_directory / "simulations" / simulation_name
+                ),
                 operator_cache_directory=(
                     resolution_directory / "operator_cache" if settings.cache_operators else None
                 ),
@@ -152,9 +160,9 @@ def _run_targets(settings: RunSettings) -> tuple[_RunTarget, ...]:
     return tuple(targets)
 
 
-def main(settings: RunSettings = SETTINGS) -> None:
+def main(settings: SimulationSweep = SETTINGS) -> None:
     """Run every configured MAGE projection."""
-    targets = _run_targets(settings)
+    targets = _build_simulation_targets(settings)
     print(
         "Magnetic-boundary shielding of induced_Br: "
         f"{'enabled' if settings.magnetic_boundary_shielding else 'disabled'}",
@@ -163,7 +171,7 @@ def main(settings: RunSettings = SETTINGS) -> None:
     if settings.integrator == "exponential" and targets:
         print(
             "Warning: the exponential integrator builds a dense matrix exponential at "
-            "each step. Monitor progress and memory on MAGE-size runs.",
+            "each step. Monitor progress and memory on MAGE-size simulations.",
             flush=True,
         )
 
@@ -173,11 +181,11 @@ def main(settings: RunSettings = SETTINGS) -> None:
             f"{target.projection_directory}",
             flush=True,
         )
-        print(f"Writing run directory: {target.run_directory}", flush=True)
+        print(f"Writing simulation directory: {target.simulation_directory}", flush=True)
         print(f"Running through projected time t={target.final_time:g} s", flush=True)
-        simulation = run_pynamit_from_inputs(
+        simulation = run_from_inputs(
             target.projection_directory,
-            run_directory=target.run_directory,
+            simulation_directory=target.simulation_directory,
             final_time=target.final_time,
             dt=settings.dt,
             sampling_step_interval=settings.sampling_step_interval,

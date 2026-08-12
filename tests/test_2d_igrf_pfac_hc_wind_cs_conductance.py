@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from pynamit.simulation.workflows.standard import run_pynamit
+from pynamit.workflows.example import run_example
 from tests import magnetic_potential_coordinate_array
 
 
@@ -27,8 +27,8 @@ def test_2d_igrf_pfac_hc_wind_cs_resistance_basis():
         equilibrium_initialization=False,
     )
 
-    sh_resistance = run_pynamit(**common_kwargs)
-    cs_resistance = run_pynamit(conductance_projection_basis="CS", **common_kwargs)
+    sh_resistance = run_example(**common_kwargs)
+    cs_resistance = run_example(conductance_projection_basis="CS", **common_kwargs)
 
     sh_coeffs = _final_magnetic_coordinates(sh_resistance)
     cs_coeffs = _final_magnetic_coordinates(cs_resistance)
@@ -36,15 +36,15 @@ def test_2d_igrf_pfac_hc_wind_cs_resistance_basis():
 
     assert (
         "CS_log_conductance_magnitude"
-        in cs_resistance.run_data.input_series.datasets["conductance"]
+        in cs_resistance.data.input_series.datasets["conductance"]
     )
     assert (
         "CS_log_hall_to_pedersen_ratio"
-        in cs_resistance.run_data.input_series.datasets["conductance"]
+        in cs_resistance.data.input_series.datasets["conductance"]
     )
     assert (
-        cs_resistance.run_data.schema.input_field_spaces["conductance"].representation
-        is cs_resistance.run_data.schema.cs_basis
+        cs_resistance.data.schema.input_field_spaces["conductance"].representation
+        is cs_resistance.data.schema.cs_basis
     )
     assert cs_coeffs.shape == sh_coeffs.shape
     assert relative_difference < 0.25

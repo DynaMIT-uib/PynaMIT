@@ -250,7 +250,7 @@ def configure_runtime(backend: str, data_source: str, least_squares_solver: str)
 
 
 @pytest.fixture(autouse=True)
-def isolate_default_run_directories(tmp_path, monkeypatch):
+def isolate_default_simulation_directories(tmp_path, monkeypatch):
     """Route implicit artifacts into per-test temporary space."""
     original_creator = ArtifactStore.create_temporary_directory
 

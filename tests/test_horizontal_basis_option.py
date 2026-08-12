@@ -6,13 +6,13 @@ from kompe.constants import EARTH_RADIUS_M
 from kompe.math import tensor_pinv, weighted_tensor_pinv
 
 from pynamit.simulation.api import Simulation
-from pynamit.simulation.workflows.standard import run_pynamit
+from pynamit.workflows.example import run_example
 
 
 def test_default_horizontal_basis_is_sh(tmp_path):
     """Default horizontal basis is SH with radial continuation."""
     simulation = Simulation(
-        run_directory=str(tmp_path / "run"),
+        simulation_directory=str(tmp_path / "run"),
         Nmax=2,
         Mmax=1,
         Ncs=8,
@@ -20,10 +20,10 @@ def test_default_horizontal_basis_is_sh(tmp_path):
         artifact_storage="netcdf",
     )
 
-    assert simulation.run_data.config.horizontal_basis_kind == "SH"
+    assert simulation.data.config.horizontal_basis_kind == "SH"
     assert simulation.geometry.horizontal_basis is simulation.geometry.solid_harmonics.basis
     geometry = simulation.geometry
-    schema = simulation.run_data.schema
+    schema = simulation.data.schema
     assert geometry.horizontal_basis.mean_free
     assert not schema.sh_basis.mean_free
     assert schema.sh_basis.index_length == geometry.horizontal_basis.index_length + 1
@@ -37,7 +37,7 @@ def test_default_horizontal_basis_is_sh(tmp_path):
 def test_horizontal_basis_kind_is_persisted(tmp_path):
     """Explicit horizontal basis choice keeps SH radial continuation."""
     simulation = Simulation(
-        run_directory=str(tmp_path / "run"),
+        simulation_directory=str(tmp_path / "run"),
         Nmax=2,
         Mmax=1,
         Ncs=8,
@@ -46,14 +46,14 @@ def test_horizontal_basis_kind_is_persisted(tmp_path):
         artifact_storage="netcdf",
     )
 
-    assert simulation.run_data.config.horizontal_basis_kind == "CS"
-    assert simulation.run_data.schema.horizontal_basis is simulation.geometry.horizontal_basis
+    assert simulation.data.config.horizontal_basis_kind == "CS"
+    assert simulation.data.schema.horizontal_basis is simulation.geometry.horizontal_basis
     assert simulation.geometry.solid_harmonics.basis is not simulation.geometry.horizontal_basis
-    assert simulation.run_data.schema.input_field_spaces["boundary_jr"].mean_free
-    assert simulation.run_data.schema.input_field_spaces["boundary_Br"].mean_free
-    assert simulation.run_data.schema.input_field_spaces["u"].mean_free
-    assert not simulation.run_data.schema.input_field_spaces["conductance"].mean_free
-    output_spaces = simulation.run_data.schema.output_field_spaces["dynamic"]
+    assert simulation.data.schema.input_field_spaces["boundary_jr"].mean_free
+    assert simulation.data.schema.input_field_spaces["boundary_Br"].mean_free
+    assert simulation.data.schema.input_field_spaces["u"].mean_free
+    assert not simulation.data.schema.input_field_spaces["conductance"].mean_free
+    output_spaces = simulation.data.schema.output_field_spaces["dynamic"]
     assert output_spaces["induced_Br"].mean_free
     assert not output_spaces["boundary_jr"].mean_free
     assert output_spaces["Phi"].mean_free
@@ -63,7 +63,7 @@ def test_horizontal_basis_kind_is_persisted(tmp_path):
 def test_cs_surface_gauge_makes_toroidal_potential_system_unique(tmp_path):
     """The CS constant gauge is constrained without regularization."""
     simulation = Simulation(
-        run_directory=str(tmp_path / "run"),
+        simulation_directory=str(tmp_path / "run"),
         Nmax=2,
         Mmax=1,
         Ncs=4,
@@ -90,7 +90,7 @@ def test_cs_surface_gauge_makes_toroidal_potential_system_unique(tmp_path):
 def test_cs_runtime_toroidal_solve_does_not_build_dense_response_matrix(tmp_path):
     """A single current input should remain a single toroidal solve."""
     simulation = Simulation(
-        run_directory=str(tmp_path / "run"),
+        simulation_directory=str(tmp_path / "run"),
         Nmax=2,
         Mmax=1,
         Ncs=4,
@@ -107,7 +107,7 @@ def test_cs_runtime_toroidal_solve_does_not_build_dense_response_matrix(tmp_path
     )
     simulation.set_boundary_jr(boundary_jr_coefficients=np.linspace(-1.0, 1.0, n), time=0.0)
     response = simulation.response
-    response.activate_inputs_at_time(simulation.run_data.input_series, 0.0)
+    response.activate_inputs_at_time(simulation.data.input_series, 0.0)
 
     _, solved_boundary_jr = response.calculate_noninductive_response()
 
@@ -125,7 +125,7 @@ def test_cs_runtime_toroidal_solve_does_not_build_dense_response_matrix(tmp_path
 def test_cs_reduced_induction_response_matches_full_E_response(tmp_path):
     """Reduced poloidal columns preserve interhemispheric feedback."""
     simulation = Simulation(
-        run_directory=str(tmp_path / "run"),
+        simulation_directory=str(tmp_path / "run"),
         Nmax=2,
         Mmax=1,
         Ncs=4,
@@ -147,7 +147,7 @@ def test_cs_reduced_induction_response_matches_full_E_response(tmp_path):
         time=0.0,
     )
     response = simulation.response
-    response.activate_inputs_at_time(simulation.run_data.input_series, 0.0)
+    response.activate_inputs_at_time(simulation.data.input_series, 0.0)
 
     reduced = response.induced_Br_to_E_df_operator.to_matrix(backend="numpy")
     full = (response.driving_E_to_E_df_operator @ response.induced_Br_to_E_coeffs).to_matrix(
@@ -164,7 +164,7 @@ def test_cs_reduced_induction_response_matches_full_E_response(tmp_path):
 def test_area_weighted_least_squares_option_is_persisted(tmp_path):
     """Area-weighted fits are a persisted global option."""
     simulation = Simulation(
-        run_directory=str(tmp_path / "run"),
+        simulation_directory=str(tmp_path / "run"),
         Nmax=2,
         Mmax=1,
         Ncs=8,
@@ -175,21 +175,21 @@ def test_area_weighted_least_squares_option_is_persisted(tmp_path):
 
     geometry = simulation.geometry
 
-    assert simulation.run_data.config.area_weighted_least_squares
+    assert simulation.data.config.area_weighted_least_squares
     assert geometry.area_weighted_least_squares
     np.testing.assert_allclose(
         geometry.model_grid_sqrt_weights(),
-        np.sqrt(simulation.run_data.schema.cs_basis.mesh.cell_areas.reshape(-1)),
+        np.sqrt(simulation.data.schema.cs_basis.mesh.cell_areas.reshape(-1)),
     )
     np.testing.assert_allclose(
         geometry.model_grid_sqrt_weights(vector=True),
-        np.tile(np.sqrt(simulation.run_data.schema.cs_basis.mesh.cell_areas.reshape(-1)), (2, 1)),
+        np.tile(np.sqrt(simulation.data.schema.cs_basis.mesh.cell_areas.reshape(-1)), (2, 1)),
     )
 
 
 def test_cs_horizontal_basis_runs_with_split_output_spaces(tmp_path):
     """CS surface fields coexist with the poloidal SH output."""
-    simulation = run_pynamit(
+    simulation = run_example(
         final_time=0.0,
         dt=0.1,
         Nmax=2,
@@ -200,22 +200,22 @@ def test_cs_horizontal_basis_runs_with_split_output_spaces(tmp_path):
         boundary_jr_projection_basis="CS",
         conductance_projection_basis="CS",
         u_projection_basis="CS",
-        run_directory=str(tmp_path / "run"),
+        simulation_directory=str(tmp_path / "run"),
         horizontal_basis_kind="CS",
         artifact_storage="netcdf",
     )
 
-    output = simulation.run_data.output_series.datasets["dynamic"]
+    output = simulation.data.output_series.datasets["dynamic"]
     assert "SH_induced_Br" in output
     assert "CS_boundary_jr" in output
     assert output["SH_induced_Br"].shape[-1] == simulation.geometry.poloidal_basis.index_length
     assert output["CS_boundary_jr"].shape[-1] == simulation.geometry.horizontal_basis.index_length
-    assert simulation.run_data.schema.horizontal_basis is simulation.geometry.horizontal_basis
+    assert simulation.data.schema.horizontal_basis is simulation.geometry.horizontal_basis
 
 
 def test_cs_horizontal_basis_runs_with_pfac(tmp_path):
     """CS horizontal basis can use SH radial continuation for PFAC."""
-    simulation = run_pynamit(
+    simulation = run_example(
         final_time=0.0,
         dt=0.1,
         Nmax=2,
@@ -226,7 +226,7 @@ def test_cs_horizontal_basis_runs_with_pfac(tmp_path):
         boundary_jr_projection_basis="CS",
         conductance_projection_basis="CS",
         u_projection_basis="CS",
-        run_directory=str(tmp_path / "run"),
+        simulation_directory=str(tmp_path / "run"),
         horizontal_basis_kind="CS",
         artifact_storage="netcdf",
         least_squares_solver="normal_pinv",
@@ -237,7 +237,7 @@ def test_cs_horizontal_basis_runs_with_pfac(tmp_path):
     assert isinstance(gap_Br_response, np.ndarray)
     assert not gap_Br_response.flags.writeable
 
-    assert simulation.run_data.schema.horizontal_basis is simulation.geometry.horizontal_basis
+    assert simulation.data.schema.horizontal_basis is simulation.geometry.horizontal_basis
     assert simulation.geometry.solid_harmonics.basis is not simulation.geometry.horizontal_basis
     assert gap_Br_response.shape == (
         simulation.geometry.poloidal_basis.index_length,
@@ -251,7 +251,7 @@ def test_cs_horizontal_basis_runs_with_pfac(tmp_path):
 def test_cs_horizontal_basis_supports_rm_solid_harmonics(tmp_path):
     """CS horizontal basis can use solid harmonics for RM terms."""
     simulation = Simulation(
-        run_directory=str(tmp_path / "run"),
+        simulation_directory=str(tmp_path / "run"),
         Nmax=2,
         Mmax=1,
         Ncs=8,
@@ -278,7 +278,7 @@ def test_cs_horizontal_basis_supports_rm_solid_harmonics(tmp_path):
 
 def test_cs_horizontal_basis_supports_connected_hemispheres(tmp_path):
     """CS horizontal basis can evaluate conjugate Helmholtz terms."""
-    simulation = run_pynamit(
+    simulation = run_example(
         final_time=0.0,
         dt=0.1,
         Nmax=2,
@@ -290,7 +290,7 @@ def test_cs_horizontal_basis_supports_connected_hemispheres(tmp_path):
         boundary_jr_projection_basis="CS",
         conductance_projection_basis="CS",
         u_projection_basis="CS",
-        run_directory=str(tmp_path / "run"),
+        simulation_directory=str(tmp_path / "run"),
         horizontal_basis_kind="CS",
         artifact_storage="netcdf",
         least_squares_solver="normal_pinv",
@@ -315,7 +315,7 @@ def test_cs_horizontal_basis_supports_connected_hemispheres(tmp_path):
 def test_connected_E_apex_constraint_operator_is_lazy(tmp_path):
     """Connected E-apex constraint stays operator-backed."""
     simulation = Simulation(
-        run_directory=str(tmp_path / "run"),
+        simulation_directory=str(tmp_path / "run"),
         Nmax=2,
         Mmax=1,
         Ncs=8,
@@ -341,7 +341,7 @@ def test_connected_E_apex_constraint_operator_is_lazy(tmp_path):
 
 def test_cs_horizontal_basis_combines_pfac_rm_and_connected_terms(tmp_path):
     """CS horizontal basis supports the combined radial/coupled path."""
-    simulation = run_pynamit(
+    simulation = run_example(
         final_time=0.0,
         dt=0.1,
         Nmax=2,
@@ -355,7 +355,7 @@ def test_cs_horizontal_basis_combines_pfac_rm_and_connected_terms(tmp_path):
         boundary_Br_projection_basis="CS",
         conductance_projection_basis="CS",
         u_projection_basis="CS",
-        run_directory=str(tmp_path / "run"),
+        simulation_directory=str(tmp_path / "run"),
         horizontal_basis_kind="CS",
         artifact_storage="netcdf",
         least_squares_solver="normal_pinv",
@@ -382,7 +382,7 @@ def test_cs_horizontal_basis_combines_pfac_rm_and_connected_terms(tmp_path):
 def test_surface_to_poloidal_projection_matches_grid_least_squares(tmp_path):
     """The CS-surface to magnetic-SH bridge uses grid least squares."""
     simulation = Simulation(
-        run_directory=str(tmp_path / "run"),
+        simulation_directory=str(tmp_path / "run"),
         Nmax=2,
         Mmax=1,
         Ncs=8,
@@ -410,7 +410,7 @@ def test_surface_to_poloidal_projection_matches_grid_least_squares(tmp_path):
 def test_surface_to_poloidal_supports_area_weighted_projection(tmp_path):
     """The surface-to-magnetic bridge can use CS cell-area weighting."""
     simulation = Simulation(
-        run_directory=str(tmp_path / "run"),
+        simulation_directory=str(tmp_path / "run"),
         Nmax=2,
         Mmax=1,
         Ncs=8,
@@ -424,7 +424,7 @@ def test_surface_to_poloidal_supports_area_weighted_projection(tmp_path):
     assert not hasattr(geometry.horizontal_transform, "_scalar_coeffs_to_grid")
     expected = weighted_tensor_pinv(
         geometry.poloidal_transform.scalar_synthesis_matrix,
-        sqrt_weights=np.sqrt(simulation.run_data.schema.cs_basis.mesh.cell_areas.reshape(-1)),
+        sqrt_weights=np.sqrt(simulation.data.schema.cs_basis.mesh.cell_areas.reshape(-1)),
         n_leading_flattened=1,
     )
 
@@ -437,7 +437,7 @@ def test_invalid_horizontal_basis_kind_is_rejected(tmp_path):
     """Unknown horizontal basis names fail early."""
     with pytest.raises(ValueError, match="horizontal_basis_kind"):
         Simulation(
-            run_directory=str(tmp_path / "run"),
+            simulation_directory=str(tmp_path / "run"),
             Nmax=2,
             Mmax=1,
             Ncs=4,

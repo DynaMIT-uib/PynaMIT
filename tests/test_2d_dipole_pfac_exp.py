@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from pynamit.simulation.workflows.standard import run_pynamit
+from pynamit.workflows.example import run_example
 from tests import magnetic_potential_coordinate_array
 
 
@@ -15,7 +15,7 @@ def test_2d_dipole_pfac_exp(regression_approx):
     expected_n_coeffs = 240
 
     # Act.
-    simulation = run_pynamit(
+    simulation = run_example(
         final_time=0.1,
         dt=0.1,
         Nmax=10,

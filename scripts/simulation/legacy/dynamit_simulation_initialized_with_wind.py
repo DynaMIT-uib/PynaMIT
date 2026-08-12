@@ -16,7 +16,7 @@ interhemispheric_coupling_latitude = 40
 WIND_FACTOR = 1  # Scale wind by this factor
 FLOAT_ERROR_MARGIN = 1e-6
 
-run_directory = "wind_step"
+simulation_directory = "wind_step"
 Nmax, Mmax, Ncs = 50, 50, 50
 rk = RI / np.cos(np.deg2rad(np.r_[0:70:2])) ** 2  # int(80 / Nmax)])) ** 2
 print(len(rk))
@@ -28,7 +28,7 @@ noon_mlon = d.mlt2mlon(12, date)  # Noon longitude
 
 # Set up simulation object.
 simulation = pynamit.Simulation(
-    run_directory=run_directory,
+    simulation_directory=simulation_directory,
     Nmax=Nmax,
     Mmax=Mmax,
     Ncs=Ncs,
@@ -96,12 +96,12 @@ simulation.set_conductance(hall_aurora, pedersen_aurora, lat=conductance_lat, lo
 
 
 # Initialize with zero jr.
-simulation.set_jr(jr=jr * 0, lat=jr_lat, lon=jr_lon)
+simulation.set_boundary_jr(boundary_jr=jr * 0, lat=jr_lat, lon=jr_lon)
 
 simulation.impose_equilibrium()
 
 # Turn jr on and evolve.
-simulation.set_jr(jr, lat=jr_lat, lon=jr_lon)
+simulation.set_boundary_jr(jr, lat=jr_lat, lon=jr_lon)
 
 
 simulation.evolve_to_time(10 * 60)

@@ -16,7 +16,7 @@ import pyhwm2014  # https://github.com/rilma/pyHWM14
 # import matplotlib.pyplot as plt
 import datetime
 
-run_directory = "data/brn_hl"
+simulation_directory = "data/brn_hl"
 Nmax, Mmax, Ncs = 80, 80, 90
 interhemispheric_coupling_latitude = 45
 RE = 6371.2e3
@@ -31,7 +31,7 @@ noon_mlon = d.mlt2mlon(12, date)  # Noon longitude
 
 # Set up simulation object.
 simulation = pynamit.Simulation(
-    run_directory=run_directory,
+    simulation_directory=simulation_directory,
     Nmax=Nmax,
     Mmax=Mmax,
     Ncs=Ncs,
@@ -61,7 +61,7 @@ print(datetime.datetime.now(), "setting jr")
 # Set zero jr input.
 jr_lat = simulation.geometry.model_grid.lat
 jr_lon = simulation.geometry.model_grid.lon
-simulation.set_jr(np.zeros_like(jr_lat), lat=jr_lat, lon=jr_lon)
+simulation.set_boundary_jr(np.zeros_like(jr_lat), lat=jr_lat, lon=jr_lon)
 
 print(datetime.datetime.now(), "setting wind")
 # Get and set wind input.
@@ -103,7 +103,7 @@ mlt = d.mlon2mlt(mlon, date)
 a = pyamps.AMPS(400, 5, -5, d.tilt(date), 100, minlat=50)
 jr = a.get_upward_current(mlat=mlat, mlt=mlt) * 1e-6
 jr[np.abs(jr_lat) < 50] = 0  # filter low latitude jr
-simulation.set_jr(jr, lat=jr_lat, lon=jr_lon)
+simulation.set_boundary_jr(jr, lat=jr_lat, lon=jr_lon)
 
 
 simulation.evolve_to_time(421)  # save simulation object with new m_ind
@@ -114,5 +114,5 @@ simulation.evolve_to_time(421)  # save simulation object with new m_ind
 
 # fig, ax = plt.subplots()
 # ax.plot(mv)
-# ax.plot(simulation.run_data.output_series['state'].SH_m_ind.values[-1, :])
+# ax.plot(simulation.data.output_series['state'].SH_m_ind.values[-1, :])
 # plt.show()

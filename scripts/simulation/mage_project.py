@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from pynamit.simulation.workflows.mage_projection import project_inputs
+from pynamit.workflows.mage.projection import project_forcing
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 CASE_DIRECTORY = SCRIPT_DIR / "mage_output" / "2011-10-24"
@@ -75,7 +75,7 @@ def main(settings: ProjectionSettings = SETTINGS) -> None:
             f"[{index}/{len(resolutions)}] Projecting {resolution_name} to {projection_directory}",
             flush=True,
         )
-        projected_directory = project_inputs(
+        projected_directory = project_forcing(
             forcing_path=settings.forcing_path,
             projection_directory=projection_directory,
             dipole_B0_override=settings.dipole_B0,
@@ -92,7 +92,7 @@ def main(settings: ProjectionSettings = SETTINGS) -> None:
             operator_cache_directory=operator_cache_directory,
         )
         if settings.write_diagnostics:
-            from pynamit.visualization import write_input_projection_diagnostics
+            from pynamit.workflows.mage import write_input_projection_diagnostics
 
             write_input_projection_diagnostics(
                 settings.forcing_path,

@@ -11,7 +11,7 @@ import datetime
 import pyamps
 import apexpy
 
-run_directory = "data/steady_state"
+simulation_directory = "data/steady_state"
 Nmax, Mmax, Ncs = 90, 90, 100
 interhemispheric_coupling_latitude = 45
 RE = 6371.2e3
@@ -26,7 +26,7 @@ noon_mlon = d.mlt2mlon(12, date)  # Noon longitude
 
 # Set up simulation object.
 simulation = pynamit.Simulation(
-    run_directory=run_directory,
+    simulation_directory=simulation_directory,
     Nmax=Nmax,
     Mmax=Mmax,
     Ncs=Ncs,
@@ -63,7 +63,7 @@ _, noon_longitude, _ = apx.apex2geo(0, noon_mlon, (RI - RE) * 1e-3)  # fix this
 a = pyamps.AMPS(400, 5, -5, d.tilt(date), 100, minlat=50)
 jr = a.get_upward_current(mlat=mlat, mlt=mlt) * 1e-6
 jr[np.abs(jr_lat) < 50] = 0  # filter low latitude jr
-simulation.set_jr(jr, lat=jr_lat, lon=jr_lon)
+simulation.set_boundary_jr(jr, lat=jr_lat, lon=jr_lon)
 
 print(datetime.datetime.now(), "setting wind")
 # Get and set wind input.
@@ -104,5 +104,5 @@ simulation.evolve_to_time(0)  # Save simulation object with new m_ind
 
 # fig, ax = plt.subplots()
 # ax.plot(mv)
-# ax.plot(simulation.run_data.output_series['state'].SH_m_ind.values[-1, :])
+# ax.plot(simulation.data.output_series['state'].SH_m_ind.values[-1, :])
 # plt.show()

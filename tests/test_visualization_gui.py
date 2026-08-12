@@ -2,15 +2,15 @@
 
 from types import SimpleNamespace
 
-from pynamit.visualization.gui import build_arg_parser, default_websocket_origins
+from pynamit.gui.cli import build_arg_parser, default_websocket_origins
 
 
 def _panel_app_without_loading(tmp_path, monkeypatch):
     """Build Panel controls without requiring a saved simulation."""
-    from pynamit.visualization.panel_app import PynamitPanelApp
+    from pynamit.gui.panel_app import PynamitGUI
 
-    monkeypatch.setattr(PynamitPanelApp, "_load_run", lambda self, event=None: None)
-    app = PynamitPanelApp(run_directory=tmp_path)
+    monkeypatch.setattr(PynamitGUI, "_load_simulation", lambda self, event=None: None)
+    app = PynamitGUI(simulation_directory=tmp_path)
     app._test_layout = app.panel()
     app._test_layout.get_root()
     return app
@@ -20,7 +20,7 @@ def test_pynamit_gui_parser_defaults_to_auto_detection():
     """The GUI auto-detects a run when no directory is given."""
     args = build_arg_parser().parse_args([])
 
-    assert args.run_directory is None
+    assert args.simulation_directory is None
     assert args.port == 5006
     assert args.route == "/pynamit"
     assert args.show is True
@@ -29,10 +29,10 @@ def test_pynamit_gui_parser_defaults_to_auto_detection():
 def test_pynamit_gui_parser_accepts_remote_no_show_options():
     """The GUI command should support remote/headless serving."""
     args = build_arg_parser().parse_args(
-        ["run-a", "--address", "0.0.0.0", "--port", "6006", "--no-show"]
+        ["simulation-a", "--address", "0.0.0.0", "--port", "6006", "--no-show"]
     )
 
-    assert args.run_directory == "run-a"
+    assert args.simulation_directory == "simulation-a"
     assert args.address == "0.0.0.0"
     assert args.port == 6006
     assert args.show is False
@@ -54,9 +54,12 @@ def test_default_websocket_origins_keep_explicit_origins():
 
 def test_panel_defaults_to_showing_noninductive_results():
     """New plots include the available non-inductive comparison."""
-    from pynamit.visualization.figure_specs import PynamitFigureSpec
+    from pynamit.plotting.figure_settings import FigureSettings
 
-    assert PynamitFigureSpec().show_noninductive is True
+    settings = FigureSettings()
+    assert settings.simulation_directory == "."
+    assert settings.time_range == (0, 0)
+    assert settings.show_noninductive is True
 
 
 def test_panel_manual_scales_start_from_field_presets(tmp_path, monkeypatch):
@@ -88,9 +91,9 @@ def test_panel_manual_scales_start_from_field_presets(tmp_path, monkeypatch):
     assert app.line_levels_per_sign.value == 5
 
 
-def test_panel_manual_scale_values_enter_the_figure_spec(tmp_path, monkeypatch):
+def test_panel_manual_scale_values_enter_figure_settings(tmp_path, monkeypatch):
     """Editable plot scales remain reproducible in exports."""
-    from pynamit.visualization.panel_spec_binding import current_figure_spec
+    from pynamit.gui.figure_settings_binding import current_figure_settings
 
     app = _panel_app_without_loading(tmp_path, monkeypatch)
     app.fill.value = "jr"
@@ -100,13 +103,13 @@ def test_panel_manual_scale_values_enter_the_figure_spec(tmp_path, monkeypatch):
     app.line_interval.value = 4.0
     app.line_levels_per_sign.value = 8
 
-    spec = current_figure_spec(app)
+    settings = current_figure_settings(app)
 
-    assert spec.manual_color_min == -5e-7
-    assert spec.manual_color_max == 5e-7
-    assert spec.line_first_abs_level == 4.0
-    assert spec.line_interval == 4.0
-    assert spec.line_levels_per_sign == 8
+    assert settings.manual_color_min == -5e-7
+    assert settings.manual_color_max == 5e-7
+    assert settings.line_first_abs_level == 4.0
+    assert settings.line_interval == 4.0
+    assert settings.line_levels_per_sign == 8
 
 
 def test_panel_output_controls_display_absolute_paths(tmp_path, monkeypatch):
@@ -150,14 +153,14 @@ def test_panel_confirms_before_overwriting_figure(tmp_path, monkeypatch):
 
 def test_panel_can_cancel_movie_overwrite(tmp_path, monkeypatch):
     """Cancelling preserves the existing movie."""
-    from pynamit.visualization import panel_app
+    from pynamit.gui import panel_app
 
     app = _panel_app_without_loading(tmp_path, monkeypatch)
     output_path = tmp_path / "existing.gif"
     output_path.write_bytes(b"old")
     writes = []
     monkeypatch.setattr(
-        panel_app, "save_pynamit_movie", lambda *args, **kwargs: writes.append((args, kwargs))
+        panel_app, "save_movie", lambda *args, **kwargs: writes.append((args, kwargs))
     )
     app.movie_filename.value = str(output_path)
 
@@ -170,52 +173,58 @@ def test_panel_can_cancel_movie_overwrite(tmp_path, monkeypatch):
     assert app._pending_overwrite is None
 
 
-def test_panel_default_run_directory_finds_workflow_children(tmp_path, monkeypatch):
+def test_panel_default_simulation_directory_finds_workflow_children(tmp_path, monkeypatch):
     """GUI auto-detection should find workflow children."""
-    from pynamit.visualization.panel_app import _default_run_directory
+    from pynamit.gui.panel_app import _default_simulation_directory
 
-    run_dir = tmp_path / "results" / "N50_M50_Ncs50"
-    run_dir.mkdir(parents=True)
-    (run_dir / "settings.ncdf").write_text("", encoding="utf-8")
+    simulation_directory = tmp_path / "results" / "N50_M50_Ncs50"
+    simulation_directory.mkdir(parents=True)
+    (simulation_directory / "settings.ncdf").write_text("", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
-    assert _default_run_directory() == str(run_dir.relative_to(tmp_path))
+    assert _default_simulation_directory() == str(simulation_directory.relative_to(tmp_path))
 
 
-def test_panel_default_run_directory_finds_mage_case_run(tmp_path, monkeypatch):
+def test_panel_default_simulation_directory_finds_mage_simulation(tmp_path, monkeypatch):
     """GUI auto-detection should follow the MAGE case layout."""
-    from pynamit.visualization.panel_app import _default_run_directory
+    from pynamit.gui.panel_app import _default_simulation_directory
 
-    run_dir = (
-        tmp_path / "mage_output" / "case" / "resolutions" / "N50_M50_Ncs50" / "runs" / "default"
+    simulation_directory = (
+        tmp_path
+        / "mage_output"
+        / "case"
+        / "resolutions"
+        / "N50_M50_Ncs50"
+        / "simulations"
+        / "default"
     )
-    run_dir.mkdir(parents=True)
-    (run_dir / "settings.ncdf").write_text("", encoding="utf-8")
+    simulation_directory.mkdir(parents=True)
+    (simulation_directory / "settings.ncdf").write_text("", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
-    assert _default_run_directory() == str(run_dir.relative_to(tmp_path))
+    assert _default_simulation_directory() == str(simulation_directory.relative_to(tmp_path))
 
 
-def test_panel_run_preserves_the_prepared_input_main_field(tmp_path, monkeypatch):
+def test_panel_simulation_preserves_the_prepared_input_main_field(tmp_path, monkeypatch):
     """The Panel must preserve an input package's main field."""
+    from pynamit.gui.panel_app import PynamitGUI
     from pynamit.simulation.config import INTEGRATORS
-    from pynamit.visualization.panel_app import PynamitPanelApp
 
     captured = {}
 
-    def fake_run_pynamit_from_inputs(*args, **kwargs):
+    def fake_run_from_inputs(*args, **kwargs):
         captured["args"] = args
         captured["kwargs"] = kwargs
-        return SimpleNamespace(run_directory=str(tmp_path / "run"))
+        return SimpleNamespace(simulation_directory=str(tmp_path / "simulation"))
 
     monkeypatch.setattr(
-        "pynamit.simulation.workflows.prepared_inputs.run_pynamit_from_inputs",
-        fake_run_pynamit_from_inputs,
+        "pynamit.workflows.prepared_inputs.run_from_inputs",
+        fake_run_from_inputs,
     )
-    app = PynamitPanelApp(run_directory=tmp_path)
-    monkeypatch.setattr(app, "_load_run", lambda: None)
+    app = PynamitGUI(simulation_directory=tmp_path)
+    monkeypatch.setattr(app, "_load_simulation", lambda: None)
     app.simulation_input_directory.value = str(tmp_path / "inputs")
-    app.simulation_run_directory.value = str(tmp_path / "run")
+    app.new_simulation_directory.value = str(tmp_path / "simulation")
 
     assert list(app.sim_integrator.options) == list(INTEGRATORS.values())
 

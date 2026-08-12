@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from pynamit.simulation.workflows.standard import run_pynamit
+from pynamit.workflows.example import run_example
 from tests import magnetic_potential_coordinate_array
 
 
@@ -18,7 +18,7 @@ def test_equilibrium_init_grid(regression_approx):
     expected_n_coeffs = 228
 
     # Act.
-    simulation = run_pynamit(
+    simulation = run_example(
         final_time=0.1,
         dt=1e-2,
         Nmax=10,
@@ -42,7 +42,7 @@ def test_equilibrium_init_grid(regression_approx):
     actual_coeff_max = np.max(coeff_array)
     actual_coeff_min = np.min(coeff_array)
     actual_n_coeffs = coeff_array.shape[0]
-    resistance = simulation.run_data.input_series.datasets["conductance"]
+    resistance = simulation.data.input_series.datasets["conductance"]
 
     print("actual_coeff_norm: ", actual_coeff_norm)
     print("actual_coeff_max: ", actual_coeff_max)

@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import polplot
 
-from pynamit.visualization.pynameye import PynamEye
+from pynamit.plotting.legacy import PynamEye
 
 path = "../simulation/data/pynamit_paper_simulation"  # Where the save files are located
 a = PynamEye(path)

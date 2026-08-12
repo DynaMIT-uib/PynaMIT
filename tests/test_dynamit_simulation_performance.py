@@ -48,8 +48,8 @@ out.mkdir(parents=True, exist_ok=True)
 resolution = int(os.environ["PYNAMIT_DYNAMIT_BENCH_RESOLUTION"])
 
 src = src.replace(
-    'run_directory = "aurora2"',
-    "run_directory = " + repr(str(out / "aurora2")),
+    'simulation_directory = "aurora2"',
+    "simulation_directory = " + repr(str(out / "aurora2")),
     1,
 )
 src = src.replace(

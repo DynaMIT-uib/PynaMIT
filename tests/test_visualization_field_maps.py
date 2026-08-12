@@ -3,19 +3,19 @@
 import numpy as np
 import scipy.sparse
 
-from pynamit.simulation.electrodynamics.ionospheric_closure import (
-    conductance_from_log_coordinates,
-    conductance_to_log_coordinates,
-    conductance_to_resistance,
-)
-from pynamit.visualization.field_maps import (
+from pynamit.results.field_maps import (
     evaluate_conductance_coefficients,
     evaluate_conductance_values,
     evaluate_JS_from_maps,
     evaluate_tangential_coefficients,
     evaluate_wind_coefficients,
 )
-from pynamit.visualization.output_fields import evaluate_JS_coefficients
+from pynamit.results.output_fields import evaluate_JS_coefficients
+from pynamit.simulation.electrodynamics.ionospheric_closure import (
+    conductance_from_log_coordinates,
+    conductance_to_log_coordinates,
+    conductance_to_resistance,
+)
 
 
 class ScalingTransform:

@@ -17,7 +17,7 @@ interhemispheric_coupling_latitude = 40
 WIND_FACTOR = 1  # Scale wind by this factor
 FLOAT_ERROR_MARGIN = 1e-6
 
-run_directory = "test_data"
+simulation_directory = "test_data"
 Nmax, Mmax, Ncs = 30, 30, 30
 rk = RI / np.cos(np.deg2rad(np.r_[0:70:2])) ** 2  # int(80 / Nmax)])) ** 2
 print(len(rk))
@@ -29,7 +29,7 @@ noon_mlon = d.mlt2mlon(12, date)  # Noon longitude
 
 # Set up simulation object.
 simulation = pynamit.Simulation(
-    run_directory=run_directory,
+    simulation_directory=simulation_directory,
     Nmax=Nmax,
     Mmax=Mmax,
     Ncs=Ncs,
@@ -53,7 +53,7 @@ _, noon_longitude, _ = apx.apex2geo(0, noon_mlon, (RI - RE) * 1e-3)  # Fix this
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50)
 jr = a.get_upward_current(mlat=mlat, mlt=mlt) * 1e-6
 jr[np.abs(jr_lat) < 50] = 0  # Filter low latitude jr
-simulation.set_jr(jr, lat=jr_lat, lon=jr_lon)
+simulation.set_boundary_jr(jr, lat=jr_lat, lon=jr_lon)
 
 # Get and set wind input.
 # hwm14Obj = pyhwm2014.HWM142D(

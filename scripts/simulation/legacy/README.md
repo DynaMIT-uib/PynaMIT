@@ -1,7 +1,7 @@
 Legacy simulation scripts
 =========================
 
-These scripts predate the prepared-input/run split.  They are kept for
+These scripts predate the prepared-input/simulation split.  They are kept for
 reference, regression checks, or one-off reproduction work, but they are
 not the active workflow.
 
@@ -17,5 +17,5 @@ The active pattern is:
 1. Prepare resolution-independent forcing.
 2. Project one reusable input package for each desired resolution and main
    field model.
-3. Create one or more runs from a projected package with settings such
+3. Create one or more simulations from a projected package with settings such
    as PFAC handling, hemisphere coupling, shielding, and integrator.

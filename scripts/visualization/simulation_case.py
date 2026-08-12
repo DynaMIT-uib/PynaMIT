@@ -7,8 +7,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from polplot import Polarplot
 
-from pynamit.visualization.output_fields import evaluate_Phi_coefficients
-from pynamit.visualization.pynameye import PynamEye
+from pynamit.plotting.legacy import PynamEye
+from pynamit.results.output_fields import evaluate_Phi_coefficients
 
 path = "../simulation/data/pynamit_paper_simulation"  # Where the save files are located
 

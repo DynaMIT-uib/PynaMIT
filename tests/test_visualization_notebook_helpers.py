@@ -16,20 +16,13 @@ from pynamit.coordinates import (
     longitude_to_local_time_hours,
     wrap_longitude_180,
 )
-from pynamit.simulation.api import Simulation
-from pynamit.storage import ArtifactStore
-from pynamit.visualization.grid_evaluation import (
-    build_evaluator,
-    build_JS_operators,
-    build_plot_grid,
-)
-from pynamit.visualization.hemisphere import (
+from pynamit.plotting.hemisphere import (
     coerce_hemisphere_min_abs_latitude,
     hemisphere_masks_for_latitude,
 )
-from pynamit.visualization.local_time import local_time_grid_longitudes
-from pynamit.visualization.map_coordinates import MapCoordinateContext
-from pynamit.visualization.map_curves import (
+from pynamit.plotting.local_time import local_time_grid_longitudes
+from pynamit.plotting.map_coordinates import MapCoordinateContext
+from pynamit.plotting.map_curves import (
     build_even_global_sites,
     build_timeseries_curve_layers,
     geographic_local_time_mask,
@@ -37,7 +30,7 @@ from pynamit.visualization.map_curves import (
     split_wrapped_curve,
     wrap_longitudes,
 )
-from pynamit.visualization.plot_helpers import (
+from pynamit.plotting.plot_helpers import (
     build_percentile_color_scale,
     contour_kwargs_for_display,
     format_contour_interval,
@@ -46,6 +39,9 @@ from pynamit.visualization.plot_helpers import (
     symmetric_contour_levels,
     symmetric_contour_levels_without_zero,
 )
+from pynamit.results.grid_evaluation import build_evaluator, build_JS_operators, build_plot_grid
+from pynamit.simulation.api import Simulation
+from pynamit.storage import ArtifactStore
 
 
 def test_local_time_longitude_helpers_are_vectorized():
@@ -214,14 +210,14 @@ def test_geographic_local_time_window_helpers_are_parameterized():
 
 def test_artifact_store_reports_existing_visualization_artifact_path(tmp_path):
     """Visualization uses the canonical artifact store paths."""
-    run_directory = tmp_path / "run"
-    run_directory.mkdir()
-    (run_directory / "sample.zarr").mkdir()
-    (run_directory / "settings.ncdf").write_bytes(b"")
+    simulation_directory = tmp_path / "run"
+    simulation_directory.mkdir()
+    (simulation_directory / "sample.zarr").mkdir()
+    (simulation_directory / "settings.ncdf").write_bytes(b"")
 
-    store = ArtifactStore(run_directory)
-    assert store.existing_artifact_path("sample") == run_directory / "sample.zarr"
-    assert store.existing_artifact_path("settings") == run_directory / "settings.ncdf"
+    store = ArtifactStore(simulation_directory)
+    assert store.existing_artifact_path("sample") == simulation_directory / "sample.zarr"
+    assert store.existing_artifact_path("settings") == simulation_directory / "settings.ncdf"
     assert store.existing_artifact_path("jr") is None
 
 
@@ -490,7 +486,7 @@ def test_build_JS_operators_omits_boundary_map_without_rm():
 def test_build_JS_operators_matches_geometry(tmp_path):
     """Notebook helper matches SimulationGeometry JS conventions."""
     simulation = Simulation(
-        run_directory=str(tmp_path / "run"),
+        simulation_directory=str(tmp_path / "run"),
         Nmax=2,
         Mmax=1,
         Ncs=8,
@@ -502,7 +498,7 @@ def test_build_JS_operators_matches_geometry(tmp_path):
     _, _, grid = build_plot_grid(nlat=4, nlon=5)
     transform = build_evaluator(simulation.geometry.horizontal_basis, grid)
     operators = build_JS_operators(
-        simulation.run_data.config,
+        simulation.data.config,
         simulation.geometry.horizontal_basis,
         transform,
         boundary_jr_to_gap_Br_matrix=geometry.boundary_jr_to_gap_Br_matrix,

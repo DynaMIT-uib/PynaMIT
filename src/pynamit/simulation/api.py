@@ -1,6 +1,4 @@
-"""User-facing assembly of a PynaMIT simulation."""
-
-import warnings
+"""User-facing input preparation and simulation objects."""
 
 import numpy as np
 from kompe.constants import EARTH_RADIUS_M
@@ -9,60 +7,53 @@ from kompe.math import set_backend
 from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.electrodynamics import ionospheric_closure
 from pynamit.simulation.geometry import SimulationGeometry, build_main_field
+from pynamit.simulation.input_manifest import write_input_manifest
 from pynamit.simulation.inputs import InputPipeline
 from pynamit.simulation.response import ElectrodynamicResponse
-from pynamit.simulation.run_data import RunData
 from pynamit.simulation.runner import SimulationRunner
+from pynamit.simulation.schema import INPUT_DATASET_KEYS
+from pynamit.simulation.simulation_data import SimulationData
 from pynamit.storage import ArrayCache, ArtifactStore
 
 
-class Simulation:
-    """Configure, drive, evolve, and persist one coupled MIT simulation.
+class InputPreparation:
+    """Project and persist inputs for a later PynaMIT simulation.
 
-    Evolves the inductive magnetic response to field-aligned currents,
-    neutral winds, and magnetic-boundary forcing in a coupled
-    magnetosphere-ionosphere-thermosphere (MIT) model. Saves and loads
-    simulation data to and from persisted xarray artifacts.
+    Input values can be supplied as samples or as coefficients through
+    the ``set_*`` methods. Sampled values are projected immediately and
+    the resulting coefficient time series are saved in
+    ``input_directory``. The preparation object does not construct the
+    time-evolution runner.
 
     Attributes
     ----------
-    current_time : float
-        Current simulation time in seconds.
     config : SimulationConfig
-        Normalized immutable simulation configuration.
-    run_data : RunData
-        Persisted settings, schema, and input/output time series.
-    run_directory : str
-        Directory containing this run's artifacts.
+        Coefficient-space and geometry configuration.
+    data : SimulationData
+        Persisted settings, schema, and input time series.
+    input_directory : str
+        Directory containing the prepared input artifacts.
     model_grid : kompe.SphericalGrid
-        Grid on which the simulation equations are evaluated.
-    inputs, outputs : dict
-        Loaded input and output xarray datasets, keyed by stream name.
+        Grid on which sampled input fields are projected.
+    inputs : dict
+        Projected input datasets, keyed by stream name.
     geometry : SimulationGeometry
-        Run-invariant spatial realization of the model equations.
-    response : ElectrodynamicResponse
-        Instantaneous forcing and electrodynamic response model.
+        Spatial realization used while preparing the inputs.
     operator_cache : pynamit.storage.ArrayCache, optional
         Shared cache for deterministic materialized operators.
     """
 
     def __init__(
         self,
-        run_directory=None,
+        input_directory=None,
         Nmax=20,
         Mmax=20,
         Ncs=30,
         RI=EARTH_RADIUS_M + 110.0e3,
         RM=None,
-        magnetic_boundary_shielding=False,
         main_field_kind="dipole",
         main_field_epoch=None,
         main_field_B0=None,
-        fac_integration_radii=None,
-        enable_pfac_coupling=True,
-        enable_interhemispheric_coupling=False,
-        interhemispheric_coupling_latitude=50,
-        interhemispheric_electric_field_weight=1e-5,
         boundary_jr_projection_basis=None,
         boundary_Br_projection_basis=None,
         conductance_projection_basis=None,
@@ -70,26 +61,18 @@ class Simulation:
         Q_eff_projection_basis=None,
         E_neutral_wind_projection_basis=None,
         t0="2020-01-01 00:00:00",
-        save_equilibria=True,
-        integrator="euler",
-        least_squares_solver=None,
-        least_squares_preconditioner="pinv",
-        reuse_preconditioner=False,
-        toroidal_potential_regularization_lambda=0.0,
         artifact_storage="auto",
         operator_cache_directory=None,
         backend="auto",
         horizontal_basis_kind="SH",
         area_weighted_least_squares=False,
     ):
-        """Initialize a coupled MIT simulation.
+        """Initialize an input preparation.
 
         Parameters
         ----------
-        run_directory : str, optional
-            Preferred directory for this persisted run. Artifacts are
-            written as fixed names like ``settings.zarr`` inside this
-            directory.
+        input_directory : path-like, optional
+            Directory in which projected input coefficients are stored.
         Nmax : int, optional
             Maximum spherical harmonic degree.
         Mmax : int, optional
@@ -100,9 +83,6 @@ class Simulation:
             Ionospheric radius in meters.
         RM : float, optional
             Magnetospheric boundary radius in meters.
-        magnetic_boundary_shielding : bool, optional
-            Whether induced fields are solved with a shielding condition
-            at the magnetospheric boundary ``RM``.
         main_field_kind : {'dipole', 'kaiju_dipole', 'igrf', 'radial'}
             Type of main magnetic field model.
         main_field_epoch : float, optional
@@ -110,20 +90,6 @@ class Simulation:
             year of ``t0``.
         main_field_B0 : float, optional
             Main field strength.
-        fac_integration_radii : array-like, optional
-            Integration radii for FAC poloidal field calculation.
-        enable_pfac_coupling : bool, optional
-            Whether field-aligned currents contribute their poloidal
-            magnetic field to the coupled response.
-        enable_interhemispheric_coupling : bool, optional
-            Whether to impose conjugate current and electric-field
-            constraints in the low-latitude coupling region.
-        interhemispheric_coupling_latitude : float, optional
-            Absolute magnetic latitude bounding that coupling region,
-            in degrees.
-        interhemispheric_electric_field_weight : float, optional
-            Relative least-squares weight of the conjugate
-            electric-field constraint.
         boundary_jr_projection_basis : {'SH', 'CS'}, optional
             Basis route used when projecting radial-current inputs.
             Defaults to ``horizontal_basis_kind``.
@@ -146,24 +112,6 @@ class Simulation:
             electric fields. Defaults to ``horizontal_basis_kind``.
         t0 : str, optional
             Start time in UTC format.
-        save_equilibria : bool, optional
-            Default for whether ``evolve_to_time`` calculates and saves
-            instantaneous induction equilibria.
-        integrator : {'euler', 'exponential', 'RK23', 'RK45', 'DOP853',
-                      'Radau', 'BDF', 'LSODA'}, optional
-            Integrator used for ``induced_Br`` evolution. SciPy method
-            names are case-insensitive and stored in canonical form.
-        least_squares_solver : str, optional
-            Solver used for the toroidal-potential problem.
-        least_squares_preconditioner : {'jacobi', 'pinv', None},
-            optional
-            Preconditioner used by iterative toroidal-potential solves.
-        reuse_preconditioner : bool, optional
-            Keep a reusable iterative-solver preconditioner when valid.
-        toroidal_potential_regularization_lambda : float, optional
-            Optional Tikhonov regularization strength for the private
-            toroidal-potential solve. The default is unregularized;
-            coefficient gauges are constrained separately.
         artifact_storage : {'auto', 'netcdf', 'zarr'}, optional
             Preferred backend for new saved xarray artifacts. Existing
             artifacts keep their format on restart.
@@ -190,19 +138,13 @@ class Simulation:
             use ``sin(theta)``. Disabled by default to preserve the
             established projection norm.
         """
-        set_backend(backend)
         config = SimulationConfig(
             Nmax=Nmax,
             Mmax=Mmax,
             Ncs=Ncs,
             RI=RI,
             RM=RM,
-            magnetic_boundary_shielding=magnetic_boundary_shielding,
-            interhemispheric_coupling_latitude=interhemispheric_coupling_latitude,
-            enable_pfac_coupling=enable_pfac_coupling,
-            enable_interhemispheric_coupling=enable_interhemispheric_coupling,
-            fac_integration_radii=fac_integration_radii,
-            interhemispheric_electric_field_weight=interhemispheric_electric_field_weight,
+            enable_pfac_coupling=False,
             main_field_kind=main_field_kind,
             main_field_epoch=main_field_epoch,
             main_field_B0=main_field_B0,
@@ -215,28 +157,34 @@ class Simulation:
             horizontal_basis_kind=horizontal_basis_kind,
             area_weighted_least_squares=area_weighted_least_squares,
             t0=t0,
-            save_equilibria=save_equilibria,
-            integrator=integrator,
-            least_squares_solver=least_squares_solver,
-            least_squares_preconditioner=least_squares_preconditioner,
-            reuse_preconditioner=reuse_preconditioner,
-            toroidal_potential_regularization_lambda=toroidal_potential_regularization_lambda,
         )
+        self._open_input_preparation(
+            config,
+            directory=input_directory,
+            artifact_storage=artifact_storage,
+            operator_cache_directory=operator_cache_directory,
+            backend=backend,
+        )
+
+    def _open_input_preparation(
+        self, config, *, directory, artifact_storage, operator_cache_directory, backend
+    ):
+        """Open the projection state shared with ``Simulation``."""
+        set_backend(backend)
         self.operator_cache = (
             None if operator_cache_directory is None else ArrayCache(operator_cache_directory)
         )
-        self.run_data = RunData.open(
+        self.data = SimulationData.open(
             config,
-            run_directory=run_directory,
+            simulation_directory=directory,
             artifact_storage=artifact_storage,
             operator_cache=self.operator_cache,
             print_info=True,
         )
-        self.config = self.run_data.config
-        self.run_directory = self.run_data.run_directory
-        self.inputs = self.run_data.input_series.datasets
-        self.outputs = self.run_data.output_series.datasets
-        schema = self.run_data.schema
+        self.config = self.data.config
+        self.input_directory = self.data.simulation_directory
+        self.inputs = self.data.input_series.datasets
+        schema = self.data.schema
         main_field = build_main_field(self.config)
 
         self.geometry = SimulationGeometry(
@@ -244,69 +192,71 @@ class Simulation:
             schema.cs_basis,
             main_field,
             self.config,
-            gap_Br_response_matrix=self.run_data.gap_Br_response,
+            gap_Br_response_matrix=self.data.gap_Br_response,
             solid_harmonics=schema.solid_harmonics,
             operator_cache=self.operator_cache,
         )
-        self.response = ElectrodynamicResponse(self.geometry, self.config)
         self.model_grid = self.geometry.model_grid
         self._input_pipeline = InputPipeline(self)
-        self._runner = SimulationRunner(self)
+        self._response = None
+        self.current_time = np.float64(0)
 
-        if "dynamic" in self.run_data.output_series.datasets:
-            current_output = self.run_data.output_series.datasets["dynamic"]
-        else:
-            current_output = self.run_data.output_series.datasets.get("equilibrium")
-        self.current_time = (
-            np.max(current_output.time.values) if current_output is not None else np.float64(0)
-        )
-
-        self.run_data.save_settings_if_missing(print_info=True)
+        self.data.save_settings_if_missing(print_info=True)
 
     def __repr__(self):
-        """Summarize the live simulation for interactive sessions."""
+        """Summarize projected inputs for interactive sessions."""
         inputs = ", ".join(sorted(self.inputs)) or "none"
-        outputs = ", ".join(sorted(self.outputs)) or "none"
         return (
-            f"Simulation(Nmax={self.config.Nmax}, Mmax={self.config.Mmax}, "
-            f"Ncs={self.config.Ncs}, current_time={float(self.current_time):g}, "
-            f"inputs=[{inputs}], outputs=[{outputs}], "
-            f"run_directory={self.run_directory!r})"
+            f"InputPreparation(Nmax={self.config.Nmax}, Mmax={self.config.Mmax}, "
+            f"Ncs={self.config.Ncs}, inputs=[{inputs}], "
+            f"input_directory={self.input_directory!r})"
         )
+
+    def _require_response(self):
+        """Construct the electrodynamic response when it is needed.
+
+        Ordinary projection does not need it. The response is required
+        only when deriving ``Q_eff`` from neutral wind and conductance.
+        """
+        if self._response is None:
+            self._response = ElectrodynamicResponse(self.geometry, self.config)
+        return self._response
 
     @classmethod
     def from_config(
         cls,
         config: SimulationConfig,
         *,
-        run_directory=None,
+        input_directory=None,
         artifact_storage="auto",
         operator_cache_directory=None,
         backend="auto",
     ):
-        """Construct a simulation from a normalized configuration.
+        """Construct an input preparation from normalized configuration.
 
-        The run directory, artifact storage, operator-cache directory,
+        The input directory, artifact storage, operator-cache directory,
         and backend are runtime preferences rather than persisted model
         settings.
         """
         if not isinstance(config, SimulationConfig):
-            raise TypeError("Simulation.from_config requires a SimulationConfig.")
-        return cls(
-            run_directory=run_directory,
+            raise TypeError("InputPreparation.from_config requires a SimulationConfig.")
+        preparation = cls.__new__(cls)
+        preparation._open_input_preparation(
+            config,
+            directory=input_directory,
             artifact_storage=artifact_storage,
             operator_cache_directory=operator_cache_directory,
             backend=backend,
-            **config.to_kwargs(),
         )
+        return preparation
 
     @classmethod
-    def from_directory(cls, run_directory, **kwargs):
-        """Construct a simulation from one run directory."""
-        run_directory = ArtifactStore.require_artifact_directory(run_directory, ("settings",))
+    def from_directory(cls, input_directory, **kwargs):
+        """Open an existing prepared-input directory."""
+        input_directory = ArtifactStore.require_artifact_directory(input_directory, ("settings",))
         artifact_storage = kwargs.get("artifact_storage", "auto")
         settings = ArtifactStore(
-            run_directory, preferred_dataset_storage=artifact_storage
+            input_directory, preferred_dataset_storage=artifact_storage
         ).load_dataset("settings")
 
         stored_config = SimulationConfig.from_settings(settings)
@@ -320,57 +270,17 @@ class Simulation:
         runtime_kwargs = {
             name: value for name, value in kwargs.items() if name not in config_values
         }
-        return cls.from_config(config, run_directory=run_directory, **runtime_kwargs)
+        return cls.from_config(config, input_directory=input_directory, **runtime_kwargs)
 
-    def evolve_to_time(
-        self,
-        t,
-        dt=5e-4,
-        sampling_step_interval=200,
-        saving_sample_interval=10,
-        quiet=False,
-        equilibrium_initialization=True,
-        run_dynamic=True,
-        run_equilibrium=None,
-    ):
-        """Evolve the inductive solution to a specified time.
-
-        Parameters
-        ----------
-        t : float
-            Target time to evolve to in seconds.
-        dt : float, optional
-            Time step size in seconds.
-        sampling_step_interval : int, optional
-            Number of steps between samples.
-        saving_sample_interval : int, optional
-            Number of samples between saves.
-        quiet : bool, optional
-            Whether to suppress progress output.
-        equilibrium_initialization : bool, optional
-            Whether to initialize a new dynamic run from equilibrium.
-        run_dynamic : bool, optional
-            Whether to run and save the time-dependent inductive
-            solution.
-        run_equilibrium : bool, optional
-            Whether to calculate and save the instantaneous equilibrium
-            solution. Defaults to ``self.config.save_equilibria``.
-        """
-        return self._runner.evolve_to_time(
-            t,
-            dt=dt,
-            sampling_step_interval=sampling_step_interval,
-            saving_sample_interval=saving_sample_interval,
-            quiet=quiet,
-            equilibrium_initialization=equilibrium_initialization,
-            run_dynamic=run_dynamic,
-            run_equilibrium=run_equilibrium,
-        )
-
-    def impose_equilibrium(self, time=None, interpolation=True, save=True, quiet=False):
-        """Solve the instantaneous induction equilibrium."""
-        return self._runner.impose_equilibrium(
-            time=time, interpolation=interpolation, save=save, quiet=quiet
+    def write_manifest(self, *, source="manual", notes=(), metadata=None):
+        """Write the manifest for this reusable input package."""
+        return write_input_manifest(
+            self.input_directory,
+            self.config,
+            input_datasets=tuple(key for key in INPUT_DATASET_KEYS if key in self.inputs),
+            source=source,
+            notes=notes,
+            metadata=metadata,
         )
 
     def set_FAC(
@@ -425,43 +335,6 @@ class Simulation:
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
-        )
-
-    def set_jr(
-        self,
-        jr=None,
-        lat=None,
-        lon=None,
-        theta=None,
-        phi=None,
-        time=None,
-        sqrt_weights=None,
-        reg_lambda=None,
-        pinv_rtol=1e-15,
-        *,
-        jr_coefficients=None,
-    ):
-        """Set radial current through the historical ``set_jr`` name.
-
-        .. deprecated::
-            Use :meth:`set_boundary_jr` instead.
-        """
-        warnings.warn(
-            "Simulation.set_jr() is deprecated; use set_boundary_jr().",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.set_boundary_jr(
-            boundary_jr=jr,
-            lat=lat,
-            lon=lon,
-            theta=theta,
-            phi=phi,
-            time=time,
-            sqrt_weights=sqrt_weights,
-            reg_lambda=reg_lambda,
-            pinv_rtol=pinv_rtol,
-            boundary_jr_coefficients=jr_coefficients,
         )
 
     def set_boundary_jr(
@@ -802,10 +675,6 @@ class Simulation:
             pinv_rtol=pinv_rtol,
         )
 
-    def set_u(self, *args, **kwargs):
-        """Set neutral wind velocities using the historical API name."""
-        return self.set_neutral_wind(*args, **kwargs)
-
     def set_Q_eff(
         self,
         Q_eff_theta=None,
@@ -993,7 +862,7 @@ class Simulation:
         pinv_rtol=1e-15,
     ):
         """Return model-grid Q_eff equivalent to wind forcing."""
-        if "conductance" not in self.run_data.input_series.datasets:
+        if "conductance" not in self.data.input_series.datasets:
             raise RuntimeError(
                 "Ionospheric resistance or conductance must be set before "
                 "calculating Q_eff from wind."
@@ -1013,3 +882,247 @@ class Simulation:
             pinv_rtol=pinv_rtol,
         )
         return self._input_pipeline.evaluate_Q_eff_from_neutral_wind(input_time, wind_coeff_rows)
+
+
+class Simulation(InputPreparation):
+    """Configure, drive, evolve, and persist one coupled MIT simulation.
+
+    A simulation supports the same input setters as
+    :class:`InputPreparation`, then adds the electrodynamic response and
+    time-evolution runner.
+    """
+
+    def __init__(
+        self,
+        simulation_directory=None,
+        Nmax=20,
+        Mmax=20,
+        Ncs=30,
+        RI=EARTH_RADIUS_M + 110.0e3,
+        RM=None,
+        magnetic_boundary_shielding=False,
+        main_field_kind="dipole",
+        main_field_epoch=None,
+        main_field_B0=None,
+        fac_integration_radii=None,
+        enable_pfac_coupling=True,
+        enable_interhemispheric_coupling=False,
+        interhemispheric_coupling_latitude=50,
+        interhemispheric_electric_field_weight=1e-5,
+        boundary_jr_projection_basis=None,
+        boundary_Br_projection_basis=None,
+        conductance_projection_basis=None,
+        u_projection_basis=None,
+        Q_eff_projection_basis=None,
+        E_neutral_wind_projection_basis=None,
+        t0="2020-01-01 00:00:00",
+        save_equilibria=True,
+        integrator="euler",
+        least_squares_solver=None,
+        least_squares_preconditioner="pinv",
+        reuse_preconditioner=False,
+        toroidal_potential_regularization_lambda=0.0,
+        artifact_storage="auto",
+        operator_cache_directory=None,
+        backend="auto",
+        horizontal_basis_kind="SH",
+        area_weighted_least_squares=False,
+    ):
+        """Initialize a coupled MIT simulation.
+
+        Parameters
+        ----------
+        simulation_directory : path-like, optional
+            Directory for persisted settings, inputs, and outputs.
+        Nmax, Mmax, Ncs : int, optional
+            Spherical-harmonic truncation and cubed-sphere resolution.
+        RI, RM : float, optional
+            Ionospheric and magnetospheric radii in meters.
+        magnetic_boundary_shielding : bool, optional
+            Impose a shielding condition at ``RM``.
+        main_field_kind, main_field_epoch, main_field_B0 : optional
+            Main-field model, decimal-year epoch, and optional field
+            magnitude override.
+        fac_integration_radii : array-like, optional
+            Radii used to integrate the FAC poloidal field.
+        enable_pfac_coupling : bool, optional
+            Include the FAC poloidal field in the coupled response.
+        enable_interhemispheric_coupling : bool, optional
+            Couple conjugate current and electric-field solutions.
+        interhemispheric_coupling_latitude : float, optional
+            Absolute latitude bounding the coupled low-latitude region.
+        interhemispheric_electric_field_weight : float, optional
+            Relative least-squares weight of the conjugate constraint.
+        boundary_jr_projection_basis, boundary_Br_projection_basis,
+        conductance_projection_basis, u_projection_basis,
+        Q_eff_projection_basis, E_neutral_wind_projection_basis :
+            Input storage bases. Each defaults to the corresponding
+            choice derived by :class:`SimulationConfig`.
+        t0 : str, optional
+            Physical start time.
+        save_equilibria : bool, optional
+            Save instantaneous induction equilibria by default.
+        integrator : str, optional
+            Integrator used for ``induced_Br`` evolution.
+        least_squares_solver, least_squares_preconditioner : optional
+            Toroidal-potential solver and preconditioner.
+        reuse_preconditioner : bool, optional
+            Reuse a compatible iterative-solver preconditioner.
+        toroidal_potential_regularization_lambda : float, optional
+            Regularization strength for the toroidal-potential solve.
+        artifact_storage : {'auto', 'netcdf', 'zarr'}, optional
+            Preferred storage backend for newly saved artifacts.
+        operator_cache_directory : path-like, optional
+            Shared cache for deterministic numerical operators.
+        backend : {'auto', 'numpy', 'jax', bool}, optional
+            Array backend.
+        horizontal_basis_kind : {'SH', 'CS'}, optional
+            Horizontal surface basis.
+        area_weighted_least_squares : bool, optional
+            Use surface-area weights for projections without explicit
+            weights.
+        """
+        config = SimulationConfig(
+            Nmax=Nmax,
+            Mmax=Mmax,
+            Ncs=Ncs,
+            RI=RI,
+            RM=RM,
+            magnetic_boundary_shielding=magnetic_boundary_shielding,
+            interhemispheric_coupling_latitude=interhemispheric_coupling_latitude,
+            enable_pfac_coupling=enable_pfac_coupling,
+            enable_interhemispheric_coupling=enable_interhemispheric_coupling,
+            fac_integration_radii=fac_integration_radii,
+            interhemispheric_electric_field_weight=interhemispheric_electric_field_weight,
+            main_field_kind=main_field_kind,
+            main_field_epoch=main_field_epoch,
+            main_field_B0=main_field_B0,
+            boundary_jr_projection_basis=boundary_jr_projection_basis,
+            boundary_Br_projection_basis=boundary_Br_projection_basis,
+            conductance_projection_basis=conductance_projection_basis,
+            u_projection_basis=u_projection_basis,
+            Q_eff_projection_basis=Q_eff_projection_basis,
+            E_neutral_wind_projection_basis=E_neutral_wind_projection_basis,
+            horizontal_basis_kind=horizontal_basis_kind,
+            area_weighted_least_squares=area_weighted_least_squares,
+            t0=t0,
+            save_equilibria=save_equilibria,
+            integrator=integrator,
+            least_squares_solver=least_squares_solver,
+            least_squares_preconditioner=least_squares_preconditioner,
+            reuse_preconditioner=reuse_preconditioner,
+            toroidal_potential_regularization_lambda=toroidal_potential_regularization_lambda,
+        )
+        self._open_input_preparation(
+            config,
+            directory=simulation_directory,
+            artifact_storage=artifact_storage,
+            operator_cache_directory=operator_cache_directory,
+            backend=backend,
+        )
+        self._open_simulation_runtime()
+
+    def _open_simulation_runtime(self):
+        """Open outputs and the runner after the shared input state."""
+        self.simulation_directory = self.data.simulation_directory
+        self.outputs = self.data.output_series.datasets
+        self._require_response()
+        current_output = self.outputs.get("dynamic", self.outputs.get("equilibrium"))
+        self.current_time = (
+            np.max(current_output.time.values) if current_output is not None else np.float64(0)
+        )
+        self._runner = SimulationRunner(self)
+
+    def __repr__(self):
+        """Summarize the live simulation for interactive sessions."""
+        inputs = ", ".join(sorted(self.inputs)) or "none"
+        outputs = ", ".join(sorted(self.outputs)) or "none"
+        return (
+            f"Simulation(Nmax={self.config.Nmax}, Mmax={self.config.Mmax}, "
+            f"Ncs={self.config.Ncs}, current_time={float(self.current_time):g}, "
+            f"inputs=[{inputs}], outputs=[{outputs}], "
+            f"simulation_directory={self.simulation_directory!r})"
+        )
+
+    @property
+    def response(self):
+        """Return the lazily constructed electrodynamic response."""
+        return self._require_response()
+
+    @classmethod
+    def from_config(
+        cls,
+        config: SimulationConfig,
+        *,
+        simulation_directory=None,
+        artifact_storage="auto",
+        operator_cache_directory=None,
+        backend="auto",
+    ):
+        """Construct a simulation from a normalized configuration."""
+        if not isinstance(config, SimulationConfig):
+            raise TypeError("Simulation.from_config requires a SimulationConfig.")
+        simulation = cls.__new__(cls)
+        simulation._open_input_preparation(
+            config,
+            directory=simulation_directory,
+            artifact_storage=artifact_storage,
+            operator_cache_directory=operator_cache_directory,
+            backend=backend,
+        )
+        simulation._open_simulation_runtime()
+        return simulation
+
+    @classmethod
+    def from_directory(cls, simulation_directory, **kwargs):
+        """Construct a simulation from one simulation directory."""
+        simulation_directory = ArtifactStore.require_artifact_directory(simulation_directory, ("settings",))
+        artifact_storage = kwargs.get("artifact_storage", "auto")
+        settings = ArtifactStore(
+            simulation_directory, preferred_dataset_storage=artifact_storage
+        ).load_dataset("settings")
+
+        stored_config = SimulationConfig.from_settings(settings)
+        config_values = stored_config.to_kwargs()
+        config_overrides = {
+            name: value
+            for name, value in kwargs.items()
+            if name in config_values and value is not None
+        }
+        config = SimulationConfig(**{**config_values, **config_overrides})
+        runtime_kwargs = {
+            name: value for name, value in kwargs.items() if name not in config_values
+        }
+        return cls.from_config(config, simulation_directory=simulation_directory, **runtime_kwargs)
+
+    def evolve_to_time(
+        self,
+        t,
+        dt=5e-4,
+        sampling_step_interval=200,
+        saving_sample_interval=10,
+        quiet=False,
+        equilibrium_initialization=True,
+        run_dynamic=True,
+        run_equilibrium=None,
+    ):
+        """Evolve the inductive solution to a specified time."""
+        return self._runner.evolve_to_time(
+            t,
+            dt=dt,
+            sampling_step_interval=sampling_step_interval,
+            saving_sample_interval=saving_sample_interval,
+            quiet=quiet,
+            equilibrium_initialization=equilibrium_initialization,
+            run_dynamic=run_dynamic,
+            run_equilibrium=run_equilibrium,
+        )
+
+    def impose_equilibrium(self, time=None, interpolation=True, save=True, quiet=False):
+        """Solve the instantaneous induction equilibrium."""
+        return self._runner.impose_equilibrium(
+            time=time, interpolation=interpolation, save=save, quiet=quiet
+        )
+
+
+__all__ = ["InputPreparation", "Simulation"]

@@ -6,8 +6,8 @@ import pynamit
 import dipole
 import datetime
 import h5py as h5
-from pynamit.visualization.map_coordinates import MapCoordinateContext
-from pynamit.visualization.input_projection_comparison import plot_input_projection_comparison
+from pynamit.plotting.map_coordinates import MapCoordinateContext
+from pynamit.workflows.mage.diagnostics import plot_input_projection_comparison
 
 RE = 6381e3
 RI = 6.5e6
@@ -52,7 +52,7 @@ def dipole_radial_sampling(r_min, r_max, n_steps):
     return rk, angles
 
 
-run_directory = "results_mage_2011"
+simulation_directory = "results_mage_2011"
 Nmax, Mmax, Ncs = 80, 60, 60
 # rk = RI / np.cos(np.deg2rad(np.r_[0:70:2])) ** 2
 rk, _ = dipole_radial_sampling(RI, 1.5 * RI, n_steps=40)
@@ -92,7 +92,7 @@ magnetosphere_grid = kompe.Grid(lat=magnetosphere_lat, lon=magnetosphere_lon)
 print("Setting up simulation object")
 # Set up simulation object.
 simulation = pynamit.Simulation(
-    run_directory=run_directory,
+    simulation_directory=simulation_directory,
     Nmax=Nmax,
     Mmax=Mmax,
     Ncs=Ncs,
@@ -117,7 +117,7 @@ plt_lat, plt_lon = np.meshgrid(plt_lat, plt_lon)
 plt_grid = kompe.Grid(lat=plt_lat, lon=plt_lon)
 plt_evaluator = kompe.SphericalTransform(simulation.geometry.horizontal_basis, plt_grid)
 conductance_plt_evaluator = kompe.SphericalTransform(
-    simulation.run_data.schema.input_field_spaces["conductance"].representation, plt_grid
+    simulation.data.schema.input_field_spaces["conductance"].representation, plt_grid
 )
 
 time = file["time"][:]
@@ -159,7 +159,7 @@ for step in range(0, nstep):
     print("Setting jr with (abs. min, RMS, abs. max):")
     print(f"\t({np.min(np.abs(jr))}, {np.sqrt(np.mean(jr**2))}, {np.max(np.abs(jr))})")
 
-    simulation.set_jr(
+    simulation.set_boundary_jr(
         jr,
         lat=ionosphere_lat,
         lon=ionosphere_lon,
@@ -240,7 +240,7 @@ if PLOT:
 
     plot_input_projection_comparison(
         h5_filepath="mage_2011/data_H_int.h5",
-        projected_run_directory="results_mage_2011",
+        projected_simulation_directory="results_mage_2011",
         timesteps_to_plot=timesteps_for_figure,
         data_types_to_plot=data_types_for_figure,
         input_dt=10,

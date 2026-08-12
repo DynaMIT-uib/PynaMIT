@@ -13,16 +13,16 @@ from pynamit.simulation.electrodynamics import ionospheric_closure
 from pynamit.simulation.schema import INPUT_VARIABLES
 
 if TYPE_CHECKING:
-    from pynamit.simulation.api import Simulation
+    from pynamit.simulation.api import InputPreparation
 
 _WIND_FORCING_KEYS = frozenset({"u", "Q_eff", "E_neutral_wind"})
 
 
 class InputPipeline:
-    """Validate, project, and store simulation inputs."""
+    """Validate, project, and store inputs during preparation."""
 
-    def __init__(self, simulation: Simulation):
-        self.simulation = simulation
+    def __init__(self, preparation: InputPreparation):
+        self.preparation = preparation
         self._transforms_by_representation = {}
         self.projection_transforms = {}
 
@@ -30,14 +30,14 @@ class InputPipeline:
         """Return the shared projection transform for one input."""
         self._variables_for(key)
         if key not in self.projection_transforms:
-            representation = self.simulation.run_data.schema.input_field_spaces[key].representation
+            representation = self.preparation.data.schema.input_field_spaces[key].representation
             cache_key = representation.signature
             if cache_key not in self._transforms_by_representation:
                 self._transforms_by_representation[cache_key] = SphericalTransform(
                     representation,
-                    self.simulation.geometry.model_grid,
-                    grid_remap_basis=self.simulation.run_data.schema.cs_basis,
-                    area_weighted=self.simulation.config.area_weighted_least_squares,
+                    self.preparation.geometry.model_grid,
+                    grid_remap_basis=self.preparation.data.schema.cs_basis,
+                    area_weighted=self.preparation.config.area_weighted_least_squares,
                 )
             self.projection_transforms[key] = self._transforms_by_representation[cache_key]
         return self.projection_transforms[key]
@@ -51,7 +51,7 @@ class InputPipeline:
         """
         input_grid = SphericalGrid(lat=lat, lon=lon, theta=theta, phi=phi)
         field = MagneticFieldEvaluation(
-            self.simulation.geometry.main_field, input_grid, self.simulation.config.RI
+            self.preparation.geometry.main_field, input_grid, self.preparation.config.RI
         )
         return FAC * field.unit_br
 
@@ -115,7 +115,7 @@ class InputPipeline:
         present = [
             other
             for other in sorted(_WIND_FORCING_KEYS - {key})
-            if other in self.simulation.run_data.input_series.datasets
+            if other in self.preparation.data.input_series.datasets
         ]
         if present:
             representations = ", ".join(repr(name) for name in sorted({key, *present}))
@@ -265,7 +265,7 @@ class InputPipeline:
         coeff_rows = self.projection_transform_for(key).analyze_helmholtz_samples(
             input_data[key],
             input_grid=input_grid,
-            analysis_basis=self.simulation.run_data.schema.input_projection_bases[key],
+            analysis_basis=self.preparation.data.schema.input_projection_bases[key],
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
@@ -275,20 +275,20 @@ class InputPipeline:
 
     def evaluate_Q_eff_from_neutral_wind(self, input_time, wind_coeff_rows):
         """Evaluate wind-equivalent Q_eff samples on the model grid."""
-        response = self.simulation.response
-        grid = self.simulation.geometry.model_grid
-        wind_representation = self.simulation.run_data.schema.input_field_spaces[
+        response = self.preparation._require_response()
+        grid = self.preparation.geometry.model_grid
+        wind_representation = self.preparation.data.schema.input_field_spaces[
             "u"
         ].representation
         wind_synthesis = wind_representation.helmholtz_synthesis_operator(grid)
         Q_eff_values = []
         for time_value, wind_coeffs in zip(input_time, wind_coeff_rows, strict=True):
-            response.activate_inputs_at_time(self.simulation.run_data.input_series, time_value)
+            response.activate_inputs_at_time(self.preparation.data.input_series, time_value)
             wind_on_grid = np.asarray(wind_synthesis.matvec(wind_coeffs)).reshape((2, grid.size))
             Q_eff_values.append(
                 ionospheric_closure.Q_eff_on_grid_from_wind(
                     wind_on_grid,
-                    self.simulation.geometry.wind_motional_E_tensor,
+                    self.preparation.geometry.wind_motional_E_tensor,
                     response.resistance_tensor_on_grid,
                 )
             )
@@ -300,22 +300,22 @@ class InputPipeline:
         self, input_time, wind_coeff_rows, *, reg_lambda=None, pinv_rtol=1e-15
     ):
         """Fit stored Q_eff coefficients to wind-driven E."""
-        response = self.simulation.response
-        q_field_space = self.simulation.run_data.schema.input_field_spaces["Q_eff"]
+        response = self.preparation._require_response()
+        q_field_space = self.preparation.data.schema.input_field_spaces["Q_eff"]
         q_synthesis = q_field_space.representation.helmholtz_synthesis_operator(
-            self.simulation.geometry.model_grid
+            self.preparation.geometry.model_grid
         )
         q_coeff_rows = []
         cached_resistance_tensor = None
         Q_eff_to_E = None
         for time_value, wind_coeffs in zip(input_time, wind_coeff_rows, strict=True):
-            response.activate_inputs_at_time(self.simulation.run_data.input_series, time_value)
+            response.activate_inputs_at_time(self.preparation.data.input_series, time_value)
             E_wind_coeffs = response.u_coeffs_to_E_coeffs.matvec(wind_coeffs)
             resistance_tensor = response.resistance_tensor_on_grid
             if resistance_tensor is not cached_resistance_tensor:
                 cached_resistance_tensor = resistance_tensor
                 Q_eff_to_E = ionospheric_closure.tangential_current_to_E_coeffs_operator(
-                    self.simulation.geometry.helmholtz_analysis_operator,
+                    self.preparation.geometry.helmholtz_analysis_operator,
                     resistance_tensor,
                     q_synthesis,
                 )
@@ -345,7 +345,7 @@ class InputPipeline:
         input_time = self.resolve_input_times(time, input_data)
         input_grid = SphericalGrid(lat=lat, lon=lon, theta=theta, phi=phi)
         transform = self.projection_transform_for(key)
-        field_space = self.simulation.run_data.schema.input_field_spaces[key]
+        field_space = self.preparation.data.schema.input_field_spaces[key]
         if field_space.field_type == "scalar" and len(input_data) > 1:
             projected_data = self.project_scalar_input_variables(
                 key,
@@ -368,7 +368,7 @@ class InputPipeline:
                 projected_values = project(
                     values,
                     input_grid=input_grid,
-                    analysis_basis=self.simulation.run_data.schema.input_projection_bases[key],
+                    analysis_basis=self.preparation.data.schema.input_projection_bases[key],
                     sqrt_weights=sqrt_weights,
                     reg_lambda=reg_lambda,
                     pinv_rtol=pinv_rtol,
@@ -403,7 +403,7 @@ class InputPipeline:
         projected = transform.analyze_scalar_samples(
             combined,
             input_grid=input_grid,
-            analysis_basis=self.simulation.run_data.schema.input_projection_bases[key],
+            analysis_basis=self.preparation.data.schema.input_projection_bases[key],
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
@@ -416,13 +416,13 @@ class InputPipeline:
     def _store_input_rows(self, key: str, projected_data: dict[str, Any], input_time) -> None:
         """Store and persist coefficient rows for one input."""
         for time_index in range(input_time.size):
-            self.simulation.run_data.input_series.add_entry(
+            self.preparation.data.input_series.add_entry(
                 key,
                 {var: projected_data[var][time_index] for var in projected_data},
                 input_time[time_index],
             )
-        self.simulation.run_data.input_series.save(
-            key, self.simulation.run_data.artifact_store
+        self.preparation.data.input_series.save(
+            key, self.preparation.data.artifact_store
         )
 
     def add_input_coefficients(self, key: str, input_data: dict[str, Any], time) -> None:
@@ -438,7 +438,7 @@ class InputPipeline:
                 raise ValueError(
                     "Time must be specified if the input data is given for multiple time values."
                 )
-            return np.atleast_1d(self.simulation.current_time)
+            return np.atleast_1d(self.preparation.current_time)
         return np.atleast_1d(time)
 
     @staticmethod
@@ -483,7 +483,7 @@ class InputPipeline:
     def _validate_projection_controls(self, key: str, *, sqrt_weights, reg_lambda) -> None:
         """Reject controls unsupported by CS storage."""
         self._variables_for(key)
-        projection_basis = getattr(self.simulation.config, f"{key}_projection_basis", None)
+        projection_basis = getattr(self.preparation.config, f"{key}_projection_basis", None)
         if (
             key == "conductance"
             and projection_basis == "CS"

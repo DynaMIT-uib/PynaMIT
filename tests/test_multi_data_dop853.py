@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from pynamit.simulation.workflows.standard import run_pynamit
+from pynamit.workflows.example import run_example
 from tests import magnetic_potential_coordinate_array
 
 
@@ -18,7 +18,7 @@ def test_multi_data_dop853(regression_approx):
     expected_n_coeffs = 228
 
     # Act.
-    simulation = run_pynamit(
+    simulation = run_example(
         final_time=15,
         dt=5,
         Nmax=10,

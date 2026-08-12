@@ -49,7 +49,7 @@ def _maxrss_label():
 
 @dataclass(frozen=True)
 class _EvolutionOptions:
-    """Validated options for one evolution run."""
+    """Validated options for one evolution request."""
 
     target_time: float
     dt: np.float64
@@ -179,7 +179,7 @@ class SimulationRunner:
             self.simulation.geometry.main_field.kind != "radial"
             and self.simulation.config.enable_pfac_coupling
         ):
-            self.simulation.run_data.save_gap_Br_response_if_missing(
+            self.simulation.data.save_gap_Br_response_if_missing(
                 self.simulation.geometry.boundary_jr_to_gap_Br_matrix, print_info=not options.quiet
             )
         self._run_loop(options, dynamic_induced_Br)
@@ -196,13 +196,13 @@ class SimulationRunner:
                 raise ValueError(
                     f"Cannot impose equilibrium at {imposed_time:g} s before the active "
                     f"checkpoint at {float(self.simulation.current_time):g} s. Start from an "
-                    "earlier run directory to create a new trajectory."
+                    "earlier simulation directory to create a new trajectory."
                 )
             self.simulation.current_time = np.float64(imposed_time)
 
         response = self.simulation.response
         response.activate_inputs_at_time(
-            self.simulation.run_data.input_series,
+            self.simulation.data.input_series,
             self.simulation.current_time,
             interpolation=interpolation,
         )
@@ -216,7 +216,7 @@ class SimulationRunner:
             and self.simulation.geometry.main_field.kind != "radial"
             and self.simulation.config.enable_pfac_coupling
         ):
-            self.simulation.run_data.save_gap_Br_response_if_missing(
+            self.simulation.data.save_gap_Br_response_if_missing(
                 self.simulation.geometry.boundary_jr_to_gap_Br_matrix, print_info=not quiet
             )
         self._record_output_snapshot(
@@ -231,12 +231,12 @@ class SimulationRunner:
             )
 
         if save:
-            self.simulation.run_data.output_series.save(
-                "dynamic", self.simulation.run_data.artifact_store
+            self.simulation.data.output_series.save(
+                "dynamic", self.simulation.data.artifact_store
             )
             if self.simulation.config.save_equilibria:
-                self.simulation.run_data.output_series.save(
-                    "equilibrium", self.simulation.run_data.artifact_store
+                self.simulation.data.output_series.save(
+                    "equilibrium", self.simulation.data.artifact_store
                 )
 
         if not quiet:
@@ -253,12 +253,12 @@ class SimulationRunner:
         raise ValueError(
             f"Target time {options.target_time:g} s precedes the active checkpoint at "
             f"{float(self.simulation.current_time):g} s, and not all requested outputs already "
-            "reach the target. Start from an earlier run directory to backfill outputs."
+            "reach the target. Start from an earlier simulation directory to backfill outputs."
         )
 
     def _initialize_induced_Br(self, options: _EvolutionOptions):
         """Return initial inductive coefficients."""
-        output_datasets = self.simulation.run_data.output_series.datasets
+        output_datasets = self.simulation.data.output_series.datasets
         if options.run_dynamic and "dynamic" in output_datasets:
             return self._resume_induced_Br(options)
         if options.run_dynamic:
@@ -273,9 +273,9 @@ class SimulationRunner:
         """Resume induced_Br coefficients from the transient output."""
         if not options.quiet:
             print("Resuming dynamic induced Br from saved output.", flush=True)
-        transient_output = self.simulation.run_data.output_series.datasets["dynamic"]
+        transient_output = self.simulation.data.output_series.datasets["dynamic"]
         self.simulation.current_time = np.max(transient_output.time.values)
-        dynamic_induced_Br = self.simulation.run_data.output_series.get_entry(
+        dynamic_induced_Br = self.simulation.data.output_series.get_entry(
             "dynamic", self.simulation.current_time, interpolation=False
         )["induced_Br"]
         return to_jax(dynamic_induced_Br) if use_jax() else dynamic_induced_Br
@@ -286,7 +286,7 @@ class SimulationRunner:
             if not options.quiet:
                 print("Initializing dynamic induced Br from equilibrium.", flush=True)
             self.simulation.response.activate_inputs_at_time(
-                self.simulation.run_data.input_series, self.simulation.current_time
+                self.simulation.data.input_series, self.simulation.current_time
             )
             E_coeffs_noninductive, _ = self.simulation.response.calculate_noninductive_response()
             return induction.equilibrium_induced_Br(
@@ -297,7 +297,7 @@ class SimulationRunner:
             print("Initializing dynamic induced Br from zero.", flush=True)
         self.simulation.current_time = np.float64(0)
         zeros = np.zeros(
-            self.simulation.run_data.schema.output_field_spaces["dynamic"][
+            self.simulation.data.schema.output_field_spaces["dynamic"][
                 "induced_Br"
             ].index_length
         )
@@ -317,7 +317,7 @@ class SimulationRunner:
 
     def _output_dataset_reaches(self, dataset_key: str, target_time: float) -> bool:
         """Return whether one saved output reaches target time."""
-        dataset = self.simulation.run_data.output_series.datasets.get(dataset_key)
+        dataset = self.simulation.data.output_series.datasets.get(dataset_key)
         if dataset is None or "time" not in dataset:
             return False
         return float(np.max(dataset.time.values)) >= float(target_time) - TIME_TOLERANCE_SECONDS
@@ -334,7 +334,7 @@ class SimulationRunner:
 
             self._report_progress(step, total_steps_estimate, options)
             self.simulation.response.activate_inputs_at_time(
-                self.simulation.run_data.input_series, self.simulation.current_time
+                self.simulation.data.input_series, self.simulation.current_time
             )
 
             E_coeffs_noninductive, boundary_jr_noninductive = (
@@ -494,7 +494,7 @@ class SimulationRunner:
                 )
             ),
         }
-        self.simulation.run_data.output_series.add_entry(
+        self.simulation.data.output_series.add_entry(
             key, output_data, self.simulation.current_time
         )
 
@@ -502,14 +502,14 @@ class SimulationRunner:
         """Persist enabled output datasets for the current sample."""
         saved_outputs = []
         if options.run_dynamic:
-            self.simulation.run_data.output_series.save(
-                "dynamic", self.simulation.run_data.artifact_store
+            self.simulation.data.output_series.save(
+                "dynamic", self.simulation.data.artifact_store
             )
             saved_outputs.append("dynamic")
 
         if options.run_equilibrium:
-            self.simulation.run_data.output_series.save(
-                "equilibrium", self.simulation.run_data.artifact_store
+            self.simulation.data.output_series.save(
+                "equilibrium", self.simulation.data.artifact_store
             )
             saved_outputs.append("equilibrium")
 

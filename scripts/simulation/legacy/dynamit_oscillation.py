@@ -33,7 +33,7 @@ rk = RI / np.cos(np.deg2rad(np.r_[0:70:2])) ** 2  # int(80 / Nmax)])) ** 2
 for JR_PERIOD in [50, 25, 10, 5, 1]:
     JR_SAMPLING_DT = JR_PERIOD / 50
 
-    run_directory = "oscillations/" + str(int(JR_PERIOD)).zfill(2) + "s"
+    simulation_directory = "oscillations/" + str(int(JR_PERIOD)).zfill(2) + "s"
 
     date = datetime.datetime(2001, 5, 12, 17, 0)
     d = dipole.Dipole(date.year)
@@ -42,7 +42,7 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
 
     # Set up simulation object.
     simulation = pynamit.Simulation(
-        run_directory=run_directory,
+        simulation_directory=simulation_directory,
         Nmax=Nmax,
         Mmax=Mmax,
         Ncs=Ncs,
@@ -116,7 +116,7 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
     jr[np.abs(jr_lat) < 50] = 0  # Filter low latitude jr
 
     if STEADY_STATE_INITIALIZATION:
-        simulation.set_jr(jr=jr, lat=jr_lat, lon=jr_lon)
+        simulation.set_boundary_jr(boundary_jr=jr, lat=jr_lat, lon=jr_lon)
 
         simulation.impose_equilibrium()
 
@@ -163,11 +163,11 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
         axs[1].set_title("Oscillation")
         axs[2].set_title("Product")
 
-        plt.savefig(run_directory + ".png")
+        plt.savefig(simulation_directory + ".png")
         plt.close()
 
     print("Setting jr", flush=True)
-    simulation.set_jr(jr=scaled_jr_values, lat=jr_lat, lon=jr_lon, time=time_values)
+    simulation.set_boundary_jr(boundary_jr=scaled_jr_values, lat=jr_lat, lon=jr_lon, time=time_values)
 
     print("Starting simulation", flush=True)
     simulation.evolve_to_time(FINAL_TIME, interpolation=True)

@@ -1,9 +1,9 @@
-"""Main entry point for running the Pynamit simulation.
+"""Main entry point for running PynaMIT's bundled example.
 
-This script runs the standard simulation workflow.
+This script prepares and runs the fixed empirical example.
 """
 
-from .simulation.workflows.standard import run_pynamit
+from .workflows.example import run_example
 
 if __name__ == "__main__":
-    run_pynamit()
+    run_example()

@@ -22,6 +22,12 @@ dependencies = [
 jax = [
     "jax>=0.4.26",
 ]
+plot = [
+    "cartopy",
+    "matplotlib",
+    "pillow",
+    "polplot @ git+https://github.com/klaundal/polplot.git@main",
+]
 gui = [
     "cartopy",
     "h5py",
@@ -32,6 +38,9 @@ gui = [
     "polplot @ git+https://github.com/klaundal/polplot.git@main",
     "zarr",
 ]
+mage = [
+    "h5py",
+]
 inputs = [
     "lompe @ git+https://github.com/klaundal/lompe.git@main",
     "pyamps",
@@ -39,7 +48,7 @@ inputs = [
 ]
 
 [project.scripts]
-pynamit-gui = "pynamit.visualization.gui:main"
+pynamit-gui = "pynamit.gui.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

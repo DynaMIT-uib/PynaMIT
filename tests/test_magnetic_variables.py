@@ -10,7 +10,7 @@ from pynamit.simulation.api import Simulation
 def test_physical_magnetic_coordinates_roundtrip(tmp_path, horizontal_basis_kind):
     """Physical fields invert their private potential maps."""
     simulation = Simulation(
-        run_directory=tmp_path / horizontal_basis_kind,
+        simulation_directory=tmp_path / horizontal_basis_kind,
         Nmax=3,
         Mmax=2,
         Ncs=6,
@@ -56,7 +56,7 @@ def test_physical_magnetic_coordinates_roundtrip(tmp_path, horizontal_basis_kind
 def test_output_schema_persists_only_physical_magnetic_variables(tmp_path):
     """Potential coordinates do not leak into persisted model output."""
     simulation = Simulation(
-        run_directory=tmp_path,
+        simulation_directory=tmp_path,
         Nmax=2,
         Mmax=1,
         Ncs=4,
@@ -64,7 +64,7 @@ def test_output_schema_persists_only_physical_magnetic_variables(tmp_path):
         artifact_storage="netcdf",
     )
 
-    assert simulation.run_data.schema.output_variables == {
+    assert simulation.data.schema.output_variables == {
         "dynamic": ("induced_Br", "boundary_jr", "Phi", "W"),
         "equilibrium": ("induced_Br", "boundary_jr", "Phi", "W"),
     }
@@ -73,7 +73,7 @@ def test_output_schema_persists_only_physical_magnetic_variables(tmp_path):
 def test_gap_response_has_physical_domain_and_codomain(tmp_path):
     """The cached gap map is explicitly current to radial field."""
     simulation = Simulation(
-        run_directory=tmp_path,
+        simulation_directory=tmp_path,
         Nmax=2,
         Mmax=1,
         Ncs=4,
@@ -82,9 +82,9 @@ def test_gap_response_has_physical_domain_and_codomain(tmp_path):
         backend="numpy",
     )
     matrix = simulation.geometry.boundary_jr_to_gap_Br_matrix
-    simulation.run_data.save_gap_Br_response_if_missing(matrix)
+    simulation.data.save_gap_Br_response_if_missing(matrix)
 
-    stored = simulation.run_data.gap_Br_response
+    stored = simulation.data.gap_Br_response
     assert stored is not None
     assert stored.attrs["input_quantity"] == "boundary_jr_at_RI"
     assert stored.attrs["output_quantity"] == "unshielded_gap_Br_at_RI"

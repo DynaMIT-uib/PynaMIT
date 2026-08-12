@@ -16,7 +16,7 @@ interhemispheric_coupling_latitude = 40
 WIND_FACTOR = 1  # Scale wind by this factor
 FLOAT_ERROR_MARGIN = 1e-6
 
-run_directory = "aurora2"
+simulation_directory = "aurora2"
 Nmax, Mmax, Ncs = 30, 30, 30
 rk = RI / np.cos(np.deg2rad(np.r_[0:70:2])) ** 2  # int(80 / Nmax)])) ** 2
 print(len(rk))
@@ -24,7 +24,7 @@ print(len(rk))
 date = datetime.datetime(2001, 5, 12, 17, 0)
 # Set up simulation object.
 simulation = pynamit.Simulation(
-    run_directory=run_directory,
+    simulation_directory=simulation_directory,
     Nmax=Nmax,
     Mmax=Mmax,
     Ncs=Ncs,

@@ -145,7 +145,7 @@ def test_main_field_components_preserve_broadcast_shape(kind):
 
 
 def test_main_field_from_config_uses_canonical_settings():
-    """Saved and live runs share one main-field constructor."""
+    """Saved and live simulations share one main-field constructor."""
     config = SimulationConfig(
         RI=EARTH_RADIUS_M + 130.0e3,
         main_field_kind="kaiju_dipole",

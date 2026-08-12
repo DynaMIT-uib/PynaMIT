@@ -8,11 +8,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from kompe import (
-    BasisView,
     GlobalCSBasis,
+    ScalarBasis,
     SHBasis,
     SolidHarmonicOperators,
-    SphericalBasis,
     SurfaceDifferentialBasis,
 )
 
@@ -44,7 +43,7 @@ OUTPUT_VARIABLES = {
 
 INPUT_DATASET_KEYS = tuple(INPUT_VARIABLES)
 OUTPUT_DATASET_KEYS = tuple(OUTPUT_VARIABLES)
-RUN_ARTIFACT_NAMES = frozenset(
+SIMULATION_ARTIFACT_NAMES = frozenset(
     {"settings", "gap_Br_response", *INPUT_DATASET_KEYS, *OUTPUT_DATASET_KEYS}
 )
 
@@ -52,7 +51,7 @@ RUN_ARTIFACT_NAMES = frozenset(
 __all__ = [
     "INPUT_DATASET_KEYS",
     "OUTPUT_DATASET_KEYS",
-    "RUN_ARTIFACT_NAMES",
+    "SIMULATION_ARTIFACT_NAMES",
     "SimulationSchema",
     "build_simulation_schema",
     "field_spaces_from_bases",
@@ -70,7 +69,7 @@ class SimulationSchema:
 
     cs_basis: GlobalCSBasis
     sh_basis: SHBasis
-    mean_free_sh_basis: BasisView
+    mean_free_sh_basis: SurfaceDifferentialBasis
     horizontal_basis: SurfaceDifferentialBasis
     solid_harmonics: SolidHarmonicOperators
     input_variables: dict[str, tuple[str, ...]]
@@ -81,7 +80,7 @@ class SimulationSchema:
 
 
 def field_spaces_from_bases(
-    bases: Mapping[str, SphericalBasis],
+    bases: Mapping[str, ScalarBasis],
     field_types: Mapping[str, str],
     mean_free_by_key: Mapping[str, bool] | None = None,
 ) -> dict[str, FieldSpace]:

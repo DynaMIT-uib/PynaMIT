@@ -8,8 +8,8 @@ import numpy as np
 import pytest
 
 from pynamit.coordinates import local_noon_longitude
-from pynamit.visualization.map_coordinates import MapCoordinateContext
-from pynamit.visualization.pynameye import PynamEye
+from pynamit.plotting.legacy import PynamEye
+from pynamit.plotting.map_coordinates import MapCoordinateContext
 
 
 class FakeDipole:

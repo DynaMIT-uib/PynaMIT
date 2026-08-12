@@ -11,7 +11,7 @@ import os
 import cartopy.crs as ccrs
 from polplot import Polarplot
 import matplotlib.pyplot as plt
-from pynamit.visualization.results import plot_global_polar_map
+from pynamit.plotting.diagnostics import plot_global_polar_map
 
 
 RE = 6381e3
@@ -29,7 +29,7 @@ JR_LAMBDA = 1e-5
 
 dt = 300
 
-run_directory = "mage-forcing"
+simulation_directory = "mage-forcing"
 Nmax, Mmax, Ncs = 40, 40, 40
 rk = RI / np.cos(np.deg2rad(np.r_[0:70:2])) ** 2
 
@@ -38,7 +38,7 @@ d = dipole.Dipole(date.year)
 
 # Set up simulation object.
 simulation = pynamit.Simulation(
-    run_directory=run_directory,
+    simulation_directory=simulation_directory,
     Nmax=Nmax,
     Mmax=Mmax,
     Ncs=Ncs,
@@ -56,7 +56,7 @@ simulation = pynamit.Simulation(
 state_field_space = pynamit.FieldSpace.from_representation(
     simulation.geometry.horizontal_basis, field_type="scalar"
 )
-conductance_field_space = simulation.run_data.schema.input_field_spaces["conductance"]
+conductance_field_space = simulation.data.schema.input_field_spaces["conductance"]
 
 mage_dir = "./mage_data/"
 mage_tag = "msphere"
@@ -301,7 +301,7 @@ for step in range(0, nstep):
     )
     field_evaluation = pynamit.MagneticFieldEvaluation(simulation.geometry.main_field, grid, RI)
     jr_input = full_current_padded.flatten() * field_evaluation.unit_br
-    simulation.set_jr(
+    simulation.set_boundary_jr(
         jr_input,
         theta=full_theta_padded_centered.flatten(),
         phi=full_phi_padded_centered.flatten(),

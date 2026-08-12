@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 from kompe.constants import EARTH_RADIUS_M
 
+import pynamit
 from pynamit.external_input_contracts import (
     BOUNDARY_JR_PROVIDER_SPEC,
     CONDUCTANCE_PROVIDER_SPEC,
@@ -16,37 +17,40 @@ from pynamit.external_input_contracts import (
 from pynamit.geomagnetism import MainField, decimal_year
 from pynamit.simulation.api import Simulation
 from pynamit.simulation.config import SimulationConfig
-from pynamit.simulation.workflows import prepared_inputs as prepared_inputs_module
-from pynamit.simulation.workflows.prepared_inputs import (
+from pynamit.simulation.input_manifest import (
     INPUT_MANIFEST_FILENAME,
-    RUN_MANIFEST_FILENAME,
+    available_prepared_inputs,
     clear_prepared_input_package,
     input_dataset_requirements,
     input_geometry_settings,
     input_projection_settings,
-    load_prepared_inputs_into_simulation,
-    prepare_pynamit_inputs,
     prepared_input_contract,
     read_input_manifest,
-    run_pynamit_from_inputs,
     validate_input_manifest,
     validate_prepared_input_compatibility,
     write_input_manifest,
 )
 from pynamit.storage import ArtifactStore
+from pynamit.workflows import example_inputs as example_inputs_module
+from pynamit.workflows.example_inputs import prepare_example_inputs
+from pynamit.workflows.prepared_inputs import (
+    SIMULATION_MANIFEST_FILENAME,
+    load_prepared_inputs_into_simulation,
+    run_from_inputs,
+)
 
 
 def test_geographic_wind_is_rotated_into_model_coordinates():
     """Prepared dipole winds transform positions and components."""
     main_field = MainField(kind="dipole", epoch=2020)
-    event_time = prepared_inputs_module._DEFAULT_INPUT_TIME
+    event_time = example_inputs_module._EXAMPLE_EVENT_TIME
     lat = np.array([20.0, 60.0])
     lon = np.array([-30.0, 80.0])
     u_theta = np.array([[10.0, 20.0], [30.0, 40.0]])
     u_phi = np.array([[5.0, 6.0], [7.0, 8.0]])
 
     theta_model, phi_model, model_lat, model_lon = (
-        prepared_inputs_module._wind_to_model_coordinates(
+        example_inputs_module._wind_to_model_coordinates(
             main_field, u_theta, u_phi, lat, lon, event_time=event_time
         )
     )
@@ -68,9 +72,9 @@ def test_geographic_wind_is_rotated_into_model_coordinates():
 def test_default_inputs_share_one_provider_request_cache(tmp_path, monkeypatch):
     """Hardy, AMPS, and HWM receive one shared request object."""
     captured = {"requests": []}
-    original_set_conductance = prepared_inputs_module.Simulation.set_conductance
-    original_set_boundary_jr = prepared_inputs_module.Simulation.set_boundary_jr
-    original_set_neutral_wind = prepared_inputs_module.Simulation.set_neutral_wind
+    original_set_conductance = example_inputs_module.InputPreparation.set_conductance
+    original_set_boundary_jr = example_inputs_module.InputPreparation.set_boundary_jr
+    original_set_neutral_wind = example_inputs_module.InputPreparation.set_neutral_wind
 
     def fake_conductance(_date, lat=None, lon=None, time=None, *, request):
         assert lat is None and lon is None and time is None
@@ -105,20 +109,20 @@ def test_default_inputs_share_one_provider_request_cache(tmp_path, monkeypatch):
         captured["wind_storage"] = (np.asarray(lat).copy(), np.asarray(lon).copy())
         return original_set_neutral_wind(self, *args, lat=lat, lon=lon, **kwargs)
 
-    monkeypatch.setattr(prepared_inputs_module, "get_conductance_inputs", fake_conductance)
-    monkeypatch.setattr(prepared_inputs_module, "get_jr_inputs", fake_boundary_jr)
-    monkeypatch.setattr(prepared_inputs_module, "get_wind_inputs", fake_wind)
+    monkeypatch.setattr(example_inputs_module, "get_conductance_inputs", fake_conductance)
+    monkeypatch.setattr(example_inputs_module, "get_jr_inputs", fake_boundary_jr)
+    monkeypatch.setattr(example_inputs_module, "get_wind_inputs", fake_wind)
     monkeypatch.setattr(
-        prepared_inputs_module.Simulation, "set_conductance", capture_set_conductance
+        example_inputs_module.InputPreparation, "set_conductance", capture_set_conductance
     )
     monkeypatch.setattr(
-        prepared_inputs_module.Simulation, "set_boundary_jr", capture_set_boundary_jr
+        example_inputs_module.InputPreparation, "set_boundary_jr", capture_set_boundary_jr
     )
     monkeypatch.setattr(
-        prepared_inputs_module.Simulation, "set_neutral_wind", capture_set_neutral_wind
+        example_inputs_module.InputPreparation, "set_neutral_wind", capture_set_neutral_wind
     )
 
-    prepared = prepare_pynamit_inputs(
+    prepared = prepare_example_inputs(
         tmp_path / "inputs",
         final_time=0.0,
         Nmax=2,
@@ -128,6 +132,10 @@ def test_default_inputs_share_one_provider_request_cache(tmp_path, monkeypatch):
         use_wind=True,
         artifact_storage="netcdf",
     )
+    assert isinstance(prepared, pynamit.InputPreparation)
+    assert not hasattr(prepared, "_runner")
+    assert not hasattr(prepared, "outputs")
+    assert not hasattr(prepared, "response")
     assert len(captured["requests"]) == 3
     assert captured["requests"][0] is captured["requests"][1] is captured["requests"][2]
     request = captured["requests"][0]
@@ -139,7 +147,7 @@ def test_default_inputs_share_one_provider_request_cache(tmp_path, monkeypatch):
 
     model_grid = prepared.geometry.model_grid
     expected_geo = prepared.geometry.main_field.model_to_geo_coordinates(
-        model_grid.lat, model_grid.lon, event_time=prepared_inputs_module._DEFAULT_INPUT_TIME
+        model_grid.lat, model_grid.lon, event_time=example_inputs_module._EXAMPLE_EVENT_TIME
     )
     np.testing.assert_allclose(request.source_grid.lat, expected_geo[0])
     np.testing.assert_allclose(request.source_grid.lon, expected_geo[1])
@@ -162,10 +170,10 @@ def test_adapter_cannot_return_another_source_grid(tmp_path, monkeypatch):
         values = np.ones(source.size)
         return values, values, source.lat + 0.5, source.lon
 
-    monkeypatch.setattr(prepared_inputs_module, "get_conductance_inputs", wrong_conductance)
+    monkeypatch.setattr(example_inputs_module, "get_conductance_inputs", wrong_conductance)
 
     with pytest.raises(ValueError, match="shared geocentric_geographic source grid"):
-        prepare_pynamit_inputs(
+        prepare_example_inputs(
             tmp_path / "inputs",
             final_time=0.0,
             Nmax=2,
@@ -176,10 +184,10 @@ def test_adapter_cannot_return_another_source_grid(tmp_path, monkeypatch):
         )
 
 
-def test_prepared_input_compatibility_ignores_run_only_settings():
+def test_prepared_input_compatibility_ignores_simulation_only_settings():
     """Run-only settings can change without invalidating inputs."""
     input_config = SimulationConfig(Nmax=4, Mmax=3, Ncs=8)
-    run_config = SimulationConfig(
+    simulation_config = SimulationConfig(
         Nmax=4,
         Mmax=3,
         Ncs=8,
@@ -191,19 +199,19 @@ def test_prepared_input_compatibility_ignores_run_only_settings():
         integrator="exponential",
     )
 
-    validate_prepared_input_compatibility(input_config.to_dataset(), run_config.to_dataset())
+    validate_prepared_input_compatibility(input_config.to_dataset(), simulation_config.to_dataset())
     validate_prepared_input_compatibility(
-        input_config.to_dataset(), run_config.to_dataset(), input_datasets=("u",)
+        input_config.to_dataset(), simulation_config.to_dataset(), input_datasets=("u",)
     )
 
 
 def test_prepared_input_compatibility_catches_projection_mismatch():
     """Projection settings remain part of the input package boundary."""
     input_config = SimulationConfig(Nmax=4, Mmax=3, Ncs=8)
-    run_config = SimulationConfig(Nmax=5, Mmax=3, Ncs=8)
+    simulation_config = SimulationConfig(Nmax=5, Mmax=3, Ncs=8)
 
     with pytest.raises(ValueError, match="Nmax"):
-        validate_prepared_input_compatibility(input_config.to_dataset(), run_config.to_dataset())
+        validate_prepared_input_compatibility(input_config.to_dataset(), simulation_config.to_dataset())
 
 
 def test_input_manifest_records_projection_settings(tmp_path):
@@ -305,6 +313,17 @@ def test_clear_prepared_input_package_removes_only_pynamit_artifacts(tmp_path):
     assert notes.read_text(encoding="utf-8") == "keep"
 
 
+def test_available_prepared_inputs_follows_schema_order(tmp_path):
+    """Package inspection reports only stored input streams."""
+    preparation = pynamit.InputPreparation(
+        input_directory=tmp_path, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf"
+    )
+    shape = preparation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
+    preparation.set_boundary_jr(boundary_jr_coefficients=np.zeros(shape), time=0.0)
+
+    assert available_prepared_inputs(tmp_path, artifact_storage="netcdf") == ("boundary_jr",)
+
+
 def test_input_manifest_validation_catches_contract_mismatch(tmp_path):
     """Manifest contracts should describe the settings artifact."""
     config = SimulationConfig(Nmax=4, Mmax=3, Ncs=8)
@@ -322,10 +341,10 @@ def test_input_manifest_validation_catches_contract_mismatch(tmp_path):
 def test_prepared_inputs_require_matching_main_field():
     """Projected packages cannot be reused with another main field."""
     input_config = SimulationConfig(Nmax=4, Mmax=3, Ncs=8, main_field_kind="igrf")
-    run_config = SimulationConfig(Nmax=4, Mmax=3, Ncs=8, main_field_kind="dipole")
+    simulation_config = SimulationConfig(Nmax=4, Mmax=3, Ncs=8, main_field_kind="dipole")
 
     with pytest.raises(ValueError, match="main_field_kind"):
-        validate_prepared_input_compatibility(input_config.to_dataset(), run_config.to_dataset())
+        validate_prepared_input_compatibility(input_config.to_dataset(), simulation_config.to_dataset())
 
 
 def test_prepared_inputs_require_matching_input_time_origin():
@@ -333,49 +352,49 @@ def test_prepared_inputs_require_matching_input_time_origin():
     input_config = SimulationConfig(
         Nmax=4, Mmax=3, Ncs=8, main_field_kind="kaiju_dipole", t0="2011-10-24 18:00:10"
     )
-    run_config = SimulationConfig(
+    simulation_config = SimulationConfig(
         Nmax=4, Mmax=3, Ncs=8, main_field_kind="kaiju_dipole", t0="2011-10-24 18:10:10"
     )
 
     with pytest.raises(ValueError, match="input_time_origin"):
-        validate_prepared_input_compatibility(input_config.to_dataset(), run_config.to_dataset())
+        validate_prepared_input_compatibility(input_config.to_dataset(), simulation_config.to_dataset())
 
 
 def test_br_inputs_require_matching_magnetosphere_radius():
     """Boundary Br inputs are tied to their projection radius."""
     input_config = SimulationConfig(Nmax=4, Mmax=3, Ncs=8, RM=7.0e6)
-    run_config = SimulationConfig(Nmax=4, Mmax=3, Ncs=8, RM=8.0e6)
+    simulation_config = SimulationConfig(Nmax=4, Mmax=3, Ncs=8, RM=8.0e6)
 
-    validate_prepared_input_compatibility(input_config.to_dataset(), run_config.to_dataset())
+    validate_prepared_input_compatibility(input_config.to_dataset(), simulation_config.to_dataset())
 
     with pytest.raises(ValueError, match="RM"):
         validate_prepared_input_compatibility(
-            input_config.to_dataset(), run_config.to_dataset(), input_datasets=("boundary_Br",)
+            input_config.to_dataset(), simulation_config.to_dataset(), input_datasets=("boundary_Br",)
         )
 
 
 def test_prepare_and_run_from_inputs_smoke(tmp_path):
     """A tiny prepared package can drive a self-contained run."""
     input_directory = tmp_path / "inputs"
-    run_directory = tmp_path / "run"
-    selected_run_directory = tmp_path / "selected_run"
+    simulation_directory = tmp_path / "simulation"
+    selected_simulation_directory = tmp_path / "selected_simulation"
 
-    prepared = prepare_pynamit_inputs(
+    prepared = prepare_example_inputs(
         input_directory, final_time=0.0, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf"
     )
-    assert prepared.run_data.run_directory == str(input_directory.resolve())
+    assert prepared.data.simulation_directory == str(input_directory.resolve())
     assert prepared.config.t0 == "2001-05-12 21:45:00"
     assert prepared.config.main_field_epoch == pytest.approx(
-        decimal_year(prepared_inputs_module._DEFAULT_INPUT_TIME)
+        decimal_year(example_inputs_module._EXAMPLE_EVENT_TIME)
     )
     assert (input_directory / INPUT_MANIFEST_FILENAME).exists()
     manifest = read_input_manifest(input_directory)
     assert manifest["input_contract"]["coefficient_space"]["Nmax"] == 2
     assert manifest["metadata"]["external_input_source"] in {"auto", "fallback", "native"}
 
-    run = run_pynamit_from_inputs(
+    simulation = run_from_inputs(
         input_directory,
-        run_directory=run_directory,
+        simulation_directory=simulation_directory,
         final_time=0.0,
         dt=0.01,
         RM=2 * EARTH_RADIUS_M,
@@ -384,20 +403,20 @@ def test_prepare_and_run_from_inputs_smoke(tmp_path):
         artifact_storage="netcdf",
     )
 
-    assert run.run_data.run_directory == str(run_directory.resolve())
-    assert run.config.fac_integration_radii[-1] == pytest.approx(run.config.RM)
-    assert "dynamic" in run.run_data.output_series.datasets
-    assert "conductance" in run.run_data.input_series.datasets
-    assert (run_directory / "conductance.ncdf").exists()
-    assert (run_directory / RUN_MANIFEST_FILENAME).exists()
-    run_manifest = json.loads((run_directory / RUN_MANIFEST_FILENAME).read_text(encoding="utf-8"))
-    assert run_manifest["version"] == 3
-    assert run_manifest["input_manifest"] == manifest
-    assert run_manifest["time_evolution"]["sampling_step_interval"] == 2
+    assert simulation.data.simulation_directory == str(simulation_directory.resolve())
+    assert simulation.config.fac_integration_radii[-1] == pytest.approx(simulation.config.RM)
+    assert "dynamic" in simulation.data.output_series.datasets
+    assert "conductance" in simulation.data.input_series.datasets
+    assert (simulation_directory / "conductance.ncdf").exists()
+    assert (simulation_directory / SIMULATION_MANIFEST_FILENAME).exists()
+    simulation_manifest = json.loads((simulation_directory / SIMULATION_MANIFEST_FILENAME).read_text(encoding="utf-8"))
+    assert simulation_manifest["version"] == 4
+    assert simulation_manifest["input_manifest"] == manifest
+    assert simulation_manifest["time_evolution"]["sampling_step_interval"] == 2
 
-    selected_run = run_pynamit_from_inputs(
+    selected_simulation = run_from_inputs(
         input_directory,
-        run_directory=selected_run_directory,
+        simulation_directory=selected_simulation_directory,
         enabled_inputs=("conductance",),
         final_time=0.0,
         dt=0.01,
@@ -406,58 +425,81 @@ def test_prepare_and_run_from_inputs_smoke(tmp_path):
         artifact_storage="netcdf",
     )
 
-    assert set(selected_run.run_data.input_series.datasets) == {"conductance"}
-    assert not (selected_run_directory / "boundary_jr.ncdf").exists()
+    assert set(selected_simulation.data.input_series.datasets) == {"conductance"}
+    assert not (selected_simulation_directory / "boundary_jr.ncdf").exists()
+
+
+def test_manual_input_preparation_writes_a_reusable_package(tmp_path):
+    """Interactive preparation stores coefficients without a runner."""
+    input_directory = tmp_path / "inputs"
+    preparation = pynamit.InputPreparation(
+        input_directory=input_directory, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf"
+    )
+    assert not hasattr(preparation, "simulation_directory")
+    shape = preparation.data.schema.input_field_spaces["conductance"].coefficient_shape
+    preparation.set_conductance(
+        log_magnitude_coefficients=np.zeros(shape),
+        log_ratio_coefficients=np.zeros(shape),
+        time=0.0,
+    )
+
+    manifest = preparation.write_manifest(source="test")
+    reopened = pynamit.InputPreparation.from_directory(input_directory, artifact_storage="netcdf")
+
+    assert manifest["source"] == "test"
+    assert manifest["input_contract"]["input_datasets"] == ["conductance"]
+    assert set(reopened.inputs) == {"conductance"}
+    assert not hasattr(reopened, "_runner")
 
 
 def test_run_from_inputs_rejects_changed_input_identity(tmp_path):
     """A trajectory cannot silently change its input selection."""
     input_directory = tmp_path / "inputs"
-    run_directory = tmp_path / "run"
-    prepare_pynamit_inputs(
+    simulation_directory = tmp_path / "simulation"
+    prepare_example_inputs(
         input_directory, final_time=0.0, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf"
     )
-    run_pynamit_from_inputs(
+    run_from_inputs(
         input_directory,
-        run_directory=run_directory,
+        simulation_directory=simulation_directory,
         final_time=0.0,
         RM=2 * EARTH_RADIUS_M,
         artifact_storage="netcdf",
     )
 
     with pytest.raises(ValueError, match="different trajectory identity"):
-        run_pynamit_from_inputs(
+        run_from_inputs(
             input_directory,
-            run_directory=run_directory,
+            simulation_directory=simulation_directory,
             enabled_inputs=("conductance",),
             final_time=0.0,
             RM=2 * EARTH_RADIUS_M,
             artifact_storage="netcdf",
         )
 
-    assert (run_directory / "boundary_jr.ncdf").exists()
+    assert (simulation_directory / "boundary_jr.ncdf").exists()
 
 
 def test_run_from_inputs_allows_prepared_package_relocation(tmp_path):
     """The input manifest identifies a relocated package."""
     input_directory = tmp_path / "inputs"
     relocated_directory = tmp_path / "relocated-inputs"
-    run_directory = tmp_path / "run"
-    prepare_pynamit_inputs(
+    simulation_directory = tmp_path / "simulation"
+    prepare_example_inputs(
         input_directory, final_time=0.0, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf"
     )
-    run_pynamit_from_inputs(
+    run_from_inputs(
         input_directory,
-        run_directory=run_directory,
+        simulation_directory=simulation_directory,
         final_time=0.0,
         RM=2 * EARTH_RADIUS_M,
         artifact_storage="netcdf",
     )
     shutil.copytree(input_directory, relocated_directory)
 
-    result = run_pynamit_from_inputs(
+    result = run_from_inputs(
         relocated_directory,
-        run_directory=run_directory,
+        simulation_directory=simulation_directory,
         final_time=0.0,
         RM=2 * EARTH_RADIUS_M,
         artifact_storage="netcdf",
@@ -467,29 +509,29 @@ def test_run_from_inputs_allows_prepared_package_relocation(tmp_path):
     assert result is None
 
 
-def test_run_from_inputs_skips_completed_run_before_geometry(monkeypatch, tmp_path):
-    """Batch sweeps do not rebuild completed-run geometry."""
+def test_run_from_inputs_skips_completed_simulation_before_geometry(monkeypatch, tmp_path):
+    """Batch sweeps do not rebuild completed simulation geometry."""
     input_directory = tmp_path / "inputs"
-    run_directory = tmp_path / "run"
-    prepare_pynamit_inputs(
+    simulation_directory = tmp_path / "simulation"
+    prepare_example_inputs(
         input_directory, final_time=0.0, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf"
     )
-    run_pynamit_from_inputs(
+    run_from_inputs(
         input_directory,
-        run_directory=run_directory,
+        simulation_directory=simulation_directory,
         final_time=0.0,
         RM=2 * EARTH_RADIUS_M,
         artifact_storage="netcdf",
     )
 
     monkeypatch.setattr(
-        prepared_inputs_module.Simulation,
+        Simulation,
         "from_config",
-        lambda *_args, **_kwargs: pytest.fail("completed run rebuilt geometry"),
+        lambda *_args, **_kwargs: pytest.fail("completed simulation rebuilt geometry"),
     )
-    result = run_pynamit_from_inputs(
+    result = run_from_inputs(
         input_directory,
-        run_directory=run_directory,
+        simulation_directory=simulation_directory,
         final_time=0.0,
         RM=2 * EARTH_RADIUS_M,
         artifact_storage="netcdf",
@@ -510,41 +552,41 @@ def test_run_from_inputs_skips_completed_run_before_geometry(monkeypatch, tmp_pa
 def test_run_from_inputs_validates_batch_options_before_skipping(tmp_path, kwargs, match):
     """Completion preflight cannot bypass evolution validation."""
     input_directory = tmp_path / "inputs"
-    prepare_pynamit_inputs(
+    prepare_example_inputs(
         input_directory, final_time=0.0, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf"
     )
 
     with pytest.raises(ValueError, match=match):
-        run_pynamit_from_inputs(
+        run_from_inputs(
             input_directory,
-            run_directory=tmp_path / "run",
+            simulation_directory=tmp_path / "simulation",
             RM=2 * EARTH_RADIUS_M,
             artifact_storage="netcdf",
             **kwargs,
         )
 
 
-def test_run_from_inputs_requires_a_separate_run_directory(tmp_path):
-    """A run must not overwrite its reusable prepared-input package."""
+def test_run_from_inputs_requires_a_separate_simulation_directory(tmp_path):
+    """A simulation cannot overwrite its prepared-input package."""
     input_directory = tmp_path / "inputs"
-    prepare_pynamit_inputs(
+    prepare_example_inputs(
         input_directory, final_time=0.0, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf"
     )
 
     with pytest.raises(ValueError, match="must differ from input_directory"):
-        run_pynamit_from_inputs(
+        run_from_inputs(
             input_directory,
-            run_directory=input_directory,
+            simulation_directory=input_directory,
             final_time=0.0,
             artifact_storage="netcdf",
         )
 
 
-def test_loading_prepared_inputs_transfers_run_ownership(tmp_path):
-    """The consuming run owns copied inputs and removes stale data."""
+def test_loading_prepared_inputs_transfers_simulation_ownership(tmp_path):
+    """The simulation owns copied inputs and removes stale data."""
     input_directory = tmp_path / "inputs"
-    run_directory = tmp_path / "run"
-    prepared = prepare_pynamit_inputs(
+    simulation_directory = tmp_path / "simulation"
+    prepared = prepare_example_inputs(
         input_directory,
         final_time=0.0,
         Nmax=2,
@@ -554,34 +596,36 @@ def test_loading_prepared_inputs_transfers_run_ownership(tmp_path):
         use_wind=False,
     )
     simulation = Simulation(
-        run_directory=run_directory, artifact_storage="netcdf", **prepared.config.to_kwargs()
+        simulation_directory=simulation_directory, artifact_storage="netcdf", **prepared.config.to_kwargs()
     )
-    wind_length = simulation.run_data.schema.input_field_spaces["u"].index_length
-    simulation.set_u(u_cf=np.zeros(wind_length), u_df=np.zeros(wind_length), time=0.0)
+    wind_length = simulation.data.schema.input_field_spaces["u"].index_length
+    simulation.set_neutral_wind(
+        u_cf=np.zeros(wind_length), u_df=np.zeros(wind_length), time=0.0
+    )
 
     loaded = load_prepared_inputs_into_simulation(
         simulation, input_directory, artifact_storage="netcdf", enabled_inputs=("conductance",)
     )
 
     assert loaded == ["conductance"]
-    assert set(simulation.run_data.input_series.datasets) == {"conductance"}
-    assert (run_directory / "conductance.ncdf").exists()
-    assert not (run_directory / "u.ncdf").exists()
+    assert set(simulation.data.input_series.datasets) == {"conductance"}
+    assert (simulation_directory / "conductance.ncdf").exists()
+    assert not (simulation_directory / "u.ncdf").exists()
     assert (
-        simulation.run_data.input_series.datasets["conductance"]
-        is not prepared.run_data.input_series.datasets["conductance"]
+        simulation.data.input_series.datasets["conductance"]
+        is not prepared.data.input_series.datasets["conductance"]
     )
 
     ArtifactStore(input_directory).remove_artifact("conductance")
-    assert simulation.run_data.input_series.get_entry("conductance", 0.0) is not None
+    assert simulation.data.input_series.get_entry("conductance", 0.0) is not None
 
 
 def test_run_from_inputs_errors_on_requested_missing_dataset(tmp_path):
     """Explicitly enabled inputs must exist in the prepared package."""
     input_directory = tmp_path / "inputs"
-    run_directory = tmp_path / "run"
+    simulation_directory = tmp_path / "simulation"
 
-    prepare_pynamit_inputs(
+    prepare_example_inputs(
         input_directory,
         final_time=0.0,
         Nmax=2,
@@ -592,9 +636,9 @@ def test_run_from_inputs_errors_on_requested_missing_dataset(tmp_path):
     )
 
     with pytest.raises(ValueError, match="Requested prepared input"):
-        run_pynamit_from_inputs(
+        run_from_inputs(
             input_directory,
-            run_directory=run_directory,
+            simulation_directory=simulation_directory,
             enabled_inputs=("u",),
             final_time=0.0,
             dt=0.01,
@@ -602,4 +646,4 @@ def test_run_from_inputs_errors_on_requested_missing_dataset(tmp_path):
             artifact_storage="netcdf",
         )
 
-    assert not (run_directory / "settings.ncdf").exists()
+    assert not (simulation_directory / "settings.ncdf").exists()

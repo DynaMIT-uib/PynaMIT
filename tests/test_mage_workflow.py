@@ -20,20 +20,28 @@ from scripts.simulation.mage_project import (
 )
 from scripts.simulation.mage_project import SETTINGS as MAGE_PROJECT_SETTINGS
 from scripts.simulation.mage_project import main as project_mage_inputs
-from scripts.simulation.mage_run import CASE_DIRECTORY as MAGE_RUN_CASE
-from scripts.simulation.mage_run import DEFAULT_RESOLUTIONS_DIRECTORY as RUN_RESOLUTIONS_DIRECTORY
-from scripts.simulation.mage_run import SETTINGS as MAGE_RUN_SETTINGS
-from scripts.simulation.mage_run import RunSettings, _last_projected_input_time, _run_targets
+from scripts.simulation.mage_run import CASE_DIRECTORY as MAGE_SIMULATION_CASE
+from scripts.simulation.mage_run import (
+    DEFAULT_RESOLUTIONS_DIRECTORY as SIMULATION_RESOLUTIONS_DIRECTORY,
+)
+from scripts.simulation.mage_run import SETTINGS as MAGE_SIMULATION_SETTINGS
+from scripts.simulation.mage_run import (
+    SimulationSweep,
+    _build_simulation_targets,
+    _last_projected_input_time,
+)
 
 from pynamit.geomagnetism.kaiju_geopack import kaiju_geopack_sm
 from pynamit.simulation.config import SimulationConfig
-from pynamit.simulation.workflows.mage_preparation import (
+from pynamit.storage import ArtifactStore
+from pynamit.workflows.mage.diagnostics import write_input_projection_diagnostics
+from pynamit.workflows.mage.preparation import (
     CONDUCTANCE_FLOOR_MODEL,
     HALL_CONDUCTANCE_FLOOR_S,
     MAGE_FORCING_KIND,
     MAGE_FORCING_VERSION,
     PEDERSEN_CONDUCTANCE_FLOOR_S,
-    PreparationSettings,
+    ForcingSettings,
     _apply_conductance_floor,
     _atomic_prepared_output,
     _centered_dipole_alignment_attrs,
@@ -62,7 +70,7 @@ from pynamit.simulation.workflows.mage_preparation import (
     _write_static_datasets,
     _write_time_axis,
 )
-from pynamit.simulation.workflows.mage_projection import (
+from pynamit.workflows.mage.projection import (
     MAGE_MAIN_FIELD_KIND,
     _boundary_radius,
     _clear_existing_input_package,
@@ -72,10 +80,8 @@ from pynamit.simulation.workflows.mage_projection import (
     _load_weighted_winds,
     _source_file_metadata,
     _validate_prepared_forcing,
-    project_inputs,
+    project_forcing,
 )
-from pynamit.storage import ArtifactStore
-from pynamit.visualization.input_projection_comparison import write_input_projection_diagnostics
 
 
 class _FakeVariable:
@@ -228,7 +234,7 @@ def test_centered_dipole_alignment_uses_gamera_axis_convention():
     np.testing.assert_array_equal(attrs["gamera_internal_dipole_moment_axis"], [0.0, 0.0, -1.0])
     np.testing.assert_array_equal(attrs["gamera_internal_magnetic_north_axis"], [0.0, 0.0, 1.0])
     assert "gamera_internal_dipole_axis" not in attrs
-    assert "pynamit_run_coordinate_system" not in attrs
+    assert "pynamit_simulation_coordinate_system" not in attrs
 
 
 @pytest.mark.parametrize(
@@ -316,7 +322,7 @@ def _valid_tiegcm_contract():
 
 def test_default_mage_case_paths_are_consistent():
     """Every MAGE stage uses the same event-local artifact tree."""
-    assert MAGE_PREPARE_CASE == MAGE_PROJECT_CASE == MAGE_RUN_CASE
+    assert MAGE_PREPARE_CASE == MAGE_PROJECT_CASE == MAGE_SIMULATION_CASE
     assert MAGE_PREPARE_CASE.name == "2011-10-24"
     assert DEFAULT_OUTPUT_PATH == DEFAULT_FORCING_PATH == MAGE_PREPARE_CASE / "forcing.h5"
 
@@ -373,7 +379,7 @@ def test_prepared_time_axis_is_written_as_utf8_with_source_provenance(tmp_path):
             grid,
             grid,
             np.ones((1, 1)),
-            PreparationSettings(gamera_directory=tmp_path, output_path=output_path),
+            ForcingSettings(gamera_directory=tmp_path, output_path=output_path),
             tmp_path,
             6.3781e6,
             -29_617.4,
@@ -457,22 +463,22 @@ def test_projected_input_default_matches_run_input_directory():
     """Projection and run scripts should agree on the input package."""
     assert MAGE_PROJECT_SETTINGS.resolutions_directory == DEFAULT_RESOLUTIONS_DIRECTORY
     assert MAGE_PROJECT_SETTINGS.resolutions == (20, 40, 60, 80)
-    assert MAGE_PROJECT_CASE == MAGE_RUN_CASE
+    assert MAGE_PROJECT_CASE == MAGE_SIMULATION_CASE
     assert MAGE_PROJECT_CASE.name == "2011-10-24"
-    assert RUN_RESOLUTIONS_DIRECTORY == DEFAULT_RESOLUTIONS_DIRECTORY
-    assert MAGE_RUN_SETTINGS.resolutions_directory == DEFAULT_RESOLUTIONS_DIRECTORY
-    assert MAGE_RUN_SETTINGS.resolutions == MAGE_PROJECT_SETTINGS.resolutions
-    assert MAGE_RUN_SETTINGS.projection_name == MAGE_PROJECT_SETTINGS.projection_name
+    assert SIMULATION_RESOLUTIONS_DIRECTORY == DEFAULT_RESOLUTIONS_DIRECTORY
+    assert MAGE_SIMULATION_SETTINGS.resolutions_directory == DEFAULT_RESOLUTIONS_DIRECTORY
+    assert MAGE_SIMULATION_SETTINGS.resolutions == MAGE_PROJECT_SETTINGS.resolutions
+    assert MAGE_SIMULATION_SETTINGS.projection_name == MAGE_PROJECT_SETTINGS.projection_name
     assert MAGE_PROJECT_SETTINGS.cache_operators is True
     assert MAGE_PROJECT_SETTINGS.write_diagnostics is True
-    assert MAGE_RUN_SETTINGS.cache_operators is True
+    assert MAGE_SIMULATION_SETTINGS.cache_operators is True
 
 
 def test_mage_projection_sweeps_configured_resolutions(monkeypatch, tmp_path):
     """Every configured resolution uses the same projection path."""
     calls = []
     monkeypatch.setattr(
-        "scripts.simulation.mage_project.project_inputs", lambda **kwargs: calls.append(kwargs)
+        "scripts.simulation.mage_project.project_forcing", lambda **kwargs: calls.append(kwargs)
     )
     settings = ProjectionSettings(
         forcing_path=tmp_path / "forcing.h5",
@@ -509,12 +515,12 @@ def test_mage_projection_writes_configured_diagnostics(monkeypatch, tmp_path):
         tmp_path / "resolutions" / "N20_M20_Ncs20" / "projections" / "regularization-1"
     )
     monkeypatch.setattr(
-        "scripts.simulation.mage_project.project_inputs",
+        "scripts.simulation.mage_project.project_forcing",
         lambda **kwargs: kwargs["projection_directory"],
     )
     calls = []
     monkeypatch.setattr(
-        "pynamit.visualization.write_input_projection_diagnostics",
+        "pynamit.workflows.mage.write_input_projection_diagnostics",
         lambda *args, **kwargs: calls.append((args, kwargs)),
     )
     settings = ProjectionSettings(
@@ -547,7 +553,7 @@ def test_mage_projection_validates_sweep_before_projecting(monkeypatch, tmp_path
     """Reject an invalid sweep before replacing projected packages."""
     calls = []
     monkeypatch.setattr(
-        "scripts.simulation.mage_project.project_inputs", lambda **kwargs: calls.append(kwargs)
+        "scripts.simulation.mage_project.project_forcing", lambda **kwargs: calls.append(kwargs)
     )
     settings = ProjectionSettings(
         resolutions_directory=tmp_path / "resolutions",
@@ -563,10 +569,10 @@ def test_mage_projection_validates_sweep_before_projecting(monkeypatch, tmp_path
 
 def test_mage_run_defaults_to_equilibrium_initialization_and_output():
     """MAGE starts from and records instantaneous equilibrium."""
-    assert MAGE_RUN_SETTINGS.equilibrium_initialization is True
-    assert MAGE_RUN_SETTINGS.run_equilibrium is True
-    assert MAGE_RUN_SETTINGS.magnetic_boundary_shielding is False
-    assert MAGE_RUN_SETTINGS.final_time is None
+    assert MAGE_SIMULATION_SETTINGS.equilibrium_initialization is True
+    assert MAGE_SIMULATION_SETTINGS.run_equilibrium is True
+    assert MAGE_SIMULATION_SETTINGS.magnetic_boundary_shielding is False
+    assert MAGE_SIMULATION_SETTINGS.final_time is None
 
 
 def test_mage_run_infers_final_time_from_projected_boundary_input():
@@ -601,20 +607,20 @@ def test_mage_run_resolves_every_projected_resolution(tmp_path):
         store.save_dataset(config.to_dataset(), "settings")
         store.save_dataset(xr.Dataset(coords={"time": [0.0, 10.0]}), "boundary_Br")
 
-    settings = RunSettings(
+    settings = SimulationSweep(
         resolutions_directory=resolutions_directory,
         resolutions=(20, 40),
         projection_name="comparison",
-        run_name="exponential",
+        simulation_name="exponential",
         artifact_storage="netcdf",
     )
-    targets = _run_targets(settings)
+    targets = _build_simulation_targets(settings)
 
     assert [target.resolution_name for target in targets] == ["N20_M20_Ncs20", "N40_M40_Ncs40"]
     assert [target.final_time for target in targets] == [10.0, 10.0]
-    assert [target.run_directory for target in targets] == [
-        resolutions_directory / "N20_M20_Ncs20" / "runs" / "exponential",
-        resolutions_directory / "N40_M40_Ncs40" / "runs" / "exponential",
+    assert [target.simulation_directory for target in targets] == [
+        resolutions_directory / "N20_M20_Ncs20" / "simulations" / "exponential",
+        resolutions_directory / "N40_M40_Ncs40" / "simulations" / "exponential",
     ]
 
 
@@ -656,7 +662,7 @@ def test_invalid_forcing_does_not_remove_existing_projection(tmp_path):
         output.attrs["complete"] = False
 
     with pytest.raises(RuntimeError, match="incomplete"):
-        project_inputs(
+        project_forcing(
             forcing_path=forcing_path,
             projection_directory=projection_directory,
             dipole_B0_override=None,
@@ -946,7 +952,7 @@ def test_mage_preparation_rejects_misaligned_source_times():
 
 
 def test_mage_preparation_rejects_nonuniform_nominal_time_axis():
-    """Fixed-step runs require a uniform nominal schedule."""
+    """Fixed-step simulations require a uniform nominal schedule."""
     nominal_times = [
         dt.datetime(2011, 10, 24, 18, 0, 10),
         dt.datetime(2011, 10, 24, 18, 0, 20),
@@ -1017,13 +1023,13 @@ def test_mage_step_limits_require_positive_integers(tmp_path, max_steps):
     """Preparation and projection must not truncate step limits."""
     with pytest.raises(ValueError, match="positive integer"):
         _validate_settings(
-            PreparationSettings(
+            ForcingSettings(
                 gamera_directory=tmp_path, output_path=tmp_path / "forcing.h5", max_steps=max_steps
             )
         )
 
     with pytest.raises(ValueError, match="positive integer"):
-        project_inputs(
+        project_forcing(
             forcing_path=tmp_path / "missing.h5",
             projection_directory=tmp_path / "projection",
             dipole_B0_override=None,
@@ -1045,7 +1051,7 @@ def test_mage_inner_index_requires_a_nonnegative_integer(tmp_path, inner_index):
     """Reject values that cannot index a GAMERA shell."""
     with pytest.raises(ValueError, match="inner_index"):
         _validate_settings(
-            PreparationSettings(
+            ForcingSettings(
                 gamera_directory=tmp_path,
                 output_path=tmp_path / "forcing.h5",
                 inner_index=inner_index,
@@ -1321,7 +1327,7 @@ def test_mage_projection_reuses_geometry_for_complete_input_series(tmp_path):
     projection_directory = tmp_path / "projection"
     _write_projection_forcing(forcing_path)
 
-    result = project_inputs(
+    result = project_forcing(
         forcing_path=forcing_path,
         projection_directory=projection_directory,
         dipole_B0_override=None,
@@ -1352,7 +1358,7 @@ def test_projection_diagnostics_write_figure_and_area_weighted_metrics(monkeypat
     forcing_path = tmp_path / "forcing.h5"
     projection_directory = tmp_path / "projection"
     _write_projection_forcing(forcing_path)
-    project_inputs(
+    project_forcing(
         forcing_path=forcing_path,
         projection_directory=projection_directory,
         dipole_B0_override=None,
@@ -1368,7 +1374,7 @@ def test_projection_diagnostics_write_figure_and_area_weighted_metrics(monkeypat
         artifact_storage="netcdf",
     )
     monkeypatch.setattr(
-        "pynamit.visualization.input_projection_comparison.style_global_input_axis",
+        "pynamit.workflows.mage.diagnostics.style_global_input_axis",
         lambda *args, **kwargs: None,
     )
 
@@ -1399,7 +1405,7 @@ def test_mage_projection_rejects_incompatible_prepared_units(tmp_path):
         forcing["delta_Br"].attrs["units"] = "T"
 
     with pytest.raises(RuntimeError, match="incompatible dataset units.*delta_Br"):
-        project_inputs(
+        project_forcing(
             forcing_path=forcing_path,
             projection_directory=projection_directory,
             dipole_B0_override=None,
@@ -1440,7 +1446,7 @@ def test_projection_failure_preserves_last_complete_package(tmp_path):
     _write_projection_forcing(forcing_path, hall_conductance=hall)
 
     with pytest.raises(RuntimeError, match="Hall conductance violates.*global hard floor"):
-        project_inputs(
+        project_forcing(
             forcing_path=forcing_path,
             projection_directory=projection_directory,
             dipole_B0_override=None,
@@ -1469,7 +1475,7 @@ def test_projection_rejects_subfloor_hall_anywhere_on_global_sheet(tmp_path):
     _write_projection_forcing(forcing_path, hall_conductance=hall)
 
     with pytest.raises(RuntimeError, match="Hall conductance violates.*global hard floor"):
-        project_inputs(
+        project_forcing(
             forcing_path=forcing_path,
             projection_directory=projection_directory,
             dipole_B0_override=None,

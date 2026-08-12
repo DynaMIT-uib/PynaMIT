@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 import xarray as xr
 
-from pynamit.visualization.time_series import (
+from pynamit.results.time_series import (
     compute_centered_difference_matrix_at_times,
     compute_centered_difference_series_at_times,
     compute_time_derivative_matrix,
@@ -35,7 +35,7 @@ def test_datetime_index_to_epoch_ns_normalizes_resolution():
 
 def test_numeric_saved_times_use_mage_event_time_origin():
     """MAGE output seconds should be displayed from event t0."""
-    from pynamit.visualization.run_fields import time_index_from_dataset
+    from pynamit.plotting.grid_fields import time_index_from_dataset
 
     dataset = xr.Dataset(coords={"time": np.array([0.0, 10.0, 20.0])})
 
@@ -51,7 +51,7 @@ def test_numeric_saved_times_use_mage_event_time_origin():
 
 def test_saved_field_time_lookup_handles_mixed_datetime_resolutions():
     """Dataset lookup must normalize datetime resolutions."""
-    from pynamit.visualization.run_fields import _dataset_index_at_time
+    from pynamit.plotting.grid_fields import _dataset_index_at_time
 
     dataset = xr.Dataset(
         coords={
@@ -246,10 +246,10 @@ def test_vector_magnitude_preserve_shape_keeps_grid_shape():
 
 def test_ground_dbdt_magnitude_differentiates_components_first():
     """Ground dB/dt magnitude is the magnitude of the dB/dt vector."""
-    from pynamit.visualization.ground_figures import GroundFigureRenderer
+    from pynamit.plotting.ground_figures import GroundFigureRenderer
 
     renderer = object.__new__(GroundFigureRenderer)
-    renderer.spec = SimpleNamespace(dbdt_window_points=1)
+    renderer.settings = SimpleNamespace(dbdt_window_points=1)
     source_times = pd.date_range("2020-01-01", periods=3, freq="1s")
     target_times = pd.DatetimeIndex([source_times[1]])
 
@@ -268,10 +268,10 @@ def test_ground_dbdt_magnitude_differentiates_components_first():
 
 def test_station_dbdt_uses_supplied_simulation_cadence():
     """Measured dB/dt should use the common comparison cadence."""
-    from pynamit.visualization.ground_figures import GroundFigureRenderer
+    from pynamit.plotting.ground_figures import GroundFigureRenderer
 
     renderer = object.__new__(GroundFigureRenderer)
-    renderer.spec = SimpleNamespace(
+    renderer.settings = SimpleNamespace(
         ground_component="North", ground_quantity="dbdt", dbdt_window_points=1
     )
     measured_times = pd.date_range("2020-01-01", periods=21, freq="1s")
@@ -289,7 +289,7 @@ def test_station_dbdt_uses_supplied_simulation_cadence():
 
 def test_reference_aligned_curve_centers_put_reference_sample_on_site():
     """Reference-line maps should intersect the station."""
-    from pynamit.visualization.map_curves import reference_aligned_curve_centers
+    from pynamit.plotting.map_curves import reference_aligned_curve_centers
 
     site_lon = np.array([10.0])
     site_lat = np.array([60.0])
@@ -320,7 +320,7 @@ def test_reference_aligned_curve_centers_put_reference_sample_on_site():
 
 def test_reference_aligned_curve_centers_keep_reference_x_on_site():
     """Reference time should align to site longitude."""
-    from pynamit.visualization.map_curves import reference_aligned_curve_centers
+    from pynamit.plotting.map_curves import reference_aligned_curve_centers
 
     site_lon = np.array([-90.0, 45.0])
     site_lat = np.array([55.0, -35.0])
@@ -355,7 +355,7 @@ def test_reference_aligned_curve_centers_keep_reference_x_on_site():
 
 def test_reference_aligned_curve_centers_cancel_drawn_reference_offset():
     """The center shift cancels the draw-time reference x offset."""
-    from pynamit.visualization.map_curves import reference_aligned_curve_centers
+    from pynamit.plotting.map_curves import reference_aligned_curve_centers
 
     site_lon = np.array([-120.0, 5.0, 130.0])
     site_lat = np.array([40.0, 55.0, -25.0])
@@ -381,7 +381,7 @@ def test_reference_aligned_curve_centers_cancel_drawn_reference_offset():
 
 def test_reference_aligned_curve_centers_prefers_measured_anchor():
     """Measured data should anchor reference placement."""
-    from pynamit.visualization.map_curves import reference_aligned_curve_centers
+    from pynamit.plotting.map_curves import reference_aligned_curve_centers
 
     site_lon = np.array([10.0, 20.0])
     site_lat = np.array([50.0, 60.0])
@@ -411,7 +411,7 @@ def test_reference_aligned_curve_centers_prefers_measured_anchor():
 
 def test_reference_aligned_curve_centers_averages_enabled_models():
     """Enabled simulation curves share the anchor."""
-    from pynamit.visualization.map_curves import reference_aligned_curve_centers
+    from pynamit.plotting.map_curves import reference_aligned_curve_centers
 
     site_lon = np.array([10.0, 20.0])
     site_lat = np.array([50.0, 60.0])
@@ -440,11 +440,11 @@ def test_reference_aligned_curve_centers_averages_enabled_models():
 
 def test_ground_plot_times_preserve_one_second_station_resolution():
     """Ground plots keep a 1 s measured-data grid."""
-    from pynamit.visualization.ground_figures import GroundFigureRenderer
+    from pynamit.plotting.ground_figures import GroundFigureRenderer
 
     renderer = object.__new__(GroundFigureRenderer)
-    renderer.spec = SimpleNamespace(time_range=(0, 2), include_station_data=True)
-    renderer.view = SimpleNamespace(
+    renderer.settings = SimpleNamespace(time_range=(0, 2), include_station_data=True)
+    renderer.grid_fields = SimpleNamespace(
         n_time=3,
         time_index=pd.to_datetime(
             ["2020-01-01T00:00:00.004", "2020-01-01T00:00:10.000", "2020-01-01T00:00:20.019"]

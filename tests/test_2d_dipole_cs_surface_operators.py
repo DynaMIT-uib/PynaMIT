@@ -4,15 +4,15 @@ import numpy as np
 import pytest
 from kompe import GlobalCSBasis, SHBasis, SphericalGrid, SphericalTransform
 
-from pynamit.simulation.workflows.standard import run_pynamit
-from pynamit.visualization.figure_specs import PynamitFigureSpec
-from pynamit.visualization.ground_figures import GroundFigureRenderer
-from pynamit.visualization.run_fields import SavedCoefficientFieldView
+from pynamit.plotting.figure_settings import FigureSettings
+from pynamit.plotting.grid_fields import GridFields
+from pynamit.plotting.ground_figures import GroundFigureRenderer
+from pynamit.workflows.example import run_example
 
 
 def test_2d_dipole_cs_surface_operators(tmp_path):
-    """Run a dipole case with CS fields and saved-run views."""
-    simulation = run_pynamit(
+    """Run a dipole case with CS fields and evaluate saved fields."""
+    simulation = run_example(
         final_time=0.01,
         dt=0.01,
         Nmax=2,
@@ -22,7 +22,7 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
         enable_pfac_coupling=False,
         equilibrium_initialization=False,
         use_wind=False,
-        run_directory=str(tmp_path / "run"),
+        simulation_directory=str(tmp_path / "run"),
         boundary_jr_projection_basis="CS",
         conductance_projection_basis="CS",
         u_projection_basis="CS",
@@ -33,10 +33,10 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
 
     assert isinstance(simulation.geometry.horizontal_basis, GlobalCSBasis)
     assert isinstance(simulation.geometry.solid_harmonics.basis.root_basis, SHBasis)
-    assert simulation.run_data.schema.horizontal_basis is simulation.geometry.horizontal_basis
+    assert simulation.data.schema.horizontal_basis is simulation.geometry.horizontal_basis
     assert simulation.geometry.solid_harmonics.basis is not simulation.geometry.horizontal_basis
-    assert not simulation.run_data.schema.input_field_spaces["conductance"].mean_free
-    output_spaces = simulation.run_data.schema.output_field_spaces["dynamic"]
+    assert not simulation.data.schema.input_field_spaces["conductance"].mean_free
+    output_spaces = simulation.data.schema.output_field_spaces["dynamic"]
     assert output_spaces["induced_Br"].representation is simulation.geometry.poloidal_basis
     assert output_spaces["boundary_jr"].representation is simulation.geometry.horizontal_basis
 
@@ -81,7 +81,7 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
         simulation.geometry.poloidal_basis.index_length,
     )
 
-    output = simulation.run_data.output_series.datasets["dynamic"]
+    output = simulation.data.output_series.datasets["dynamic"]
     assert "SH_induced_Br" in output
     assert "CS_boundary_jr" in output
 
@@ -112,10 +112,10 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
         simulation.response.boundary_jr.array
     ) == (pytest.approx(0.0, abs=1e-18))
 
-    view = SavedCoefficientFieldView.from_directory(
-        simulation.run_data.run_directory, nlat=8, nlon=12, wind_nlat=5, wind_nlon=7
+    view = GridFields.from_directory(
+        simulation.data.simulation_directory, nlat=8, nlon=12, wind_nlat=5, wind_nlon=7
     )
-    fields = view.solution_comparison_grid_fields(0)
+    fields = view.output_grid_fields(0)
     assert isinstance(view.output_evaluator.basis, GlobalCSBasis)
     assert fields["Br_dynamic"].shape == view.lat.shape
     assert fields["jr_dynamic"].shape == view.lat.shape
@@ -123,10 +123,10 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
     assert np.all(np.isfinite(fields["jr_dynamic"]))
 
     renderer = GroundFigureRenderer(
-        PynamitFigureSpec(
-            run_directory=simulation.run_data.run_directory, include_station_data=False
+        FigureSettings(
+            simulation_directory=simulation.data.simulation_directory, include_station_data=False
         ),
-        view=view,
+        grid_fields=view,
     )
     br_ind, bh_ind, _, _ = renderer._ground_field_matrices([65.0], [0.0])
     assert br_ind.shape == (1, view.n_time)

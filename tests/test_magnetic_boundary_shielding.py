@@ -8,7 +8,7 @@ from pynamit.simulation.electrodynamics.magnetic_boundary import (
     boundary_Br_to_ionosphere_external_Br_scale,
     shielded_induced_poloidal_scale,
 )
-from pynamit.simulation.workflows.standard import run_pynamit
+from pynamit.workflows.example import run_example
 from tests import magnetic_potential_coordinate_array
 
 
@@ -80,7 +80,7 @@ def test_magnetic_boundary_shielding(regression_approx):
     expected_n_coeffs = 228
 
     # Act.
-    simulation = run_pynamit(
+    simulation = run_example(
         final_time=0.1,
         dt=1e-2,
         Nmax=10,

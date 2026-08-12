@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from pynamit.simulation.workflows.standard import run_pynamit
+from pynamit.workflows.example import run_example
 from tests import magnetic_potential_coordinate_array
 
 
@@ -18,7 +18,7 @@ def test_2d_igrf_pfac_hc_wind_nofac(regression_approx):
     expected_n_coeffs = 228
 
     # Act.
-    simulation = run_pynamit(
+    simulation = run_example(
         final_time=0.1,
         dt=1e-2,
         Nmax=10,
@@ -46,7 +46,7 @@ def test_2d_igrf_pfac_hc_wind_nofac(regression_approx):
     print("actual_coeff_min: ", actual_coeff_min)
     print("actual_n_coeffs: ", actual_n_coeffs)
 
-    assert "jr" not in simulation.run_data.input_series.datasets
+    assert "jr" not in simulation.data.input_series.datasets
     assert actual_coeff_norm == regression_approx(expected_coeff_norm)
     assert actual_coeff_max == regression_approx(expected_coeff_max)
     assert actual_coeff_min == regression_approx(expected_coeff_min)

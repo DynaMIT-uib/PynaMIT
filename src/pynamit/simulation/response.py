@@ -50,7 +50,7 @@ class ElectrodynamicResponse:
     calculations. Poloidal and toroidal magnetic potentials remain
     private numerical coordinates.
     Time integration belongs to
-    ``electrodynamics.induction``; run scheduling belongs to
+    ``electrodynamics.induction``; evolution scheduling belongs to
     ``SimulationRunner``.
     """
 

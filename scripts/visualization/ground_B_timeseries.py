@@ -18,10 +18,12 @@ DATA_DIRECTORY = Path("../simulation/oscillations")
 
 
 def _load_period_dataset(period, name):
-    run_directory = DATA_DIRECTORY / f"{period:02d}s"
-    dataset = ArtifactStore(run_directory).load_dataset(name)
+    simulation_directory = DATA_DIRECTORY / f"{period:02d}s"
+    dataset = ArtifactStore(simulation_directory).load_dataset(name)
     if dataset is None:
-        raise FileNotFoundError(f"No {name!r} artifact found in run directory {run_directory}.")
+        raise FileNotFoundError(
+            f"No {name!r} artifact found in simulation directory {simulation_directory}."
+        )
     return dataset
 
 

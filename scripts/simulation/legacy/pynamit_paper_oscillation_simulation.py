@@ -18,7 +18,7 @@ NUMBER_OF_OSCILLATIONS = 2  # Periods to simulate after tapering
 FLOAT_ERROR_MARGIN = 1e-6
 
 
-run_directory = "data/pynamit_paper_oscillations"
+simulation_directory = "data/pynamit_paper_oscillations"
 Nmax, Mmax, Ncs = 90, 90, 100
 interhemispheric_coupling_latitude = 45
 RE = 6371.2e3
@@ -35,7 +35,7 @@ print(datetime.datetime.now(), "making simulation object", flush=True)
 
 # Set up simulation object.
 simulation = pynamit.Simulation(
-    run_directory=run_directory,
+    simulation_directory=simulation_directory,
     Nmax=Nmax,
     Mmax=Mmax,
     Ncs=Ncs,
@@ -75,7 +75,7 @@ a = pyamps.AMPS(400, 5, -5, d.tilt(date), 100, minlat=50)
 jr = a.get_upward_current(mlat=mlat, mlt=mlt) * 1e-6
 jr[np.abs(jr_lat) < 50] = 0  # Filter low latitude jr
 
-simulation.set_jr(jr, lat=jr_lat, lon=jr_lon)
+simulation.set_boundary_jr(jr, lat=jr_lat, lon=jr_lon)
 
 # Get and set wind input.
 print(datetime.datetime.now(), "setting wind", flush=True)
@@ -124,8 +124,8 @@ for period in PERIODS:
     scaled_jr_values = scale_factor.reshape((-1, 1)) * jr.reshape((1, -1))
 
     print(datetime.datetime.now(), "Setting scaled jr value", flush=True)
-    simulation.set_jr(
-        jr=scaled_jr_values, lat=jr_lat, lon=jr_lon, time=last_simulation_time + time_values
+    simulation.set_boundary_jr(
+        boundary_jr=scaled_jr_values, lat=jr_lat, lon=jr_lon, time=last_simulation_time + time_values
     )
 
     print(

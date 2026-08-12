@@ -56,10 +56,11 @@ or updating the JAX packages according to the
 [official JAX installation instructions](https://docs.jax.dev/en/latest/installation.html).
 
 The core dependencies declared in `pyproject.toml` are sufficient to import
-and run the simulation API. Install `pynamit[gui]` for the Panel and plotting
-stack, and `pynamit[inputs]` for the optional native input models. The
-requirements files above remain the reproducible development-environment
-definition.
+and run the simulation API. Install `pynamit[plot]` for plotting,
+`pynamit[gui]` for the interactive GUI and its storage backends,
+`pynamit[mage]` for MAGE HDF5 preparation, and `pynamit[inputs]` for the
+optional native input models. The requirements files above remain the
+reproducible development-environment definition.
 
 PynaMIT's spherical and numerical machinery is provided by
 [`kompe`](https://github.com/DynaMIT-uib/kompe). Until the first Kompe release
@@ -95,8 +96,61 @@ simulation.evolve_to_time(0.01, quiet=True)
 The live xarray datasets are available directly as `simulation.inputs` and
 `simulation.outputs`; for example, `simulation.outputs["dynamic"]`. The more
 specialized `simulation.geometry`, `simulation.response`, and
-`simulation.run_data` objects remain available when their lower-level
+`simulation.data` objects remain available when their lower-level
 operators or persistence details are needed.
+
+Inputs that will be reused by several simulations can instead be prepared in their
+own directory. `InputPreparation` has the same `set_*` methods as
+`Simulation`, but does not construct a time-evolution runner:
+
+```python
+preparation = pynamit.InputPreparation(
+    input_directory="prepared_inputs", Nmax=4, Mmax=4, Ncs=8
+)
+grid = preparation.model_grid
+preparation.set_conductance(
+    hall=np.ones(grid.size),
+    pedersen=2 * np.ones(grid.size),
+    lat=grid.lat,
+    lon=grid.lon,
+)
+preparation.write_manifest(source="example")
+```
+
+The name is deliberately `InputPreparation`, rather than `InputProjection`:
+the object can project sampled fields, but it can also accept coefficients
+that are already projected and package either form for later simulations. The
+corresponding convenience functions share one workflow namespace:
+
+```python
+from pynamit.workflows import prepare_example_inputs, run_example, run_from_inputs
+```
+
+`prepare_example_inputs` creates the fixed 12 May 2001 empirical example,
+`run_example` prepares and runs that example in one call, and
+`run_from_inputs` runs any compatible prepared package.
+
+Completed simulations can be inspected without rebuilding a live simulation:
+
+```python
+results = pynamit.SimulationResults.from_directory("simulation")
+results.inputs
+results.outputs
+results.times
+```
+
+Result evaluation, plotting, the GUI, and specialized MAGE processing have
+separate namespaces:
+
+```python
+from pynamit.results import evaluate_projected_input
+from pynamit.plotting import FigureSettings, render_figure
+from pynamit.gui import build_gui
+from pynamit.workflows.mage import ForcingSettings, prepare_forcing, project_forcing
+```
+
+`PynamEye` is deprecated and lives explicitly at
+`pynamit.plotting.legacy.PynamEye`.
 
 ## Testing
 

@@ -1,7 +1,7 @@
 # Simulation workflows
 
 The scripts in this directory are editable entry points. Reusable simulation
-and input-processing behavior belongs under `pynamit.simulation.workflows`;
+and input-processing behavior belongs under `pynamit.workflows`;
 paths, experiment names, and machine-specific settings remain here.
 
 ## MAGE/GAMERA/TIEGCM
@@ -92,19 +92,19 @@ The active MAGE workflow has three stages:
    choices separate. Each projected package is reusable, and a failed
    reprojection leaves the previous complete package in place.
 3. Run `mage_run.py` to evolve every resolution in its `resolutions` setting.
-   Select its `projection_name`, then change `run_name` to keep alternatives
+   Select its `projection_name`, then change `simulation_name` to keep alternatives
    such as integrators, shielding choices, and regularization in separate
    directories. The full sweep is validated before its first simulation
-   starts. A matching completed run is skipped before simulation geometry is
-   constructed; an interrupted run resumes from its last persisted
-   `induced_Br` coefficients. A run directory may be resumed or extended only with the same
-   projected-input manifest, input selection, run settings, and evolution
-   policy. By default, the dynamic ``induced_Br`` starts from the initial
-   equilibrium and an equilibrium comparison is saved throughout the run.
-   Optional
-   shielding of the evolving induced field at the GAMERA boundary is disabled
-   by default. With no explicit `final_time`, the run stops at the last
-   projected input time rather than extrapolating beyond the prepared forcing.
+   starts. A matching completed simulation is skipped before simulation
+   geometry is constructed; an interrupted simulation resumes from its last
+   persisted `induced_Br` coefficients. A simulation directory may be resumed
+   or extended only with the same projected-input manifest, input selection,
+   simulation settings, and evolution policy. By default, the dynamic
+   ``induced_Br`` starts from the initial equilibrium and an equilibrium
+   comparison is saved throughout the simulation. Optional shielding of the
+   evolving induced field at the GAMERA boundary is disabled by default. With
+   no explicit `final_time`, the simulation stops at the last projected input
+   time rather than extrapolating beyond the prepared forcing.
 
 The default layout is:
 
@@ -115,26 +115,27 @@ mage_output/2011-10-24/
     N<nmax>_M<mmax>_Ncs<ncs>/
       operator_cache/
       projections/<projection_name>/
-      runs/<run_name>/
+      simulations/<simulation_name>/
 ```
 
 The event is the natural ownership boundary: its resolution-independent
 prepared forcing sits above the resolution-specific numerical operators,
-projected inputs, and simulation runs. Projection and run names are independent
-namespaces. Every run records and owns a copy of the exact projected inputs it
-consumes, so dependency validation does not rely on directory nesting. Set
+projected inputs, and simulations. Projection and simulation names are
+independent namespaces. Every simulation records and owns a copy of the exact
+projected inputs it consumes, so dependency validation does not rely on
+directory nesting. Set
 `output_path` or `resolutions_directory` explicitly when the default layout is
 unsuitable. Preparation settings belong in `mage_prepare.py`,
 coefficient-fitting settings in `mage_project.py`, and time evolution settings
 in `mage_run.py`.
 
-Run directories own copies of their projected inputs, dynamic and equilibrium
+Simulation directories own copies of their projected inputs, dynamic and equilibrium
 output histories, settings, and provenance manifests. They also persist the
 time-independent ``boundary_jr``-to-gap-``Br`` response, which is restored
 directly on a restart. Healthy input copies are reused instead of being
 recopied from the projection package.
 
-Projection and run stages share the `operator_cache/` belonging to their
+Projection and simulation stages share the `operator_cache/` belonging to their
 resolution. Materialized SH evaluation matrices, projection normal
 pseudo-inverses, the fixed model-grid Helmholtz Cholesky factor, and the final
 gap-``Br`` response are stored there as read-only NumPy arrays and
@@ -144,10 +145,10 @@ weights, regularization, solver tolerance where applicable, main-field
 geometry, and PFAC integration radii. Thus a normalization, coordinate,
 weight, regularization, or geometry change cannot silently reuse the wrong
 array. PFAC's one-use radial-quadrature grids are deliberately excluded; only
-their final integrated physical response is persisted. The run still owns a
+their final integrated physical response is persisted. The simulation still owns a
 copy so restart correctness does not depend on the optional shared cache.
 The cache is only an optimization and can be deleted without affecting a
-run's physical identity or restartability. At high resolution these exact
+simulation's physical identity or restartability. At high resolution these exact
 float64 arrays can occupy several GiB, trading disk space for avoiding
 repeated basis evaluation and dense factorization. Set
 `cache_operators=False` to disable the trade.
@@ -185,7 +186,7 @@ background subtraction. The single fitted boundary radius is the
 solid-angle-weighted mean of those barycentre radii.
 
 PynaMIT evolves `induced_Br` in a fixed Earth-attached frame, not in SM. The
-MAGE/Kaiju run uses fixed geocentric geographic coordinates, matching the
+MAGE/Kaiju simulation uses fixed geocentric geographic coordinates, matching the
 IGRF/paper workflow.
 `MainField` transforms into MAG internally for analytic centered-dipole
 physics and returns results in GEO. The main field is frozen at the event

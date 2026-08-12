@@ -10,21 +10,21 @@ import pyhwm2014  # https://github.com/rilma/pyHWM14
 import pynamit
 from pynamit.external_input_contracts import ExternalInputRequest
 from pynamit.external_inputs import get_conductance_inputs
-from pynamit.visualization.results import plot_output_diagnostics
+from pynamit.plotting.diagnostics import plot_output_diagnostics
 
 RE = 6371.2e3
 RI = RE + 110e3
 LATITUDE_BOUNDARY = 35
 WIND_FACTOR = 1
 
-run_directory = "figlayout"
+simulation_directory = "figlayout"
 Nmax, Mmax, Ncs = 14, 14, 30
 fac_integration_radii = RI / np.cos(np.deg2rad(np.r_[0 : 80 : int(80 / Nmax)])) ** 2
 date = datetime.datetime(2001, 5, 12, 21, 45)
 Kp = 5
 
 simulation = pynamit.Simulation(
-    run_directory=run_directory,
+    simulation_directory=simulation_directory,
     Nmax=Nmax,
     Mmax=Mmax,
     Ncs=Ncs,

@@ -16,13 +16,13 @@ def magnetic_potential_coordinate_array(simulation, output="dynamic"):
     recorded in the private poloidal- and toroidal-potential coordinates,
     so this helper applies the exact inverse maps before comparing them.
     """
-    dataset = simulation.run_data.output_series.datasets[output]
+    dataset = simulation.data.output_series.datasets[output]
     induced_poloidal_potential = (
         simulation.geometry.induced_Br_to_poloidal_potential_operator.matvec(
             dataset["SH_induced_Br"].values[-1]
         )
     )
-    boundary_jr_name = simulation.run_data.output_series.get_data_var_name(
+    boundary_jr_name = simulation.data.output_series.get_data_var_name(
         output, "boundary_jr"
     )
     toroidal_potential = (

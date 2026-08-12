@@ -54,10 +54,10 @@ class ArtifactStore:
         """Create and return a unique writable artifact directory."""
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         if parent is None:
-            return tempfile.mkdtemp(prefix=f"pynamit-run-{stamp}-")
+            return tempfile.mkdtemp(prefix=f"pynamit-simulation-{stamp}-")
         parent_path = Path(parent).resolve()
         parent_path.mkdir(parents=True, exist_ok=True)
-        return tempfile.mkdtemp(prefix=f"run-{stamp}-", dir=parent_path)
+        return tempfile.mkdtemp(prefix=f"simulation-{stamp}-", dir=parent_path)
 
     @staticmethod
     def require_artifact_directory(directory: str | os.PathLike[str], required_names) -> str:

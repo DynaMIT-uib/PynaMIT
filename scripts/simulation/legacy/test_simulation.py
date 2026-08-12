@@ -10,7 +10,7 @@ import os
 import pyamps
 import matplotlib.pyplot as plt
 from lompe import conductance
-from pynamit.visualization.results import plot_global_polar_map
+from pynamit.plotting.diagnostics import plot_global_polar_map
 
 reload(pynamit)
 
@@ -23,7 +23,7 @@ RI = (6371.2 + 110) * 1e3
 dt = 5e-4
 totalsteps = 20001
 
-run_directory = "simulation_test"
+simulation_directory = "simulation_test"
 
 # Define plotting parameters.
 plotsteps = 200
@@ -36,7 +36,7 @@ Philevels = np.r_[-212.5:212.5:2.5]
 
 # Set up simulation object.
 simulation = pynamit.Simulation(
-    run_directory=run_directory,
+    simulation_directory=simulation_directory,
     Nmax=Nmax,
     Mmax=Mmax,
     Ncs=Ncs,
@@ -70,7 +70,7 @@ jr_lon = simulation.geometry.model_grid.lon
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50)
 jr = a.get_upward_current(mlat=jr_lat, mlt=d.mlon2mlt(jr_lon, date)) * 1e-6
 jr[np.abs(jr_lat) < 50] = 0  # filter low latitude jr
-simulation.set_jr(jr, lat=jr_lat, lon=jr_lon)
+simulation.set_boundary_jr(jr, lat=jr_lat, lon=jr_lon)
 
 simulation.update_conductance()
 simulation.update_jr()
@@ -88,7 +88,7 @@ simulation.response.update_E()
 # sS =  (2 * snm.n.T + 1) / (4 * np.pi * RI**2)
 # Ginv = (
 #     simulation.Gnum.T * np.vstack((cS, sS))
-#     * simulation.run_data.schema.cs_basis.unit_area
+#     * simulation.data.schema.cs_basis.unit_area
 # )
 # gg = Ginv.dot(simulation.Gnum)
 

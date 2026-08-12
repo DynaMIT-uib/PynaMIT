@@ -27,13 +27,12 @@ from kompe.constants import EARTH_RADIUS_M
 
 import pynamit
 from pynamit.simulation.config import dipole_fac_integration_radii
+from pynamit.simulation.input_manifest import clear_prepared_input_package, write_input_manifest
 from pynamit.simulation.schema import INPUT_DATASET_KEYS
-from pynamit.simulation.workflows.prepared_inputs import (
-    RUN_MANIFEST_FILENAME,
-    clear_prepared_input_package,
+from pynamit.workflows.prepared_inputs import (
+    SIMULATION_MANIFEST_FILENAME,
     load_prepared_inputs_into_simulation,
-    run_pynamit_from_inputs,
-    write_input_manifest,
+    run_from_inputs,
 )
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -42,10 +41,10 @@ RI = EARTH_RADIUS_M + 110e3
 
 @dataclass(frozen=True)
 class PaperSimulationSettings:
-    """Defaults intended to be edited for the paper-style run."""
+    """Editable settings for the paper-style simulation."""
 
     input_directory: Path = SCRIPT_DIR / "paper_prepared" / "inputs"
-    run_directory: Path = SCRIPT_DIR / "paper_runs" / "pynamit_paper_simulation"
+    simulation_directory: Path = SCRIPT_DIR / "paper_simulations" / "pynamit_paper_simulation"
     date: dt.datetime = dt.datetime(2001, 6, 1, 0, 0)
     kp: float = 4.0
     nmax: int = 90
@@ -83,7 +82,7 @@ def _json_value(value: Any) -> Any:
 
 def _prepared_input_datasets(simulation: pynamit.Simulation) -> list[str]:
     """Return projected input artifacts present in ``simulation``."""
-    artifacts = simulation.run_data.artifact_store.scan_artifacts(INPUT_DATASET_KEYS)
+    artifacts = simulation.data.artifact_store.scan_artifacts(INPUT_DATASET_KEYS)
     return [key for key in INPUT_DATASET_KEYS if key in artifacts]
 
 
@@ -100,7 +99,7 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
 
     print(f"Writing paper input package: {input_directory}", flush=True)
     simulation = pynamit.Simulation(
-        run_directory=input_directory,
+        simulation_directory=input_directory,
         Nmax=settings.nmax,
         Mmax=settings.mmax,
         Ncs=settings.ncs,
@@ -150,13 +149,13 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
 
     write_input_manifest(
         input_directory,
-        simulation.run_data.config,
+        simulation.data.config,
         input_datasets=_prepared_input_datasets(simulation),
         source="scripts.simulation.pynamit_paper_simulation",
         notes=[
             "Paper-style inputs use the shared Hardy, AMPS, and HWM adapters.",
             "The three providers are sampled on the simulation model grid.",
-            "The run loads conductance/wind first, imposes equilibrium, then enables jr.",
+            "The simulation loads conductance/wind first, imposes equilibrium, then enables jr.",
         ],
         metadata={
             "date": settings.date.isoformat(),
@@ -174,13 +173,13 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
 def run_paper_simulation(settings: PaperSimulationSettings = SETTINGS) -> pynamit.Simulation:
     """Run the paper-style simulation from projected inputs."""
     input_directory = Path(settings.input_directory).expanduser()
-    run_directory = Path(settings.run_directory).expanduser()
+    simulation_directory = Path(settings.simulation_directory).expanduser()
     print(f"Using paper input package: {input_directory}", flush=True)
-    print(f"Writing paper run: {run_directory}", flush=True)
+    print(f"Writing paper simulation: {simulation_directory}", flush=True)
 
-    simulation = run_pynamit_from_inputs(
+    simulation = run_from_inputs(
         input_directory,
-        run_directory=run_directory,
+        simulation_directory=simulation_directory,
         enabled_inputs=("conductance", "u"),
         final_time=settings.simulation_time,
         dt=settings.dt,
@@ -222,14 +221,14 @@ def run_paper_simulation(settings: PaperSimulationSettings = SETTINGS) -> pynami
         run_equilibrium=False,
     )
 
-    manifest_path = Path(simulation.run_directory) / RUN_MANIFEST_FILENAME
+    manifest_path = Path(simulation.simulation_directory) / SIMULATION_MANIFEST_FILENAME
     manifest = (
         json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {}
     )
     manifest.update(
         {
-            "kind": "pynamit_paper_run",
-            "paper_two_phase_run": {
+            "kind": "pynamit_paper_simulation",
+            "paper_two_phase_simulation": {
                 "phase_1_inputs": ["conductance", "u"],
                 "phase_1_final_time": settings.simulation_time,
                 "phase_2_inputs": loaded_inputs,
@@ -246,7 +245,7 @@ def run_paper_simulation(settings: PaperSimulationSettings = SETTINGS) -> pynami
 
 
 def main(settings: PaperSimulationSettings = SETTINGS) -> None:
-    """Run the configured prepare/run workflow."""
+    """Run the configured preparation and simulation workflow."""
     if settings.prepare_inputs:
         prepare_paper_inputs(settings)
     if settings.run_simulation:

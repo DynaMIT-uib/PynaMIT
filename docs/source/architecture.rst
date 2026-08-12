@@ -13,10 +13,11 @@ API boundaries
 PynaMIT has four API tiers:
 
 * The stable primary API is the explicit export set of ``pynamit`` and
-  ``pynamit.simulation``. The high-level optional visualization API is the
-  explicit lazy export set of ``pynamit.visualization``. Together they contain
+  ``pynamit.simulation``. Saved results, plotting, the GUI, and reusable
+  workflows have the explicit ``pynamit.results``, ``pynamit.plotting``,
+  ``pynamit.gui``, and ``pynamit.workflows`` namespaces. Together they contain
   the simulation facade, normalized configuration, field values and spaces,
-  background-field utilities, backend selection, saved-run views, and
+  background-field utilities, backend selection, saved simulation access, and
   renderers. Spherical and numerical APIs are imported from ``kompe``.
 * Reusable packages such as ``pynamit.geomagnetism`` and
   ``pynamit.storage`` provide advanced scientific and infrastructure APIs.
@@ -26,7 +27,7 @@ PynaMIT has four API tiers:
   Focused electrodynamics and workflow functions are advanced module APIs at
   their documented module paths rather than primary package exports.
 * ``Simulation.config``, ``Simulation.current_time``,
-  ``Simulation.run_data``, ``Simulation.geometry``, and
+  ``Simulation.data``, ``Simulation.geometry``, and
   ``Simulation.response`` are stable attributes for inspection and
   diagnostics. This guarantees the ownership path, not every constructor or
   non-underscored member of the collaborator's concrete class. Named geometry
@@ -36,16 +37,14 @@ PynaMIT has four API tiers:
   ``simulation._runner``, caches, and scheduling helpers are internal. Tests
   may exercise these objects directly without turning them into user API.
 
-The ``BasisEvaluator`` compatibility subclass remains supported by PynaMIT.
-It retains only ``G`` and ``G_helmholtz`` for collaborator compatibility;
-Kompe itself exposes the canonical descriptive synthesis names.
+Spherical grids, bases, and transforms are imported directly from Kompe.
 
 High-level flow
 ---------------
 
 ``Simulation`` remains the public orchestration object.  It normalizes user
 configuration with ``SimulationConfig``, builds a ``SimulationSchema``,
-creates persistence through ``RunData``, constructs sibling
+creates persistence through ``SimulationData``, constructs sibling
 ``SimulationGeometry`` and ``ElectrodynamicResponse`` collaborators, and keeps the user-facing
 simulation methods in one place.
 
@@ -65,18 +64,18 @@ The main setup path is:
 5. ``SimulationGeometry`` is constructed once as the numerical spatial context.
    ``ElectrodynamicResponse`` receives it and owns the instantaneous forcing
    coefficients, constraint solve, and closure-dependent operator caches.
-6. ``RunData`` owns persisted settings, input time series, and output
+6. ``SimulationData`` owns persisted settings, input time series, and output
    time series.
 
-Persisted objects are reached through ``simulation.run_data`` (for example
-``simulation.run_data.output_series`` and ``simulation.run_data.schema``),
+Persisted objects are reached through ``simulation.data`` (for example
+``simulation.data.output_series`` and ``simulation.data.schema``),
 while the horizontal basis, solid harmonics, and background field are reached
 through ``simulation.geometry``. ``Simulation`` does not copy those
 references onto parallel top-level attributes. This keeps its initialization
 small and makes the owner of each object unambiguous.
 
 Keep this layering intact: configuration should not perform numerical work,
-schema should not read run data, input projection should not evolve the model,
+schema should not read simulation data, input projection should not evolve the model,
 and visualization should not mutate simulation state.
 
 Package map and dependency direction
@@ -91,7 +90,10 @@ concepts from the PynaMIT simulation model::
       geomagnetism/          background fields and magnetic coordinates
       storage/               named artifacts and coefficient time series
       simulation/            the coupled PynaMIT model
-      visualization/         read-only run views and rendering
+      results/               read-only saved simulations and field evaluation
+      plotting/              Matplotlib figure construction
+      gui/                   optional interactive Panel application
+      workflows/             reusable preparation and simulation orchestration
 
     kompe/                   spherical geometry, bases, operators, and solvers
 
@@ -101,13 +103,13 @@ The simulation package is grouped by runtime role::
       __init__.py            stable Simulation and SimulationConfig exports
       api.py                 public simulation facade
       response.py            active inputs, response solves, and operator caches
-      geometry.py            run-specific spatial and magnetic mappings
+      geometry.py            simulation-specific spatial and magnetic mappings
       runner.py              execution, sampling, and persistence decisions
       inputs.py              input validation, projection, and storage
       config.py/schema.py    normalized configuration and field spaces
-      run_data.py            persisted-run context
+      simulation_data.py     persisted simulation context
+      input_manifest.py      prepared-input file contract
       electrodynamics/       magnetic boundary, closure, and induction equations
-      workflows/             end-to-end preparation and run orchestration
 
 Dependencies should point inward from workflows and facades toward focused
 implementation modules.  In particular:
@@ -121,7 +123,7 @@ implementation modules.  In particular:
 The reusable packages must not import the simulation layer. In particular,
 ``geomagnetism`` owns ``MainField``, magnetic-coordinate conversion, and
 ``MagneticFieldEvaluation`` without knowing about ``SimulationConfig``;
-``geometry.build_main_field`` is the small adapter from run configuration to
+``geometry.build_main_field`` is the small adapter from simulation configuration to
 that reusable API. ``storage`` knows how to persist named datasets and field
 series but does not know the simulation artifact vocabulary.
 
@@ -138,23 +140,23 @@ normalization.  New simulation settings should be added to
 setting needs persistence or restart compatibility.
 
 Configuration also owns physical-domain invariants. The FAC integration grid
-is immutable run configuration and, when omitted, is derived from that run's
+is immutable simulation configuration and, when omitted, is derived from that simulation's
 ``RI`` and optional ``RM``. Basis resolutions, radial boundaries, main-field
 parameters, boolean choices, solver names, and integrators are validated
-before schema or geometry construction so invalid runs cannot partially
+before schema or geometry construction so invalid simulations cannot partially
 initialize. Restart comparison is performed between normalized configurations
 within the current persisted schema, so equivalent settings compare
 canonically without allowing an actual mismatch.
 
 Once normalized, one immutable ``SimulationConfig`` instance is shared by
-``Simulation``, ``RunData``, and ``ElectrodynamicResponse``. Schema and persistence
+``Simulation``, ``SimulationData``, and ``ElectrodynamicResponse``. Schema and persistence
 builders do not accept parallel setting overrides; callers that need to adapt
 legacy settings do so through ``SimulationConfig.from_settings`` before
 crossing those boundaries. Runtime policy is read from that shared config
 rather than copied into mutable state attributes.
 
 Programmatic callers can pass a normalized configuration through
-``Simulation.from_config``. Storage format, run directory, and array backend
+``Simulation.from_config``. Storage format, simulation directory, and array backend
 remain separate arguments because they are execution preferences rather than
 persisted physical model settings.
 
@@ -256,7 +258,7 @@ names that represent actual objects.
 
 ``kompe`` is a warranted standalone package because its bases, grids,
 analysis/synthesis transforms, and solid-harmonic continuation form a coherent
-numerical domain that can be used without a PynaMIT run.
+numerical domain that can be used without a PynaMIT simulation.
 
 ``geomagnetism`` is the corresponding standalone physical domain. ``MainField``
 owns background-field models, field-line and conjugate mapping, magnetic
@@ -322,9 +324,13 @@ field.
 Prepared external inputs
 ------------------------
 
-``pynamit.simulation.workflows.standard``, ``prepared_inputs``, and
-``mage_projection`` contain reusable, script-independent orchestration for
-standard runs, prepared forcing, and MAGE/GAMERA projection. Scripts under
+``pynamit.workflows.example``, ``pynamit.workflows.example_inputs``,
+``pynamit.workflows.prepared_inputs``, and
+``pynamit.workflows.mage`` contain reusable, script-independent orchestration
+for standard simulations, prepared forcing, and MAGE/GAMERA projection. The prepared
+input manifest and compatibility rules live below them in
+``pynamit.simulation.input_manifest`` so the core simulation never imports a
+convenience workflow. Scripts under
 ``scripts/simulation`` are workflow entry points: they own editable experiment
 settings, paths, and directory naming while delegating reusable validation and
 numerical work to package modules.
@@ -387,7 +393,7 @@ interpolation, and evolution; it is not provider time evolution.
 
 MAGE remains on its native spherical coordinate path. Preparation aligns
 GAMERA and ReMIX through Kaiju/Geopack, projection requires
-``main_field_kind='kaiju_dipole'``, and reusable runs reject projected packages
+``main_field_kind='kaiju_dipole'``, and reusable simulations reject projected packages
 whose saved main-field kind differs. No ellipsoidal conversion is introduced
 into the MAGE workflow or PynaMIT's spherical differential operators.
 
@@ -427,37 +433,37 @@ Hemisphere maps evaluate the same model samples, transform their positions to
 MAG (or apex coordinates for an IGRF main field), and use magnetic local time
 for orientation and labeling. Plotting therefore does not silently reinterpret
 GEO model longitudes as magnetic longitudes.
-``mage_projection`` owns forcing-schema validation, fixed projection geometry,
-least-squares weighting, and construction of a reusable coefficient-space input
-package. Internally, one private projector owns the grids and numerical
-operators that are invariant across forcing times; the public ``project_inputs``
-function owns the HDF5 and manifest workflow. It builds in a temporary sibling
-directory and replaces the published artifacts only after every projected time
-and the package manifest succeed.
-Finally, ``mage_run.py`` creates any number of named runs from one projected
+``pynamit.workflows.mage.projection`` owns forcing-schema validation, fixed
+projection geometry, least-squares weighting, and construction of a reusable
+coefficient-space input package. Internally, one private projector owns the
+grids and numerical operators that are invariant across forcing times; the
+public ``project_forcing`` function owns the HDF5 and manifest workflow. It
+builds in a temporary sibling directory and replaces the published artifacts
+only after every projected time and the package manifest succeed.
+Finally, ``mage_run.py`` creates any number of named simulations from one projected
 package. These boundaries prevent external-reader concerns, numerical
 projection, and simulation experiments from sharing mutable state.
 
-The run manifest snapshots the prepared-input manifest and selected streams.
+The simulation manifest snapshots the prepared-input manifest and selected streams.
 An existing trajectory can be resumed or extended only when that identity and
 its evolution policy still match; a different projection or experiment uses a
-new run directory. This prevents newly copied inputs from being paired with
+new simulation directory. This prevents newly copied inputs from being paired with
 inductive outputs computed from an older forcing package.
 
 This boundary matters because prepared-input logic is both user-facing and
 testable.  If a script needs behavior that should remain correct over time,
 move it into the package and test the behavior there.
 
-A consuming run owns its selected inputs. The workflow removes stale,
+A consuming simulation owns its selected inputs. The workflow removes stale,
 unselected input artifacts, opens only the selected prepared streams, copies
-those datasets into the run directory, and reloads them through the run's own
+those datasets into the simulation directory, and reloads them through the simulation's own
 ``ArtifactStore`` object. Lazy Zarr
-arrays therefore do not leave a live run dependent on the preparation
-directory. PFAC integration samples are re-derived from the consuming run's
-radial domain unless that run supplies them explicitly; they are not part of
-the prepared coefficient contract. The MAGE run uses
+arrays therefore do not leave a live simulation dependent on the preparation
+directory. PFAC integration samples are re-derived from the consuming simulation's
+radial domain unless that simulation supplies them explicitly; they are not part of
+the prepared coefficient contract. The MAGE simulation uses
 ``dipole_fac_integration_radii`` with an editable point count, so this PFAC
-discretization remains a run choice rather than a projection side effect.
+discretization remains a simulation choice rather than a projection side effect.
 
 For generic prepared inputs, coordinates name physical positions, not just
 array axes.
@@ -477,7 +483,7 @@ The versioned prepared-input manifest has one canonical ``input_contract``.
 Coefficient-space settings, geometry requirements, and the dataset list live
 only inside that contract; top-level provenance and notes do not mirror contract
 fields. Consumers validate the manifest version and contract before loading any
-forcing into a run.
+forcing into a simulation.
 
 Electrodynamic physics
 ----------------------
@@ -511,11 +517,11 @@ instead of mirroring individual coefficient names:
   appears through timestamped SM-to-GEO preparation, not through a rotating
   model basis.
 
-``SimulationGeometry`` supplies run-specific grids, magnetic-field factors,
+``SimulationGeometry`` supplies simulation-specific grids, magnetic-field factors,
 transforms, radial field-line mapping, exact physical-to-private coordinate
 maps, and interhemispheric constraint geometry to these equations. It is a
 numerical object: persisted xarray values are unwrapped at construction, and
-``RunData`` alone wraps the numerical ``gap_Br_response`` for storage.
+``SimulationData`` alone wraps the numerical ``gap_Br_response`` for storage.
 ``ElectrodynamicResponse`` receives that geometry, owns the inputs active at
 one simulation time, solves the toroidal-potential constraint behind
 ``boundary_jr``, and caches the composed operators whose values depend on the
@@ -671,7 +677,7 @@ exponential propagators while the closure operator and step duration remain
 unchanged. The runner may decide when to update active inputs or save outputs, but
 time-stepping equations belong in
 ``electrodynamics.induction``, closure-dependent operator caches belong in
-``ElectrodynamicResponse``, and artifact details belong in ``RunData``.
+``ElectrodynamicResponse``, and artifact details belong in ``SimulationData``.
 
 Imposing an equilibrium always updates the in-memory ``dynamic`` stream; its
 ``save`` option controls only whether that live checkpoint is persisted.
@@ -681,7 +687,7 @@ would create two trajectory branches in one linear time-series artifact.
 ``ElectrodynamicResponse`` stores the active input coefficients and the
 algebraic response implied by the current resistance. The evolving
 ``induced_Br`` remains an explicit value owned by the running branch because
-one run can carry both dynamic and equilibrium solutions for the same active
+one simulation can carry both dynamic and equilibrium solutions for the same active
 inputs.
 ``SimulationRunner`` manages those branch lifetimes and passes their
 coefficient vectors into response methods. The persisted artifact name
@@ -691,7 +697,7 @@ identifies the instantaneous zero-Faraday-rate comparison.
 Persistence
 -----------
 
-``RunData``, ``ArtifactStore``, and ``FieldTimeSeries`` form the
+``SimulationData``, ``ArtifactStore``, and ``FieldTimeSeries`` form the
 persistence boundary.
 Numerical modules should pass normalized coefficient rows and times to the
 time-series APIs instead of writing xarray artifacts directly.  This makes
@@ -714,7 +720,7 @@ shared with evolution checkpoint decisions but is distinct from the relative
 tolerance used to decide whether coefficient values changed.
 
 An ``ArtifactStore`` instance is bound to one resolved artifact directory and one preferred
-storage policy. Create another instance for another run instead of retargeting
+storage policy. Create another instance for another simulation instead of retargeting
 an existing handle. Time-series storage owns artifact append/rewrite decisions;
 projection policy and spatial weights do not belong in persisted coefficient
 containers.
@@ -725,7 +731,7 @@ duplicates fail loudly instead of silently preferring stale data. Complete
 NetCDF and Zarr rewrites use unique sibling temporary paths before replacement;
 incremental Zarr appends remain the time-series layer's explicit fast path.
 
-The simulation schema owns the complete vocabulary of run artifact names.
+The simulation schema owns the complete vocabulary of simulation artifact names.
 ``ArtifactStore`` remains generic: directory validation requires an explicit collection
 of artifact names, and the persistence primitive contains no knowledge of
 settings, gap responses, or output-stream identities. Artifact names are single
@@ -734,26 +740,26 @@ path-safe components.
 When adding persisted data, decide first whether it is configuration, input,
 output, or derived visualization metadata.  Configuration belongs in
 ``SimulationConfig``; input and output coefficient time series belong in the
-simulation schema; visualization defaults belong in serializable figure specs.
+simulation schema; visualization defaults belong in serializable figure settings.
 
 Visualization
 -------------
 
-Visualization code should treat saved runs as read-only inputs.  The newer
-``PynamitFigureSpec`` and panel binding layer make figure configuration
+Visualization code should treat saved simulations as read-only inputs.  The
+``FigureSettings`` and panel binding layer make figure configuration
 serializable, reusable, and testable outside the GUI.  Keep option validation
-close to the spec, rendering close to figure builders, and widget binding close
+close to the settings, rendering close to figure builders, and widget binding close
 to panel-specific modules.
 
-Saved-run loading has one persistence path. ``SavedRunView`` uses the same
+Saved simulation loading has one persistence path. ``SimulationResults`` uses the same
 ``ArtifactStore`` abstraction as simulation persistence and constructs the canonical
 configuration, schema, main field, and optional geometry. The plotting-grid
-``SavedCoefficientFieldView`` builds on that loaded context rather than
+``GridFields`` builds on that loaded context rather than
 reimplementing artifact discovery. Figure renderers directly retain their
-serializable specification and cached coefficient-field view, then own only
+serializable settings and cached grid fields, then own only
 their respective figure families.
 
-The saved-view cache has one versioned slot per resolved run and plotting
+The saved-view cache has one versioned slot per resolved simulation and plotting
 resolution. Artifact changes replace the previous heavyweight view in that
 slot, preventing live simulations from accumulating obsolete transform and
 geometry objects. Its fingerprint descends into directory-backed artifacts so
@@ -761,9 +767,9 @@ an incremental Zarr chunk append invalidates the view even when the store's
 top-level directory timestamp does not change.
 
 Specialized saved views should retain canonical context, not reconstruct or
-re-own it. ``SavedRunView`` is the sole owner of the run directory, artifacts,
+re-own it. ``SimulationResults`` is the sole owner of the simulation directory, artifacts,
 configuration, schema, main field, and optional geometry.
-``SavedCoefficientFieldView`` owns only plotting grids, evaluators, and derived
+``GridFields`` owns only plotting grids, evaluators, and derived
 field caches. SimulationGeometry and dense sheet-current maps are built only when an
 output-field calculation needs them, and the sheet-current maps are
 specifically deferred until Joule heating is requested. Input-driver and
@@ -773,16 +779,16 @@ rebuilding main fields, schemas, and transforms from raw settings. An
 ``equilibrium`` artifact is valid output even when no ``dynamic`` artifact is
 present; only difference plots require both.
 
-``PynamEye`` and ``visualization.results`` are legacy frontends retained for
-existing scripts. New saved-run behavior should enter through ``SavedRunView``
-or ``SavedCoefficientFieldView`` and the figure-spec renderer path, not create a
-third loading or rendering stack.
+``PynamEye`` remains an explicitly named legacy frontend for existing scripts.
+New saved simulation behavior should enter through ``SimulationResults`` or ``GridFields``
+and the ``FigureSettings`` renderer path, not create another loading or
+rendering stack.
 
 Avoid adding simulation-specific calculations directly to GUI callbacks.  If a
-plot needs computed fields, expose them through saved-run, run-field, or
+plot needs computed fields, expose them through saved-results, grid-field, or
 figure-builder helpers so command-line scripts, notebooks, tests, and the GUI
 all use the same path. Derived physical quantities should call the equation
-kernels that define them. In particular, both saved-run frontends use the
+kernels that define them. In particular, both saved-results frontends use the
 closure's total-sheet-current Joule-heating definition, including prescribed
 magnetic-boundary current, rather than reconstructing a second approximation
 inside visualization.

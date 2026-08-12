@@ -3,7 +3,6 @@
 import numpy as np
 from kompe import GlobalCSBasis, SHBasis, SphericalGrid, SphericalTransform
 
-import pynamit
 from pynamit.fields import FieldCoefficients, FieldSpace
 
 
@@ -26,18 +25,6 @@ def test_transform_accepts_pynamit_field_coefficients():
     np.testing.assert_allclose(
         transform.synthesize_scalar(field), transform.synthesize_scalar(field.array)
     )
-
-
-def test_basis_evaluator_retains_collaborator_matrix_properties():
-    """Retain the historical evaluator matrix spellings."""
-    from pynamit.sphere import BasisEvaluator
-
-    evaluator = BasisEvaluator(SHBasis(3, 2, mean_free=True), _regular_grid())
-
-    assert issubclass(BasisEvaluator, SphericalTransform)
-    assert pynamit.BasisEvaluator is BasisEvaluator
-    assert evaluator.G is evaluator.scalar_synthesis_matrix
-    assert evaluator.G_helmholtz is evaluator.helmholtz_synthesis_matrix
 
 
 def test_field_space_applies_constraint_after_kompe_sample_analysis():

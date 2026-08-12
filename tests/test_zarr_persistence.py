@@ -11,8 +11,8 @@ from kompe import SHBasis
 
 from pynamit.fields import FieldSpace
 from pynamit.simulation.api import Simulation
-from pynamit.simulation.workflows.standard import run_pynamit
 from pynamit.storage import ArtifactStore, FieldTimeSeries
+from pynamit.workflows.example import run_example
 from tests import magnetic_potential_coordinate_array
 
 
@@ -85,10 +85,10 @@ def test_artifact_store_scans_only_explicit_artifact_names(tmp_path):
 def test_artifact_store_rejects_ambiguous_artifact_representations(tmp_path):
     """Reads reject duplicate physical artifacts."""
     store = ArtifactStore(tmp_path / "run")
-    run_directory = Path(store.directory)
-    run_directory.mkdir(parents=True)
-    (run_directory / "sample.ncdf").touch()
-    (run_directory / "sample.zarr").mkdir()
+    simulation_directory = Path(store.directory)
+    simulation_directory.mkdir(parents=True)
+    (simulation_directory / "sample.ncdf").touch()
+    (simulation_directory / "sample.zarr").mkdir()
 
     with pytest.raises(ValueError, match="ambiguous storage representations"):
         store.get_dataset_storage_kind("sample")
@@ -96,17 +96,17 @@ def test_artifact_store_rejects_ambiguous_artifact_representations(tmp_path):
 
 def test_artifact_store_requires_only_explicitly_named_artifacts(tmp_path):
     """Directory validation remains artifact-generic."""
-    run_directory = tmp_path / "run"
-    store = ArtifactStore(run_directory, preferred_dataset_storage="netcdf")
+    simulation_directory = tmp_path / "run"
+    store = ArtifactStore(simulation_directory, preferred_dataset_storage="netcdf")
     store.save_dataset(_small_dataset(), "custom")
 
-    assert ArtifactStore.require_artifact_directory(run_directory, ("custom",)) == str(
-        run_directory.resolve()
+    assert ArtifactStore.require_artifact_directory(simulation_directory, ("custom",)) == str(
+        simulation_directory.resolve()
     )
     with pytest.raises(ValueError, match=r"missing required artifact\(s\): \['settings'\]"):
-        ArtifactStore.require_artifact_directory(run_directory, ("settings",))
+        ArtifactStore.require_artifact_directory(simulation_directory, ("settings",))
     with pytest.raises(TypeError, match="collection"):
-        ArtifactStore.require_artifact_directory(run_directory, "custom")
+        ArtifactStore.require_artifact_directory(simulation_directory, "custom")
 
 
 @pytest.mark.parametrize("name", ["", ".", "..", "../sample", "nested/sample", r"nested\sample"])
@@ -266,11 +266,11 @@ def test_timeseries_rewrites_zarr_for_same_time_replacement(tmp_path):
 @pytest.mark.parametrize(
     ("backend", "data_source", "least_squares_solver"), [("numpy", "fallback", "normal_pinv")]
 )
-def test_run_pynamit_default_run_directories_are_isolated(
+def test_run_example_default_simulation_directories_are_isolated(
     backend, data_source, least_squares_solver
 ):
-    """Default runs should not reuse fixed artifact paths."""
-    first = run_pynamit(
+    """Default simulations should not reuse fixed artifact paths."""
+    first = run_example(
         final_time=0.0,
         dt=0.1,
         Nmax=4,
@@ -281,7 +281,7 @@ def test_run_pynamit_default_run_directories_are_isolated(
         equilibrium_initialization=False,
         artifact_storage="netcdf",
     )
-    second = run_pynamit(
+    second = run_example(
         final_time=0.0,
         dt=0.1,
         Nmax=4,
@@ -293,16 +293,16 @@ def test_run_pynamit_default_run_directories_are_isolated(
         artifact_storage="netcdf",
     )
 
-    assert first.run_data.run_directory != second.run_data.run_directory
-    assert Path(first.run_data.run_directory, "settings.ncdf").is_file()
-    assert Path(second.run_data.run_directory, "settings.ncdf").is_file()
+    assert first.data.simulation_directory != second.data.simulation_directory
+    assert Path(first.data.simulation_directory, "settings.ncdf").is_file()
+    assert Path(second.data.simulation_directory, "settings.ncdf").is_file()
 
 
 @pytest.mark.parametrize(
     ("backend", "data_source", "least_squares_solver"), [("numpy", "fallback", "normal_pinv")]
 )
 @pytest.mark.parametrize("artifact_storage", ["netcdf", "zarr"])
-def test_simulation_restart_continues_to_match_direct_run(
+def test_simulation_restart_continues_to_match_direct_simulation(
     tmp_path, backend, data_source, least_squares_solver, artifact_storage
 ):
     """Restarting should match the direct continuation."""
@@ -321,13 +321,13 @@ def test_simulation_restart_continues_to_match_direct_run(
         saving_sample_interval=1,
         artifact_storage=artifact_storage,
     )
-    direct = run_pynamit(
-        final_time=0.1, run_directory=str(tmp_path / f"direct-{artifact_storage}"), **common_kwargs
+    direct = run_example(
+        final_time=0.1, simulation_directory=str(tmp_path / f"direct-{artifact_storage}"), **common_kwargs
     )
-    partial_run_directory = tmp_path / f"restart-{artifact_storage}"
-    run_pynamit(final_time=0.05, run_directory=str(partial_run_directory), **common_kwargs)
+    partial_simulation_directory = tmp_path / f"restart-{artifact_storage}"
+    run_example(final_time=0.05, simulation_directory=str(partial_simulation_directory), **common_kwargs)
 
-    resumed = Simulation.from_directory(str(partial_run_directory), artifact_storage="auto")
+    resumed = Simulation.from_directory(str(partial_simulation_directory), artifact_storage="auto")
     resumed.evolve_to_time(
         t=0.1,
         dt=0.05,
@@ -341,6 +341,6 @@ def test_simulation_restart_continues_to_match_direct_run(
         _regression_coordinates(resumed), _regression_coordinates(direct), rtol=1e-10, atol=0.0
     )
     np.testing.assert_allclose(
-        resumed.run_data.output_series.datasets["dynamic"].time.values,
-        direct.run_data.output_series.datasets["dynamic"].time.values,
+        resumed.data.output_series.datasets["dynamic"].time.values,
+        direct.data.output_series.datasets["dynamic"].time.values,
     )

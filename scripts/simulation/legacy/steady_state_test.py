@@ -10,7 +10,7 @@ import datetime
 import pyamps
 import apexpy
 
-run_directory = "ss_test"
+simulation_directory = "ss_test"
 Nmax, Mmax, Ncs = 15, 15, 16
 interhemispheric_coupling_latitude = 40
 RE = 6371.2e3
@@ -25,7 +25,7 @@ noon_mlon = d.mlt2mlon(12, date)  # Noon longitude
 
 # Set up simulation object.
 simulation = pynamit.Simulation(
-    run_directory=run_directory,
+    simulation_directory=simulation_directory,
     Nmax=Nmax,
     Mmax=Mmax,
     Ncs=Ncs,
@@ -58,7 +58,7 @@ _, noon_longitude, _ = apx.apex2geo(0, noon_mlon, (RI - RE) * 1e-3)  # fix this
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50)
 jr = a.get_upward_current(mlat=mlat, mlt=mlt) * 1e-6
 jr[np.abs(jr_lat) < 50] = 0  # filter low latitude jr
-simulation.set_jr(jr, lat=jr_lat, lon=jr_lon)
+simulation.set_boundary_jr(jr, lat=jr_lat, lon=jr_lon)
 
 # Get and set wind input.
 hwm14Obj = pyhwm2014.HWM142D(
@@ -92,5 +92,5 @@ mv = simulation.response.steady_state_m_ind()
 
 fig, ax = plt.subplots()
 ax.plot(mv)
-ax.plot(simulation.run_data.output_series["state"].SH_m_ind.values[-1, :])
+ax.plot(simulation.data.output_series["state"].SH_m_ind.values[-1, :])
 plt.show()

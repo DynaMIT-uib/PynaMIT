@@ -8,10 +8,10 @@ import numpy as np
 import pytest
 
 from pynamit.external_inputs import get_input_source, native_inputs_available, set_input_source
+from pynamit.results.input_projection import evaluate_projected_input
 from pynamit.simulation.electrodynamics import ionospheric_closure
-from pynamit.simulation.workflows import prepared_inputs as prepared_inputs_module
-from pynamit.simulation.workflows.prepared_inputs import prepare_pynamit_inputs
-from pynamit.visualization.input_projection import evaluate_projected_input
+from pynamit.workflows import example_inputs as example_inputs_module
+from pynamit.workflows.example_inputs import prepare_example_inputs
 from tests import SINGLE_PRECISION_REGRESSION_RTOL
 
 _INPUT_KEYS = ("conductance", "boundary_jr", "u")
@@ -53,9 +53,9 @@ def _assert_close(name: str, native: Any, fallback: Any) -> None:
 def _capture_preparation(monkeypatch, *, source: str, directory, main_field_kind: str, ncs: int):
     """Prepare inputs while retaining the provider-facing arrays."""
     captured: dict[str, dict[str, Any]] = {}
-    original_conductance = prepared_inputs_module.get_conductance_inputs
-    original_jr = prepared_inputs_module.get_jr_inputs
-    original_wind = prepared_inputs_module.get_wind_inputs
+    original_conductance = example_inputs_module.get_conductance_inputs
+    original_jr = example_inputs_module.get_jr_inputs
+    original_wind = example_inputs_module.get_wind_inputs
 
     def capture_conductance(*args, **kwargs):
         hall, pedersen, lat, lon = original_conductance(*args, **kwargs)
@@ -94,11 +94,11 @@ def _capture_preparation(monkeypatch, *, source: str, directory, main_field_kind
         return result
 
     with monkeypatch.context() as patch:
-        patch.setattr(prepared_inputs_module, "get_conductance_inputs", capture_conductance)
-        patch.setattr(prepared_inputs_module, "get_jr_inputs", capture_jr)
-        patch.setattr(prepared_inputs_module, "get_wind_inputs", capture_wind)
+        patch.setattr(example_inputs_module, "get_conductance_inputs", capture_conductance)
+        patch.setattr(example_inputs_module, "get_jr_inputs", capture_jr)
+        patch.setattr(example_inputs_module, "get_wind_inputs", capture_wind)
         set_input_source(source)
-        simulation = prepare_pynamit_inputs(
+        simulation = prepare_example_inputs(
             directory,
             final_time=0.0,
             Nmax=4,
@@ -119,7 +119,7 @@ def _coefficient_entries(simulation) -> dict[str, dict[str, np.ndarray]]:
     """Return stored coefficient rows for all compared inputs."""
     result = {}
     for key in _INPUT_KEYS:
-        entry = simulation.run_data.input_series.get_entry(key, 0.0, interpolation=False)
+        entry = simulation.data.input_series.get_entry(key, 0.0, interpolation=False)
         if entry is None:
             raise RuntimeError(f"Prepared simulation has no {key!r} entry at t=0.")
         result[key] = {name: np.asarray(values) for name, values in entry.items()}

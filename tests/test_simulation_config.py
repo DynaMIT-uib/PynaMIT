@@ -19,11 +19,11 @@ def test_simulation_constructs_from_normalized_config(tmp_path):
     )
 
     simulation = Simulation.from_config(
-        config, run_directory=tmp_path, artifact_storage="netcdf", backend="numpy"
+        config, simulation_directory=tmp_path, artifact_storage="netcdf", backend="numpy"
     )
 
     assert simulation.config.to_dataset().identical(config.to_dataset())
-    assert simulation.run_data.run_directory == str(tmp_path)
+    assert simulation.data.simulation_directory == str(tmp_path)
 
 
 def test_simulation_from_config_requires_normalized_config():
@@ -34,14 +34,14 @@ def test_simulation_from_config_requires_normalized_config():
 
 def test_operator_cache_is_a_nonphysical_runtime_preference(tmp_path):
     """Restart can change or omit the disposable operator-cache path."""
-    run_directory = tmp_path / "run"
+    simulation_directory = tmp_path / "run"
     first_cache = tmp_path / "first-cache"
     config = SimulationConfig(
         Nmax=2, Mmax=1, Ncs=4, main_field_kind="radial", enable_pfac_coupling=False
     )
     original = Simulation.from_config(
         config,
-        run_directory=run_directory,
+        simulation_directory=simulation_directory,
         artifact_storage="netcdf",
         operator_cache_directory=first_cache,
         backend="numpy",
@@ -50,7 +50,7 @@ def test_operator_cache_is_a_nonphysical_runtime_preference(tmp_path):
     assert list(first_cache.rglob("*.npy"))
 
     reloaded = Simulation.from_directory(
-        run_directory,
+        simulation_directory,
         artifact_storage="netcdf",
         operator_cache_directory=tmp_path / "second-cache",
         backend="numpy",

@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 
-from pynamit.visualization.station_data import (
+from pynamit.magnetometers import (
     load_iaga2002_magnetometer_data,
     normalize_station_metadata,
     shift_station_datetime_index,
