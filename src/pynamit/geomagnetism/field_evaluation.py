@@ -19,6 +19,13 @@ class MagneticFieldEvaluation:
         self.grid = grid
         self.radius = radius
 
+    def __repr__(self):
+        """Summarize the field model and evaluation surface."""
+        return (
+            f"MagneticFieldEvaluation(main_field={self.main_field!r}, "
+            f"grid={self.grid!r}, radius={float(self.radius):g})"
+        )
+
     @cached_property
     def components(self):
         """Return ``(Br, Btheta, Bphi)`` with shape ``(3, N)``."""

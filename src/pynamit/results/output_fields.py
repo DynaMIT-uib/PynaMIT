@@ -79,13 +79,14 @@ def evaluate_JS_coefficients(geometry, boundary_jr, induced_Br, transform, *, bo
     induced_Br = np.asarray(induced_Br)
 
     horizontal_transform = transform_for_basis(geometry.horizontal_basis, transform)
-    boundary_jr_to_JS = geometry.boundary_jr_to_gridded_JS(horizontal_transform)
-    induced_Br_to_JS = geometry.induced_Br_to_gridded_JS(horizontal_transform)
-    boundary_Br_to_JS = (
-        geometry.boundary_Br_to_gridded_JS(horizontal_transform)
+    boundary_jr_to_JS = geometry.boundary_jr_to_gridded_JS_operator(horizontal_transform).array
+    induced_Br_to_JS = geometry.induced_Br_to_gridded_JS_operator(horizontal_transform).array
+    boundary_Br_operator = (
+        geometry.boundary_Br_to_gridded_JS_operator(horizontal_transform)
         if boundary_Br is not None
         else None
     )
+    boundary_Br_to_JS = None if boundary_Br_operator is None else boundary_Br_operator.array
     return evaluate_JS_from_maps(
         boundary_jr,
         induced_Br,

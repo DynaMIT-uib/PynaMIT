@@ -2,6 +2,7 @@
 
 import importlib
 from importlib.util import find_spec
+from types import SimpleNamespace
 
 import cartopy.crs as ccrs
 import numpy as np
@@ -104,23 +105,17 @@ def test_grid_fields_loads_projected_input_package_without_output(tmp_path):
         enable_pfac_coupling=False,
         artifact_storage="netcdf",
     )
-    resistance_shape = simulation.data.schema.input_field_spaces[
-        "conductance"
-    ].coefficient_shape
+    resistance_shape = simulation.data.schema.input_field_spaces["conductance"].coefficient_shape
     simulation.set_conductance(
         log_magnitude_coefficients=np.zeros(resistance_shape),
         log_ratio_coefficients=np.zeros(resistance_shape),
         time=0.0,
     )
 
-    boundary_jr_shape = simulation.data.schema.input_field_spaces[
-        "boundary_jr"
-    ].coefficient_shape
+    boundary_jr_shape = simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
     simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
 
-    boundary_Br_shape = simulation.data.schema.input_field_spaces[
-        "boundary_Br"
-    ].coefficient_shape
+    boundary_Br_shape = simulation.data.schema.input_field_spaces["boundary_Br"].coefficient_shape
     simulation.set_boundary_Br(boundary_Br_coefficients=np.zeros(boundary_Br_shape), time=0.0)
 
     view = grid_fields.GridFields.from_directory(tmp_path)
@@ -130,14 +125,14 @@ def test_grid_fields_loads_projected_input_package_without_output(tmp_path):
     assert view.n_time == 1
     assert "dynamic" not in view.results.datasets
     assert {"boundary_Br", "boundary_jr", "conductance"}.issubset(view.results.datasets)
-    assert view.output_evaluator is None
+    assert view.output_transform is None
     assert view.results.geometry is None
     assert view.output_evaluation_context is None
     assert view.sheet_current_maps is None
-    assert view.input_evaluators["boundary_jr"] is view.input_evaluators["boundary_Br"]
-    assert view.input_evaluators["u"] is None
-    assert view.input_evaluators["Q_eff"] is None
-    assert view.input_evaluators["E_neutral_wind"] is None
+    assert view.input_transforms["boundary_jr"] is view.input_transforms["boundary_Br"]
+    assert view.input_transforms["u"] is None
+    assert view.input_transforms["Q_eff"] is None
+    assert view.input_transforms["E_neutral_wind"] is None
 
 
 def test_grid_fields_loads_without_boundary_br(tmp_path):
@@ -152,17 +147,13 @@ def test_grid_fields_loads_without_boundary_br(tmp_path):
         enable_pfac_coupling=False,
         artifact_storage="netcdf",
     )
-    resistance_shape = simulation.data.schema.input_field_spaces[
-        "conductance"
-    ].coefficient_shape
+    resistance_shape = simulation.data.schema.input_field_spaces["conductance"].coefficient_shape
     simulation.set_conductance(
         log_magnitude_coefficients=np.zeros(resistance_shape),
         log_ratio_coefficients=np.zeros(resistance_shape),
         time=0.0,
     )
-    boundary_jr_shape = simulation.data.schema.input_field_spaces[
-        "boundary_jr"
-    ].coefficient_shape
+    boundary_jr_shape = simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
     simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
     simulation.impose_equilibrium(time=0.0, save=True, quiet=True)
 
@@ -235,25 +226,32 @@ def test_saved_output_joule_uses_pedersen_dissipation():
         "boundary_jr_to_JS": np.array([np.zeros((2, 2)), np.eye(2)]),
         "boundary_Br_to_JS": None,
     }
+    results = SimpleNamespace(
+        datasets={"dynamic": output, "conductance": conductance},
+        data_var_name=lambda _dataset_key, variable_name: f"SH_{variable_name}",
+    )
 
     fields = grid_fields.compute_output_fields_at_index(
         0,
-        {"dynamic": output, "conductance": conductance},
+        results,
         IdentityEvaluator(),
         IdentityEvaluator(),
         output_evaluation_context,
         sheet_current_maps,
+        start_time="2020-01-01",
     )["dynamic"]
 
     np.testing.assert_allclose(fields["joule"], [70.0, 288.0])
 
+    results.datasets = {"equilibrium": output, "conductance": conductance}
     equilibrium_fields = grid_fields.compute_output_fields_at_index(
         0,
-        {"equilibrium": output, "conductance": conductance},
+        results,
         IdentityEvaluator(),
         IdentityEvaluator(),
         output_evaluation_context,
         sheet_current_maps,
+        start_time="2020-01-01",
     )["equilibrium"]
 
     np.testing.assert_allclose(equilibrium_fields["joule"], fields["joule"])
@@ -271,17 +269,13 @@ def test_grid_fields_supports_equilibrium_only_output(tmp_path):
         enable_pfac_coupling=False,
         artifact_storage="netcdf",
     )
-    resistance_shape = simulation.data.schema.input_field_spaces[
-        "conductance"
-    ].coefficient_shape
+    resistance_shape = simulation.data.schema.input_field_spaces["conductance"].coefficient_shape
     simulation.set_conductance(
         log_magnitude_coefficients=np.zeros(resistance_shape),
         log_ratio_coefficients=np.zeros(resistance_shape),
         time=0.0,
     )
-    boundary_jr_shape = simulation.data.schema.input_field_spaces[
-        "boundary_jr"
-    ].coefficient_shape
+    boundary_jr_shape = simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
     simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
     simulation.impose_equilibrium(time=0.0, save=True, quiet=True)
     simulation.data.artifact_store.remove_artifact("dynamic")
@@ -318,12 +312,19 @@ def test_grid_fields_aligns_inputs_by_time_not_index(tmp_path):
     simulation.set_boundary_Br(
         boundary_Br_coefficients=br_coefficients, time=np.array([0.0, 10.0, 20.0])
     )
-    xr.Dataset(coords={"time": np.array([0.0, 20.0])}).to_netcdf(tmp_path / "dynamic.ncdf")
+    output_spaces = simulation.data.schema.output_field_spaces["dynamic"]
+    empty_output = {
+        variable: np.zeros(field_space.coefficient_shape)
+        for variable, field_space in output_spaces.items()
+    }
+    for time in (0.0, 20.0):
+        simulation.data.output_series.add_entry("dynamic", empty_output, time)
+    simulation.data.output_series.save("dynamic", simulation.data.artifact_store)
 
     view = grid_fields.GridFields.from_directory(tmp_path)
     fields = view.input_grid_fields(1)
     expected = (
-        view.input_evaluators["boundary_Br"]
+        view.input_transforms["boundary_Br"]
         .scalar_synthesis_matrix.dot(br_coefficients[2])
         .reshape(view.lat.shape)
     )
@@ -375,35 +376,31 @@ def test_grid_fields_keeps_model_and_geographic_evaluation_grids_separate(tmp_pa
         enable_pfac_coupling=False,
         artifact_storage="netcdf",
     )
-    resistance_shape = simulation.data.schema.input_field_spaces[
-        "conductance"
-    ].coefficient_shape
+    resistance_shape = simulation.data.schema.input_field_spaces["conductance"].coefficient_shape
     simulation.set_conductance(
         log_magnitude_coefficients=np.zeros(resistance_shape),
         log_ratio_coefficients=np.zeros(resistance_shape),
         time=0.0,
     )
-    boundary_jr_shape = simulation.data.schema.input_field_spaces[
-        "boundary_jr"
-    ].coefficient_shape
+    boundary_jr_shape = simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
     simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
     simulation.impose_equilibrium(time=0.0, save=True, quiet=True)
 
     view = grid_fields.GridFields.from_directory(tmp_path, nlat=6, nlon=8)
     geographic = view._get_geographic_evaluation()
-    geographic_output_evaluator = view._geographic_output_evaluator(geographic)
+    geographic_output_transform = view._geographic_output_transform(geographic)
     expected_lat, expected_lon = view.results.main_field.geo_to_model_coordinates(
-        view.lat, view.lon, event_time=view._fallback_start_time()
+        view.lat, view.lon, event_time=view._start_time()
     )
 
-    np.testing.assert_allclose(view.output_evaluator.grid.lat, view.lat.reshape(-1))
-    np.testing.assert_allclose(view.output_evaluator.grid.lon, view.lon.reshape(-1))
-    np.testing.assert_allclose(geographic_output_evaluator.grid.lat, expected_lat.reshape(-1))
-    np.testing.assert_allclose(geographic_output_evaluator.grid.lon, expected_lon.reshape(-1))
-    assert geographic_output_evaluator.grid != view.output_evaluator.grid
+    np.testing.assert_allclose(view.output_transform.grid.lat, view.lat.reshape(-1))
+    np.testing.assert_allclose(view.output_transform.grid.lon, view.lon.reshape(-1))
+    np.testing.assert_allclose(geographic_output_transform.grid.lat, expected_lat.reshape(-1))
+    np.testing.assert_allclose(geographic_output_transform.grid.lon, expected_lon.reshape(-1))
+    assert geographic_output_transform.grid != view.output_transform.grid
     assert view._get_geographic_evaluation() is geographic
     assert view.geographic_map_context() == grid_fields.MapCoordinateContext.geographic(
-        pd.Timestamp(view._fallback_start_time()).to_pydatetime()
+        pd.Timestamp(view._start_time()).to_pydatetime()
     )
 
 
@@ -421,9 +418,7 @@ def test_grid_fields_reuses_earth_fixed_geographic_mapping(tmp_path):
         enable_pfac_coupling=False,
         artifact_storage="netcdf",
     )
-    boundary_jr_shape = simulation.data.schema.input_field_spaces[
-        "boundary_jr"
-    ].coefficient_shape
+    boundary_jr_shape = simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
     simulation.set_boundary_jr(
         boundary_jr_coefficients=np.zeros((2, *boundary_jr_shape)), time=np.array([0.0, 3600.0])
     )
@@ -458,9 +453,7 @@ def test_kaiju_hemisphere_plot_coordinates_are_magnetic(tmp_path):
         enable_pfac_coupling=False,
         artifact_storage="netcdf",
     )
-    boundary_jr_shape = simulation.data.schema.input_field_spaces[
-        "boundary_jr"
-    ].coefficient_shape
+    boundary_jr_shape = simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
     simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
 
     view = grid_fields.GridFields.from_directory(tmp_path, nlat=6, nlon=8)
@@ -501,7 +494,7 @@ def test_geographic_input_vectors_are_rotated_to_geographic_components(tmp_path)
     fields = view.input_grid_fields(0, coordinate_system="geographic")
     evaluation = view._get_geographic_evaluation()
     coefficients = view.dataset_values("u", "u")[0]
-    model_theta, model_phi = evaluation.input_evaluators["u"].synthesize_helmholtz(coefficients)
+    model_theta, model_phi = evaluation.input_transforms["u"].synthesize_helmholtz(coefficients)
     _, _, expected_east, expected_north = view.results.main_field.model_to_geo_coordinates(
         evaluation.vector_grid.lat.reshape(view.wind_lat.shape),
         evaluation.vector_grid.lon.reshape(view.wind_lon.shape),
@@ -525,9 +518,7 @@ def test_grid_fields_rejects_unknown_display_coordinate_system(tmp_path):
         enable_pfac_coupling=False,
         artifact_storage="netcdf",
     )
-    boundary_jr_shape = simulation.data.schema.input_field_spaces[
-        "boundary_jr"
-    ].coefficient_shape
+    boundary_jr_shape = simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
     simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
     view = grid_fields.GridFields.from_directory(tmp_path)
 
@@ -883,9 +874,7 @@ def test_grid_fields_cache_replaces_stale_simulation_version(tmp_path, monkeypat
         figure_context, "_artifact_fingerprint", lambda _directory: tuple(fingerprint)
     )
     monkeypatch.setattr(
-        figure_context.GridFields,
-        "from_directory",
-        staticmethod(lambda _directory: next(views)),
+        figure_context.GridFields, "from_directory", staticmethod(lambda _directory: next(views))
     )
     figure_context.clear_grid_fields_cache()
     settings = figure_settings.FigureSettings(simulation_directory=str(tmp_path))

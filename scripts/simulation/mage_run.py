@@ -145,9 +145,7 @@ def _build_simulation_targets(settings: SimulationSweep) -> tuple[_SimulationTar
             _SimulationTarget(
                 resolution_name=resolution_name,
                 projection_directory=projection_directory,
-                simulation_directory=(
-                    resolution_directory / "simulations" / simulation_name
-                ),
+                simulation_directory=(resolution_directory / "simulations" / simulation_name),
                 operator_cache_directory=(
                     resolution_directory / "operator_cache" if settings.cache_operators else None
                 ),

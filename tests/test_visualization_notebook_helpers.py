@@ -4,7 +4,7 @@ import datetime as dt
 
 import cartopy.crs as ccrs
 import numpy as np
-from kompe import SHBasis, SolidHarmonicOperators
+from kompe import SHBasis, SolidHarmonicOperators, SphericalTransform
 from kompe.constants import EARTH_RADIUS_M, MU0
 
 from pynamit.coordinates import (
@@ -39,7 +39,7 @@ from pynamit.plotting.plot_helpers import (
     symmetric_contour_levels,
     symmetric_contour_levels_without_zero,
 )
-from pynamit.results.grid_evaluation import build_evaluator, build_JS_operators, build_plot_grid
+from pynamit.results.grid_evaluation import build_JS_operators, build_plot_grid
 from pynamit.simulation.api import Simulation
 from pynamit.storage import ArtifactStore
 
@@ -402,7 +402,7 @@ def test_build_JS_operators_matches_core_formulas():
     sh_basis = SHBasis(3, 2, mean_free=True)
     solid_harmonics = SolidHarmonicOperators(sh_basis)
     _, _, grid = build_plot_grid(nlat=4, nlon=5)
-    transform = build_evaluator(sh_basis, grid)
+    transform = SphericalTransform(sh_basis, grid)
     boundary_jr_to_gap_Br = np.eye(sh_basis.index_length)
 
     operators = build_JS_operators(
@@ -454,7 +454,7 @@ def test_build_JS_operators_defaults_to_unshielded_rm():
     sh_basis = SHBasis(3, 2, mean_free=True)
     solid_harmonics = SolidHarmonicOperators(sh_basis)
     _, _, grid = build_plot_grid(nlat=4, nlon=5)
-    transform = build_evaluator(sh_basis, grid)
+    transform = SphericalTransform(sh_basis, grid)
 
     operators = build_JS_operators(Settings, sh_basis, transform)
     poloidal_to_JS = (
@@ -476,7 +476,7 @@ def test_build_JS_operators_omits_boundary_map_without_rm():
 
     sh_basis = SHBasis(3, 2, mean_free=True)
     _, _, grid = build_plot_grid(nlat=4, nlon=5)
-    transform = build_evaluator(sh_basis, grid)
+    transform = SphericalTransform(sh_basis, grid)
 
     operators = build_JS_operators(Settings, sh_basis, transform)
 
@@ -496,7 +496,7 @@ def test_build_JS_operators_matches_geometry(tmp_path):
     )
     geometry = simulation.geometry
     _, _, grid = build_plot_grid(nlat=4, nlon=5)
-    transform = build_evaluator(simulation.geometry.horizontal_basis, grid)
+    transform = SphericalTransform(simulation.geometry.horizontal_basis, grid)
     operators = build_JS_operators(
         simulation.data.config,
         simulation.geometry.horizontal_basis,
@@ -505,11 +505,11 @@ def test_build_JS_operators_matches_geometry(tmp_path):
     )
 
     np.testing.assert_allclose(
-        operators["induced_Br_to_JS"], geometry.induced_Br_to_gridded_JS(transform)
+        operators["induced_Br_to_JS"], geometry.induced_Br_to_gridded_JS_operator(transform).array
     )
     np.testing.assert_allclose(
-        operators["boundary_jr_to_JS"], geometry.boundary_jr_to_gridded_JS(transform)
+        operators["boundary_jr_to_JS"],
+        geometry.boundary_jr_to_gridded_JS_operator(transform).array,
     )
-    np.testing.assert_allclose(
-        operators["boundary_Br_to_JS"], geometry.boundary_Br_to_gridded_JS(transform)
-    )
+    boundary_Br_operator = geometry.boundary_Br_to_gridded_JS_operator(transform)
+    np.testing.assert_allclose(operators["boundary_Br_to_JS"], boundary_Br_operator.array)

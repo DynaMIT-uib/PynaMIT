@@ -217,10 +217,7 @@ def test_panel_simulation_preserves_the_prepared_input_main_field(tmp_path, monk
         captured["kwargs"] = kwargs
         return SimpleNamespace(simulation_directory=str(tmp_path / "simulation"))
 
-    monkeypatch.setattr(
-        "pynamit.workflows.prepared_inputs.run_from_inputs",
-        fake_run_from_inputs,
-    )
+    monkeypatch.setattr("pynamit.workflows.prepared_inputs.run_from_inputs", fake_run_from_inputs)
     app = PynamitGUI(simulation_directory=tmp_path)
     monkeypatch.setattr(app, "_load_simulation", lambda: None)
     app.simulation_input_directory.value = str(tmp_path / "inputs")

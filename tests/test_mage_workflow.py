@@ -1374,8 +1374,7 @@ def test_projection_diagnostics_write_figure_and_area_weighted_metrics(monkeypat
         artifact_storage="netcdf",
     )
     monkeypatch.setattr(
-        "pynamit.workflows.mage.diagnostics.style_global_input_axis",
-        lambda *args, **kwargs: None,
+        "pynamit.workflows.mage.diagnostics.style_global_input_axis", lambda *args, **kwargs: None
     )
 
     with mpl.rc_context({"text.usetex": False}):

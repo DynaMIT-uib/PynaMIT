@@ -80,17 +80,30 @@ class ElectrodynamicResponse:
         # Initialize closure-dependent caches.
         self._invalidate_closure_caches()
 
+    def __repr__(self):
+        """Summarize inputs without materializing operators."""
+        input_names = (
+            "u",
+            "Q_eff",
+            "E_neutral_wind",
+            "boundary_Br",
+            "boundary_jr",
+            "log_conductance_magnitude",
+            "log_hall_to_pedersen_ratio",
+        )
+        active = ", ".join(name for name in input_names if getattr(self, name) is not None)
+        return (
+            f"ElectrodynamicResponse(horizontal_basis={self.geometry.horizontal_basis!r}, "
+            f"active_inputs=[{active or 'none'}])"
+        )
+
     def project_surface_scalar_mean_free(self, coeffs: Any) -> Any:
         """Project surface-potential coefficients to a fixed gauge."""
-        projector = getattr(self.geometry.horizontal_basis, "project_scalar_mean_free", None)
-        return coeffs if not callable(projector) else projector(coeffs)
+        return self.geometry.horizontal_basis.project_scalar_mean_free(coeffs)
 
     def project_helmholtz_mean_free(self, coeffs: Any) -> Any:
         """Project Helmholtz-potential coefficients to a fixed gauge."""
-        projector = getattr(self.geometry.horizontal_basis, "project_helmholtz_mean_free", None)
-        if not callable(projector):
-            return coeffs
-        return projector(coeffs)
+        return self.geometry.horizontal_basis.project_helmholtz_mean_free(coeffs)
 
     @property
     def u_coeffs_to_E_coeffs(self) -> LinearMap:
@@ -111,14 +124,7 @@ class ElectrodynamicResponse:
         if self._Q_eff_to_E_coeffs_cache is None:
             if self._Q_eff_synthesis_operator_cache is None:
                 representation = self.Q_eff.field_space.representation
-                synthesis_operator = getattr(
-                    representation, "helmholtz_synthesis_operator", None
-                )
-                if not callable(synthesis_operator):
-                    raise ValueError(
-                        "Q_eff storage basis cannot evaluate tangential fields on the model grid."
-                    )
-                self._Q_eff_synthesis_operator_cache = synthesis_operator(
+                self._Q_eff_synthesis_operator_cache = representation.helmholtz_synthesis_operator(
                     self.geometry.model_grid
                 )
             self._Q_eff_to_E_coeffs_cache = (
@@ -137,24 +143,14 @@ class ElectrodynamicResponse:
             return None
         if self._E_neutral_wind_to_E_coeffs_cache is None:
             representation = self.E_neutral_wind.field_space.representation
-            if representation.coefficients_are_compatible_with(
-                self.geometry.horizontal_basis
-            ):
+            if representation.coefficients_are_compatible_with(self.geometry.horizontal_basis):
                 self._E_neutral_wind_to_E_coeffs_cache = identity_linear_map(
                     (2, self.geometry.horizontal_basis.index_length)
                 )
             else:
-                synthesis_operator = getattr(
-                    representation, "helmholtz_synthesis_operator", None
-                )
-                if not callable(synthesis_operator):
-                    raise ValueError(
-                        "E_neutral_wind storage basis cannot evaluate tangential fields "
-                        "on the model grid."
-                    )
                 self._E_neutral_wind_to_E_coeffs_cache = (
                     self.geometry.helmholtz_analysis_operator
-                    @ synthesis_operator(self.geometry.model_grid)
+                    @ representation.helmholtz_synthesis_operator(self.geometry.model_grid)
                 )
         return self._E_neutral_wind_to_E_coeffs_cache
 

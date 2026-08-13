@@ -53,7 +53,7 @@ simulation = pynamit.Simulation(
     t0=str(date),
     integrator="exponential",
 )
-state_field_space = pynamit.FieldSpace.from_representation(
+state_field_space = pynamit.FieldSpace(
     simulation.geometry.horizontal_basis, field_type="scalar"
 )
 conductance_field_space = simulation.data.schema.input_field_spaces["conductance"]

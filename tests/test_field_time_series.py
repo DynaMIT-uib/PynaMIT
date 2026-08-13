@@ -26,7 +26,7 @@ def test_timeseries_exposes_field_space_and_projects_mean_free_cs_coefficients()
 def test_timeseries_replaces_near_equal_floating_time():
     """Replace checkpoints using the declared time tolerance."""
     basis = SHBasis(2, 1)
-    field_space = FieldSpace.from_representation(basis)
+    field_space = FieldSpace(basis)
     timeseries = FieldTimeSeries({"sample": field_space}, {"sample": ("value",)})
     first = np.zeros(field_space.coefficient_shape)
     replacement = np.ones(field_space.coefficient_shape)
@@ -42,7 +42,7 @@ def test_timeseries_replaces_near_equal_floating_time():
 def test_timeseries_rejects_invalid_entry_time(time):
     """Stored simulation times must be finite numeric scalars."""
     basis = SHBasis(2, 1)
-    field_space = FieldSpace.from_representation(basis)
+    field_space = FieldSpace(basis)
     timeseries = FieldTimeSeries({"sample": field_space}, {"sample": ("value",)})
 
     with pytest.raises(ValueError, match="time value"):
@@ -54,7 +54,7 @@ def test_timeseries_rejects_invalid_entry_time(time):
 def test_timeseries_does_not_interpolate_across_tolerant_time_match():
     """A near checkpoint match selects that checkpoint exactly."""
     basis = SHBasis(2, 1)
-    field_space = FieldSpace.from_representation(basis)
+    field_space = FieldSpace(basis)
     timeseries = FieldTimeSeries({"sample": field_space}, {"sample": ("value",)})
     first = np.full(field_space.coefficient_shape, 10.0)
     second = np.full(field_space.coefficient_shape, 20.0)
@@ -71,7 +71,7 @@ def test_timeseries_does_not_interpolate_across_tolerant_time_match():
 def test_timeseries_rejects_loaded_coefficient_index_mismatch():
     """Restart artifacts preserve coefficient identity and length."""
     basis = SHBasis(2, 1)
-    field_space = FieldSpace.from_representation(basis)
+    field_space = FieldSpace(basis)
     source = FieldTimeSeries({"sample": field_space}, {"sample": ("value",)})
     source.add_entry("sample", {"value": np.zeros(field_space.coefficient_shape)}, time=0.0)
     persisted = source.datasets["sample"].reset_index("i")
@@ -97,7 +97,7 @@ def test_timeseries_rejects_loaded_coefficient_index_mismatch():
 def test_timeseries_restores_coefficient_multiindex_in_memory():
     """Loaded series recover their in-memory coefficient index."""
     basis = SHBasis(2, 1)
-    field_space = FieldSpace.from_representation(basis)
+    field_space = FieldSpace(basis)
     source = FieldTimeSeries({"sample": field_space}, {"sample": ("value",)})
     source.add_entry("sample", {"value": np.zeros(field_space.coefficient_shape)}, time=0.0)
     persisted = source.datasets["sample"].reset_index("i")

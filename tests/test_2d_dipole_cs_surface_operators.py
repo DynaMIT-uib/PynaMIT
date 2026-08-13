@@ -57,12 +57,12 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
         geometry.poloidal_to_boundary_potential_jump_factor_operator.to_matrix(backend="numpy"),
         expected_boundary_potential_jump_factor,
     )
-    assert geometry.induced_Br_to_gridded_JS().shape == (
+    assert geometry.induced_Br_to_gridded_JS_operator().array.shape == (
         2,
         geometry.model_grid.size,
         simulation.geometry.poloidal_basis.index_length,
     )
-    assert geometry.boundary_jr_to_gridded_JS().shape == (
+    assert geometry.boundary_jr_to_gridded_JS_operator().array.shape == (
         2,
         geometry.model_grid.size,
         simulation.geometry.horizontal_basis.index_length,
@@ -75,7 +75,7 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
     assert geometry.poloidal_transform_for(plot_transform) is geometry.poloidal_transform_for(
         plot_transform
     )
-    assert geometry.induced_Br_to_gridded_JS(plot_transform).shape == (
+    assert geometry.induced_Br_to_gridded_JS_operator(plot_transform).array.shape == (
         2,
         plot_grid.size,
         simulation.geometry.poloidal_basis.index_length,
@@ -116,7 +116,7 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
         simulation.data.simulation_directory, nlat=8, nlon=12, wind_nlat=5, wind_nlon=7
     )
     fields = view.output_grid_fields(0)
-    assert isinstance(view.output_evaluator.basis, GlobalCSBasis)
+    assert isinstance(view.output_transform.basis, GlobalCSBasis)
     assert fields["Br_dynamic"].shape == view.lat.shape
     assert fields["jr_dynamic"].shape == view.lat.shape
     assert np.all(np.isfinite(fields["Br_dynamic"]))

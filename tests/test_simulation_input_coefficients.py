@@ -28,7 +28,7 @@ def test_simulation_reuses_input_transforms_for_shared_representations(tmp_path)
     simulation = _small_simulation(tmp_path)
     pipeline = simulation._input_pipeline
 
-    assert pipeline.projection_transforms == {}
+    assert pipeline._projection_transforms == {}
     transforms = {
         key: pipeline.projection_transform_for(key)
         for key in ("boundary_jr", "boundary_Br", "u", "Q_eff", "E_neutral_wind", "conductance")
@@ -53,7 +53,7 @@ def test_set_boundary_jr_accepts_input_basis_coefficients(tmp_path):
     dataset = simulation.data.input_series.datasets["boundary_jr"]
     np.testing.assert_allclose(dataset["SH_boundary_jr"].isel(time=0).values, boundary_jr_coeffs)
     np.testing.assert_allclose(dataset.time.values, [4.0])
-    assert simulation._input_pipeline.projection_transforms == {}
+    assert simulation._input_pipeline._projection_transforms == {}
 
 
 def test_set_boundary_Br_accepts_input_basis_coefficients(tmp_path):
@@ -102,9 +102,7 @@ def test_input_activation_uses_field_coefficients_for_wind(tmp_path):
 def test_nonwind_response_keeps_wind_operator_lazy(tmp_path):
     """A zero wind contribution should not build the wind operator."""
     simulation = _small_simulation(tmp_path)
-    conductance_shape = simulation.data.schema.input_field_spaces[
-        "conductance"
-    ].coefficient_shape
+    conductance_shape = simulation.data.schema.input_field_spaces["conductance"].coefficient_shape
     current_shape = simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
     simulation.set_conductance(
         log_magnitude_coefficients=np.zeros(conductance_shape),
@@ -138,9 +136,7 @@ def test_set_Q_eff_accepts_helmholtz_input_basis_coefficients(tmp_path):
 def test_calculate_Q_eff_uses_canonical_input_series_owner(tmp_path):
     """Q_eff reads conductance through SimulationData."""
     simulation = _small_simulation(tmp_path)
-    conductance_shape = simulation.data.schema.input_field_spaces[
-        "conductance"
-    ].coefficient_shape
+    conductance_shape = simulation.data.schema.input_field_spaces["conductance"].coefficient_shape
     simulation.set_conductance(
         log_magnitude_coefficients=np.zeros(conductance_shape),
         log_ratio_coefficients=np.zeros(conductance_shape),

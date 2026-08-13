@@ -111,7 +111,9 @@ def apply_figure_settings_to_widgets(app, settings: FigureSettings) -> None:
     set_widget_value(
         app.show_pedersen_conductance_overlay, bool(settings.show_pedersen_conductance_overlay)
     )
-    set_widget_value(app.show_hall_conductance_overlay, bool(settings.show_hall_conductance_overlay))
+    set_widget_value(
+        app.show_hall_conductance_overlay, bool(settings.show_hall_conductance_overlay)
+    )
     set_widget_value(app.show_reference_line, bool(settings.show_reference_line))
     set_widget_value(app.reference_time, str(settings.reference_time_of_day_utc))
     set_widget_value(app.curve_scale_mode, settings.curve_scale_mode)
@@ -152,8 +154,4 @@ def apply_figure_settings_to_widgets(app, settings: FigureSettings) -> None:
     set_widget_value(app.movie_fps, float(settings.movie_fps))
 
 
-__all__ = [
-    "apply_figure_settings_to_widgets",
-    "current_figure_settings",
-    "set_widget_value",
-]
+__all__ = ["apply_figure_settings_to_widgets", "current_figure_settings", "set_widget_value"]

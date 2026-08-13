@@ -37,7 +37,9 @@ def test_simulation_data_owns_schema_artifacts_and_field_series(tmp_path):
     """SimulationData creates and reloads persisted simulation state."""
     simulation_directory = tmp_path / "simulation"
     settings = _settings(horizontal_basis_kind="CS", area_weighted_least_squares=1)
-    data = SimulationData.open(settings, simulation_directory=simulation_directory, artifact_storage="netcdf")
+    data = SimulationData.open(
+        settings, simulation_directory=simulation_directory, artifact_storage="netcdf"
+    )
 
     assert data.simulation_directory == str(simulation_directory.resolve())
     assert not hasattr(data, "run_directory")
@@ -63,7 +65,9 @@ def test_simulation_data_owns_schema_artifacts_and_field_series(tmp_path):
     data.output_series.add_entry("dynamic", _output_payload(n_magnetic, n_surface), time=0.0)
     data.output_series.save("dynamic", data.artifact_store)
 
-    reloaded = SimulationData.open(settings, simulation_directory=simulation_directory, artifact_storage="netcdf")
+    reloaded = SimulationData.open(
+        settings, simulation_directory=simulation_directory, artifact_storage="netcdf"
+    )
 
     assert reloaded.settings_saved is True
     assert reloaded.gap_Br_response is not None
@@ -80,7 +84,9 @@ def test_simulation_data_reuses_validated_config(tmp_path):
     """The runtime shares one immutable validated configuration."""
     config = SimulationConfig(Nmax=2, Mmax=1, Ncs=8, enable_pfac_coupling=False)
 
-    data = SimulationData.open(config, simulation_directory=tmp_path / "simulation", artifact_storage="netcdf")
+    data = SimulationData.open(
+        config, simulation_directory=tmp_path / "simulation", artifact_storage="netcdf"
+    )
 
     assert data.config is config
 
@@ -89,11 +95,15 @@ def test_simulation_data_rejects_saved_settings_mismatch(tmp_path):
     """Saved settings guard against restarting with new args."""
     simulation_directory = tmp_path / "simulation"
     settings = _settings(Nmax=3)
-    data = SimulationData.open(settings, simulation_directory=simulation_directory, artifact_storage="netcdf")
+    data = SimulationData.open(
+        settings, simulation_directory=simulation_directory, artifact_storage="netcdf"
+    )
     data.save_settings_if_missing()
 
     with pytest.raises(ValueError, match="Mismatch"):
-        SimulationData.open(_settings(Nmax=4), simulation_directory=simulation_directory, artifact_storage="netcdf")
+        SimulationData.open(
+            _settings(Nmax=4), simulation_directory=simulation_directory, artifact_storage="netcdf"
+        )
 
 
 def test_simulation_data_rejects_legacy_magnetic_schema(tmp_path):
@@ -105,7 +115,9 @@ def test_simulation_data_rejects_legacy_magnetic_schema(tmp_path):
     )
 
     with pytest.raises(ValueError, match="uses schema"):
-        SimulationData.open(legacy_settings, simulation_directory=simulation_directory, artifact_storage="netcdf")
+        SimulationData.open(
+            legacy_settings, simulation_directory=simulation_directory, artifact_storage="netcdf"
+        )
 
 
 def test_simulation_exposes_interactive_views_without_copying_data(tmp_path):
@@ -160,17 +172,13 @@ def test_simulation_persists_only_active_gap_Br_response(
         enable_pfac_coupling=enable_pfac_coupling,
         artifact_storage="netcdf",
     )
-    resistance_shape = simulation.data.schema.input_field_spaces[
-        "conductance"
-    ].coefficient_shape
+    resistance_shape = simulation.data.schema.input_field_spaces["conductance"].coefficient_shape
     simulation.set_conductance(
         log_magnitude_coefficients=np.zeros(resistance_shape),
         log_ratio_coefficients=np.zeros(resistance_shape),
         time=0.0,
     )
-    boundary_jr_shape = simulation.data.schema.input_field_spaces[
-        "boundary_jr"
-    ].coefficient_shape
+    boundary_jr_shape = simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
     simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
 
     assert simulation.data.gap_Br_response is None
@@ -200,9 +208,7 @@ def test_simulation_from_directory_uses_saved_configuration(tmp_path):
     assert not hasattr(reloaded, "run_directory")
     assert reloaded.config.Mmax == original.config.Mmax
     assert reloaded.config.horizontal_basis_kind == "CS"
-    assert (
-        reloaded.data.schema.horizontal_basis is not original.data.schema.horizontal_basis
-    )
+    assert reloaded.data.schema.horizontal_basis is not original.data.schema.horizontal_basis
     assert reloaded.data.schema.horizontal_basis.index_length == (
         original.data.schema.horizontal_basis.index_length
     )

@@ -6,17 +6,14 @@ from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
+from kompe import SphericalTransform
 from kompe.constants import MU0
 
 from pynamit.coordinates import GEOCENTRIC_GEOGRAPHIC
 from pynamit.geomagnetism import MagneticFieldEvaluation
 from pynamit.plotting.map_coordinates import MapCoordinateContext
 from pynamit.results.field_maps import evaluate_conductance_values, evaluate_JS_from_maps
-from pynamit.results.grid_evaluation import (
-    build_evaluator,
-    build_plot_grid,
-    model_grid_for_geographic_display,
-)
+from pynamit.results.grid_evaluation import build_plot_grid, model_grid_for_geographic_display
 from pynamit.results.simulation_results import SimulationResults
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     joule_heating_from_current,
@@ -65,26 +62,23 @@ def _nan_field(shape):
     return np.full(shape, np.nan, dtype=float)
 
 
-def _build_input_evaluators(
-    schema, datasets, scalar_grid, vector_grid, evaluator_cache=None, *, keys=INPUT_ARTIFACT_KEYS
+def _build_input_transforms(
+    schema, datasets, scalar_grid, vector_grid, transform_cache=None, *, keys=INPUT_ARTIFACT_KEYS
 ):
-    """Build input evaluators for the requested display grids."""
-    evaluator_cache = {} if evaluator_cache is None else evaluator_cache
-    evaluators = {}
+    """Build input transforms for the requested display grids."""
+    transform_cache = {} if transform_cache is None else transform_cache
+    transforms = {}
     for key in keys:
         if key not in datasets:
-            evaluators[key] = None
+            transforms[key] = None
             continue
         target_grid = vector_grid if key in TANGENTIAL_INPUT_KEYS else scalar_grid
         representation = schema.input_field_spaces[key].representation
-        cache_key = (
-            getattr(representation, "signature", id(representation)),
-            target_grid.signature,
-        )
-        if cache_key not in evaluator_cache:
-            evaluator_cache[cache_key] = build_evaluator(representation, target_grid)
-        evaluators[key] = evaluator_cache[cache_key]
-    return evaluators
+        cache_key = (representation.signature, target_grid.signature)
+        if cache_key not in transform_cache:
+            transform_cache[cache_key] = SphericalTransform(representation, target_grid)
+        transforms[key] = transform_cache[cache_key]
+    return transforms
 
 
 @dataclass
@@ -93,30 +87,16 @@ class _GeographicEvaluation:
 
     scalar_grid: object
     vector_grid: object
-    output_evaluator: object | None
-    input_evaluators: dict[str, object | None] = field(default_factory=dict)
+    output_transform: SphericalTransform | None
+    input_transforms: dict[str, SphericalTransform | None] = field(default_factory=dict)
     output_evaluation_context: dict[str, object] | None = None
     sheet_current_maps: dict[str, object] | None = None
 
 
-def _dataset_var_name(dataset, variable_name):
-    """Return the stored xarray variable for one logical variable."""
-    for candidate in (f"SH_{variable_name}", f"CS_{variable_name}", variable_name):
-        if candidate in dataset:
-            return candidate
-    suffix = f"_{variable_name}"
-    for name in dataset.data_vars:
-        if str(name).endswith(suffix):
-            return str(name)
-    return None
-
-
-def _required_dataset_values(dataset, variable_name, index):
+def _required_dataset_values(results, dataset_key, variable_name, index):
     """Return stored coefficient values for one logical variable."""
-    stored_name = _dataset_var_name(dataset, variable_name)
-    if stored_name is None:
-        available = ", ".join(str(name) for name in dataset.data_vars) or "none"
-        raise KeyError(f"Dataset has no saved {variable_name!r} coefficients; found {available}.")
+    dataset = results.datasets[dataset_key]
+    stored_name = results.data_var_name(dataset_key, variable_name)
     return np.asarray(dataset[stored_name].isel(time=index).values)
 
 
@@ -125,35 +105,38 @@ def _apply_flat_operator(operator, coeffs):
     return np.asarray(operator.matvec(np.asarray(coeffs))).reshape(-1)
 
 
-def _output_evaluation_context(config, geometry, evaluator):
+def _output_evaluation_context(config, geometry, transform):
     """Return geometry and maps for evaluating saved output fields."""
     ri = float(config.RI)
-    poloidal_evaluator = geometry.poloidal_transform_for(evaluator)
+    poloidal_transform = geometry.poloidal_transform_for(transform)
     return {
         "RI": ri,
-        "induced_Br_to_Br": poloidal_evaluator.scalar_synthesis_operator,
-        "boundary_jr_to_jr": evaluator.scalar_synthesis_operator,
+        "induced_Br_to_Br": poloidal_transform.scalar_synthesis_operator,
+        "boundary_jr_to_jr": transform.scalar_synthesis_operator,
         "induced_Br_to_Jeq": (-ri / MU0)
         * (
-            poloidal_evaluator.scalar_synthesis_operator
+            poloidal_transform.scalar_synthesis_operator
             @ geometry.poloidal_to_boundary_potential_jump_factor_operator
             @ geometry.induced_Br_to_poloidal_potential_operator
         ),
     }
 
 
-def _sheet_current_maps(geometry, evaluator):
+def _sheet_current_maps(geometry, transform):
     """Return source-to-sheet-current maps on the plotting grid."""
-    poloidal_evaluator = geometry.poloidal_transform_for(evaluator)
+    poloidal_transform = geometry.poloidal_transform_for(transform)
+    boundary_Br_operator = geometry.boundary_Br_to_gridded_JS_operator(
+        transform, poloidal_transform=poloidal_transform
+    )
     return {
-        "induced_Br_to_JS": geometry.induced_Br_to_gridded_JS(
-            evaluator, poloidal_transform=poloidal_evaluator
-        ),
-        "boundary_jr_to_JS": geometry.boundary_jr_to_gridded_JS(
-            evaluator, poloidal_transform=poloidal_evaluator
-        ),
-        "boundary_Br_to_JS": geometry.boundary_Br_to_gridded_JS(
-            evaluator, poloidal_transform=poloidal_evaluator
+        "induced_Br_to_JS": geometry.induced_Br_to_gridded_JS_operator(
+            transform, poloidal_transform=poloidal_transform
+        ).array,
+        "boundary_jr_to_JS": geometry.boundary_jr_to_gridded_JS_operator(
+            transform, poloidal_transform=poloidal_transform
+        ).array,
+        "boundary_Br_to_JS": (
+            None if boundary_Br_operator is None else boundary_Br_operator.array
         ),
     }
 
@@ -163,7 +146,7 @@ def _output_fields_from_coefficients(
     boundary_jr,
     phi_coeffs,
     w_coeffs,
-    evaluator,
+    transform,
     output_evaluation_context,
     field_names,
 ):
@@ -184,18 +167,18 @@ def _output_fields_from_coefficients(
     radius_scale = float(output_evaluation_context["RI"]) * 1e-3
     if "Phi" in field_names:
         fields["Phi"] = _apply_flat_operator(
-            evaluator.scalar_synthesis_operator, radius_scale * phi_coeffs
+            transform.scalar_synthesis_operator, radius_scale * phi_coeffs
         )
     if "W" in field_names:
         fields["W"] = _apply_flat_operator(
-            evaluator.scalar_synthesis_operator, radius_scale * w_coeffs
+            transform.scalar_synthesis_operator, radius_scale * w_coeffs
         )
     return fields
 
 
-def _dataset_index_at_time(dataset, timestamp, *, fallback_start_time=None):
+def _dataset_index_at_time(dataset, timestamp, *, start_time=None):
     """Return the latest dataset index at or before ``timestamp``."""
-    times = time_index_from_dataset(dataset, fallback_start_time=fallback_start_time)
+    times = time_index_from_dataset(dataset, start_time=start_time)
     if times.empty:
         raise ValueError("No time coordinates are available.")
 
@@ -207,37 +190,33 @@ def _dataset_index_at_time(dataset, timestamp, *, fallback_start_time=None):
 
 
 def _input_scalar_grid_at_time(
-    datasets, dataset_key, variable_name, timestamp, evaluator, shape, *, fallback_start_time=None
+    results, dataset_key, variable_name, timestamp, transform, shape, *, start_time=None
 ):
-    dataset = datasets.get(dataset_key)
+    dataset = results.datasets.get(dataset_key)
     if dataset is None:
         return _nan_field(shape)
-    stored_name = _dataset_var_name(dataset, variable_name)
-    if stored_name is None:
-        return _nan_field(shape)
-    index = _dataset_index_at_time(dataset, timestamp, fallback_start_time=fallback_start_time)
-    return evaluator.scalar_synthesis_matrix.dot(
+    stored_name = results.data_var_name(dataset_key, variable_name)
+    index = _dataset_index_at_time(dataset, timestamp, start_time=start_time)
+    return transform.scalar_synthesis_matrix.dot(
         dataset[stored_name].isel(time=index).values
     ).reshape(shape)
 
 
 def _input_tangential_grid_at_time(
-    datasets, dataset_key, variable_name, timestamp, evaluator, shape, *, fallback_start_time=None
+    results, dataset_key, variable_name, timestamp, transform, shape, *, start_time=None
 ):
-    dataset = datasets.get(dataset_key)
+    dataset = results.datasets.get(dataset_key)
     if dataset is None:
         return _nan_field(shape), _nan_field(shape)
-    stored_name = _dataset_var_name(dataset, variable_name)
-    if stored_name is None:
-        return _nan_field(shape), _nan_field(shape)
-    index = _dataset_index_at_time(dataset, timestamp, fallback_start_time=fallback_start_time)
-    theta_grid, phi_grid = evaluator.synthesize_helmholtz(
+    stored_name = results.data_var_name(dataset_key, variable_name)
+    index = _dataset_index_at_time(dataset, timestamp, start_time=start_time)
+    theta_grid, phi_grid = transform.synthesize_helmholtz(
         dataset[stored_name].isel(time=index).values
     )
     return theta_grid.reshape(shape), phi_grid.reshape(shape)
 
 
-def datetime_at_index(times, index, *, fallback_start_time=None):
+def datetime_at_index(times, index, *, start_time=None):
     """Return one saved time value as a pandas timestamp."""
     values = np.asarray(times)
     if values.size == 0:
@@ -246,16 +225,16 @@ def datetime_at_index(times, index, *, fallback_start_time=None):
     value = values[idx]
     if np.issubdtype(values.dtype, np.datetime64):
         return pd.Timestamp(value)
-    if fallback_start_time is None:
-        fallback_start_time = pd.Timestamp("1970-01-01")
-    return pd.Timestamp(fallback_start_time) + pd.to_timedelta(float(value), unit="s")
+    if start_time is None:
+        raise ValueError("Numeric simulation times require the physical start_time.")
+    return pd.Timestamp(start_time) + pd.to_timedelta(float(value), unit="s")
 
 
-def time_index_from_dataset(dataset, *, fallback_start_time=None):
+def time_index_from_dataset(dataset, *, start_time=None):
     """Return dataset times as a ``DatetimeIndex``."""
     return pd.DatetimeIndex(
         [
-            datetime_at_index(dataset.time.values, index, fallback_start_time=fallback_start_time)
+            datetime_at_index(dataset.time.values, index, start_time=start_time)
             for index in range(len(dataset.time))
         ]
     )
@@ -263,17 +242,18 @@ def time_index_from_dataset(dataset, *, fallback_start_time=None):
 
 def compute_output_fields_at_index(
     index,
-    datasets,
-    evaluator,
-    conductance_evaluator,
+    results,
+    transform,
+    conductance_transform,
     output_evaluation_context,
     sheet_current_maps,
     *,
     target_time=None,
-    fallback_start_time=None,
+    start_time=None,
     field_names=None,
 ):
     """Evaluate dynamic and equilibrium fields at one saved index."""
+    datasets = results.datasets
     field_names = _normalize_output_field_names(field_names)
     output_keys = [key for key in ("dynamic", "equilibrium") if key in datasets]
     if not output_keys:
@@ -282,34 +262,30 @@ def compute_output_fields_at_index(
     reference_dataset = datasets[reference_key]
     if target_time is None:
         target_time = datetime_at_index(
-            reference_dataset.time.values, int(index), fallback_start_time=fallback_start_time
+            reference_dataset.time.values, int(index), start_time=start_time
         )
 
     boundary_Br = None
     if "joule" in field_names and "boundary_Br" in datasets:
-        boundary_Br_var = _dataset_var_name(datasets["boundary_Br"], "boundary_Br")
-        if boundary_Br_var is not None:
-            boundary_Br_index = _dataset_index_at_time(
-                datasets["boundary_Br"], target_time, fallback_start_time=fallback_start_time
-            )
-            boundary_Br = (
-                datasets["boundary_Br"][boundary_Br_var].isel(time=boundary_Br_index).values
-            )
+        boundary_Br_var = results.data_var_name("boundary_Br", "boundary_Br")
+        boundary_Br_index = _dataset_index_at_time(
+            datasets["boundary_Br"], target_time, start_time=start_time
+        )
+        boundary_Br = datasets["boundary_Br"][boundary_Br_var].isel(time=boundary_Br_index).values
     etaP = None
     if "joule" in field_names and "conductance" in datasets:
-        log_magnitude_var = _dataset_var_name(datasets["conductance"], "log_conductance_magnitude")
-        log_ratio_var = _dataset_var_name(datasets["conductance"], "log_hall_to_pedersen_ratio")
-        if log_magnitude_var is not None and log_ratio_var is not None:
-            conductance_index = _dataset_index_at_time(
-                datasets["conductance"], target_time, fallback_start_time=fallback_start_time
-            )
-            log_magnitude = conductance_evaluator.scalar_synthesis_matrix.dot(
-                datasets["conductance"][log_magnitude_var].isel(time=conductance_index).values
-            )
-            log_ratio = conductance_evaluator.scalar_synthesis_matrix.dot(
-                datasets["conductance"][log_ratio_var].isel(time=conductance_index).values
-            )
-            etaP = evaluate_conductance_values(log_magnitude, log_ratio)["etaP"]
+        log_magnitude_var = results.data_var_name("conductance", "log_conductance_magnitude")
+        log_ratio_var = results.data_var_name("conductance", "log_hall_to_pedersen_ratio")
+        conductance_index = _dataset_index_at_time(
+            datasets["conductance"], target_time, start_time=start_time
+        )
+        log_magnitude = conductance_transform.scalar_synthesis_matrix.dot(
+            datasets["conductance"][log_magnitude_var].isel(time=conductance_index).values
+        )
+        log_ratio = conductance_transform.scalar_synthesis_matrix.dot(
+            datasets["conductance"][log_ratio_var].isel(time=conductance_index).values
+        )
+        etaP = evaluate_conductance_values(log_magnitude, log_ratio)["etaP"]
 
     result = {}
     for dataset_key in output_keys:
@@ -317,17 +293,15 @@ def compute_output_fields_at_index(
         output_index = (
             int(index)
             if dataset_key == reference_key
-            else _dataset_index_at_time(
-                dataset, target_time, fallback_start_time=fallback_start_time
-            )
+            else _dataset_index_at_time(dataset, target_time, start_time=start_time)
         )
         induced_Br = (
-            _required_dataset_values(dataset, "induced_Br", output_index)
+            _required_dataset_values(results, dataset_key, "induced_Br", output_index)
             if field_names & {"Br", "Jeq", "joule"}
             else None
         )
         boundary_jr = (
-            _required_dataset_values(dataset, "boundary_jr", output_index)
+            _required_dataset_values(results, dataset_key, "boundary_jr", output_index)
             if field_names & {"jr", "joule"}
             else None
         )
@@ -335,12 +309,16 @@ def compute_output_fields_at_index(
             induced_Br,
             boundary_jr,
             (
-                _required_dataset_values(dataset, "Phi", output_index)
+                _required_dataset_values(results, dataset_key, "Phi", output_index)
                 if "Phi" in field_names
                 else None
             ),
-            (_required_dataset_values(dataset, "W", output_index) if "W" in field_names else None),
-            evaluator,
+            (
+                _required_dataset_values(results, dataset_key, "W", output_index)
+                if "W" in field_names
+                else None
+            ),
+            transform,
             output_evaluation_context,
             field_names,
         )
@@ -360,52 +338,53 @@ def compute_output_fields_at_index(
                     sheet_current, etaP, output_evaluation_context["pedersen_geometry"]
                 )
                 if etaP is not None
-                else np.full(evaluator.grid.size, np.nan)
+                else np.full(transform.grid.size, np.nan)
             )
         result[dataset_key] = fields
     return result
 
 
 def compute_input_fields_at_time(
-    timestamp, datasets, input_evaluators, scalar_shape, vector_shape, *, fallback_start_time=None
+    timestamp, results, input_transforms, scalar_shape, vector_shape, *, start_time=None
 ):
     """Evaluate projected input drivers at one physical time."""
+    datasets = results.datasets
     boundary_jr = _input_scalar_grid_at_time(
-        datasets,
+        results,
         "boundary_jr",
         "boundary_jr",
         timestamp,
-        input_evaluators["boundary_jr"],
+        input_transforms["boundary_jr"],
         scalar_shape,
-        fallback_start_time=fallback_start_time,
+        start_time=start_time,
     )
     boundary_Br = _input_scalar_grid_at_time(
-        datasets,
+        results,
         "boundary_Br",
         "boundary_Br",
         timestamp,
-        input_evaluators["boundary_Br"],
+        input_transforms["boundary_Br"],
         scalar_shape,
-        fallback_start_time=fallback_start_time,
+        start_time=start_time,
     )
     if "conductance" in datasets:
         log_magnitude = _input_scalar_grid_at_time(
-            datasets,
+            results,
             "conductance",
             "log_conductance_magnitude",
             timestamp,
-            input_evaluators["conductance"],
+            input_transforms["conductance"],
             scalar_shape,
-            fallback_start_time=fallback_start_time,
+            start_time=start_time,
         ).reshape(-1)
         log_ratio = _input_scalar_grid_at_time(
-            datasets,
+            results,
             "conductance",
             "log_hall_to_pedersen_ratio",
             timestamp,
-            input_evaluators["conductance"],
+            input_transforms["conductance"],
             scalar_shape,
-            fallback_start_time=fallback_start_time,
+            start_time=start_time,
         ).reshape(-1)
         conductance = evaluate_conductance_values(log_magnitude, log_ratio)
         sigma_p = conductance["SigmaP"].reshape(scalar_shape)
@@ -416,13 +395,13 @@ def compute_input_fields_at_time(
 
     tangential = {
         key: _input_tangential_grid_at_time(
-            datasets,
+            results,
             key,
             key,
             timestamp,
-            input_evaluators[key],
+            input_transforms[key],
             vector_shape,
-            fallback_start_time=fallback_start_time,
+            start_time=start_time,
         )
         for key in TANGENTIAL_INPUT_KEYS
     }
@@ -450,8 +429,8 @@ class GridFields:
     lon: np.ndarray
     wind_lat: np.ndarray
     wind_lon: np.ndarray
-    output_evaluator: object | None
-    input_evaluators: dict[str, object | None]
+    output_transform: SphericalTransform | None
+    input_transforms: dict[str, SphericalTransform | None]
     output_evaluation_context: dict[str, object] | None
     sheet_current_maps: dict[str, object] | None
     _geographic_evaluation: _GeographicEvaluation | None = field(
@@ -464,7 +443,8 @@ class GridFields:
     ) -> GridFields:
         """Load artifacts needed by map and input-driver figures."""
         results = SimulationResults.from_directory(
-            simulation_directory, optional_datasets=INPUT_ARTIFACT_KEYS + ("dynamic", "equilibrium")
+            simulation_directory,
+            optional_datasets=INPUT_ARTIFACT_KEYS + ("dynamic", "equilibrium"),
         )
         schema = results.schema
         has_model_output = any(key in results.datasets for key in ("dynamic", "equilibrium"))
@@ -473,14 +453,12 @@ class GridFields:
         wind_lat, wind_lon, wind_grid = build_plot_grid(
             nlat=wind_nlat, nlon=wind_nlon, lat_range=(-75.0, 75.0), lon_range=(-180.0, 180.0)
         )
-        output_evaluator = build_evaluator(output_basis, grid) if has_model_output else None
-        evaluator_cache = {}
-        if output_evaluator is not None:
-            evaluator_cache[
-                (getattr(output_basis, "signature", id(output_basis)), grid.signature)
-            ] = output_evaluator
-        input_evaluators = _build_input_evaluators(
-            schema, results.datasets, grid, wind_grid, evaluator_cache
+        output_transform = SphericalTransform(output_basis, grid) if has_model_output else None
+        transform_cache = {}
+        if output_transform is not None:
+            transform_cache[(output_basis.signature, grid.signature)] = output_transform
+        input_transforms = _build_input_transforms(
+            schema, results.datasets, grid, wind_grid, transform_cache
         )
 
         time_datasets = _time_datasets(results.datasets)
@@ -498,8 +476,8 @@ class GridFields:
             lon=lon,
             wind_lat=wind_lat,
             wind_lon=wind_lon,
-            output_evaluator=output_evaluator,
-            input_evaluators=input_evaluators,
+            output_transform=output_transform,
+            input_transforms=input_transforms,
             output_evaluation_context=None,
             sheet_current_maps=None,
         )
@@ -535,19 +513,19 @@ class GridFields:
         vector_grid = model_grid_for_geographic_display(main_field, self.wind_lat, self.wind_lon)
 
         evaluation = _GeographicEvaluation(
-            scalar_grid=scalar_grid, vector_grid=vector_grid, output_evaluator=None
+            scalar_grid=scalar_grid, vector_grid=vector_grid, output_transform=None
         )
         self._geographic_evaluation = evaluation
         return evaluation
 
-    def _geographic_output_evaluator(self, evaluation):
-        """Return the lazy output evaluator for a geographic map."""
-        if evaluation.output_evaluator is None:
+    def _geographic_output_transform(self, evaluation):
+        """Return the lazy output transform for a geographic map."""
+        if evaluation.output_transform is None:
             output_basis = self.results.schema.output_field_spaces["dynamic"][
                 "boundary_jr"
             ].representation
-            evaluation.output_evaluator = build_evaluator(output_basis, evaluation.scalar_grid)
-        return evaluation.output_evaluator
+            evaluation.output_transform = SphericalTransform(output_basis, evaluation.scalar_grid)
+        return evaluation.output_transform
 
     def geographic_map_context(self, reference_time=None):
         """Return a geographic map centered on mean-solar local noon."""
@@ -594,12 +572,12 @@ class GridFields:
             reference_time=reference_time,
         )
 
-    def _geographic_input_evaluators(self, evaluation, *, keys=INPUT_ARTIFACT_KEYS):
-        """Return input evaluators on the geographic map grid."""
-        missing = tuple(key for key in keys if key not in evaluation.input_evaluators)
+    def _geographic_input_transforms(self, evaluation, *, keys=INPUT_ARTIFACT_KEYS):
+        """Return input transforms on the geographic map grid."""
+        missing = tuple(key for key in keys if key not in evaluation.input_transforms)
         if missing:
-            evaluation.input_evaluators.update(
-                _build_input_evaluators(
+            evaluation.input_transforms.update(
+                _build_input_transforms(
                     self.results.schema,
                     self.results.datasets,
                     evaluation.scalar_grid,
@@ -607,7 +585,7 @@ class GridFields:
                     keys=missing,
                 )
             )
-        return evaluation.input_evaluators
+        return evaluation.input_transforms
 
     @property
     def n_time(self):
@@ -617,16 +595,12 @@ class GridFields:
     @property
     def time_index(self):
         """Return saved times as datetimes."""
-        return time_index_from_dataset(
-            self._time_dataset(), fallback_start_time=self._fallback_start_time()
-        )
+        return time_index_from_dataset(self._time_dataset(), start_time=self._start_time())
 
     def timestamp_at_index(self, index):
         """Return one saved time as a timestamp."""
         return datetime_at_index(
-            self._time_dataset().time.values,
-            index,
-            fallback_start_time=self._fallback_start_time(),
+            self._time_dataset().time.values, index, start_time=self._start_time()
         )
 
     @property
@@ -653,15 +627,10 @@ class GridFields:
     def dataset_values(self, dataset_key, variable_name):
         """Return stored values for one logical dataset variable."""
         dataset = self.results.datasets[dataset_key]
-        stored_name = _dataset_var_name(dataset, variable_name)
-        if stored_name is None:
-            available = ", ".join(str(name) for name in dataset.data_vars) or "none"
-            raise KeyError(
-                f"{dataset_key!r} has no saved {variable_name!r} coefficients; found {available}."
-            )
+        stored_name = self.results.data_var_name(dataset_key, variable_name)
         return dataset[stored_name].values
 
-    def _fallback_start_time(self):
+    def _start_time(self):
         """Return the configured start time for numeric saved times."""
         return self.results.config.t0
 
@@ -678,28 +647,28 @@ class GridFields:
             )
         if coordinate_system == "geographic":
             evaluation = self._get_geographic_evaluation(timestamp)
-            evaluator = self._geographic_output_evaluator(evaluation)
+            transform = self._geographic_output_transform(evaluation)
             output_evaluation_context = evaluation.output_evaluation_context
             sheet_current_maps = evaluation.sheet_current_maps
         else:
             evaluation = None
-            evaluator = self.output_evaluator
+            transform = self.output_transform
             output_evaluation_context = self.output_evaluation_context
             sheet_current_maps = self.sheet_current_maps
 
-        if evaluator is None:
+        if transform is None:
             raise RuntimeError("Saved output evaluation context is unavailable.")
         geometry = self.load_geometry()
         if output_evaluation_context is None:
             output_evaluation_context = _output_evaluation_context(
-                self.results.config, geometry, evaluator
+                self.results.config, geometry, transform
             )
         needs_joule = "joule" in field_names
         if needs_joule and sheet_current_maps is None:
-            sheet_current_maps = _sheet_current_maps(geometry, evaluator)
+            sheet_current_maps = _sheet_current_maps(geometry, transform)
         if needs_joule and "pedersen_geometry" not in output_evaluation_context:
             field = MagneticFieldEvaluation(
-                geometry.main_field, evaluator.grid, self.results.config.RI
+                geometry.main_field, transform.grid, self.results.config.RI
             )
             output_evaluation_context["pedersen_geometry"] = pedersen_geometry_tensor(
                 field.unit_btheta, field.unit_bphi, field.unit_br
@@ -710,22 +679,22 @@ class GridFields:
         else:
             evaluation.output_evaluation_context = output_evaluation_context
             evaluation.sheet_current_maps = sheet_current_maps
-        conductance_evaluator = self.input_evaluators.get("conductance") if needs_joule else None
+        conductance_transform = self.input_transforms.get("conductance") if needs_joule else None
         if evaluation is not None:
-            conductance_evaluator = (
-                self._geographic_input_evaluators(evaluation, keys=("conductance",))["conductance"]
+            conductance_transform = (
+                self._geographic_input_transforms(evaluation, keys=("conductance",))["conductance"]
                 if needs_joule
                 else None
             )
         return compute_output_fields_at_index(
             index,
-            self.results.datasets,
-            evaluator,
-            conductance_evaluator,
+            self.results,
+            transform,
+            conductance_transform,
             output_evaluation_context,
             sheet_current_maps,
             target_time=timestamp,
-            fallback_start_time=self._fallback_start_time(),
+            start_time=self._start_time(),
             field_names=field_names,
         )
 
@@ -754,18 +723,18 @@ class GridFields:
             if coordinate_system == "geographic"
             else None
         )
-        input_evaluators = (
-            self._geographic_input_evaluators(evaluation)
+        input_transforms = (
+            self._geographic_input_transforms(evaluation)
             if evaluation is not None
-            else self.input_evaluators
+            else self.input_transforms
         )
         fields = compute_input_fields_at_time(
             timestamp,
-            self.results.datasets,
-            input_evaluators,
+            self.results,
+            input_transforms,
             self.lat.shape,
             self.wind_lat.shape,
-            fallback_start_time=self._fallback_start_time(),
+            start_time=self._start_time(),
         )
         if evaluation is None:
             return fields
@@ -781,8 +750,8 @@ class GridFields:
             _, _, east, north = main_field.model_to_geo_coordinates(
                 evaluation.vector_grid.lat.reshape(self.wind_lat.shape),
                 evaluation.vector_grid.lon.reshape(self.wind_lon.shape),
-                phi,
-                -theta,
+                east=phi,
+                north=-theta,
             )
             fields[theta_key] = -np.asarray(north).reshape(self.wind_lat.shape)
             fields[phi_key] = np.asarray(east).reshape(self.wind_lat.shape)

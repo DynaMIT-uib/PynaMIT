@@ -12,9 +12,7 @@ def test_evaluate_projected_scalar_input_on_model_grid(tmp_path):
     simulation = pynamit.Simulation(
         simulation_directory=tmp_path, Nmax=2, Mmax=1, Ncs=8, enable_pfac_coupling=False
     )
-    coeffs = np.zeros(
-        simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
-    )
+    coeffs = np.zeros(simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape)
     coeffs[0] = 1.0
     simulation.set_boundary_jr(boundary_jr_coefficients=coeffs, time=0.0)
 
@@ -25,14 +23,40 @@ def test_evaluate_projected_scalar_input_on_model_grid(tmp_path):
     assert np.all(np.isfinite(values["boundary_jr"]))
 
 
+def test_evaluate_projected_input_accepts_input_preparation(tmp_path):
+    """Inspect prepared inputs without constructing a runner."""
+    preparation = pynamit.InputPreparation(input_directory=tmp_path, Nmax=2, Mmax=1, Ncs=8)
+    coeffs = np.zeros(preparation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape)
+    coeffs[0] = 1.0
+    preparation.set_boundary_jr(boundary_jr_coefficients=coeffs, time=0.0)
+
+    values = evaluate_projected_input(preparation, "boundary_jr", 0.0)
+
+    assert values["boundary_jr"].shape == (preparation.geometry.model_grid.size,)
+
+
+def test_evaluate_projected_input_accepts_an_explicit_field_series(tmp_path):
+    """A coefficient series works without a Simulation wrapper."""
+    simulation = pynamit.Simulation(
+        simulation_directory=tmp_path, Nmax=2, Mmax=1, Ncs=8, enable_pfac_coupling=False
+    )
+    coeffs = np.zeros(simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape)
+    coeffs[0] = 1.0
+    simulation.set_boundary_jr(boundary_jr_coefficients=coeffs, time=0.0)
+
+    values = evaluate_projected_input(
+        simulation.data.input_series, "boundary_jr", 0.0, grid=simulation.geometry.model_grid
+    )
+
+    assert values["boundary_jr"].shape == (simulation.geometry.model_grid.size,)
+
+
 def test_evaluate_projected_input_corrects_explicit_transform_source(tmp_path):
     """Explicit target transforms keep the input source basis."""
     simulation = pynamit.Simulation(
         simulation_directory=tmp_path, Nmax=2, Mmax=1, Ncs=8, enable_pfac_coupling=False
     )
-    coeffs = np.zeros(
-        simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
-    )
+    coeffs = np.zeros(simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape)
     coeffs[0] = 1.0
     simulation.set_boundary_jr(boundary_jr_coefficients=coeffs, time=0.0)
 

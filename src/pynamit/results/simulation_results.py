@@ -10,7 +10,12 @@ import xarray as xr
 from pynamit.geomagnetism import MainField
 from pynamit.simulation.config import SIMULATION_SCHEMA_VERSION, SimulationConfig
 from pynamit.simulation.geometry import SimulationGeometry, build_main_field
-from pynamit.simulation.schema import SimulationSchema, build_simulation_schema
+from pynamit.simulation.schema import (
+    INPUT_DATASET_KEYS,
+    OUTPUT_DATASET_KEYS,
+    SimulationSchema,
+    build_simulation_schema,
+)
 from pynamit.storage import ArrayCache, ArtifactStore, FieldTimeSeries
 
 
@@ -48,19 +53,13 @@ class SimulationResults:
         print_info=False,
     ) -> SimulationResults:
         """Open saved results without constructing a live simulation."""
-        artifact_store = ArtifactStore(simulation_directory, preferred_dataset_storage=artifact_storage)
-        datasets = {"settings": cls._load_required_dataset(artifact_store, "settings", print_info)}
-        for key in required_datasets:
-            if key == "settings":
-                continue
-            datasets[key] = cls._load_required_dataset(artifact_store, key, print_info)
-        for key in optional_datasets:
-            if key in datasets:
-                continue
-            dataset = artifact_store.load_dataset(key, print_info=print_info)
-            if dataset is not None:
-                datasets[key] = dataset
-
+        artifact_store = ArtifactStore(
+            simulation_directory, preferred_dataset_storage=artifact_storage
+        )
+        settings = artifact_store.load_dataset("settings", print_info=print_info)
+        if settings is None:
+            raise ValueError(f"No saved 'settings' dataset exists at {artifact_store.directory!r}")
+        datasets = {"settings": settings}
         stored_version = datasets["settings"].attrs.get("simulation_schema_version")
         if stored_version != SIMULATION_SCHEMA_VERSION:
             raise ValueError(
@@ -80,6 +79,11 @@ class SimulationResults:
             operator_cache=operator_cache,
         )
 
+        for key in required_datasets:
+            results._load_requested_dataset(key, required=True, print_info=print_info)
+        for key in optional_datasets:
+            results._load_requested_dataset(key, required=False, print_info=print_info)
+
         if require_gap_Br_response or build_geometry:
             results.gap_Br_response = artifact_store.load_dataarray(
                 "gap_Br_response", print_info=print_info
@@ -92,12 +96,23 @@ class SimulationResults:
             results.load_geometry()
         return results
 
-    @staticmethod
-    def _load_required_dataset(artifact_store: ArtifactStore, key: str, print_info: bool):
-        """Load a required saved dataset."""
-        dataset = artifact_store.load_dataset(key, print_info=print_info)
-        if dataset is None:
-            raise ValueError(f"No saved {key!r} dataset exists at {artifact_store.directory!r}")
+    def _load_requested_dataset(self, key, *, required, print_info):
+        """Load one requested artifact through canonical storage."""
+        if key == "settings":
+            return self.datasets["settings"]
+        if key in INPUT_DATASET_KEYS:
+            self.load_input_series()
+        elif key in OUTPUT_DATASET_KEYS:
+            self.load_output_series()
+        else:
+            dataset = self.artifact_store.load_dataset(key, print_info=print_info)
+            if dataset is not None:
+                self.datasets[key] = dataset
+        dataset = self.datasets.get(key)
+        if required and dataset is None:
+            raise ValueError(
+                f"No saved {key!r} dataset exists at {self.artifact_store.directory!r}"
+            )
         return dataset
 
     @property
@@ -161,6 +176,21 @@ class SimulationResults:
             self.datasets.update(self._output_series.datasets)
         return self._output_series
 
+    def data_var_name(self, dataset_key, variable_name):
+        """Return a physical variable's schema-defined xarray name."""
+        if dataset_key in INPUT_DATASET_KEYS:
+            series = self.load_input_series()
+        elif dataset_key in OUTPUT_DATASET_KEYS:
+            series = self.load_output_series()
+        else:
+            raise KeyError(f"{dataset_key!r} is not a coefficient time series.")
+        if variable_name not in series.variables[dataset_key]:
+            raise KeyError(
+                f"{dataset_key!r} has no schema variable {variable_name!r}; "
+                f"expected one of {series.variables[dataset_key]}."
+            )
+        return series.get_data_var_name(dataset_key, variable_name)
+
     def __repr__(self):
         """Summarize the simulation without triggering lazy loads."""
         loaded = ", ".join(key for key in self.datasets if key != "settings") or "none"
@@ -169,5 +199,6 @@ class SimulationResults:
             f"Ncs={self.config.Ncs}, loaded=[{loaded}], "
             f"simulation_directory={self.simulation_directory!r})"
         )
+
 
 __all__ = ["SimulationResults"]

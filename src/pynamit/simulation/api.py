@@ -1076,7 +1076,9 @@ class Simulation(InputPreparation):
     @classmethod
     def from_directory(cls, simulation_directory, **kwargs):
         """Construct a simulation from one simulation directory."""
-        simulation_directory = ArtifactStore.require_artifact_directory(simulation_directory, ("settings",))
+        simulation_directory = ArtifactStore.require_artifact_directory(
+            simulation_directory, ("settings",)
+        )
         artifact_storage = kwargs.get("artifact_storage", "auto")
         settings = ArtifactStore(
             simulation_directory, preferred_dataset_storage=artifact_storage

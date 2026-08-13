@@ -199,7 +199,9 @@ def test_prepared_input_compatibility_ignores_simulation_only_settings():
         integrator="exponential",
     )
 
-    validate_prepared_input_compatibility(input_config.to_dataset(), simulation_config.to_dataset())
+    validate_prepared_input_compatibility(
+        input_config.to_dataset(), simulation_config.to_dataset()
+    )
     validate_prepared_input_compatibility(
         input_config.to_dataset(), simulation_config.to_dataset(), input_datasets=("u",)
     )
@@ -211,7 +213,9 @@ def test_prepared_input_compatibility_catches_projection_mismatch():
     simulation_config = SimulationConfig(Nmax=5, Mmax=3, Ncs=8)
 
     with pytest.raises(ValueError, match="Nmax"):
-        validate_prepared_input_compatibility(input_config.to_dataset(), simulation_config.to_dataset())
+        validate_prepared_input_compatibility(
+            input_config.to_dataset(), simulation_config.to_dataset()
+        )
 
 
 def test_input_manifest_records_projection_settings(tmp_path):
@@ -344,7 +348,9 @@ def test_prepared_inputs_require_matching_main_field():
     simulation_config = SimulationConfig(Nmax=4, Mmax=3, Ncs=8, main_field_kind="dipole")
 
     with pytest.raises(ValueError, match="main_field_kind"):
-        validate_prepared_input_compatibility(input_config.to_dataset(), simulation_config.to_dataset())
+        validate_prepared_input_compatibility(
+            input_config.to_dataset(), simulation_config.to_dataset()
+        )
 
 
 def test_prepared_inputs_require_matching_input_time_origin():
@@ -357,7 +363,9 @@ def test_prepared_inputs_require_matching_input_time_origin():
     )
 
     with pytest.raises(ValueError, match="input_time_origin"):
-        validate_prepared_input_compatibility(input_config.to_dataset(), simulation_config.to_dataset())
+        validate_prepared_input_compatibility(
+            input_config.to_dataset(), simulation_config.to_dataset()
+        )
 
 
 def test_br_inputs_require_matching_magnetosphere_radius():
@@ -365,11 +373,15 @@ def test_br_inputs_require_matching_magnetosphere_radius():
     input_config = SimulationConfig(Nmax=4, Mmax=3, Ncs=8, RM=7.0e6)
     simulation_config = SimulationConfig(Nmax=4, Mmax=3, Ncs=8, RM=8.0e6)
 
-    validate_prepared_input_compatibility(input_config.to_dataset(), simulation_config.to_dataset())
+    validate_prepared_input_compatibility(
+        input_config.to_dataset(), simulation_config.to_dataset()
+    )
 
     with pytest.raises(ValueError, match="RM"):
         validate_prepared_input_compatibility(
-            input_config.to_dataset(), simulation_config.to_dataset(), input_datasets=("boundary_Br",)
+            input_config.to_dataset(),
+            simulation_config.to_dataset(),
+            input_datasets=("boundary_Br",),
         )
 
 
@@ -409,7 +421,9 @@ def test_prepare_and_run_from_inputs_smoke(tmp_path):
     assert "conductance" in simulation.data.input_series.datasets
     assert (simulation_directory / "conductance.ncdf").exists()
     assert (simulation_directory / SIMULATION_MANIFEST_FILENAME).exists()
-    simulation_manifest = json.loads((simulation_directory / SIMULATION_MANIFEST_FILENAME).read_text(encoding="utf-8"))
+    simulation_manifest = json.loads(
+        (simulation_directory / SIMULATION_MANIFEST_FILENAME).read_text(encoding="utf-8")
+    )
     assert simulation_manifest["version"] == 4
     assert simulation_manifest["input_manifest"] == manifest
     assert simulation_manifest["time_evolution"]["sampling_step_interval"] == 2
@@ -596,12 +610,12 @@ def test_loading_prepared_inputs_transfers_simulation_ownership(tmp_path):
         use_wind=False,
     )
     simulation = Simulation(
-        simulation_directory=simulation_directory, artifact_storage="netcdf", **prepared.config.to_kwargs()
+        simulation_directory=simulation_directory,
+        artifact_storage="netcdf",
+        **prepared.config.to_kwargs(),
     )
     wind_length = simulation.data.schema.input_field_spaces["u"].index_length
-    simulation.set_neutral_wind(
-        u_cf=np.zeros(wind_length), u_df=np.zeros(wind_length), time=0.0
-    )
+    simulation.set_neutral_wind(u_cf=np.zeros(wind_length), u_df=np.zeros(wind_length), time=0.0)
 
     loaded = load_prepared_inputs_into_simulation(
         simulation, input_directory, artifact_storage="netcdf", enabled_inputs=("conductance",)

@@ -74,7 +74,9 @@ def main(argv: list[str] | None = None) -> None:
     from pynamit.gui.panel_app import build_gui
 
     route = "/" + str(args.route).strip("/")
-    simulation_directory = Path(args.simulation_directory).expanduser() if args.simulation_directory else None
+    simulation_directory = (
+        Path(args.simulation_directory).expanduser() if args.simulation_directory else None
+    )
     app = build_gui(simulation_directory=simulation_directory)
     serve_kwargs = {
         "address": args.address,

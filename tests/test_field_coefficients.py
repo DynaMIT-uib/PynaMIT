@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from kompe import GlobalCSBasis, SHBasis, SphericalGrid
+from kompe import GlobalCSBasis, SECSBasis, SHBasis, SphericalGrid
 
 from pynamit.fields import FieldCoefficients, FieldSpace
 
@@ -70,6 +70,13 @@ def test_field_coefficients_owns_immutable_numpy_values():
         field.array[0] = 10.0
 
 
+def test_field_space_infers_an_intrinsically_mean_free_basis():
+    """Infer when the basis itself omits the mean mode."""
+    field_space = FieldSpace(SHBasis(3, 2, mean_free=True))
+
+    assert field_space.mean_free
+
+
 def test_field_coefficients_validates_coefficient_length():
     """FieldCoefficients rejects wrong coefficient lengths."""
     basis = SHBasis(3, 2, mean_free=True)
@@ -79,12 +86,18 @@ def test_field_coefficients_validates_coefficient_length():
         FieldCoefficients(field_space, np.zeros(basis.index_length + 1))
 
 
-def test_field_space_accepts_grid_representation():
-    """Treat spherical samples as a non-basis field space."""
+def test_field_space_rejects_sample_grid_as_coefficient_basis():
+    """Sample locations are not coefficient representations."""
     grid = SphericalGrid(theta=[30.0, 60.0], phi=[0.0, 90.0])
-    field_space = FieldSpace.from_representation(grid)
-    field = FieldCoefficients(field_space, [1.0, 2.0])
 
-    assert field.field_space.representation is grid
-    assert field_space.index_names == ("point",)
-    assert field_space.index_length == grid.size
+    with pytest.raises(TypeError, match="ScalarBasis"):
+        FieldSpace(grid)
+
+
+def test_mean_free_field_space_requires_a_surface_basis():
+    """Green-function coefficients have no surface-gauge semantics."""
+    poles = SphericalGrid(theta=[30.0, 60.0], phi=[0.0, 90.0])
+    basis = SECSBasis(poles, current_type="curl_free")
+
+    with pytest.raises(TypeError, match="SurfaceDifferentialBasis"):
+        FieldSpace(basis, mean_free=True)

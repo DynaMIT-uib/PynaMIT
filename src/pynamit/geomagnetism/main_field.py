@@ -162,6 +162,13 @@ class MainField:
         """Return this model's horizontal coordinate system."""
         return horizontal_coordinate_system_for_kind(self.kind)
 
+    def __repr__(self):
+        """Summarize the background magnetic-field model."""
+        return (
+            f"MainField(kind={self.kind!r}, epoch={self.epoch:g}, "
+            f"ionosphere_height_km={self.ionosphere_height_km:g}, B0={self.B0!r})"
+        )
+
     @staticmethod
     def _has_tangent_vector(east, north):
         """Return whether tangent-vector components were supplied."""
@@ -344,9 +351,7 @@ class MainField:
         if self.kind == "kaiju_dipole":
             alignment_time = self.epoch_datetime if event_time is None else event_time
             dipole_model = self.dipole
-            alignment = kaiju_geopack_alignment(
-                alignment_time, magnetic_epoch=self.epoch_datetime
-            )
+            alignment = kaiju_geopack_alignment(alignment_time, magnetic_epoch=self.epoch_datetime)
             noon_longitude = self.local_noon_longitude(alignment_time)
             alignment["magnetic_noon_longitude_deg"] = self.magnetic_noon_longitude(alignment_time)
         else:
@@ -405,9 +410,7 @@ class MainField:
             Bnorth, Br = self.dipole.B(90.0 - field_theta, r * 1e-3)
             components = (Br * 1e-9, -Bnorth * 1e-9, Bnorth * 0.0)
         elif self.kind == "igrf":
-            Br, Btheta, Bphi = ppigrf.igrf_gc(
-                r * 1e-3, theta, phi, self.epoch_datetime
-            )
+            Br, Btheta, Bphi = ppigrf.igrf_gc(r * 1e-3, theta, phi, self.epoch_datetime)
             components = (Br * 1e-9, Btheta * 1e-9, Bphi * 1e-9)
         else:
             components = ((EARTH_RADIUS_M / r) ** 2 * self.B0, r * 0.0, r * 0.0)

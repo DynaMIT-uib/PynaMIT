@@ -35,12 +35,10 @@ def test_2d_igrf_pfac_hc_wind_cs_resistance_basis():
     relative_difference = np.linalg.norm(cs_coeffs - sh_coeffs) / np.linalg.norm(sh_coeffs)
 
     assert (
-        "CS_log_conductance_magnitude"
-        in cs_resistance.data.input_series.datasets["conductance"]
+        "CS_log_conductance_magnitude" in cs_resistance.data.input_series.datasets["conductance"]
     )
     assert (
-        "CS_log_hall_to_pedersen_ratio"
-        in cs_resistance.data.input_series.datasets["conductance"]
+        "CS_log_hall_to_pedersen_ratio" in cs_resistance.data.input_series.datasets["conductance"]
     )
     assert (
         cs_resistance.data.schema.input_field_spaces["conductance"].representation

@@ -8,6 +8,7 @@ from pynamit.results.field_maps import (
     evaluate_tangential_coefficients,
 )
 from pynamit.results.grid_evaluation import transform_for_basis
+from pynamit.storage import FieldTimeSeries
 
 
 def evaluate_projected_input(
@@ -17,7 +18,7 @@ def evaluate_projected_input(
 
     Parameters
     ----------
-    source : Simulation or FieldTimeSeries
+    source : InputPreparation, Simulation, or FieldTimeSeries
         Object containing projected input coefficient time series.
     key : str
         Input key, for example ``"boundary_jr"``, ``"boundary_Br"``,
@@ -27,7 +28,8 @@ def evaluate_projected_input(
         Time value to select from the input time series.
     grid : SphericalGrid, optional
         Target grid. Required unless ``transform`` is supplied or
-        ``source`` is a ``Simulation`` with a model geometry grid.
+        ``source`` is an ``InputPreparation`` or ``Simulation`` with a
+        model geometry grid.
     transform : SphericalTransform, optional
         Explicit transform to use for evaluation.
     interpolation : bool, optional
@@ -41,19 +43,26 @@ def evaluate_projected_input(
     dict
         Evaluated input values keyed by variable/component name.
     """
-    series = source.data.input_series if hasattr(source, "data") else source
+    if isinstance(source, FieldTimeSeries):
+        series = source
+        default_grid = None
+    else:
+        from pynamit.simulation import InputPreparation
+
+        if not isinstance(source, InputPreparation):
+            raise TypeError("source must be an InputPreparation, Simulation, or FieldTimeSeries.")
+        series = source.data.input_series
+        default_grid = source.geometry.model_grid
     entry = series.get_entry(key, time, interpolation=interpolation)
     if entry is None:
         raise ValueError(f"No {key!r} input is available at t={float(time):.3f}.")
 
     field_space = series.get_field_space(key)
-    target_grid = grid
-    if target_grid is None and hasattr(source, "geometry"):
-        target_grid = source.geometry.model_grid
+    target_grid = default_grid if grid is None else grid
     if transform is not None:
-        evaluator = transform_for_basis(field_space.representation, transform)
+        transform = transform_for_basis(field_space.representation, transform)
     elif target_grid is not None:
-        evaluator = SphericalTransform(field_space.representation, target_grid)
+        transform = SphericalTransform(field_space.representation, target_grid)
     else:
         raise ValueError("A target grid or transform is required.")
 
@@ -62,7 +71,7 @@ def evaluate_projected_input(
         for var, coeffs in entry.items():
             field = FieldCoefficients(field_space, coeffs=coeffs)
             components = evaluate_tangential_coefficients(
-                evaluator, field, include_magnitude=include_derived
+                transform, field, include_magnitude=include_derived
             )
             values[f"{var}_theta"] = components["theta"]
             values[f"{var}_phi"] = components["phi"]
@@ -72,7 +81,7 @@ def evaluate_projected_input(
 
     for var, coeffs in entry.items():
         field = FieldCoefficients(field_space, coeffs=coeffs)
-        values[var] = evaluator.synthesize_scalar(field)
+        values[var] = transform.synthesize_scalar(field)
 
     conductance_coordinates = {"log_conductance_magnitude", "log_hall_to_pedersen_ratio"}
     if include_derived and key == "conductance" and conductance_coordinates <= set(values):

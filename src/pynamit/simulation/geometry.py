@@ -106,6 +106,14 @@ class SimulationGeometry:
         self._init_gap_Br_response_matrix(gap_Br_response_matrix)
         self._poloidal_transform_cache = {}
 
+    def __repr__(self):
+        """Summarize the simulation's fixed spatial context."""
+        return (
+            f"SimulationGeometry(horizontal_basis={self.horizontal_basis!r}, "
+            f"poloidal_basis={self.poloidal_basis!r}, model_grid={self.model_grid!r}, "
+            f"main_field={self.main_field.kind!r}, RI={self.RI:g}, RM={self.RM!r})"
+        )
+
     def _init_surface_operators(self) -> None:
         """Compile surface and magnetic-boundary coefficient maps."""
         self.surface_laplacian_operator = self.horizontal_basis.surface_laplacian_operator(self.RI)
@@ -148,23 +156,10 @@ class SimulationGeometry:
         self._gap_Br_response_matrix = matrix.copy()
         self._gap_Br_response_matrix.flags.writeable = False
 
-    def tangential_to_helmholtz(self, vec: np.ndarray) -> np.ndarray:
-        """Convert tangential vector field to Helmholtz coeffs."""
-        coeffs = self.helmholtz_analysis_operator.matvec(vec).reshape(
-            2, self.horizontal_basis.index_length
-        )
-        projector = getattr(self.horizontal_basis, "project_helmholtz_mean_free", None)
-        return projector(coeffs) if callable(projector) else coeffs
-
     @property
     def helmholtz_analysis_operator(self) -> LinearMap:
         """Map gridded vectors to Helmholtz coefficients."""
         return self.horizontal_transform.helmholtz_analysis_operator
-
-    @cached_property
-    def helmholtz_analysis_matrix(self) -> np.ndarray:
-        """Explicit matrix mapping gridded vectors to coefficients."""
-        return self.helmholtz_analysis_operator.array
 
     def _init_spatial_context(self, cs_basis: GlobalCSBasis) -> None:
         """Set up grid, transforms, and background-field evaluators."""
@@ -210,19 +205,10 @@ class SimulationGeometry:
 
     def _build_surface_gauge_operator(self) -> LinearMap | None:
         """Return a normalized zero-mean constraint if needed."""
-        is_mean_free = getattr(
-            self.horizontal_basis, "scalar_fields_are_mean_free_by_construction", None
-        )
-        if callable(is_mean_free) and is_mean_free():
+        if self.horizontal_basis.scalar_fields_are_mean_free_by_construction():
             return None
 
-        mean_weights = getattr(self.horizontal_basis, "scalar_mean_weights", None)
-        if mean_weights is None:
-            raise TypeError(
-                f"{type(self.horizontal_basis).__name__} must provide scalar mean weights "
-                "when its coefficient space includes a constant gauge."
-            )
-        weights = np.asarray(mean_weights, dtype=float)
+        weights = np.asarray(self.horizontal_basis.scalar_mean_weights, dtype=float)
         expected_shape = (self.horizontal_basis.index_length,)
         if weights.shape != expected_shape:
             raise ValueError(
@@ -274,17 +260,6 @@ class SimulationGeometry:
             )
         return self._poloidal_transform_cache[cache_key]
 
-    def induced_Br_to_gridded_JS(
-        self,
-        transform: SphericalTransform | None = None,
-        *,
-        poloidal_transform: SphericalTransform | None = None,
-    ) -> np.ndarray:
-        """Map induced radial-field coefficients to sheet current."""
-        return self.induced_Br_to_gridded_JS_operator(
-            transform, poloidal_transform=poloidal_transform
-        ).array
-
     def induced_Br_to_gridded_JS_operator(
         self,
         transform: SphericalTransform | None = None,
@@ -327,17 +302,6 @@ class SimulationGeometry:
         """Return the gauge-fixed boundary-current inverse."""
         return MU0 / self.RI * self.horizontal_basis.mean_free_surface_poisson_operator(self.RI)
 
-    def toroidal_potential_to_gridded_JS(
-        self,
-        transform: SphericalTransform | None = None,
-        *,
-        poloidal_transform: SphericalTransform | None = None,
-    ) -> np.ndarray:
-        """Map private toroidal-potential coefficients to current."""
-        return self.toroidal_potential_to_gridded_JS_operator(
-            transform, poloidal_transform=poloidal_transform
-        ).array
-
     def toroidal_potential_to_gridded_JS_operator(
         self,
         transform: SphericalTransform | None = None,
@@ -356,17 +320,6 @@ class SimulationGeometry:
             toroidal_potential_to_boundary_jr=(self.toroidal_potential_to_boundary_jr_operator),
             boundary_jr_to_gap_Br=gap_response,
         )
-
-    def boundary_jr_to_gridded_JS(
-        self,
-        transform: SphericalTransform | None = None,
-        *,
-        poloidal_transform: SphericalTransform | None = None,
-    ) -> np.ndarray:
-        """Map boundary radial-current coefficients to sheet current."""
-        return self.boundary_jr_to_gridded_JS_operator(
-            transform, poloidal_transform=poloidal_transform
-        ).array
 
     def boundary_jr_to_gridded_JS_operator(
         self,
@@ -661,18 +614,6 @@ class SimulationGeometry:
             self.poloidal_basis.n * (self.poloidal_basis.n + 1), dtype=float
         )
         return -degree_factor[:, None] * shielding_potential_response
-
-    def boundary_Br_to_gridded_JS(
-        self,
-        transform: SphericalTransform | None = None,
-        *,
-        poloidal_transform: SphericalTransform | None = None,
-    ) -> np.ndarray | None:
-        """Map outer-boundary-Br coefficients to sheet current."""
-        operator = self.boundary_Br_to_gridded_JS_operator(
-            transform, poloidal_transform=poloidal_transform
-        )
-        return None if operator is None else operator.array
 
     def boundary_Br_to_gridded_JS_operator(
         self,

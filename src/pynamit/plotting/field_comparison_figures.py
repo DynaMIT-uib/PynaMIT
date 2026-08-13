@@ -149,9 +149,7 @@ class FieldComparisonRenderer:
 
     def __init__(self, settings, grid_fields=None):
         self.settings = as_figure_settings(settings)
-        self.grid_fields = (
-            get_grid_fields(self.settings) if grid_fields is None else grid_fields
-        )
+        self.grid_fields = get_grid_fields(self.settings) if grid_fields is None else grid_fields
 
     def render(self):
         """Render inductive/non-inductive map panels."""
@@ -172,7 +170,9 @@ class FieldComparisonRenderer:
         field_names = set(map_line_keys(self.settings.lines))
         if self.settings.fill != "none":
             field_names.add(self.settings.fill)
-        display_coordinate_system = "geographic" if self.settings.plot_type == "global" else "model"
+        display_coordinate_system = (
+            "geographic" if self.settings.plot_type == "global" else "model"
+        )
         fields = self.grid_fields.output_grid_fields(
             self.settings.time_index,
             field_names=field_names,
@@ -246,7 +246,9 @@ class FieldComparisonRenderer:
         )
 
         fill_label = (
-            "no fill" if self.settings.fill == "none" else FIELD_PLOT_KWARGS[self.settings.fill]["symbol"]
+            "no fill"
+            if self.settings.fill == "none"
+            else FIELD_PLOT_KWARGS[self.settings.fill]["symbol"]
         )
         line_keys = map_line_keys(self.settings.lines)
         line_label = ", ".join(line_keys) if line_keys else "none"
@@ -364,8 +366,13 @@ class FieldComparisonRenderer:
         if main_mappable is not None and filled_key is not None:
             kwargs = plot_kwargs[filled_key]
             ticks = get_ticks_from_levels(kwargs)
-            if self.settings.color_scale_mode == "manual" and self.settings.manual_color_min is not None:
-                ticks = np.linspace(self.settings.manual_color_min, self.settings.manual_color_max, 5)
+            if (
+                self.settings.color_scale_mode == "manual"
+                and self.settings.manual_color_min is not None
+            ):
+                ticks = np.linspace(
+                    self.settings.manual_color_min, self.settings.manual_color_max, 5
+                )
             colorbar = fig.colorbar(main_mappable, cax=cax_dynamic, ticks=ticks)
             colorbar.set_label(f"{kwargs.get('symbol', filled_key)} ({kwargs.get('units', '')})")
         else:

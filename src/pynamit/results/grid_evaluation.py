@@ -17,11 +17,6 @@ def build_plot_grid(nlat=60, nlon=100, lat_range=(-89.9, 89.9), lon_range=(-180.
     return lat_2d, lon_2d, SphericalGrid(lat=lat_2d, lon=lon_2d)
 
 
-def build_evaluator(basis, grid, **kwargs):
-    """Build a spherical transform for a plotting grid."""
-    return SphericalTransform(basis, grid, **kwargs)
-
-
 def model_grid_for_geographic_display(main_field, lat, lon, *, event_time=None):
     """Return the model-coordinate grid underlying a geographic map."""
     model_lat, model_lon = main_field.geo_to_model_coordinates(lat, lon, event_time=event_time)
@@ -90,7 +85,6 @@ def build_JS_operators(settings, sh_basis, transform, boundary_jr_to_gap_Br_matr
 
 __all__ = [
     "build_JS_operators",
-    "build_evaluator",
     "build_plot_grid",
     "model_grid_for_geographic_display",
     "transform_for_basis",

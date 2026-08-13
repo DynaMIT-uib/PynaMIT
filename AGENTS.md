@@ -2,6 +2,9 @@
 
 Write the numerical code for scientists who read and explore it interactively.
 
+- Put physical quantities, governing equations, and coordinate conventions before software
+  machinery. Organize numerical code so the derivation can be followed locally; keep storage,
+  caching, dispatch, compatibility, and backend handling at clearly named boundaries.
 - Prefer a direct sequence of ordinary Python statements. A helper should express a reused
   concept, isolate a genuinely difficult boundary, or make an equation clearer.
 - Do not add a class, dataclass, protocol, registry, or wrapper when a function, dictionary,

@@ -92,6 +92,7 @@ class FigureSettings:
     movie_filename: str = "pynamit_movie.gif"
     movie_fps: float = 4.0
     movie_dpi: int = 120
+
     def __post_init__(self):
         """Normalize and validate renderer-facing options."""
         self.time_range = self._validate_time_range(self.time_range)

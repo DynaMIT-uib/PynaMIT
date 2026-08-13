@@ -87,17 +87,20 @@ def field_spaces_from_bases(
     """Return field-space descriptors for time-series schemas."""
     if set(bases) != set(field_types):
         raise ValueError("Basis and field-type schemas must use the same keys.")
+    if mean_free_by_key is not None and set(mean_free_by_key) != set(bases):
+        raise ValueError("Mean-free and basis schemas must use the same keys.")
 
     field_spaces = {}
     for key, basis in bases.items():
-        field_spaces[key] = FieldSpace.from_representation(
+        default_mean_free = (
+            basis.scalar_fields_are_mean_free_by_construction()
+            if isinstance(basis, SurfaceDifferentialBasis)
+            else False
+        )
+        field_spaces[key] = FieldSpace(
             basis,
             field_type=field_types[key],
-            mean_free=(
-                getattr(basis, "mean_free", False)
-                if mean_free_by_key is None
-                else mean_free_by_key.get(key, getattr(basis, "mean_free", False))
-            ),
+            mean_free=(default_mean_free if mean_free_by_key is None else mean_free_by_key[key]),
         )
     return field_spaces
 
@@ -138,13 +141,9 @@ def build_simulation_schema(config: SimulationConfig, *, operator_cache=None) ->
     input_field_spaces = field_spaces_from_bases(
         input_bases, INPUT_FIELD_TYPES, mean_free_by_key=input_mean_free
     )
-    poloidal_output_space = FieldSpace.from_representation(
-        mean_free_sh_basis, field_type="scalar", mean_free=True
-    )
-    surface_output_space = FieldSpace.from_representation(
-        horizontal_basis, field_type="scalar", mean_free=True
-    )
-    boundary_current_output_space = FieldSpace.from_representation(
+    poloidal_output_space = FieldSpace(mean_free_sh_basis, field_type="scalar", mean_free=True)
+    surface_output_space = FieldSpace(horizontal_basis, field_type="scalar", mean_free=True)
+    boundary_current_output_space = FieldSpace(
         horizontal_basis,
         field_type="scalar",
         # In CS space the discrete Laplacian's exact range is not

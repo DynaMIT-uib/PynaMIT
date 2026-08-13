@@ -25,9 +25,7 @@ def render_figure(settings, grid_fields=None):
         return GroundFigureRenderer(settings, grid_fields=grid_fields).render_curve_map()
     if settings.plot_type == "ground_timeseries":
         return GroundFigureRenderer(settings, grid_fields=grid_fields).render_timeseries()
-    raise NotImplementedError(
-        f"{settings.plot_type!r} is not implemented by the figure renderer."
-    )
+    raise NotImplementedError(f"{settings.plot_type!r} is not implemented by the figure renderer.")
 
 
 def save_movie(settings, output_path, *, fps=None, dpi=None):
@@ -49,9 +47,7 @@ def save_movie(settings, output_path, *, fps=None, dpi=None):
     start = max(0, min(start, grid_fields.n_time - 1))
     end = max(start, min(end, grid_fields.n_time - 1))
     if end == start:
-        end = min(
-            grid_fields.n_time - 1, start + min(60, max(grid_fields.n_time - 1, 1))
-        )
+        end = min(grid_fields.n_time - 1, start + min(60, max(grid_fields.n_time - 1, 1)))
 
     duration_ms = int(round(1000.0 / max(float(fps or settings.movie_fps), 1e-6)))
     frame_dpi = int(dpi or settings.movie_dpi)

@@ -39,14 +39,22 @@ def test_numeric_saved_times_use_mage_event_time_origin():
 
     dataset = xr.Dataset(coords={"time": np.array([0.0, 10.0, 20.0])})
 
-    index = time_index_from_dataset(
-        dataset, fallback_start_time=pd.Timestamp("2011-10-24 18:00:10")
-    )
+    index = time_index_from_dataset(dataset, start_time=pd.Timestamp("2011-10-24 18:00:10"))
 
     expected = pd.DatetimeIndex(
         ["2011-10-24 18:00:10", "2011-10-24 18:00:20", "2011-10-24 18:00:30"]
     )
     np.testing.assert_array_equal(index.values, expected.values)
+
+
+def test_numeric_saved_times_require_physical_start_time():
+    """Numeric model seconds are not silently treated as Unix time."""
+    from pynamit.plotting.grid_fields import time_index_from_dataset
+
+    dataset = xr.Dataset(coords={"time": np.array([0.0, 10.0])})
+
+    with pytest.raises(ValueError, match="physical start_time"):
+        time_index_from_dataset(dataset)
 
 
 def test_saved_field_time_lookup_handles_mixed_datetime_resolutions():

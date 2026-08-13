@@ -758,6 +758,10 @@ configuration, schema, main field, and optional geometry. The plotting-grid
 reimplementing artifact discovery. Figure renderers directly retain their
 serializable settings and cached grid fields, then own only
 their respective figure families.
+Coefficient artifacts are validated by the schema-aware ``FieldTimeSeries`` loader;
+plotting asks that schema for the exact stored variable name instead of guessing from
+prefixes or suffixes. Numeric saved times are interpreted relative to the simulation's
+physical ``t0`` and are never silently displayed as Unix-epoch times.
 
 The saved-view cache has one versioned slot per resolved simulation and plotting
 resolution. Artifact changes replace the previous heavyweight view in that
@@ -769,7 +773,7 @@ top-level directory timestamp does not change.
 Specialized saved views should retain canonical context, not reconstruct or
 re-own it. ``SimulationResults`` is the sole owner of the simulation directory, artifacts,
 configuration, schema, main field, and optional geometry.
-``GridFields`` owns only plotting grids, evaluators, and derived
+``GridFields`` owns only plotting grids, spherical transforms, and derived
 field caches. SimulationGeometry and dense sheet-current maps are built only when an
 output-field calculation needs them, and the sheet-current maps are
 specifically deferred until Joule heating is requested. Input-driver and

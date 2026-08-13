@@ -166,8 +166,7 @@ def _validated_input_contract(manifest: dict[str, Any], directory: str | Path) -
     """Return the contract from a supported prepared-input manifest."""
     if manifest.get("kind") != "pynamit_prepared_inputs":
         raise ValueError(
-            f"{INPUT_MANIFEST_FILENAME} in {directory!s} is not a PynaMIT prepared-input "
-            "manifest."
+            f"{INPUT_MANIFEST_FILENAME} in {directory!s} is not a PynaMIT prepared-input manifest."
         )
     if manifest.get("version") != _INPUT_MANIFEST_VERSION:
         raise ValueError(

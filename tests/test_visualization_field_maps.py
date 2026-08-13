@@ -2,6 +2,7 @@
 
 import numpy as np
 import scipy.sparse
+from kompe.math import as_linear_map
 
 from pynamit.results.field_maps import (
     evaluate_conductance_coefficients,
@@ -122,16 +123,16 @@ def test_live_JS_evaluation_includes_boundary_field():
         horizontal_basis = Transform.basis
 
         @staticmethod
-        def boundary_jr_to_gridded_JS(transform):
-            return np.eye(4, 2)
+        def boundary_jr_to_gridded_JS_operator(transform):
+            return as_linear_map(np.eye(4, 2), output_shape=(2, 2))
 
         @staticmethod
-        def induced_Br_to_gridded_JS(transform):
-            return 2.0 * np.eye(4, 2)
+        def induced_Br_to_gridded_JS_operator(transform):
+            return as_linear_map(2.0 * np.eye(4, 2), output_shape=(2, 2))
 
         @staticmethod
-        def boundary_Br_to_gridded_JS(transform):
-            return 3.0 * np.eye(4, 2)
+        def boundary_Br_to_gridded_JS_operator(transform):
+            return as_linear_map(3.0 * np.eye(4, 2), output_shape=(2, 2))
 
     current = evaluate_JS_coefficients(
         SimulationGeometry(),

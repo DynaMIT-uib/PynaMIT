@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+from kompe import ScalarBasis, SurfaceDifferentialBasis
 from kompe.math import get_array_module
 
 
@@ -18,36 +19,33 @@ class FieldSpace:
     gauge.
     """
 
-    representation: Any
+    representation: ScalarBasis
     field_type: str = "scalar"
-    mean_free: bool = False
+    mean_free: bool | None = None
 
     def __post_init__(self):
         """Validate field-space metadata."""
         if self.field_type not in {"scalar", "tangential"}:
             raise ValueError("field_type must be either 'scalar' or 'tangential'.")
-        if not hasattr(self.representation, "validate_metadata"):
-            raise TypeError("FieldSpace representation must expose coefficient metadata.")
+        if not isinstance(self.representation, ScalarBasis):
+            raise TypeError("FieldSpace representation must be a Kompe ScalarBasis.")
         self.representation.validate_metadata()
-
-    @classmethod
-    def from_representation(cls, representation, field_type="scalar", mean_free=None):
-        """Construct a field space from a coefficient representation."""
-        if isinstance(representation, cls):
-            if representation.field_type != field_type:
-                raise ValueError(
-                    f"FieldSpace already has field_type={representation.field_type!r}, "
-                    f"not {field_type!r}."
-                )
-            if mean_free is not None and representation.mean_free != bool(mean_free):
-                raise ValueError(
-                    f"FieldSpace already has mean_free={representation.mean_free!r}, "
-                    f"not {bool(mean_free)!r}."
-                )
-            return representation
-        if mean_free is None:
-            mean_free = bool(getattr(representation, "mean_free", False))
-        return cls(representation=representation, field_type=field_type, mean_free=bool(mean_free))
+        if self.mean_free is None:
+            mean_free = (
+                self.representation.scalar_fields_are_mean_free_by_construction()
+                if isinstance(self.representation, SurfaceDifferentialBasis)
+                else False
+            )
+        else:
+            mean_free = bool(self.mean_free)
+        object.__setattr__(self, "mean_free", mean_free)
+        if (self.field_type == "tangential" or self.mean_free) and not isinstance(
+            self.representation, SurfaceDifferentialBasis
+        ):
+            raise TypeError(
+                f"A {self.field_type} FieldSpace with mean_free={self.mean_free} "
+                "requires a SurfaceDifferentialBasis."
+            )
 
     @property
     def kind(self):
@@ -88,15 +86,12 @@ class FieldSpace:
 
     @property
     def signature(self):
-        """Return a stable-ish cache signature for this field space."""
-        representation_signature = getattr(
-            self.representation, "coefficient_space_signature", None
+        """Return coefficient-layout and storage-policy identity."""
+        return (
+            self.representation.coefficient_space_signature,
+            self.field_type,
+            bool(self.mean_free),
         )
-        if representation_signature is None:
-            representation_signature = getattr(
-                self.representation, "signature", id(self.representation)
-            )
-        return (representation_signature, self.field_type, bool(self.mean_free))
 
     def multiindex_arrays(self):
         """Return arrays for xarray's coefficient axis."""
@@ -111,11 +106,8 @@ class FieldSpace:
             return array
 
         if self.field_type == "scalar":
-            projector = getattr(self.representation, "project_scalar_mean_free", None)
-        else:
-            projector = getattr(self.representation, "project_helmholtz_mean_free", None)
-
-        return projector(array) if callable(projector) else array
+            return self.representation.project_scalar_mean_free(array)
+        return self.representation.project_helmholtz_mean_free(array)
 
     def validate_coefficients(self, coeffs, *, name="coefficients"):
         """Return coefficients as an array after length validation."""
@@ -156,6 +148,13 @@ class FieldCoefficients:
     def array(self):
         """Return coefficients in canonical shaped form."""
         return self._array
+
+    def __repr__(self):
+        """Summarize coefficients without printing the full array."""
+        return (
+            f"FieldCoefficients(field_space={self.field_space!r}, "
+            f"shape={self.array.shape}, dtype={self.array.dtype})"
+        )
 
     def to_vector(self):
         """Return coefficients as a flat operator-compatible vector."""

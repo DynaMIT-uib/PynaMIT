@@ -23,24 +23,19 @@ class InputPipeline:
 
     def __init__(self, preparation: InputPreparation):
         self.preparation = preparation
-        self._transforms_by_representation = {}
-        self.projection_transforms = {}
+        self._projection_transforms = {}
 
     def projection_transform_for(self, key: str) -> SphericalTransform:
         """Return the shared projection transform for one input."""
-        self._variables_for(key)
-        if key not in self.projection_transforms:
-            representation = self.preparation.data.schema.input_field_spaces[key].representation
-            cache_key = representation.signature
-            if cache_key not in self._transforms_by_representation:
-                self._transforms_by_representation[cache_key] = SphericalTransform(
-                    representation,
-                    self.preparation.geometry.model_grid,
-                    grid_remap_basis=self.preparation.data.schema.cs_basis,
-                    area_weighted=self.preparation.config.area_weighted_least_squares,
-                )
-            self.projection_transforms[key] = self._transforms_by_representation[cache_key]
-        return self.projection_transforms[key]
+        representation = self.preparation.data.schema.input_field_spaces[key].representation
+        if representation not in self._projection_transforms:
+            self._projection_transforms[representation] = SphericalTransform(
+                representation,
+                self.preparation.geometry.model_grid,
+                grid_remap_basis=self.preparation.data.schema.cs_basis,
+                area_weighted=self.preparation.config.area_weighted_least_squares,
+            )
+        return self._projection_transforms[representation]
 
     def radial_current_from_FAC(self, FAC, *, lat=None, lon=None, theta=None, phi=None):
         """Convert signed field-parallel samples to radial current.
@@ -54,14 +49,6 @@ class InputPipeline:
             self.preparation.geometry.main_field, input_grid, self.preparation.config.RI
         )
         return FAC * field.unit_br
-
-    @staticmethod
-    def _variables_for(key: str) -> tuple[str, ...]:
-        """Return the stored variables for one input key."""
-        try:
-            return INPUT_VARIABLES[key]
-        except KeyError as exc:
-            raise KeyError(f"Unknown simulation input {key!r}.") from exc
 
     @staticmethod
     def require_complete_values(label: str, **values) -> None:
@@ -109,7 +96,6 @@ class InputPipeline:
 
     def require_no_exclusive_conflict(self, key: str) -> None:
         """Reject mutually exclusive input streams."""
-        self._variables_for(key)
         if key not in _WIND_FORCING_KEYS:
             return
         present = [
@@ -149,7 +135,7 @@ class InputPipeline:
         pinv_rtol=1e-15,
     ) -> None:
         """Validate, project, and store one scalar input stream."""
-        variables = self._variables_for(key)
+        variables = INPUT_VARIABLES[key]
         self._validate_variables(key, variables, samples, "samples")
         self._validate_variables(key, variables, coefficients, "coefficients")
 
@@ -277,9 +263,7 @@ class InputPipeline:
         """Evaluate wind-equivalent Q_eff samples on the model grid."""
         response = self.preparation._require_response()
         grid = self.preparation.geometry.model_grid
-        wind_representation = self.preparation.data.schema.input_field_spaces[
-            "u"
-        ].representation
+        wind_representation = self.preparation.data.schema.input_field_spaces["u"].representation
         wind_synthesis = wind_representation.helmholtz_synthesis_operator(grid)
         Q_eff_values = []
         for time_value, wind_coeffs in zip(input_time, wind_coeff_rows, strict=True):
@@ -421,9 +405,7 @@ class InputPipeline:
                 {var: projected_data[var][time_index] for var in projected_data},
                 input_time[time_index],
             )
-        self.preparation.data.input_series.save(
-            key, self.preparation.data.artifact_store
-        )
+        self.preparation.data.input_series.save(key, self.preparation.data.artifact_store)
 
     def add_input_coefficients(self, key: str, input_data: dict[str, Any], time) -> None:
         """Store input-basis coefficients directly in a time series."""
@@ -482,8 +464,7 @@ class InputPipeline:
 
     def _validate_projection_controls(self, key: str, *, sqrt_weights, reg_lambda) -> None:
         """Reject controls unsupported by CS storage."""
-        self._variables_for(key)
-        projection_basis = getattr(self.preparation.config, f"{key}_projection_basis", None)
+        projection_basis = getattr(self.preparation.config, f"{key}_projection_basis")
         if (
             key == "conductance"
             and projection_basis == "CS"

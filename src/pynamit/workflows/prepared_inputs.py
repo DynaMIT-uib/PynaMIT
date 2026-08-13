@@ -47,6 +47,7 @@ _SIMULATION_SETTING_KEYS = (
     "toroidal_potential_regularization_lambda",
 )
 
+
 def _plain_json_value(value: Any) -> Any:
     """Return a JSON-serializable version of a setting value."""
     if isinstance(value, np.ndarray):
@@ -364,7 +365,9 @@ def run_from_inputs(
     evolution_policy = {
         name: value for name, value in time_evolution.items() if name != "final_time"
     }
-    simulation_settings = {name: _plain_json_value(getattr(config, name)) for name in _SIMULATION_SETTING_KEYS}
+    simulation_settings = {
+        name: _plain_json_value(getattr(config, name)) for name in _SIMULATION_SETTING_KEYS
+    }
     simulation_directory = (
         ArtifactStore.create_temporary_directory("simulations")
         if simulation_directory is None
@@ -383,7 +386,9 @@ def run_from_inputs(
         evolution_policy=evolution_policy,
     )
     if existing_simulation:
-        simulation_store = ArtifactStore(simulation_directory, preferred_dataset_storage=artifact_storage)
+        simulation_store = ArtifactStore(
+            simulation_directory, preferred_dataset_storage=artifact_storage
+        )
         _validate_stored_simulation_settings(simulation_store, config, simulation_directory)
         if skip_completed and _stored_simulation_outputs_reach(
             simulation_store, final_time, run_dynamic=run_dynamic, run_equilibrium=run_equilibrium
@@ -402,9 +407,7 @@ def run_from_inputs(
         artifact_storage=artifact_storage,
         operator_cache_directory=operator_cache_directory,
     )
-    existing_inputs = [
-        key for key in INPUT_DATASET_KEYS if key in simulation.inputs
-    ]
+    existing_inputs = [key for key in INPUT_DATASET_KEYS if key in simulation.inputs]
     loaded_inputs = (
         existing_inputs
         if existing_simulation and existing_inputs == selected_inputs

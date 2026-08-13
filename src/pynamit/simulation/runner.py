@@ -231,9 +231,7 @@ class SimulationRunner:
             )
 
         if save:
-            self.simulation.data.output_series.save(
-                "dynamic", self.simulation.data.artifact_store
-            )
+            self.simulation.data.output_series.save("dynamic", self.simulation.data.artifact_store)
             if self.simulation.config.save_equilibria:
                 self.simulation.data.output_series.save(
                     "equilibrium", self.simulation.data.artifact_store
@@ -297,9 +295,7 @@ class SimulationRunner:
             print("Initializing dynamic induced Br from zero.", flush=True)
         self.simulation.current_time = np.float64(0)
         zeros = np.zeros(
-            self.simulation.data.schema.output_field_spaces["dynamic"][
-                "induced_Br"
-            ].index_length
+            self.simulation.data.schema.output_field_spaces["dynamic"]["induced_Br"].index_length
         )
         return to_jax(zeros) if use_jax() else zeros
 
@@ -502,9 +498,7 @@ class SimulationRunner:
         """Persist enabled output datasets for the current sample."""
         saved_outputs = []
         if options.run_dynamic:
-            self.simulation.data.output_series.save(
-                "dynamic", self.simulation.data.artifact_store
-            )
+            self.simulation.data.output_series.save("dynamic", self.simulation.data.artifact_store)
             saved_outputs.append("dynamic")
 
         if options.run_equilibrium:

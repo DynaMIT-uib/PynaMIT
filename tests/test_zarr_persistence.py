@@ -322,10 +322,14 @@ def test_simulation_restart_continues_to_match_direct_simulation(
         artifact_storage=artifact_storage,
     )
     direct = run_example(
-        final_time=0.1, simulation_directory=str(tmp_path / f"direct-{artifact_storage}"), **common_kwargs
+        final_time=0.1,
+        simulation_directory=str(tmp_path / f"direct-{artifact_storage}"),
+        **common_kwargs,
     )
     partial_simulation_directory = tmp_path / f"restart-{artifact_storage}"
-    run_example(final_time=0.05, simulation_directory=str(partial_simulation_directory), **common_kwargs)
+    run_example(
+        final_time=0.05, simulation_directory=str(partial_simulation_directory), **common_kwargs
+    )
 
     resumed = Simulation.from_directory(str(partial_simulation_directory), artifact_storage="auto")
     resumed.evolve_to_time(

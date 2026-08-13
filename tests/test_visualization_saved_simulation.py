@@ -18,7 +18,9 @@ def test_simulation_results_loads_core_visualization_objects(tmp_path):
         artifact_storage="netcdf",
     )
 
-    results = SimulationResults.from_directory(simulation.data.simulation_directory, build_geometry=True)
+    results = SimulationResults.from_directory(
+        simulation.data.simulation_directory, build_geometry=True
+    )
     input_series = results.load_input_series()
     output_series = results.load_output_series()
 
@@ -83,9 +85,7 @@ def test_pynameye_uses_simulation_results(tmp_path):
         enable_pfac_coupling=False,
         artifact_storage="netcdf",
     )
-    resistance_shape = simulation.data.schema.input_field_spaces[
-        "conductance"
-    ].coefficient_shape
+    resistance_shape = simulation.data.schema.input_field_spaces["conductance"].coefficient_shape
     simulation.set_conductance(
         log_magnitude_coefficients=np.zeros(resistance_shape),
         log_ratio_coefficients=np.zeros(resistance_shape),
@@ -97,9 +97,7 @@ def test_pynameye_uses_simulation_results(tmp_path):
     u_df = np.linspace(2.0, 3.0, wind_shape[1])
     simulation.set_neutral_wind(u_cf=u_cf, u_df=u_df, time=0.0)
 
-    boundary_jr_shape = simulation.data.schema.input_field_spaces[
-        "boundary_jr"
-    ].coefficient_shape
+    boundary_jr_shape = simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
     simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
     simulation.impose_equilibrium(time=0.0, save=True, quiet=True)
 
@@ -144,9 +142,7 @@ def test_pynameye_supports_equilibrium_only_output(tmp_path):
         enable_pfac_coupling=False,
         artifact_storage="netcdf",
     )
-    conductance_shape = simulation.data.schema.input_field_spaces[
-        "conductance"
-    ].coefficient_shape
+    conductance_shape = simulation.data.schema.input_field_spaces["conductance"].coefficient_shape
     simulation.set_conductance(
         log_magnitude_coefficients=np.zeros(conductance_shape),
         log_ratio_coefficients=np.zeros(conductance_shape),
@@ -175,18 +171,14 @@ def test_pynameye_reuses_earth_fixed_geographic_mapping(tmp_path):
         enable_pfac_coupling=False,
         artifact_storage="netcdf",
     )
-    resistance_shape = simulation.data.schema.input_field_spaces[
-        "conductance"
-    ].coefficient_shape
+    resistance_shape = simulation.data.schema.input_field_spaces["conductance"].coefficient_shape
     times = np.array([0.0, 3600.0])
     simulation.set_conductance(
         log_magnitude_coefficients=np.zeros((2, *resistance_shape)),
         log_ratio_coefficients=np.zeros((2, *resistance_shape)),
         time=times,
     )
-    boundary_jr_shape = simulation.data.schema.input_field_spaces[
-        "boundary_jr"
-    ].coefficient_shape
+    boundary_jr_shape = simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
     simulation.set_boundary_jr(
         boundary_jr_coefficients=np.zeros((2, *boundary_jr_shape)), time=times
     )
@@ -218,17 +210,13 @@ def test_pynameye_joule_uses_total_boundary_driven_current(tmp_path):
         enable_pfac_coupling=False,
         artifact_storage="netcdf",
     )
-    resistance_shape = simulation.data.schema.input_field_spaces[
-        "conductance"
-    ].coefficient_shape
+    resistance_shape = simulation.data.schema.input_field_spaces["conductance"].coefficient_shape
     simulation.set_conductance(
         log_magnitude_coefficients=np.zeros(resistance_shape),
         log_ratio_coefficients=np.zeros(resistance_shape),
         time=0.0,
     )
-    boundary_Br_shape = simulation.data.schema.input_field_spaces[
-        "boundary_Br"
-    ].coefficient_shape
+    boundary_Br_shape = simulation.data.schema.input_field_spaces["boundary_Br"].coefficient_shape
     boundary_Br = np.zeros(boundary_Br_shape)
     boundary_Br[0] = 1.0e-9
     simulation.set_boundary_Br(boundary_Br_coefficients=boundary_Br, time=0.0)
@@ -266,9 +254,7 @@ def test_pynameye_wind_plot_uses_wind_projection_basis(tmp_path):
         horizontal_basis_kind="SH",
         u_projection_basis="CS",
     )
-    resistance_shape = simulation.data.schema.input_field_spaces[
-        "conductance"
-    ].coefficient_shape
+    resistance_shape = simulation.data.schema.input_field_spaces["conductance"].coefficient_shape
     simulation.set_conductance(
         log_magnitude_coefficients=np.zeros(resistance_shape),
         log_ratio_coefficients=np.zeros(resistance_shape),
@@ -282,16 +268,14 @@ def test_pynameye_wind_plot_uses_wind_projection_basis(tmp_path):
     u_df[1] = 0.5
     simulation.set_neutral_wind(u_cf=u_cf, u_df=u_df, time=0.0)
 
-    boundary_jr_shape = simulation.data.schema.input_field_spaces[
-        "boundary_jr"
-    ].coefficient_shape
+    boundary_jr_shape = simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
     simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
     simulation.impose_equilibrium(time=0.0, save=True, quiet=True)
 
     eye = PynamEye(
         simulation.data.simulation_directory, Nlat=6, Nlon=8, NCS_plot=4, equilibrium=False
     )
-    cs_wind_space = pynamit.FieldSpace.from_representation(
+    cs_wind_space = pynamit.FieldSpace(
         eye.schema.cs_basis, field_type="tangential", mean_free=True
     )
     cs_wind = np.zeros(cs_wind_space.coefficient_shape)

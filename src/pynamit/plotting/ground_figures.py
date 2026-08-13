@@ -8,7 +8,7 @@ import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from kompe import SphericalGrid
+from kompe import SphericalGrid, SphericalTransform
 from kompe.constants import EARTH_RADIUS_M
 from matplotlib.lines import Line2D
 
@@ -32,7 +32,6 @@ from pynamit.plotting.map_curves import (
     split_wrapped_curve,
     wrap_longitudes,
 )
-from pynamit.results.grid_evaluation import build_evaluator
 from pynamit.results.time_series import (
     compute_centered_difference_matrix_at_times,
     compute_centered_difference_series_at_times,
@@ -51,9 +50,7 @@ class GroundFigureRenderer:
 
     def __init__(self, settings, grid_fields=None):
         self.settings = as_figure_settings(settings)
-        self.grid_fields = (
-            get_grid_fields(self.settings) if grid_fields is None else grid_fields
-        )
+        self.grid_fields = get_grid_fields(self.settings) if grid_fields is None else grid_fields
         self._station_table_cache = None
         self._station_data_directory_cache = None
 
@@ -302,7 +299,9 @@ class GroundFigureRenderer:
         start = max(0, min(start, self.grid_fields.n_time - 1))
         end = max(start, min(end, self.grid_fields.n_time - 1))
         if end == start:
-            end = min(self.grid_fields.n_time - 1, start + min(60, max(self.grid_fields.n_time - 1, 1)))
+            end = min(
+                self.grid_fields.n_time - 1, start + min(60, max(self.grid_fields.n_time - 1, 1))
+            )
         return self._time_index[start : end + 1]
 
     def _ground_plot_times(self):
@@ -338,10 +337,10 @@ class GroundFigureRenderer:
         ri = float(self.grid_fields.results.config.RI)
         solid_harmonics = geometry.solid_harmonics
         solid_basis = solid_harmonics.basis
-        evaluator = build_evaluator(solid_basis, grid)
+        transform = SphericalTransform(solid_basis, grid)
         ve_to_ground = solid_harmonics.regular_reference_shift(ri, EARTH_RADIUS_M)
-        induced_Br_to_br_ground = ve_to_ground * evaluator.scalar_synthesis_matrix
-        induced_Br_to_bh_ground = ve_to_ground / solid_basis.n * evaluator.surface_gradient_matrix
+        induced_Br_to_br_ground = ve_to_ground * transform.scalar_synthesis_matrix
+        induced_Br_to_bh_ground = ve_to_ground / solid_basis.n * transform.surface_gradient_matrix
 
         induced_Br = self.grid_fields.dataset_values("dynamic", "induced_Br").T
         equilibrium_dataset = self.grid_fields.results.datasets.get("equilibrium")
@@ -847,7 +846,8 @@ class GroundFigureRenderer:
     def _draw_conductance_overlays(self, axis, data_projection, target_time):
         handles = []
         if not (
-            self.settings.show_pedersen_conductance_overlay or self.settings.show_hall_conductance_overlay
+            self.settings.show_pedersen_conductance_overlay
+            or self.settings.show_hall_conductance_overlay
         ):
             return handles
 

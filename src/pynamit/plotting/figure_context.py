@@ -33,7 +33,7 @@ def as_figure_settings(settings):
 
 
 def clear_grid_fields_cache():
-    """Clear cached grid-field evaluators."""
+    """Clear cached plotting-grid fields."""
     _GRID_FIELDS_CACHE.clear()
 
 
@@ -73,7 +73,7 @@ def _artifact_fingerprint(simulation_directory):
 
 
 def get_grid_fields(settings):
-    """Return cached field evaluators for a figure's simulation."""
+    """Return cached plotting-grid fields for a simulation."""
     settings = as_figure_settings(settings)
     simulation_directory = str(Path(settings.simulation_directory).expanduser().resolve())
     key = (simulation_directory, 60, 100)

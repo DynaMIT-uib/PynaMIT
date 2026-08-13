@@ -67,7 +67,14 @@ class PynamEye:
     """
 
     def __init__(
-        self, simulation_directory, t=0, Nlat=60, Nlon=100, NCS_plot=10, mlatlim=50, equilibrium=True
+        self,
+        simulation_directory,
+        t=0,
+        Nlat=60,
+        Nlon=100,
+        NCS_plot=10,
+        mlatlim=50,
+        equilibrium=True,
     ):
         """Initialize the PynamEye object.
 
@@ -150,7 +157,7 @@ class PynamEye:
 
         self.conductance_field_space = self.input_field_spaces["conductance"]
         self.scalar_field_space = self.output_field_spaces["dynamic"]["boundary_jr"]
-        self.tangential_field_space = FieldSpace.from_representation(
+        self.tangential_field_space = FieldSpace(
             self.basis, field_type="tangential", mean_free=self.scalar_field_space.mean_free
         )
         self.geometry = self.results.geometry
@@ -234,15 +241,18 @@ class PynamEye:
         if region not in self.sheet_current_maps:
             transform = self.transforms[region]
             poloidal_transform = self.poloidal_transforms[region]
+            boundary_Br_operator = self.geometry.boundary_Br_to_gridded_JS_operator(
+                transform, poloidal_transform=poloidal_transform
+            )
             self.sheet_current_maps[region] = {
-                "induced_Br_to_JS": self.geometry.induced_Br_to_gridded_JS(
+                "induced_Br_to_JS": self.geometry.induced_Br_to_gridded_JS_operator(
                     transform, poloidal_transform=poloidal_transform
-                ),
-                "boundary_jr_to_JS": self.geometry.boundary_jr_to_gridded_JS(
+                ).array,
+                "boundary_jr_to_JS": self.geometry.boundary_jr_to_gridded_JS_operator(
                     transform, poloidal_transform=poloidal_transform
-                ),
-                "boundary_Br_to_JS": self.geometry.boundary_Br_to_gridded_JS(
-                    transform, poloidal_transform=poloidal_transform
+                ).array,
+                "boundary_Br_to_JS": (
+                    None if boundary_Br_operator is None else boundary_Br_operator.array
                 ),
             }
         return self.sheet_current_maps[region]

@@ -116,7 +116,7 @@ simulation.response.update_E()
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
 plt_grid = kompe.Grid(lat=lat, lon=lon)
-state_field_space = pynamit.FieldSpace.from_representation(
+state_field_space = pynamit.FieldSpace(
     simulation.geometry.horizontal_basis, field_type="scalar"
 )
 plt_state_evaluator = kompe.SphericalTransform(state_field_space.representation, plt_grid)

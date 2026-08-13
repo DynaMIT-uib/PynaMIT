@@ -247,8 +247,12 @@ class PynamitGUI:
             value=self.figure_settings.lines,
             width=210,
         )
-        self.show_north = pn.widgets.Checkbox(label="North", value=self.figure_settings.show_north, width=90)
-        self.show_south = pn.widgets.Checkbox(label="South", value=self.figure_settings.show_south, width=90)
+        self.show_north = pn.widgets.Checkbox(
+            label="North", value=self.figure_settings.show_north, width=90
+        )
+        self.show_south = pn.widgets.Checkbox(
+            label="South", value=self.figure_settings.show_south, width=90
+        )
         self.min_abs_lat = pn.widgets.FloatInput(
             label="Min |lat|",
             value=self.figure_settings.hemisphere_min_abs_latitude,
@@ -322,10 +326,14 @@ class PynamitGUI:
             label="Visual grid", value=self.figure_settings.ground_model_visual_even, width=110
         )
         self.show_pedersen_conductance_overlay = pn.widgets.Checkbox(
-            label="Pedersen contours", value=self.figure_settings.show_pedersen_conductance_overlay, width=145
+            label="Pedersen contours",
+            value=self.figure_settings.show_pedersen_conductance_overlay,
+            width=145,
         )
         self.show_hall_conductance_overlay = pn.widgets.Checkbox(
-            label="Hall contours", value=self.figure_settings.show_hall_conductance_overlay, width=120
+            label="Hall contours",
+            value=self.figure_settings.show_hall_conductance_overlay,
+            width=120,
         )
 
     def _build_visualization_widgets(self):
@@ -345,13 +353,19 @@ class PynamitGUI:
             width=130,
         )
         self.curve_scale = pn.widgets.FloatInput(
-            label="Scale value", value=self.figure_settings.curve_scale_value, start=0.01, width=120
+            label="Scale value",
+            value=self.figure_settings.curve_scale_value,
+            start=0.01,
+            width=120,
         )
         self.time_scale = pn.widgets.FloatInput(
             label="Time x", value=self.figure_settings.curve_time_scale, start=0.1, width=110
         )
         self.low_lat_cutoff = pn.widgets.FloatInput(
-            label="Low-lat selection", value=self.figure_settings.min_abs_dip_latitude, start=0.0, width=155
+            label="Low-lat selection",
+            value=self.figure_settings.min_abs_dip_latitude,
+            start=0.0,
+            width=155,
         )
         self.low_lat_scale = pn.widgets.FloatInput(
             label="Low-lat x", value=self.figure_settings.low_latitude_scale, start=0.01, width=110
@@ -397,10 +411,18 @@ class PynamitGUI:
             label="Geo lat max", value=self.figure_settings.geo_lat_max, width=130
         )
         self.local_time_min = pn.widgets.FloatInput(
-            label="LT min", value=self.figure_settings.local_time_min, start=0.0, end=24.0, width=110
+            label="LT min",
+            value=self.figure_settings.local_time_min,
+            start=0.0,
+            end=24.0,
+            width=110,
         )
         self.local_time_max = pn.widgets.FloatInput(
-            label="LT max", value=self.figure_settings.local_time_max, start=0.0, end=24.0, width=110
+            label="LT max",
+            value=self.figure_settings.local_time_max,
+            start=0.0,
+            end=24.0,
+            width=110,
         )
         self.zoom_window = pn.widgets.Checkbox(
             label="Zoom window", value=self.figure_settings.zoom_window, width=130
@@ -682,9 +704,7 @@ class PynamitGUI:
             set_widget_value(self.new_simulation_directory, str(simulation_path))
             set_widget_value(self.simulation_directory, str(simulation_path))
             set_widget_value(self.app_mode, "visualize")
-            self._set_status(
-                f"Finished simulation in [`{simulation_path}`]({simulation_path})."
-            )
+            self._set_status(f"Finished simulation in [`{simulation_path}`]({simulation_path}).")
             should_load_simulation = True
         except Exception:
             self._set_status(traceback.format_exc(limit=8), error=True)
@@ -717,7 +737,10 @@ class PynamitGUI:
                 settings_data = self.figure_settings.to_dict()
                 settings_data["plot_type"] = "input_summary"
                 self.figure_settings = self.figure_settings.from_dict(settings_data)
-            elif self.grid_fields.has_model_output and self.figure_settings.plot_type != "input_summary":
+            elif (
+                self.grid_fields.has_model_output
+                and self.figure_settings.plot_type != "input_summary"
+            ):
                 has_state = "dynamic" in self.grid_fields.results.datasets
                 has_steady = "equilibrium" in self.grid_fields.results.datasets
                 settings_data = self.figure_settings.to_dict()
@@ -742,7 +765,9 @@ class PynamitGUI:
                 self.movie_filename, str(_absolute_output_path(self.movie_filename.value))
             )
             self._loaded_simulation_directory = expanded_simulation_directory
-            self._set_status(f"Loaded `{Path(self.figure_settings.simulation_directory).expanduser()}`.")
+            self._set_status(
+                f"Loaded `{Path(self.figure_settings.simulation_directory).expanduser()}`."
+            )
             should_redraw = True
         except Exception:
             self._set_status(traceback.format_exc(limit=6), error=True)
@@ -835,10 +860,7 @@ class PynamitGUI:
         try:
             settings = current_figure_settings(self)
             path = save_movie(
-                settings,
-                path,
-                fps=float(self.movie_fps.value),
-                dpi=int(settings.movie_dpi),
+                settings, path, fps=float(self.movie_fps.value), dpi=int(settings.movie_dpi)
             )
             self._set_status(f"Saved movie to [{path}]({path})")
         except Exception:

@@ -27,6 +27,15 @@ class SimulationData:
     settings_saved: bool = False
     gap_Br_response: xr.DataArray | None = None
 
+    def __repr__(self):
+        """Summarize persisted data without printing xarray datasets."""
+        inputs = ", ".join(sorted(self.input_series.datasets)) or "none"
+        outputs = ", ".join(sorted(self.output_series.datasets)) or "none"
+        return (
+            f"SimulationData(inputs=[{inputs}], outputs=[{outputs}], "
+            f"simulation_directory={self.simulation_directory!r})"
+        )
+
     @classmethod
     def open(
         cls,

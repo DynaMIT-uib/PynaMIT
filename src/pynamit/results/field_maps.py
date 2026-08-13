@@ -11,14 +11,9 @@ from pynamit.simulation.electrodynamics.ionospheric_closure import (
 )
 
 
-def _coefficient_array(coeffs):
-    """Return coefficient values from an array-like or field object."""
-    return np.asarray(getattr(coeffs, "array", coeffs))
-
-
 def _apply_linear_map(linear_map, coeffs):
     """Apply any supported LinearMap input to coefficients."""
-    coeffs = _coefficient_array(coeffs).reshape(-1)
+    coeffs = np.asarray(coeffs).reshape(-1)
     return as_linear_map(linear_map).matvec(coeffs)
 
 

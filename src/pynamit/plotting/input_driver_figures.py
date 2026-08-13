@@ -23,9 +23,7 @@ class InputDriverRenderer:
 
     def __init__(self, settings, grid_fields=None):
         self.settings = as_figure_settings(settings)
-        self.grid_fields = (
-            get_grid_fields(self.settings) if grid_fields is None else grid_fields
-        )
+        self.grid_fields = get_grid_fields(self.settings) if grid_fields is None else grid_fields
 
     def render(self):
         """Render projected input drivers."""
@@ -44,10 +42,12 @@ class InputDriverRenderer:
         layout = self._layout()
 
         pax_jr_n = make_hemisphere_polarplot(
-            fig.add_axes(layout["jr_n"]), min_abs_latitude=self.settings.hemisphere_min_abs_latitude
+            fig.add_axes(layout["jr_n"]),
+            min_abs_latitude=self.settings.hemisphere_min_abs_latitude,
         )
         pax_jr_s = make_hemisphere_polarplot(
-            fig.add_axes(layout["jr_s"]), min_abs_latitude=self.settings.hemisphere_min_abs_latitude
+            fig.add_axes(layout["jr_s"]),
+            min_abs_latitude=self.settings.hemisphere_min_abs_latitude,
         )
         coordinate_context = self.grid_fields.geographic_map_context(timestamp)
         global_projection = coordinate_context.projection()
