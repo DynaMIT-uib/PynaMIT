@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from kompe.math import to_jax, to_numpy, use_jax, xp
+from kompe.math import get_array_module, to_numpy
 from scipy.integrate import solve_ivp
 from scipy.linalg import expm
 
@@ -47,7 +47,9 @@ def poloidal_potential_exponential_propagator(response, dt, *, feedback_matrix=N
     if feedback_matrix is None:
         feedback_matrix = response.induced_poloidal_potential_feedback_matrix
     rate_matrix = response.geometry.induced_poloidal_potential_faraday_rate_scale * feedback_matrix
-    return expm(float(dt) * to_numpy(rate_matrix))
+    xp = get_array_module(rate_matrix)
+    propagator = expm(float(dt) * to_numpy(rate_matrix))
+    return xp.asarray(propagator)
 
 
 def evolve_induced_Br(
@@ -66,6 +68,7 @@ def evolve_induced_Br(
     boundary.
     """
     geometry = response.geometry
+    xp = get_array_module(induced_Br, E_coeffs_noninductive)
     backend_induced_Br = xp.asarray(induced_Br)
     potential = geometry.induced_Br_to_poloidal_potential_operator.matvec(backend_induced_Br)
     backend_E_noninductive = xp.asarray(E_coeffs_noninductive)
@@ -87,11 +90,12 @@ def evolve_induced_Br(
         if poloidal_potential_propagator is None:
             poloidal_potential_propagator = poloidal_potential_exponential_propagator(response, dt)
         difference = potential - equilibrium_potential
-        evolved_potential = poloidal_potential_propagator @ to_numpy(difference) + to_numpy(
-            equilibrium_potential
-        )
+        xp = get_array_module(poloidal_potential_propagator, difference, equilibrium_potential)
+        evolved_potential = xp.asarray(poloidal_potential_propagator) @ xp.asarray(
+            difference
+        ) + xp.asarray(equilibrium_potential)
         evolved_Br = geometry.induced_poloidal_potential_to_Br_operator.matvec(evolved_potential)
-        return to_jax(evolved_Br) if use_jax() else evolved_Br
+        return evolved_Br
 
     logger.debug("Using scipy.solve_ivp with method=%r.", integrator)
     feedback = to_numpy(response.induced_poloidal_potential_feedback_matrix)
@@ -121,7 +125,7 @@ def evolve_induced_Br(
         )
 
     evolved_Br = geometry.induced_poloidal_potential_to_Br_operator.matvec(solution.y[:, -1])
-    return to_jax(evolved_Br) if use_jax() else evolved_Br
+    return xp.asarray(evolved_Br)
 
 
 __all__ = [

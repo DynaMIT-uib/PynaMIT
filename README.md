@@ -52,6 +52,18 @@ For NumPy-equivalent 64-bit precision with JAX, set `JAX_ENABLE_X64=1` before
 importing JAX; backend selection does not change JAX's process-wide precision
 policy.
 
+Select the array backend once near the top of a script, before constructing
+the simulation:
+
+```python
+import pynamit
+
+pynamit.set_backend("jax")  # or "numpy"
+```
+
+Array mathematics and reusable operators then stay on that backend. SciPy-only
+algorithms and xarray persistence remain explicit CPU boundaries.
+
 JAX accelerator support depends on the operating system, drivers, and hardware.
 The generic dependency in `requirements/conda-common.txt` is suitable for a
 standard environment, but GPU/TPU-specific installations may require replacing
@@ -104,7 +116,8 @@ operators or persistence details are needed.
 
 Inputs that will be reused by several simulations can instead be prepared in their
 own directory. `InputPreparation` has the same `set_*` methods as
-`Simulation`, but does not construct a time-evolution runner:
+`Simulation`, but ordinary projection constructs neither a time-evolution
+runner nor the full simulation response geometry:
 
 ```python
 preparation = pynamit.InputPreparation(

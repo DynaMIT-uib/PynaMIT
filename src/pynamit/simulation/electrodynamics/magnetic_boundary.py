@@ -15,20 +15,23 @@ from __future__ import annotations
 
 import numpy as np
 from kompe.constants import MU0
-from kompe.math import diagonal_linear_map
+from kompe.math import diagonal_linear_map, get_array_module
 
 
 def _coefficient_scale(values):
     """Return a one-dimensional coefficient-space scale."""
-    array = np.asarray(values)
+    xp = get_array_module(values)
+    array = xp.asarray(values)
     if array.ndim != 1:
         raise ValueError(f"coefficient scale must be one-dimensional; got shape {array.shape}.")
-    return array.astype(np.result_type(array.dtype, np.float64), copy=True)
+    return xp.asarray(array, dtype=np.result_type(array.dtype, np.float64))
 
 
 def _poloidal_degree_factor(solid_harmonics):
     """Return ``n(n+1)`` in the poloidal coefficient ordering."""
-    n = np.asarray(solid_harmonics.basis.n)
+    n_values = solid_harmonics.basis.n
+    xp = get_array_module(n_values)
+    n = xp.asarray(n_values)
     return n * (n + 1)
 
 
@@ -36,7 +39,8 @@ def poloidal_potential_to_gridded_JS_operator(solid_harmonics, transform, *, pol
     """Map private poloidal-potential coefficients to sheet current."""
     scale = _coefficient_scale(solid_harmonics.poloidal_to_boundary_potential_jump_factor)
     if poloidal_scale is not None:
-        scale *= np.asarray(poloidal_scale)
+        xp = get_array_module(scale, poloidal_scale)
+        scale = xp.asarray(scale) * xp.asarray(poloidal_scale)
     return (-1.0 / MU0) * transform.rhat_cross_gradient_operator @ diagonal_linear_map(scale)
 
 

@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from kompe.math import as_linear_map
+from kompe.math import as_linear_map, set_backend, use_jax
 
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     Q_eff_on_grid_from_wind,
@@ -243,6 +243,39 @@ def test_Q_eff_coefficient_solve_recovers_exact_response():
     coefficients = solve_Q_eff_coefficients(operator, matrix @ expected)
 
     np.testing.assert_allclose(coefficients, expected)
+
+
+@pytest.mark.requires_jax
+@pytest.mark.parametrize("backend", ["numpy"], ids=["backend=numpy"])
+@pytest.mark.parametrize("data_source", ["fallback"], ids=["data=fallback"])
+def test_closure_math_preserves_explicit_jax_arrays(backend, data_source):
+    """Keep explicit JAX data out of NumPy during closure algebra."""
+    import jax.numpy as jnp
+
+    previous_backend = use_jax()
+    try:
+        set_backend("numpy")
+        pedersen = jnp.asarray([2.0, 3.0])
+        hall = jnp.asarray([1.0, 4.0])
+        log_magnitude, log_ratio = conductance_to_log_coordinates(pedersen, hall)
+        eta_p, eta_h = conductance_to_resistance(pedersen, hall)
+
+        wind = jnp.asarray([[2.0, -1.0], [3.0, 4.0]])
+        wind_to_E = jnp.asarray([[[0.0, 0.0], [2.0, 3.0]], [[-2.0, -3.0], [0.0, 0.0]]])
+        resistance = jnp.asarray([[[4.0, 5.0], [1.0, -2.0]], [[-1.0, 2.0], [3.0, 4.0]]])
+        Q_eff = Q_eff_on_grid_from_wind(wind, wind_to_E, resistance)
+
+        matrix = jnp.asarray([[2.0, 1.0], [-1.0, 3.0], [4.0, -2.0]])
+        expected = jnp.asarray([1.5, -0.5])
+        coefficients = solve_Q_eff_coefficients(
+            as_linear_map(np.asarray(matrix)), matrix @ expected
+        )
+    finally:
+        set_backend(previous_backend)
+
+    for values in (log_magnitude, log_ratio, eta_p, eta_h, Q_eff, coefficients):
+        assert "jax" in type(values).__module__
+    np.testing.assert_allclose(np.asarray(coefficients), np.asarray(expected), rtol=1e-6)
 
 
 @pytest.mark.parametrize(

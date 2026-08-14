@@ -315,6 +315,8 @@ def test_weighted_wind_electric_field_is_regular_at_dip_equator():
         eta_h=eta_h,
     )
 
+    e_theta = np.asarray(e_theta)
+    e_phi = np.asarray(e_phi)
     assert np.isfinite(e_theta).all()
     assert np.isfinite(e_phi).all()
     np.testing.assert_allclose(e_theta[[0, 2]], e_theta[1], rtol=0.0, atol=5e-12)

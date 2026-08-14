@@ -5,6 +5,7 @@ from collections.abc import Mapping
 import numpy as np
 import pandas as pd
 import xarray as xr
+from kompe.math import to_numpy
 
 from pynamit.fields import FieldCoefficients, FieldSpace
 
@@ -368,7 +369,7 @@ class FieldTimeSeries:
             dimension = self._coefficient_layouts[key][var]["dimension"]
             data_vars[self.get_data_var_name(key, var)] = (
                 ["time", dimension],
-                values.to_vector().reshape((1, -1)),
+                to_numpy(values.to_vector()).reshape((1, -1)),
             )
 
         coords = xr.Coordinates({"time": [time_value]})

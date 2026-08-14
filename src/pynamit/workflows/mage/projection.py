@@ -586,7 +586,7 @@ class _MageInputProjector:
         self._e_neutral_wind_lambda = e_neutral_wind_lambda
 
         self._ionosphere_field = MagneticFieldEvaluation(
-            preparation.geometry.main_field, ionosphere_grid, IONOSPHERE_RADIUS_M
+            preparation.main_field, ionosphere_grid, IONOSPHERE_RADIUS_M
         )
         self._magnetosphere_sqrt_weights = grid_sqrt_area_weights(magnetosphere_grid)
         self._ionosphere_sqrt_weights = grid_sqrt_area_weights(ionosphere_grid)

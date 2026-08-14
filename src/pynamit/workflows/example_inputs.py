@@ -120,7 +120,7 @@ def prepare_example_inputs(
     time = np.linspace(0, final_time, 4) if multi_data else None
     model_lat = preparation.model_grid.lat
     model_lon = preparation.model_grid.lon
-    geo_lat, geo_lon = preparation.geometry.main_field.model_to_geo_coordinates(
+    geo_lat, geo_lon = preparation.main_field.model_to_geo_coordinates(
         model_lat, model_lon, event_time=event_time
     )
     external_request = ExternalInputRequest.from_model_coordinates(
@@ -128,17 +128,17 @@ def prepare_example_inputs(
         model_lon,
         geographic_lat=geo_lat,
         geographic_lon=geo_lon,
-        coordinate_system=preparation.geometry.main_field.horizontal_coordinate_system,
-        model_epoch=preparation.geometry.main_field.epoch,
+        coordinate_system=preparation.main_field.horizontal_coordinate_system,
+        model_epoch=preparation.main_field.epoch,
         grid_id="prepared-input-source",
         sampling_geometry={"type": "simulation_model_grid"},
         provenance={
             "originating_model_frame": {
                 "horizontal_coordinate_system": (
-                    preparation.geometry.main_field.horizontal_coordinate_system
+                    preparation.main_field.horizontal_coordinate_system
                 ),
-                "main_field_kind": preparation.geometry.main_field.kind,
-                "epoch": preparation.geometry.main_field.epoch,
+                "main_field_kind": preparation.main_field.kind,
+                "epoch": preparation.main_field.epoch,
             }
         },
     )
@@ -172,7 +172,7 @@ def prepare_example_inputs(
         u_theta, u_phi, u_lat, u_lon, weights = wind_inputs
         _require_source_grid("HWM neutral-wind adapter", external_request, u_lat, u_lon)
         u_theta, u_phi, _, _ = _wind_to_model_coordinates(
-            preparation.geometry.main_field, u_theta, u_phi, u_lat, u_lon, event_time=event_time
+            preparation.main_field, u_theta, u_phi, u_lat, u_lon, event_time=event_time
         )
         if use_Q_eff:
             preparation.set_Q_eff_from_neutral_wind(

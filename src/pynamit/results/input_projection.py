@@ -30,7 +30,7 @@ def evaluate_projected_input(
     grid : SphericalGrid, optional
         Target grid. Required unless ``transform`` is supplied or
         ``source`` is an ``InputPreparation`` or ``Simulation`` with a
-        model geometry grid.
+        model grid.
     transform : SphericalTransform, optional
         Explicit transform to use for evaluation.
     interpolation : bool, optional
@@ -56,7 +56,7 @@ def evaluate_projected_input(
 
         if isinstance(source, InputPreparation):
             series = source.data.input_series
-            default_grid = source.geometry.model_grid
+            default_grid = source.model_grid
         elif isinstance(source, SimulationResults):
             series = source.load_input_series()
             default_grid = source.schema.cs_basis.mesh.cell_centers

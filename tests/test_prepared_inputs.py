@@ -145,20 +145,21 @@ def test_default_inputs_share_one_provider_request_cache(tmp_path, monkeypatch):
         is request.grid_for(NEUTRAL_WIND_PROVIDER_SPEC)
     )
 
-    model_grid = prepared.geometry.model_grid
-    expected_geo = prepared.geometry.main_field.model_to_geo_coordinates(
+    model_grid = prepared.model_grid
+    expected_geo = prepared.main_field.model_to_geo_coordinates(
         model_grid.lat, model_grid.lon, event_time=example_inputs_module._EXAMPLE_EVENT_TIME
     )
     np.testing.assert_allclose(request.source_grid.lat, expected_geo[0])
     np.testing.assert_allclose(request.source_grid.lon, expected_geo[1])
     assert request.model_grid.coordinate_contract is PYNAMIT_CENTERED_DIPOLE_110KM
-    assert request.model_epoch == pytest.approx(prepared.geometry.main_field.epoch)
+    assert request.model_epoch == pytest.approx(prepared.main_field.epoch)
     np.testing.assert_allclose(request.model_grid.lat, model_grid.lat)
     np.testing.assert_allclose(request.model_grid.lon, model_grid.lon)
 
     for name in ("conductance_storage", "boundary_jr_storage", "wind_storage"):
         np.testing.assert_allclose(captured[name][0], model_grid.lat)
         np.testing.assert_allclose(captured[name][1], model_grid.lon)
+    assert prepared._geometry is None
 
 
 def test_adapter_cannot_return_another_source_grid(tmp_path, monkeypatch):

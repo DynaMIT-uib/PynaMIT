@@ -18,15 +18,15 @@ def _validate_reference_conductance(reference_conductance):
 
 def _invert_pedersen_hall_pair(pedersen, hall):
     """Invert a Pedersen/Hall tensor pair pointwise."""
-    pedersen, hall = np.broadcast_arrays(
-        np.asarray(pedersen, dtype=float), np.asarray(hall, dtype=float)
+    xp = get_array_module(pedersen, hall)
+    pedersen, hall = xp.broadcast_arrays(
+        xp.asarray(pedersen, dtype=float), xp.asarray(hall, dtype=float)
     )
     denominator = pedersen**2 + hall**2
-    valid = np.isfinite(denominator) & (denominator > np.finfo(float).tiny)
-    inverse_pedersen = np.full_like(pedersen, np.nan, dtype=float)
-    inverse_hall = np.full_like(hall, np.nan, dtype=float)
-    np.divide(pedersen, denominator, out=inverse_pedersen, where=valid)
-    np.divide(hall, denominator, out=inverse_hall, where=valid)
+    valid = xp.isfinite(denominator) & (denominator > xp.finfo(denominator.dtype).tiny)
+    safe_denominator = xp.where(valid, denominator, xp.ones_like(denominator))
+    inverse_pedersen = xp.where(valid, pedersen / safe_denominator, xp.nan)
+    inverse_hall = xp.where(valid, hall / safe_denominator, xp.nan)
     return inverse_pedersen, inverse_hall
 
 
@@ -50,17 +50,18 @@ def conductance_to_log_coordinates(
     the default one-siemens reference it does not alter numeric input
     values before taking the logarithm.
     """
-    sigmaP, sigmaH = np.broadcast_arrays(
-        np.asarray(sigmaP, dtype=float), np.asarray(sigmaH, dtype=float)
+    xp = get_array_module(sigmaP, sigmaH)
+    sigmaP, sigmaH = xp.broadcast_arrays(
+        xp.asarray(sigmaP, dtype=float), xp.asarray(sigmaH, dtype=float)
     )
     reference_conductance = _validate_reference_conductance(reference_conductance)
-    if np.any(~np.isfinite(sigmaP)) or np.any(sigmaP <= 0.0):
+    if bool(xp.any(~xp.isfinite(sigmaP))) or bool(xp.any(sigmaP <= 0.0)):
         raise ValueError("Pedersen conductance must be finite and strictly positive.")
-    if np.any(~np.isfinite(sigmaH)) or np.any(sigmaH <= 0.0):
+    if bool(xp.any(~xp.isfinite(sigmaH))) or bool(xp.any(sigmaH <= 0.0)):
         raise ValueError("Hall conductance must be finite and strictly positive.")
 
-    magnitude = np.hypot(sigmaP, sigmaH)
-    return (np.log(magnitude) - np.log(reference_conductance), np.log(sigmaH) - np.log(sigmaP))
+    magnitude = xp.hypot(sigmaP, sigmaH)
+    return (xp.log(magnitude) - xp.log(reference_conductance), xp.log(sigmaH) - xp.log(sigmaP))
 
 
 def resistance_to_log_conductance_coordinates(
@@ -72,15 +73,16 @@ def resistance_to_log_conductance_coordinates(
     and the same Hall/Pedersen ratio. This direct mapping avoids
     constructing the intermediate conductance components.
     """
-    etaP, etaH = np.broadcast_arrays(np.asarray(etaP, dtype=float), np.asarray(etaH, dtype=float))
+    xp = get_array_module(etaP, etaH)
+    etaP, etaH = xp.broadcast_arrays(xp.asarray(etaP, dtype=float), xp.asarray(etaH, dtype=float))
     reference_conductance = _validate_reference_conductance(reference_conductance)
-    if np.any(~np.isfinite(etaP)) or np.any(etaP <= 0.0):
+    if bool(xp.any(~xp.isfinite(etaP))) or bool(xp.any(etaP <= 0.0)):
         raise ValueError("Pedersen resistance must be finite and strictly positive.")
-    if np.any(~np.isfinite(etaH)) or np.any(etaH <= 0.0):
+    if bool(xp.any(~xp.isfinite(etaH))) or bool(xp.any(etaH <= 0.0)):
         raise ValueError("Hall resistance must be finite and strictly positive.")
 
-    magnitude = np.hypot(etaP, etaH)
-    return (-np.log(magnitude) - np.log(reference_conductance), np.log(etaH) - np.log(etaP))
+    magnitude = xp.hypot(etaP, etaH)
+    return (-xp.log(magnitude) - xp.log(reference_conductance), xp.log(etaH) - xp.log(etaP))
 
 
 def conductance_from_log_coordinates(
@@ -196,21 +198,35 @@ def _current_from_weighted_winds(
     and ``sigma_h`` reconstructs the wind moments in Appendix A,
     Eqs. (A3)-(A4), of Laundal et al. (2025).
     """
-    sigma_p = np.asarray(sigma_p, dtype=float).reshape(-1)
-    sigma_h = np.asarray(sigma_h, dtype=float).reshape(-1)
-    u_p_theta = np.asarray(u_p_theta, dtype=float).reshape(-1)
-    u_p_phi = np.asarray(u_p_phi, dtype=float).reshape(-1)
-    u_h_theta = np.asarray(u_h_theta, dtype=float).reshape(-1)
-    u_h_phi = np.asarray(u_h_phi, dtype=float).reshape(-1)
+    xp = get_array_module(
+        sigma_p,
+        sigma_h,
+        u_p_theta,
+        u_p_phi,
+        u_h_theta,
+        u_h_phi,
+        field.unit_br,
+        field.unit_btheta,
+        field.unit_bphi,
+        field.Br,
+        field.Btheta,
+        field.Bphi,
+    )
+    sigma_p = xp.asarray(sigma_p, dtype=float).reshape(-1)
+    sigma_h = xp.asarray(sigma_h, dtype=float).reshape(-1)
+    u_p_theta = xp.asarray(u_p_theta, dtype=float).reshape(-1)
+    u_p_phi = xp.asarray(u_p_phi, dtype=float).reshape(-1)
+    u_h_theta = xp.asarray(u_h_theta, dtype=float).reshape(-1)
+    u_h_phi = xp.asarray(u_h_phi, dtype=float).reshape(-1)
 
-    b_r = np.asarray(field.unit_br, dtype=float).reshape(-1)
-    b_theta = np.asarray(field.unit_btheta, dtype=float).reshape(-1)
-    b_phi = np.asarray(field.unit_bphi, dtype=float).reshape(-1)
-    B_r = np.asarray(field.Br, dtype=float).reshape(-1)
-    B_theta = np.asarray(field.Btheta, dtype=float).reshape(-1)
-    B_phi = np.asarray(field.Bphi, dtype=float).reshape(-1)
+    b_r = xp.asarray(field.unit_br, dtype=float).reshape(-1)
+    b_theta = xp.asarray(field.unit_btheta, dtype=float).reshape(-1)
+    b_phi = xp.asarray(field.unit_bphi, dtype=float).reshape(-1)
+    B_r = xp.asarray(field.Br, dtype=float).reshape(-1)
+    B_theta = xp.asarray(field.Btheta, dtype=float).reshape(-1)
+    B_phi = xp.asarray(field.Bphi, dtype=float).reshape(-1)
 
-    zero = np.zeros_like(u_p_theta)
+    zero = xp.zeros_like(u_p_theta)
     u_p_cross_B = _cross_spherical(zero, u_p_theta, u_p_phi, B_r, B_theta, B_phi)
     u_h_cross_B = _cross_spherical(zero, u_h_theta, u_h_phi, B_r, B_theta, B_phi)
     hall_current = _cross_spherical(b_r, b_theta, b_phi, *u_h_cross_B)
@@ -249,11 +265,12 @@ def electric_field_from_weighted_winds(
         u_h_phi=u_h_phi,
         field=field,
     )
-    eta_p = np.asarray(eta_p, dtype=float).reshape(-1)
-    eta_h = np.asarray(eta_h, dtype=float).reshape(-1)
-    b_r = np.asarray(field.unit_br, dtype=float).reshape(-1)
-    b_theta = np.asarray(field.unit_btheta, dtype=float).reshape(-1)
-    b_phi = np.asarray(field.unit_bphi, dtype=float).reshape(-1)
+    xp = get_array_module(q_r, q_theta, q_phi, eta_p, eta_h)
+    eta_p = xp.asarray(eta_p, dtype=float).reshape(-1)
+    eta_h = xp.asarray(eta_h, dtype=float).reshape(-1)
+    b_r = xp.asarray(field.unit_br, dtype=float).reshape(-1)
+    b_theta = xp.asarray(field.unit_btheta, dtype=float).reshape(-1)
+    b_phi = xp.asarray(field.unit_bphi, dtype=float).reshape(-1)
 
     q_dot_b = q_r * b_r + q_theta * b_theta + q_phi * b_phi
     q_perp_theta = q_theta - q_dot_b * b_theta
@@ -318,17 +335,20 @@ def tangential_current_to_E_coeffs_operator(
 
 def Q_eff_on_grid_from_wind(wind_on_grid, wind_to_E_grid, resistance_tensor):
     """Return the effective sheet current equivalent to neutral wind."""
-    E_wind_on_grid = np.einsum(
-        "abg,bg->ag", np.asarray(wind_to_E_grid), np.asarray(wind_on_grid), optimize=True
+    xp = get_array_module(wind_on_grid, wind_to_E_grid, resistance_tensor)
+    E_wind_on_grid = xp.einsum(
+        "abg,bg->ag", xp.asarray(wind_to_E_grid), xp.asarray(wind_on_grid), optimize=True
     )
-    point_resistance = np.moveaxis(np.asarray(resistance_tensor), -1, 0)
-    return np.linalg.solve(point_resistance, E_wind_on_grid.T[..., np.newaxis])[..., 0].T
+    point_resistance = xp.moveaxis(xp.asarray(resistance_tensor), -1, 0)
+    return xp.linalg.solve(point_resistance, E_wind_on_grid.T[..., None])[..., 0].T
 
 
 def solve_Q_eff_coefficients(Q_eff_to_E, E_wind_coeffs, *, reg_lambda=None, pinv_rtol=1e-15):
     """Solve for Q_eff coefficients matching wind-driven E."""
-    matrix = np.asarray(Q_eff_to_E.to_matrix(backend="numpy"))
-    rhs = np.asarray(E_wind_coeffs).reshape(-1)
+    xp = get_array_module(E_wind_coeffs, *Q_eff_to_E.backend_context)
+    backend = "numpy" if xp is np else "jax"
+    matrix = xp.asarray(Q_eff_to_E.to_matrix(backend=backend))
+    rhs = xp.asarray(E_wind_coeffs).reshape(-1)
     tolerance = float(pinv_rtol)
     if not np.isfinite(tolerance) or tolerance < 0.0:
         raise ValueError("pinv_rtol must be finite and non-negative.")
@@ -336,10 +356,10 @@ def solve_Q_eff_coefficients(Q_eff_to_E, E_wind_coeffs, *, reg_lambda=None, pinv
     if not np.isfinite(weight) or weight < 0.0:
         raise ValueError("reg_lambda must be finite and non-negative.")
     if weight > 0.0:
-        regularization = weight * np.eye(matrix.shape[1], dtype=matrix.dtype)
-        matrix = np.vstack([matrix, regularization])
-        rhs = np.concatenate([rhs, np.zeros(matrix.shape[1], dtype=rhs.dtype)])
-    coefficients, *_ = np.linalg.lstsq(matrix, rhs, rcond=tolerance)
+        regularization = weight * xp.eye(matrix.shape[1], dtype=matrix.dtype)
+        matrix = xp.vstack([matrix, regularization])
+        rhs = xp.concatenate([rhs, xp.zeros(matrix.shape[1], dtype=rhs.dtype)])
+    coefficients, *_ = xp.linalg.lstsq(matrix, rhs, rcond=tolerance)
     return coefficients
 
 

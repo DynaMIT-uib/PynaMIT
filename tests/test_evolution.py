@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 import xarray as xr
+from kompe.math import as_linear_map, set_backend, use_jax
 
 from pynamit.simulation.electrodynamics import induction
 from pynamit.simulation.runner import SimulationRunner
@@ -177,3 +178,40 @@ def test_exponential_propagator_identity_tracks_active_resistance(monkeypatch):
     assert equivalent is first
     assert changed is not first
     assert len(calls) == 2
+
+
+@pytest.mark.requires_jax
+@pytest.mark.parametrize("backend", ["numpy"], ids=["backend=numpy"])
+@pytest.mark.parametrize("data_source", ["fallback"], ids=["data=fallback"])
+def test_exponential_step_returns_to_explicit_jax_backend(backend, data_source):
+    """Return once to the input backend after the SciPy handoff."""
+    import jax.numpy as jnp
+
+    identity = as_linear_map(jnp.eye(2))
+    response = SimpleNamespace(
+        config=SimpleNamespace(integrator="exponential"),
+        geometry=SimpleNamespace(
+            induced_poloidal_potential_faraday_rate_scale=2.0,
+            induced_Br_to_poloidal_potential_operator=identity,
+            induced_poloidal_potential_to_Br_operator=identity,
+        ),
+        induced_poloidal_potential_feedback_matrix=jnp.asarray([[-1.0, 0.25], [0.0, -2.0]]),
+    )
+
+    previous_backend = use_jax()
+    try:
+        set_backend("numpy")
+        propagator = induction.poloidal_potential_exponential_propagator(response, 0.1)
+        evolved = induction.evolve_induced_Br(
+            response,
+            jnp.asarray([1.0, 2.0]),
+            0.1,
+            jnp.zeros((2, 1)),
+            equilibrium=jnp.zeros(2),
+            poloidal_potential_propagator=propagator,
+        )
+    finally:
+        set_backend(previous_backend)
+
+    assert "jax" in type(propagator).__module__
+    assert "jax" in type(evolved).__module__

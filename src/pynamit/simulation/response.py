@@ -16,9 +16,7 @@ from kompe.math import (
     content_fingerprint,
     get_array_module,
     identity_linear_map,
-    to_jax,
-    use_jax,
-    xp,
+    to_numpy,
 )
 
 from pynamit.fields import FieldCoefficients
@@ -127,10 +125,12 @@ class ElectrodynamicResponse:
                 self._Q_eff_synthesis_operator_cache = representation.helmholtz_synthesis_operator(
                     self.geometry.model_grid
                 )
+            resistance_tensor = self.resistance_tensor_on_grid
+            xp = get_array_module(resistance_tensor)
             self._Q_eff_to_E_coeffs_cache = (
                 ionospheric_closure.tangential_current_to_E_coeffs_operator(
                     self.geometry.helmholtz_analysis_operator,
-                    xp.asarray(self.resistance_tensor_on_grid),
+                    xp.asarray(resistance_tensor),
                     self._Q_eff_synthesis_operator_cache,
                 )
             )
@@ -203,10 +203,8 @@ class ElectrodynamicResponse:
             self._conductance_fingerprint_cache = content_fingerprint(
                 {
                     "field_space": self.log_conductance_magnitude.field_space.signature,
-                    "log_conductance_magnitude": np.asarray(self.log_conductance_magnitude.array),
-                    "log_hall_to_pedersen_ratio": np.asarray(
-                        self.log_hall_to_pedersen_ratio.array
-                    ),
+                    "log_conductance_magnitude": to_numpy(self.log_conductance_magnitude.array),
+                    "log_hall_to_pedersen_ratio": to_numpy(self.log_hall_to_pedersen_ratio.array),
                 }
             )
         return self._conductance_fingerprint_cache
@@ -220,12 +218,11 @@ class ElectrodynamicResponse:
                     "Resistance or conductance must be set before accessing "
                     "closure-dependent properties."
                 )
+            magnitude_coefficients = self.log_conductance_magnitude.array
+            ratio_coefficients = self.log_hall_to_pedersen_ratio.array
+            xp = get_array_module(magnitude_coefficients, ratio_coefficients)
             log_coordinate_coefficients = xp.stack(
-                [
-                    xp.asarray(self.log_conductance_magnitude.array),
-                    xp.asarray(self.log_hall_to_pedersen_ratio.array),
-                ],
-                axis=1,
+                [xp.asarray(magnitude_coefficients), xp.asarray(ratio_coefficients)], axis=1
             )
             magnitude_basis = self.log_conductance_magnitude.field_space.representation
             ratio_basis = self.log_hall_to_pedersen_ratio.field_space.representation
@@ -443,19 +440,15 @@ class ElectrodynamicResponse:
         logger.info("Building dense boundary-jr to toroidal-potential response matrix.")
         problem = self._toroidal_potential_problem
 
-        radial_current_matrix = self.geometry.radial_current_constraint_operator.to_matrix(
-            backend="numpy"
-        )
-        radial_current_rhs = np.asarray(radial_current_matrix).reshape(
+        radial_current_matrix = self.geometry.radial_current_constraint_operator.to_matrix()
+        xp = get_array_module(radial_current_matrix)
+        radial_current_rhs = xp.asarray(radial_current_matrix).reshape(
             problem.A[0].output_shape + (-1,)
         )
         rhs_entries = [None] * problem.num_data_terms
         rhs_entries[0] = radial_current_rhs
-        boundary_jr_to_toroidal_potential = self._solve_toroidal_potential_response(rhs_entries)
-        self._boundary_jr_to_toroidal_potential_matrix = (
-            to_jax(boundary_jr_to_toroidal_potential)
-            if use_jax()
-            else boundary_jr_to_toroidal_potential
+        self._boundary_jr_to_toroidal_potential_matrix = self._solve_toroidal_potential_response(
+            rhs_entries
         )
 
     def _build_driving_E_to_toroidal_potential_matrix(self) -> None:
@@ -478,14 +471,8 @@ class ElectrodynamicResponse:
         electric_field_rhs *= self.config.interhemispheric_electric_field_weight
         rhs_entries = [None] * problem.num_data_terms
         rhs_entries[1] = electric_field_rhs
-        driving_E_to_toroidal_potential = self._solve_toroidal_potential_response(
-            rhs_entries
-        ).reshape((n, 2, n))
-        self._driving_E_to_toroidal_potential_matrix = (
-            to_jax(driving_E_to_toroidal_potential)
-            if use_jax()
-            else driving_E_to_toroidal_potential
-        )
+        toroidal_response = self._solve_toroidal_potential_response(rhs_entries)
+        self._driving_E_to_toroidal_potential_matrix = toroidal_response.reshape((n, 2, n))
 
     def _toroidal_potential_rhs_entries(
         self, boundary_jr_coeffs: np.ndarray | None, driving_E: np.ndarray
@@ -626,6 +613,7 @@ class ElectrodynamicResponse:
         self, boundary_jr_coeffs: np.ndarray | None, driving_E: np.ndarray
     ) -> np.ndarray:
         """Solve the private toroidal-potential response."""
+        xp = get_array_module(boundary_jr_coeffs, driving_E)
         boundary_jr_coeffs = None if boundary_jr_coeffs is None else xp.asarray(boundary_jr_coeffs)
         driving_E = xp.asarray(driving_E)
         rhs_entries = self._toroidal_potential_rhs_entries(boundary_jr_coeffs, driving_E)
@@ -729,6 +717,20 @@ class ElectrodynamicResponse:
                 f"Wind-forcing representations {representations} are mutually "
                 "exclusive; use only one."
             )
+        active_arrays = [
+            field.array
+            for field in (
+                self.u,
+                self.Q_eff,
+                self.E_neutral_wind,
+                self.boundary_Br,
+                self.boundary_jr,
+                self.log_conductance_magnitude,
+                self.log_hall_to_pedersen_ratio,
+            )
+            if field is not None
+        ]
+        xp = get_array_module(*active_arrays)
         driving_E = xp.zeros(E_shape)
         if self.u is not None:
             driving_E += self._apply_operator(
@@ -754,6 +756,7 @@ class ElectrodynamicResponse:
 
     def calculate_induced_response(self, induced_Br: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Return E and boundary-jr responses caused by induced Br."""
+        xp = get_array_module(induced_Br)
         E_shape = (2, self.geometry.horizontal_basis.index_length)
         driving_E = self._apply_operator(
             self._runtime_induced_Br_to_E_coeffs, xp.asarray(induced_Br), E_shape

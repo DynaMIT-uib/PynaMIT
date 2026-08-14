@@ -123,7 +123,7 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
         reg_lambda=settings.conductance_lambda,
     )
 
-    dipole_model = dipole.Dipole(preparation.geometry.main_field.epoch)
+    dipole_model = dipole.Dipole(preparation.main_field.epoch)
     boundary_jr, _, _ = get_jr_inputs(
         settings.date,
         source_lat,

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from kompe import SphericalGrid
+from kompe.math import get_array_module
 from kompe.spherical_transform import SphericalTransform
 
 from pynamit.geomagnetism import MagneticFieldEvaluation
@@ -31,7 +32,7 @@ class InputPipeline:
         if representation not in self._projection_transforms:
             self._projection_transforms[representation] = SphericalTransform(
                 representation,
-                self.preparation.geometry.model_grid,
+                self.preparation.model_grid,
                 grid_remap_basis=self.preparation.data.schema.cs_basis,
                 area_weighted=self.preparation.config.area_weighted_least_squares,
             )
@@ -46,7 +47,7 @@ class InputPipeline:
         """
         input_grid = SphericalGrid(lat=lat, lon=lon, theta=theta, phi=phi)
         field = MagneticFieldEvaluation(
-            self.preparation.geometry.main_field, input_grid, self.preparation.config.RI
+            self.preparation.main_field, input_grid, self.preparation.config.RI
         )
         return FAC * field.unit_br
 
@@ -113,9 +114,10 @@ class InputPipeline:
     @staticmethod
     def tangential_input_data(key: str, theta_component, phi_component) -> dict[str, Any]:
         """Return tangential input data with time before component."""
-        theta_rows = np.atleast_2d(theta_component)
-        phi_rows = np.atleast_2d(phi_component)
-        return {key: np.stack((theta_rows, phi_rows), axis=1)}
+        xp = get_array_module(theta_component, phi_component)
+        theta_rows = xp.atleast_2d(theta_component)
+        phi_rows = xp.atleast_2d(phi_component)
+        return {key: xp.stack((theta_rows, phi_rows), axis=1)}
 
     def set_scalar_input(
         self,
@@ -151,13 +153,18 @@ class InputPipeline:
             )
             self.require_complete_values(coefficient_label, **coefficients)
             self.require_no_sample_values(coefficient_label, **samples)
-            input_data = {var: np.atleast_2d(coefficients[var]) for var in variables}
+            input_data = {
+                var: get_array_module(coefficients[var]).atleast_2d(coefficients[var])
+                for var in variables
+            }
             self.add_input_coefficients(key, input_data, time)
             return
 
         self.require_complete_values(sample_label, **samples)
         self._validate_projection_controls(key, sqrt_weights=sqrt_weights, reg_lambda=reg_lambda)
-        input_data = {var: np.atleast_2d(samples[var]) for var in variables}
+        input_data = {
+            var: get_array_module(samples[var]).atleast_2d(samples[var]) for var in variables
+        }
         self.project_and_add_input(
             key,
             input_data,
@@ -268,7 +275,7 @@ class InputPipeline:
         Q_eff_values = []
         for time_value, wind_coeffs in zip(input_time, wind_coeff_rows, strict=True):
             response.activate_inputs_at_time(self.preparation.data.input_series, time_value)
-            wind_on_grid = np.asarray(wind_synthesis.matvec(wind_coeffs)).reshape((2, grid.size))
+            wind_on_grid = wind_synthesis.matvec(wind_coeffs).reshape((2, grid.size))
             Q_eff_values.append(
                 ionospheric_closure.Q_eff_on_grid_from_wind(
                     wind_on_grid,
@@ -277,7 +284,8 @@ class InputPipeline:
                 )
             )
 
-        values = np.asarray(Q_eff_values)
+        xp = get_array_module(*Q_eff_values)
+        values = xp.stack(Q_eff_values)
         return values[:, 0, :], values[:, 1, :], grid.lat, grid.lon
 
     def fit_Q_eff_from_neutral_wind(
@@ -309,7 +317,8 @@ class InputPipeline:
             q_coeff_rows.append(
                 q_field_space.validate_coefficients(q_coeffs, name="Q_eff coefficients")
             )
-        return np.asarray(q_coeff_rows)
+        xp = get_array_module(*q_coeff_rows)
+        return xp.stack(q_coeff_rows)
 
     def project_and_add_input(
         self,
@@ -383,7 +392,8 @@ class InputPipeline:
             self._validate_projected_time_rows(key, var, values, input_time)
 
         variables = tuple(normalized)
-        combined = np.concatenate([normalized[var] for var in variables], axis=0)
+        xp = get_array_module(*(normalized[var] for var in variables))
+        combined = xp.concatenate([normalized[var] for var in variables], axis=0)
         projected = transform.analyze_scalar_samples(
             combined,
             input_grid=input_grid,
@@ -426,7 +436,7 @@ class InputPipeline:
     @staticmethod
     def validate_input_time_rows(key: str, input_time, input_data: dict[str, Any]) -> None:
         """Require input rows to match times."""
-        row_counts = {var: int(np.asarray(values).shape[0]) for var, values in input_data.items()}
+        row_counts = {var: int(values.shape[0]) for var, values in input_data.items()}
         if not row_counts:
             raise ValueError(f"{key} input data cannot be empty.")
         unique_counts = set(row_counts.values())

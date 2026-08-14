@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
-from kompe.math import to_jax, to_numpy, use_jax
+from kompe.math import get_array_module, to_numpy
 
 from pynamit.simulation.electrodynamics import induction
 from pynamit.storage.field_time_series import TIME_TOLERANCE_SECONDS
@@ -280,7 +280,7 @@ class SimulationRunner:
         dynamic_induced_Br = self.simulation.data.output_series.get_entry(
             "dynamic", self.simulation.current_time, interpolation=False
         )["induced_Br"]
-        return to_jax(dynamic_induced_Br) if use_jax() else dynamic_induced_Br
+        return get_array_module().asarray(dynamic_induced_Br)
 
     def _initialize_new_induced_Br(self, options: _EvolutionOptions):
         """Initialize induced Br from equilibrium or zero."""
@@ -298,10 +298,9 @@ class SimulationRunner:
         if not options.quiet:
             print("Initializing dynamic induced Br from zero.", flush=True)
         self.simulation.current_time = np.float64(0)
-        zeros = np.zeros(
+        return get_array_module().zeros(
             self.simulation.data.schema.output_field_spaces["dynamic"]["induced_Br"].index_length
         )
-        return to_jax(zeros) if use_jax() else zeros
 
     def _saved_outputs_reach_target(self, options: _EvolutionOptions) -> bool:
         """Return whether requested outputs reach target."""

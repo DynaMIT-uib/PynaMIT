@@ -630,6 +630,35 @@ def test_mage_run_resolves_every_projected_resolution(monkeypatch, tmp_path):
     ]
 
 
+def test_mage_run_validates_full_sweep_before_starting(monkeypatch, tmp_path):
+    """A missing later projection cannot partially execute a sweep."""
+    resolutions_directory = tmp_path / "resolutions"
+    first_projection = resolutions_directory / "N20_M20_Ncs20" / "projections" / "comparison"
+    store = ArtifactStore(first_projection, preferred_dataset_storage="netcdf")
+    config = SimulationConfig(
+        Nmax=20, Mmax=20, Ncs=20, RM=7.0e6, main_field_kind=MAGE_MAIN_FIELD_KIND
+    )
+    store.save_dataset(config.to_dataset(), "settings")
+    store.save_dataset(xr.Dataset(coords={"time": [0.0, 10.0]}), "boundary_Br")
+
+    settings = SimulationSweep(
+        resolutions_directory=resolutions_directory,
+        resolutions=(20, 40),
+        projection_name="comparison",
+        artifact_storage="netcdf",
+    )
+    calls = []
+    monkeypatch.setattr(
+        "scripts.simulation.mage_run.run_from_inputs",
+        lambda input_directory, **kwargs: calls.append((input_directory, kwargs)),
+    )
+
+    with pytest.raises(ValueError, match="missing required artifact"):
+        run_mage_simulations(settings)
+
+    assert not calls
+
+
 def test_mage_projection_uses_kaiju_dipole_by_default():
     """MAGE projection uses Kaiju dipole physics on a GEO model grid."""
     assert MAGE_MAIN_FIELD_KIND == "kaiju_dipole"

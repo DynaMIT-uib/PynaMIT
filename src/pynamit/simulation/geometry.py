@@ -20,10 +20,10 @@ from kompe.math import (
     as_linear_map,
     dense_full_rank_least_squares_map,
     diagonal_linear_map,
+    get_array_module,
     identity_linear_map,
     pointwise_matrix_linear_map,
     take_linear_map,
-    to_numpy,
 )
 from kompe.spherical_transform import SphericalTransform, resolve_sqrt_weights
 from numpy.typing import ArrayLike
@@ -131,8 +131,11 @@ class SimulationGeometry:
         self.induced_poloidal_potential_to_Br_operator = (
             -(self.RI**2) * self.poloidal_laplacian_operator
         )
+        poloidal_degree = self.poloidal_basis.n
+        xp = get_array_module(poloidal_degree)
+        poloidal_degree = xp.asarray(poloidal_degree)
         self.induced_Br_to_poloidal_potential_operator = diagonal_linear_map(
-            1.0 / np.asarray(self.poloidal_basis.n * (self.poloidal_basis.n + 1))
+            1.0 / (poloidal_degree * (poloidal_degree + 1))
         )
         self.induced_poloidal_potential_faraday_rate_scale = 1.0 / self.RI
         self.surface_to_poloidal_operator = self._build_surface_to_poloidal_operator()
@@ -208,13 +211,15 @@ class SimulationGeometry:
         if self.horizontal_basis.scalar_fields_are_mean_free_by_construction():
             return None
 
-        weights = np.asarray(self.horizontal_basis.scalar_mean_weights, dtype=float)
+        weights_source = self.horizontal_basis.scalar_mean_weights
+        xp = get_array_module(weights_source)
+        weights = xp.asarray(weights_source, dtype=float)
         expected_shape = (self.horizontal_basis.index_length,)
         if weights.shape != expected_shape:
             raise ValueError(
                 f"Surface mean weights must have shape {expected_shape}; got {weights.shape}."
             )
-        normalized_mean = np.sqrt(self.horizontal_basis.index_length) * weights
+        normalized_mean = self.horizontal_basis.index_length**0.5 * weights
         return as_linear_map(
             normalized_mean.reshape(1, -1), input_shape=expected_shape, output_shape=(1,)
         )
@@ -384,9 +389,11 @@ class SimulationGeometry:
         """Return radial-current coefficients mapped to apex current."""
         transform = self.horizontal_transform if transform is None else transform
         evaluator = self.main_field_evaluation if evaluator is None else evaluator
-        scale = np.asarray(evaluator.radial_to_apex)
+        scale_values = evaluator.radial_to_apex
+        xp = get_array_module(scale_values, output_scale)
+        scale = xp.asarray(scale_values)
         if output_scale is not None:
-            scale = scale * np.asarray(output_scale)
+            scale = scale * xp.asarray(output_scale)
         scale_operator = diagonal_linear_map(
             scale.reshape(-1),
             input_shape=(transform.grid.size,),
@@ -408,7 +415,9 @@ class SimulationGeometry:
                 raise ValueError("output_mask must match the evaluator grid size.")
             indices = np.flatnonzero(mask)
 
-        apex = np.asarray(evaluator.horizontal_to_apex)[:, :, indices]
+        apex_values = np.asarray(evaluator.horizontal_to_apex)[:, :, indices]
+        xp = get_array_module(apex_values)
+        apex = xp.asarray(apex_values)
         n_grid = int(grid.size)
         apex_rotation = pointwise_matrix_linear_map(apex)
         if indices.size == n_grid and np.array_equal(indices, np.arange(n_grid)):
@@ -435,7 +444,7 @@ class SimulationGeometry:
         operator = self.interhemispheric_electric_field_difference_operator
         if operator is None:
             return None
-        return to_numpy(operator.array)
+        return operator.array
 
     @cached_property
     def pedersen_geometry_tensor(self) -> np.ndarray:

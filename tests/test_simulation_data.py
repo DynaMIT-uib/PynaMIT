@@ -150,10 +150,10 @@ def test_simulation_exposes_interactive_views_without_copying_data(tmp_path):
         "output_field_spaces",
         "input_series",
         "output_series",
-        "main_field",
         "backend",
     ):
         assert not hasattr(simulation, redundant_name)
+    assert simulation.main_field is simulation.geometry.main_field
     assert simulation.data.gap_Br_response is None
 
 

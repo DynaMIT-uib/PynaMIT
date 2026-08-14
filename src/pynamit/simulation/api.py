@@ -40,10 +40,13 @@ class InputPreparation:
         Directory containing the prepared input artifacts.
     model_grid : kompe.SphericalGrid
         Grid on which sampled input fields are projected.
+    main_field : pynamit.geomagnetism.MainField
+        Background magnetic field used to interpret physical inputs.
     inputs : dict
         Projected input datasets, keyed by stream name.
     geometry : SimulationGeometry
-        Spatial realization used while preparing the inputs.
+        Full simulation geometry. Constructed only when first accessed;
+        ordinary input projection does not require it.
     operator_cache : pynamit.storage.ArrayCache, optional
         Shared cache for deterministic materialized operators.
     """
@@ -190,18 +193,9 @@ class InputPreparation:
         self.input_directory = self.data.simulation_directory
         self.inputs = self.data.input_series.datasets
         schema = self.data.schema
-        main_field = build_main_field(self.config)
-
-        self.geometry = SimulationGeometry(
-            schema.horizontal_basis,
-            schema.cs_basis,
-            main_field,
-            self.config,
-            gap_Br_response_matrix=self.data.gap_Br_response,
-            solid_harmonics=schema.solid_harmonics,
-            operator_cache=self.operator_cache,
-        )
-        self.model_grid = self.geometry.model_grid
+        self.main_field = build_main_field(self.config)
+        self.model_grid = schema.cs_basis.mesh.cell_centers
+        self._geometry = None
         self._input_pipeline = InputPipeline(self)
         self._response = None
         self.current_time = np.float64(0)
@@ -216,6 +210,22 @@ class InputPreparation:
             f"Ncs={self.config.Ncs}, inputs=[{inputs}], "
             f"input_directory={self.input_directory!r})"
         )
+
+    @property
+    def geometry(self):
+        """Return the full geometry, constructing it on first use."""
+        if self._geometry is None:
+            schema = self.data.schema
+            self._geometry = SimulationGeometry(
+                schema.horizontal_basis,
+                schema.cs_basis,
+                self.main_field,
+                self.config,
+                gap_Br_response_matrix=self.data.gap_Br_response,
+                solid_harmonics=schema.solid_harmonics,
+                operator_cache=self.operator_cache,
+            )
+        return self._geometry
 
     def _require_response(self):
         """Construct the electrodynamic response when it is needed.
