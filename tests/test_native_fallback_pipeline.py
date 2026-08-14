@@ -58,7 +58,7 @@ def _capture_preparation(monkeypatch, *, source: str, directory, main_field_kind
     original_wind = example_inputs_module.get_wind_inputs
 
     def capture_conductance(*args, **kwargs):
-        hall, pedersen, lat, lon = original_conductance(*args, **kwargs)
+        pedersen, hall, lat, lon = original_conductance(*args, **kwargs)
         captured["conductance"] = {
             "hall": np.array(hall, copy=True),
             "pedersen": np.array(pedersen, copy=True),
@@ -66,7 +66,7 @@ def _capture_preparation(monkeypatch, *, source: str, directory, main_field_kind
             "lon": np.array(lon, copy=True),
             "request": kwargs["request"],
         }
-        return hall, pedersen, lat, lon
+        return pedersen, hall, lat, lon
 
     def capture_jr(*args, **kwargs):
         jr, lat, lon = original_jr(*args, **kwargs)

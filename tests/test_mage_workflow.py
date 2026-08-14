@@ -25,11 +25,8 @@ from scripts.simulation.mage_run import (
     DEFAULT_RESOLUTIONS_DIRECTORY as SIMULATION_RESOLUTIONS_DIRECTORY,
 )
 from scripts.simulation.mage_run import SETTINGS as MAGE_SIMULATION_SETTINGS
-from scripts.simulation.mage_run import (
-    SimulationSweep,
-    _build_simulation_targets,
-    _last_projected_input_time,
-)
+from scripts.simulation.mage_run import SimulationSweep, _last_projected_input_time
+from scripts.simulation.mage_run import main as run_mage_simulations
 
 from pynamit.geomagnetism.kaiju_geopack import kaiju_geopack_sm
 from pynamit.simulation.config import SimulationConfig
@@ -567,9 +564,9 @@ def test_mage_projection_validates_sweep_before_projecting(monkeypatch, tmp_path
     assert not calls
 
 
-def test_mage_run_defaults_to_equilibrium_initialization_and_output():
+def test_mage_run_defaults_to_initialize_from_equilibrium_and_output():
     """MAGE starts from and records instantaneous equilibrium."""
-    assert MAGE_SIMULATION_SETTINGS.equilibrium_initialization is True
+    assert MAGE_SIMULATION_SETTINGS.initialize_from_equilibrium is True
     assert MAGE_SIMULATION_SETTINGS.run_equilibrium is True
     assert MAGE_SIMULATION_SETTINGS.magnetic_boundary_shielding is False
     assert MAGE_SIMULATION_SETTINGS.final_time is None
@@ -586,7 +583,7 @@ def test_mage_run_infers_final_time_from_projected_boundary_input():
     assert _last_projected_input_time(store) == 20.5
 
 
-def test_mage_run_resolves_every_projected_resolution(tmp_path):
+def test_mage_run_resolves_every_projected_resolution(monkeypatch, tmp_path):
     """A run sweep maps each projection to an independent named run."""
     resolutions_directory = tmp_path / "resolutions"
     for resolution in (20, 40):
@@ -614,11 +611,20 @@ def test_mage_run_resolves_every_projected_resolution(tmp_path):
         simulation_name="exponential",
         artifact_storage="netcdf",
     )
-    targets = _build_simulation_targets(settings)
+    calls = []
+    monkeypatch.setattr(
+        "scripts.simulation.mage_run.run_from_inputs",
+        lambda input_directory, **kwargs: calls.append((input_directory, kwargs)),
+    )
 
-    assert [target.resolution_name for target in targets] == ["N20_M20_Ncs20", "N40_M40_Ncs40"]
-    assert [target.final_time for target in targets] == [10.0, 10.0]
-    assert [target.simulation_directory for target in targets] == [
+    run_mage_simulations(settings)
+
+    assert [input_directory for input_directory, _ in calls] == [
+        resolutions_directory / "N20_M20_Ncs20" / "projections" / "comparison",
+        resolutions_directory / "N40_M40_Ncs40" / "projections" / "comparison",
+    ]
+    assert [kwargs["final_time"] for _, kwargs in calls] == [10.0, 10.0]
+    assert [kwargs["simulation_directory"] for _, kwargs in calls] == [
         resolutions_directory / "N20_M20_Ncs20" / "simulations" / "exponential",
         resolutions_directory / "N40_M40_Ncs40" / "simulations" / "exponential",
     ]

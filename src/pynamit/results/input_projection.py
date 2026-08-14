@@ -18,7 +18,8 @@ def evaluate_projected_input(
 
     Parameters
     ----------
-    source : InputPreparation, Simulation, or FieldTimeSeries
+    source : InputPreparation, Simulation, SimulationResults, or
+        FieldTimeSeries
         Object containing projected input coefficient time series.
     key : str
         Input key, for example ``"boundary_jr"``, ``"boundary_Br"``,
@@ -43,16 +44,27 @@ def evaluate_projected_input(
     dict
         Evaluated input values keyed by variable/component name.
     """
+    if grid is not None and transform is not None:
+        raise ValueError("Supply either grid or transform, not both.")
+
     if isinstance(source, FieldTimeSeries):
         series = source
         default_grid = None
     else:
+        from pynamit.results.simulation_results import SimulationResults
         from pynamit.simulation import InputPreparation
 
-        if not isinstance(source, InputPreparation):
-            raise TypeError("source must be an InputPreparation, Simulation, or FieldTimeSeries.")
-        series = source.data.input_series
-        default_grid = source.geometry.model_grid
+        if isinstance(source, InputPreparation):
+            series = source.data.input_series
+            default_grid = source.geometry.model_grid
+        elif isinstance(source, SimulationResults):
+            series = source.load_input_series()
+            default_grid = source.schema.cs_basis.mesh.cell_centers
+        else:
+            raise TypeError(
+                "source must be an InputPreparation, Simulation, "
+                "SimulationResults, or FieldTimeSeries."
+            )
     entry = series.get_entry(key, time, interpolation=interpolation)
     if entry is None:
         raise ValueError(f"No {key!r} input is available at t={float(time):.3f}.")

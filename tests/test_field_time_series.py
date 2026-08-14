@@ -120,6 +120,56 @@ def test_timeseries_restores_coefficient_multiindex_in_memory():
     assert dataset.reset_index("i").equals(persisted)
 
 
+def test_tangential_timeseries_labels_components_and_physical_metadata():
+    """Tangential data identify both Helmholtz coefficient blocks."""
+    basis = SHBasis(2, 1, mean_free=True)
+    field_space = FieldSpace(basis, field_type="tangential")
+    timeseries = FieldTimeSeries(
+        {"wind": field_space},
+        {"wind": ("u",)},
+        variable_attrs={"wind": {"u": {"units": "m s-1", "long_name": "neutral wind velocity"}}},
+        time_origin="2020-01-01 00:00:00",
+    )
+    timeseries.add_entry("wind", {"u": np.zeros(field_space.coefficient_shape)}, time=3.0)
+
+    dataset = timeseries.datasets["wind"]
+    np.testing.assert_array_equal(
+        dataset.component.values,
+        np.repeat(np.array([0, 1], dtype=np.int8), field_space.index_length),
+    )
+    assert dataset.component.attrs["flag_meanings"] == "curl_free divergence_free"
+    assert dataset.time.attrs == {
+        "units": "s",
+        "long_name": "simulation time since t0",
+        "time_origin": "2020-01-01 00:00:00",
+    }
+    assert dataset["SH_u"].attrs["units"] == "m s-1"
+    assert dataset["SH_u"].attrs["field_type"] == "tangential"
+
+
+def test_tangential_timeseries_adds_component_labels_when_loading_older_data():
+    """Older artifacts may omit the auxiliary component label."""
+    basis = SHBasis(2, 1, mean_free=True)
+    field_space = FieldSpace(basis, field_type="tangential")
+    source = FieldTimeSeries({"wind": field_space}, {"wind": ("u",)})
+    source.add_entry("wind", {"u": np.zeros(field_space.coefficient_shape)}, time=0.0)
+    persisted = source.datasets["wind"].reset_index("i").drop_vars("component")
+
+    class _LoadedDataset:
+        @staticmethod
+        def get_dataset_storage_kind(_key):
+            return "netcdf"
+
+        @staticmethod
+        def load_dataset(_key):
+            return persisted
+
+    restored = FieldTimeSeries({"wind": field_space}, {"wind": ("u",)})
+    restored.load("wind", _LoadedDataset())
+
+    assert "component" in restored.datasets["wind"].coords
+
+
 def test_timeseries_change_tracking_is_group_scoped():
     """Groups with the same variable names do not share change state."""
     basis = GlobalCSBasis(4)

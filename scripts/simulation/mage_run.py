@@ -46,27 +46,15 @@ class SimulationSweep:
     dt: float = 10.0
     final_time: float | None = None
     sampling_step_interval: int = 1
-    saving_sample_interval: int = 1
+    write_sample_interval: int = 1
     integrator: str = "exponential"
     toroidal_potential_regularization_lambda: float = 0.0
-    equilibrium_initialization: bool = True
+    initialize_from_equilibrium: bool = True
     run_equilibrium: bool = True
     artifact_storage: str = "auto"
 
 
 SETTINGS = SimulationSweep()
-
-
-@dataclass(frozen=True)
-class _SimulationTarget:
-    """Resolved paths and geometry for one projected resolution."""
-
-    resolution_name: str
-    projection_directory: Path
-    simulation_directory: Path
-    operator_cache_directory: Path | None
-    final_time: float
-    fac_integration_radii: np.ndarray
 
 
 def _last_projected_input_time(input_store: ArtifactStore) -> float:
@@ -83,8 +71,8 @@ def _last_projected_input_time(input_store: ArtifactStore) -> float:
     return float(time[-1])
 
 
-def _build_simulation_targets(settings: SimulationSweep) -> tuple[_SimulationTarget, ...]:
-    """Validate the sweep and resolve every simulation target."""
+def main(settings: SimulationSweep = SETTINGS) -> None:
+    """Run every configured MAGE projection."""
     resolutions = tuple(settings.resolutions)
     if not resolutions:
         raise ValueError("resolutions must contain at least one positive integer.")
@@ -111,8 +99,19 @@ def _build_simulation_targets(settings: SimulationSweep) -> tuple[_SimulationTar
     ):
         raise ValueError("projection_name must be one non-empty directory name.")
 
-    targets = []
-    for resolution in resolutions:
+    print(
+        "Magnetic-boundary shielding of induced_Br: "
+        f"{'enabled' if settings.magnetic_boundary_shielding else 'disabled'}",
+        flush=True,
+    )
+    if settings.integrator == "exponential":
+        print(
+            "Warning: the exponential integrator builds a dense matrix exponential at "
+            "each step. Monitor progress and memory on MAGE-size simulations.",
+            flush=True,
+        )
+
+    for index, resolution in enumerate(resolutions, start=1):
         resolution_name = f"N{resolution}_M{resolution}_Ncs{resolution}"
         resolution_directory = Path(settings.resolutions_directory).expanduser() / resolution_name
         projection_directory = resolution_directory / "projections" / projection_name
@@ -141,54 +140,27 @@ def _build_simulation_targets(settings: SimulationSweep) -> tuple[_SimulationTar
             if settings.final_time is None
             else float(settings.final_time)
         )
-        targets.append(
-            _SimulationTarget(
-                resolution_name=resolution_name,
-                projection_directory=projection_directory,
-                simulation_directory=(resolution_directory / "simulations" / simulation_name),
-                operator_cache_directory=(
-                    resolution_directory / "operator_cache" if settings.cache_operators else None
-                ),
-                final_time=final_time,
-                fac_integration_radii=dipole_fac_integration_radii(
-                    input_config.RI, input_config.RM, settings.fac_integration_points
-                ),
-            )
+        simulation_directory = resolution_directory / "simulations" / simulation_name
+        operator_cache_directory = (
+            resolution_directory / "operator_cache" if settings.cache_operators else None
         )
-    return tuple(targets)
-
-
-def main(settings: SimulationSweep = SETTINGS) -> None:
-    """Run every configured MAGE projection."""
-    targets = _build_simulation_targets(settings)
-    print(
-        "Magnetic-boundary shielding of induced_Br: "
-        f"{'enabled' if settings.magnetic_boundary_shielding else 'disabled'}",
-        flush=True,
-    )
-    if settings.integrator == "exponential" and targets:
+        fac_integration_radii = dipole_fac_integration_radii(
+            input_config.RI, input_config.RM, settings.fac_integration_points
+        )
         print(
-            "Warning: the exponential integrator builds a dense matrix exponential at "
-            "each step. Monitor progress and memory on MAGE-size simulations.",
+            f"[{index}/{len(resolutions)}] Using projected input package: {projection_directory}",
             flush=True,
         )
-
-    for index, target in enumerate(targets, start=1):
-        print(
-            f"[{index}/{len(targets)}] Using projected input package: "
-            f"{target.projection_directory}",
-            flush=True,
-        )
-        print(f"Writing simulation directory: {target.simulation_directory}", flush=True)
-        print(f"Running through projected time t={target.final_time:g} s", flush=True)
+        print(f"Writing simulation directory: {simulation_directory}", flush=True)
+        print(f"Running through projected time t={final_time:g} s", flush=True)
         simulation = run_from_inputs(
-            target.projection_directory,
-            simulation_directory=target.simulation_directory,
-            final_time=target.final_time,
+            projection_directory,
+            simulation_directory=simulation_directory,
+            final_time=final_time,
             dt=settings.dt,
             sampling_step_interval=settings.sampling_step_interval,
-            saving_sample_interval=settings.saving_sample_interval,
-            fac_integration_radii=target.fac_integration_radii,
+            write_sample_interval=settings.write_sample_interval,
+            fac_integration_radii=fac_integration_radii,
             enable_pfac_coupling=True,
             enable_interhemispheric_coupling=True,
             interhemispheric_coupling_latitude=settings.interhemispheric_coupling_latitude,
@@ -196,17 +168,17 @@ def main(settings: SimulationSweep = SETTINGS) -> None:
                 settings.interhemispheric_electric_field_weight
             ),
             magnetic_boundary_shielding=settings.magnetic_boundary_shielding,
-            equilibrium_initialization=settings.equilibrium_initialization,
+            initialize_from_equilibrium=settings.initialize_from_equilibrium,
             run_dynamic=True,
             run_equilibrium=settings.run_equilibrium,
             integrator=settings.integrator,
             toroidal_potential_regularization_lambda=settings.toroidal_potential_regularization_lambda,
             artifact_storage=settings.artifact_storage,
-            operator_cache_directory=target.operator_cache_directory,
+            operator_cache_directory=operator_cache_directory,
             skip_completed=True,
         )
         if simulation is not None:
-            print(f"{target.resolution_name} time evolution complete", flush=True)
+            print(f"{resolution_name} time evolution complete", flush=True)
 
 
 if __name__ == "__main__":

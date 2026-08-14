@@ -118,8 +118,8 @@ def test_evolution_records_and_saves_exact_off_grid_target(monkeypatch):
         0.25,
         dt=0.1,
         sampling_step_interval=10,
-        saving_sample_interval=10,
-        equilibrium_initialization=False,
+        write_sample_interval=10,
+        initialize_from_equilibrium=False,
         run_equilibrium=False,
         quiet=True,
     )

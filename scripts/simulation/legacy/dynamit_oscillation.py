@@ -102,7 +102,9 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
     hall_EUV, pedersen_EUV = conductance.EUV_conductance(sza)
     # Add starlight.
     hall_EUV, pedersen_EUV = (np.sqrt(hall_EUV**2 + 1), np.sqrt(pedersen_EUV**2 + 1))
-    simulation.set_conductance(hall_EUV, pedersen_EUV, lat=conductance_lat, lon=conductance_lon)
+    simulation.set_conductance(
+        pedersen=pedersen_EUV, hall=hall_EUV, lat=conductance_lat, lon=conductance_lon
+    )
 
     # Get and set static jr input.
     jr_lat = simulation.geometry.model_grid.lat
@@ -167,7 +169,9 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
         plt.close()
 
     print("Setting jr", flush=True)
-    simulation.set_boundary_jr(boundary_jr=scaled_jr_values, lat=jr_lat, lon=jr_lon, time=time_values)
+    simulation.set_boundary_jr(
+        boundary_jr=scaled_jr_values, lat=jr_lat, lon=jr_lon, time=time_values
+    )
 
     print("Starting simulation", flush=True)
     simulation.evolve_to_time(FINAL_TIME, interpolation=True)

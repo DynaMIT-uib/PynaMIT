@@ -140,7 +140,7 @@ def main() -> None:
             )
             _register_request_grids(grids, request)
 
-            hall, pedersen, hall_lat, hall_lon = get_conductance_inputs(
+            pedersen, hall, conductance_lat, conductance_lon = get_conductance_inputs(
                 EVENT_TIME, request=request
             )
             jr, jr_lat, jr_lon = get_jr_inputs(EVENT_TIME, request=request)
@@ -151,7 +151,7 @@ def main() -> None:
             if weights is not None:
                 raise RuntimeError("Requested-position HWM should not supply source-grid weights.")
 
-            _require_source_grid("Hardy/EUV", request, hall_lat, hall_lon)
+            _require_source_grid("Hardy/EUV", request, conductance_lat, conductance_lon)
             _require_source_grid("AMPS", request, jr_lat, jr_lon)
             _require_source_grid("HWM14", request, wind_lat, wind_lon)
 

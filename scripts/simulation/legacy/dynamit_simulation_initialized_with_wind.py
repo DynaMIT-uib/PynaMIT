@@ -92,7 +92,9 @@ Kp = 5
 hall_aurora, pedersen_aurora = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, date, starlight=1, dipole=False
 )
-simulation.set_conductance(hall_aurora, pedersen_aurora, lat=conductance_lat, lon=conductance_lon)
+simulation.set_conductance(
+    pedersen=pedersen_aurora, hall=hall_aurora, lat=conductance_lat, lon=conductance_lon
+)
 
 
 # Initialize with zero jr.

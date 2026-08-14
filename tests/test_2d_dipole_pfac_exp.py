@@ -24,7 +24,7 @@ def test_2d_dipole_pfac_exp(regression_approx):
         main_field_kind="dipole",
         enable_pfac_coupling=True,
         integrator="exponential",
-        equilibrium_initialization=False,
+        initialize_from_equilibrium=False,
     )
 
     # Assert.

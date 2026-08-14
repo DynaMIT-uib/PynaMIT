@@ -96,7 +96,11 @@ hall_EUV, pedersen_EUV = conductance.EUV_conductance(sza)
 # Add starlight.
 hall_EUV, pedersen_EUV = (np.sqrt(hall_EUV**2 + 1), np.sqrt(pedersen_EUV**2 + 1))
 simulation.set_conductance(
-    hall_EUV, pedersen_EUV, lat=conductance_lat, lon=conductance_lon, time=current_time
+    pedersen=pedersen_EUV,
+    hall=hall_EUV,
+    lat=conductance_lat,
+    lon=conductance_lon,
+    time=current_time,
 )
 print("Updated conductance (without aurora) at t =", current_time, flush=True)
 
@@ -107,7 +111,11 @@ hall_aurora, pedersen_aurora = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, current_date, starlight=1, dipole=False
 )
 simulation.set_conductance(
-    hall_aurora, pedersen_aurora, lat=conductance_lat, lon=conductance_lon, time=current_time
+    pedersen=pedersen_aurora,
+    hall=hall_aurora,
+    lat=conductance_lat,
+    lon=conductance_lon,
+    time=current_time,
 )
 print("Updated conductance (with aurora) at t =", current_time, flush=True)
 
@@ -118,7 +126,11 @@ hall_aurora, pedersen_aurora = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, current_date, starlight=1, dipole=False
 )
 simulation.set_conductance(
-    hall_aurora, pedersen_aurora, lat=conductance_lat, lon=conductance_lon, time=current_time
+    pedersen=pedersen_aurora,
+    hall=hall_aurora,
+    lat=conductance_lat,
+    lon=conductance_lon,
+    time=current_time,
 )
 print("Updated conductance (with aurora) at t =", current_time, flush=True)
 
@@ -129,7 +141,11 @@ hall_aurora, pedersen_aurora = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, current_date, starlight=1, dipole=False
 )
 simulation.set_conductance(
-    hall_aurora, pedersen_aurora, lat=conductance_lat, lon=conductance_lon, time=current_time
+    pedersen=pedersen_aurora,
+    hall=hall_aurora,
+    lat=conductance_lat,
+    lon=conductance_lon,
+    time=current_time,
 )
 print("Updated conductance (with aurora) at t =", current_time, flush=True)
 
@@ -140,7 +156,11 @@ hall_aurora, pedersen_aurora = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, current_date, starlight=1, dipole=False
 )
 simulation.set_conductance(
-    hall_aurora, pedersen_aurora, lat=conductance_lat, lon=conductance_lon, time=current_time
+    pedersen=pedersen_aurora,
+    hall=hall_aurora,
+    lat=conductance_lat,
+    lon=conductance_lon,
+    time=current_time,
 )
 print("Updated conductance (with aurora) at t =", current_time, flush=True)
 
@@ -151,7 +171,11 @@ hall_aurora, pedersen_aurora = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, current_date, starlight=1, dipole=False
 )
 simulation.set_conductance(
-    hall_aurora, pedersen_aurora, lat=conductance_lat, lon=conductance_lon, time=current_time
+    pedersen=pedersen_aurora,
+    hall=hall_aurora,
+    lat=conductance_lat,
+    lon=conductance_lon,
+    time=current_time,
 )
 print("Updated conductance (with aurora) at t =", current_time, flush=True)
 
@@ -162,7 +186,11 @@ hall_aurora, pedersen_aurora = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, current_date, starlight=1, dipole=False
 )
 simulation.set_conductance(
-    hall_aurora, pedersen_aurora, lat=conductance_lat, lon=conductance_lon, time=current_time
+    pedersen=pedersen_aurora,
+    hall=hall_aurora,
+    lat=conductance_lat,
+    lon=conductance_lon,
+    time=current_time,
 )
 print("Updated conductance (with aurora) at t =", current_time, flush=True)
 
@@ -173,7 +201,11 @@ hall_aurora, pedersen_aurora = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, current_date, starlight=1, dipole=False
 )
 simulation.set_conductance(
-    hall_aurora, pedersen_aurora, lat=conductance_lat, lon=conductance_lon, time=current_time
+    pedersen=pedersen_aurora,
+    hall=hall_aurora,
+    lat=conductance_lat,
+    lon=conductance_lon,
+    time=current_time,
 )
 print("Updated conductance (with aurora) at t =", current_time, flush=True)
 
@@ -184,7 +216,11 @@ hall_aurora, pedersen_aurora = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, current_date, starlight=1, dipole=False
 )
 simulation.set_conductance(
-    hall_aurora, pedersen_aurora, lat=conductance_lat, lon=conductance_lon, time=current_time
+    pedersen=pedersen_aurora,
+    hall=hall_aurora,
+    lat=conductance_lat,
+    lon=conductance_lon,
+    time=current_time,
 )
 print("Updated conductance (with aurora) at t =", current_time, flush=True)
 

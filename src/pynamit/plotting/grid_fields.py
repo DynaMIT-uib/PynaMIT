@@ -131,13 +131,11 @@ def _sheet_current_maps(geometry, transform):
     return {
         "induced_Br_to_JS": geometry.induced_Br_to_gridded_JS_operator(
             transform, poloidal_transform=poloidal_transform
-        ).array,
+        ),
         "boundary_jr_to_JS": geometry.boundary_jr_to_gridded_JS_operator(
             transform, poloidal_transform=poloidal_transform
-        ).array,
-        "boundary_Br_to_JS": (
-            None if boundary_Br_operator is None else boundary_Br_operator.array
         ),
+        "boundary_Br_to_JS": boundary_Br_operator,
     }
 
 

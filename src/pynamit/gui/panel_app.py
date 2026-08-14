@@ -201,7 +201,7 @@ class PynamitGUI:
             label="Final time", value=100.0, start=0.0, width=120
         )
         self.sim_dt = pn.widgets.FloatInput(label="dt", value=5e-4, start=1e-12, width=110)
-        self.sim_saving_sample_interval = pn.widgets.IntInput(
+        self.sim_write_sample_interval = pn.widgets.IntInput(
             label="Samples per save", value=200, start=1, width=150
         )
         self.sim_integrator = pn.widgets.Select(
@@ -686,7 +686,7 @@ class PynamitGUI:
                 simulation_directory=simulation_directory,
                 enabled_inputs=enabled_inputs,
                 final_time=float(self.sim_final_time.value),
-                saving_sample_interval=int(self.sim_saving_sample_interval.value),
+                write_sample_interval=int(self.sim_write_sample_interval.value),
                 dt=float(self.sim_dt.value),
                 enable_pfac_coupling=bool(self.sim_enable_pfac_coupling.value),
                 enable_interhemispheric_coupling=bool(
@@ -954,7 +954,7 @@ class PynamitGUI:
             self._control_row(
                 self.sim_final_time,
                 self.sim_dt,
-                self.sim_saving_sample_interval,
+                self.sim_write_sample_interval,
                 self.sim_integrator,
             ),
             self._control_row(

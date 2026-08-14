@@ -97,9 +97,9 @@ def test_default_inputs_share_one_provider_request_cache(tmp_path, monkeypatch):
         source = request.source_grid
         return (np.zeros(source.size), np.ones(source.size), source.lat, source.lon, None)
 
-    def capture_set_conductance(self, *args, lat, lon, **kwargs):
+    def capture_set_conductance(self, *, lat, lon, **kwargs):
         captured["conductance_storage"] = (np.asarray(lat).copy(), np.asarray(lon).copy())
-        return original_set_conductance(self, *args, lat=lat, lon=lon, **kwargs)
+        return original_set_conductance(self, lat=lat, lon=lon, **kwargs)
 
     def capture_set_boundary_jr(self, *args, lat, lon, **kwargs):
         captured["boundary_jr_storage"] = (np.asarray(lat).copy(), np.asarray(lon).copy())
@@ -411,7 +411,7 @@ def test_prepare_and_run_from_inputs_smoke(tmp_path):
         dt=0.01,
         RM=2 * EARTH_RADIUS_M,
         sampling_step_interval=2,
-        saving_sample_interval=1,
+        write_sample_interval=1,
         artifact_storage="netcdf",
     )
 
@@ -424,7 +424,7 @@ def test_prepare_and_run_from_inputs_smoke(tmp_path):
     simulation_manifest = json.loads(
         (simulation_directory / SIMULATION_MANIFEST_FILENAME).read_text(encoding="utf-8")
     )
-    assert simulation_manifest["version"] == 4
+    assert simulation_manifest["version"] == 5
     assert simulation_manifest["input_manifest"] == manifest
     assert simulation_manifest["time_evolution"]["sampling_step_interval"] == 2
 
@@ -435,7 +435,7 @@ def test_prepare_and_run_from_inputs_smoke(tmp_path):
         final_time=0.0,
         dt=0.01,
         RM=2 * EARTH_RADIUS_M,
-        saving_sample_interval=1,
+        write_sample_interval=1,
         artifact_storage="netcdf",
     )
 
@@ -656,7 +656,7 @@ def test_run_from_inputs_errors_on_requested_missing_dataset(tmp_path):
             enabled_inputs=("u",),
             final_time=0.0,
             dt=0.01,
-            saving_sample_interval=1,
+            write_sample_interval=1,
             artifact_storage="netcdf",
         )
 

@@ -10,7 +10,12 @@ from pynamit.simulation.geometry import SimulationGeometry, build_main_field
 from pynamit.simulation.input_manifest import write_input_manifest
 from pynamit.simulation.inputs import InputPipeline
 from pynamit.simulation.response import ElectrodynamicResponse
-from pynamit.simulation.runner import SimulationRunner
+from pynamit.simulation.runner import (
+    DEFAULT_DT_SECONDS,
+    DEFAULT_SAMPLING_STEP_INTERVAL,
+    DEFAULT_WRITE_SAMPLE_INTERVAL,
+    SimulationRunner,
+)
 from pynamit.simulation.schema import INPUT_DATASET_KEYS
 from pynamit.simulation.simulation_data import SimulationData
 from pynamit.storage import ArrayCache, ArtifactStore
@@ -447,6 +452,7 @@ class InputPreparation:
 
     def set_resistance(
         self,
+        *,
         etaP=None,
         etaH=None,
         lat=None,
@@ -500,8 +506,9 @@ class InputPreparation:
 
     def set_conductance(
         self,
-        hall=None,
+        *,
         pedersen=None,
+        hall=None,
         lat=None,
         lon=None,
         theta=None,
@@ -510,7 +517,6 @@ class InputPreparation:
         sqrt_weights=None,
         reg_lambda=None,
         pinv_rtol=1e-15,
-        *,
         log_magnitude_coefficients=None,
         log_ratio_coefficients=None,
     ):
@@ -524,10 +530,10 @@ class InputPreparation:
 
         Parameters
         ----------
-        hall : array-like
-            Hall conductance.
         pedersen : array-like
-            Pedersen conductance.
+            Strictly positive Pedersen conductance in siemens.
+        hall : array-like
+            Strictly positive Hall conductance in siemens.
         log_magnitude_coefficients, log_ratio_coefficients
             : array-like, optional
             Canonical conductance coordinates already represented in
@@ -1100,22 +1106,27 @@ class Simulation(InputPreparation):
     def evolve_to_time(
         self,
         t,
-        dt=5e-4,
-        sampling_step_interval=200,
-        saving_sample_interval=10,
+        dt=DEFAULT_DT_SECONDS,
+        sampling_step_interval=DEFAULT_SAMPLING_STEP_INTERVAL,
+        write_sample_interval=DEFAULT_WRITE_SAMPLE_INTERVAL,
         quiet=False,
-        equilibrium_initialization=True,
+        initialize_from_equilibrium=True,
         run_dynamic=True,
         run_equilibrium=None,
     ):
-        """Evolve the inductive solution to a specified time."""
+        """Evolve the inductive solution to ``t`` seconds after ``t0``.
+
+        ``sampling_step_interval`` controls how often output is
+        retained; ``write_sample_interval`` controls how many retained
+        samples are accumulated between persistence writes.
+        """
         return self._runner.evolve_to_time(
             t,
             dt=dt,
             sampling_step_interval=sampling_step_interval,
-            saving_sample_interval=saving_sample_interval,
+            write_sample_interval=write_sample_interval,
             quiet=quiet,
-            equilibrium_initialization=equilibrium_initialization,
+            initialize_from_equilibrium=initialize_from_equilibrium,
             run_dynamic=run_dynamic,
             run_equilibrium=run_equilibrium,
         )

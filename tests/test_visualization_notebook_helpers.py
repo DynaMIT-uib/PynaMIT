@@ -39,7 +39,7 @@ from pynamit.plotting.plot_helpers import (
     symmetric_contour_levels,
     symmetric_contour_levels_without_zero,
 )
-from pynamit.results.grid_evaluation import build_JS_operators, build_plot_grid
+from pynamit.results.grid_evaluation import build_JS_matrices, build_plot_grid
 from pynamit.simulation.api import Simulation
 from pynamit.storage import ArtifactStore
 
@@ -391,7 +391,7 @@ def test_grid_helpers_are_importable_from_visualization():
     assert grid.size == 12
 
 
-def test_build_JS_operators_matches_core_formulas():
+def test_build_JS_matrices_matches_core_formulas():
     """Shared JS helper follows geometry formulas."""
 
     class Settings:
@@ -405,7 +405,7 @@ def test_build_JS_operators_matches_core_formulas():
     transform = SphericalTransform(sh_basis, grid)
     boundary_jr_to_gap_Br = np.eye(sh_basis.index_length)
 
-    operators = build_JS_operators(
+    matrices = build_JS_matrices(
         Settings, sh_basis, transform, boundary_jr_to_gap_Br_matrix=boundary_jr_to_gap_Br
     )
 
@@ -426,25 +426,25 @@ def test_build_JS_operators_matches_core_formulas():
     )
 
     np.testing.assert_allclose(
-        operators["boundary_jr_to_JS"],
+        matrices["boundary_jr_to_JS"],
         np.tensordot(toroidal_to_JS, boundary_jr_to_toroidal, axes=([2], [0]))
         + np.tensordot(
             -poloidal_to_JS / induced_potential_to_Br, boundary_jr_to_gap_Br, axes=([2], [0])
         ),
     )
     np.testing.assert_allclose(
-        operators["induced_Br_to_JS"],
+        matrices["induced_Br_to_JS"],
         poloidal_to_JS
         / induced_potential_to_Br
         * (1.0 + regular_shift * irregular_shift / denominator),
     )
     np.testing.assert_allclose(
-        operators["boundary_Br_to_JS"],
+        matrices["boundary_Br_to_JS"],
         poloidal_to_JS * (-regular_shift / (denominator * induced_potential_to_Br)),
     )
 
 
-def test_build_JS_operators_defaults_to_unshielded_rm():
+def test_build_JS_matrices_defaults_to_unshielded_rm():
     """RM does not impose shielding unless requested."""
 
     class Settings:
@@ -456,7 +456,7 @@ def test_build_JS_operators_defaults_to_unshielded_rm():
     _, _, grid = build_plot_grid(nlat=4, nlon=5)
     transform = SphericalTransform(sh_basis, grid)
 
-    operators = build_JS_operators(Settings, sh_basis, transform)
+    matrices = build_JS_matrices(Settings, sh_basis, transform)
     poloidal_to_JS = (
         -transform.rhat_cross_gradient_matrix
         * solid_harmonics.poloidal_to_boundary_potential_jump_factor.reshape(1, 1, -1)
@@ -464,10 +464,10 @@ def test_build_JS_operators_defaults_to_unshielded_rm():
     )
 
     degree_factor = -(Settings.RI**2) * np.diag(sh_basis.surface_laplacian_matrix(Settings.RI))
-    np.testing.assert_allclose(operators["induced_Br_to_JS"], poloidal_to_JS / degree_factor)
+    np.testing.assert_allclose(matrices["induced_Br_to_JS"], poloidal_to_JS / degree_factor)
 
 
-def test_build_JS_operators_omits_boundary_map_without_rm():
+def test_build_JS_matrices_omits_boundary_map_without_rm():
     """A run without a magnetic boundary allocates no zero Br map."""
 
     class Settings:
@@ -478,12 +478,12 @@ def test_build_JS_operators_omits_boundary_map_without_rm():
     _, _, grid = build_plot_grid(nlat=4, nlon=5)
     transform = SphericalTransform(sh_basis, grid)
 
-    operators = build_JS_operators(Settings, sh_basis, transform)
+    matrices = build_JS_matrices(Settings, sh_basis, transform)
 
-    assert operators["boundary_Br_to_JS"] is None
+    assert matrices["boundary_Br_to_JS"] is None
 
 
-def test_build_JS_operators_matches_geometry(tmp_path):
+def test_build_JS_matrices_matches_geometry(tmp_path):
     """Notebook helper matches SimulationGeometry JS conventions."""
     simulation = Simulation(
         simulation_directory=str(tmp_path / "run"),
@@ -497,7 +497,7 @@ def test_build_JS_operators_matches_geometry(tmp_path):
     geometry = simulation.geometry
     _, _, grid = build_plot_grid(nlat=4, nlon=5)
     transform = SphericalTransform(simulation.geometry.horizontal_basis, grid)
-    operators = build_JS_operators(
+    matrices = build_JS_matrices(
         simulation.data.config,
         simulation.geometry.horizontal_basis,
         transform,
@@ -505,11 +505,10 @@ def test_build_JS_operators_matches_geometry(tmp_path):
     )
 
     np.testing.assert_allclose(
-        operators["induced_Br_to_JS"], geometry.induced_Br_to_gridded_JS_operator(transform).array
+        matrices["induced_Br_to_JS"], geometry.induced_Br_to_gridded_JS_operator(transform).array
     )
     np.testing.assert_allclose(
-        operators["boundary_jr_to_JS"],
-        geometry.boundary_jr_to_gridded_JS_operator(transform).array,
+        matrices["boundary_jr_to_JS"], geometry.boundary_jr_to_gridded_JS_operator(transform).array
     )
     boundary_Br_operator = geometry.boundary_Br_to_gridded_JS_operator(transform)
-    np.testing.assert_allclose(operators["boundary_Br_to_JS"], boundary_Br_operator.array)
+    np.testing.assert_allclose(matrices["boundary_Br_to_JS"], boundary_Br_operator.array)

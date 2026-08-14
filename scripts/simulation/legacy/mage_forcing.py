@@ -53,9 +53,7 @@ simulation = pynamit.Simulation(
     t0=str(date),
     integrator="exponential",
 )
-state_field_space = pynamit.FieldSpace(
-    simulation.geometry.horizontal_basis, field_type="scalar"
-)
+state_field_space = pynamit.FieldSpace(simulation.geometry.horizontal_basis, field_type="scalar")
 conductance_field_space = simulation.data.schema.input_field_spaces["conductance"]
 
 mage_dir = "./mage_data/"
@@ -199,7 +197,9 @@ for step in range(0, nstep):
         # times as the number of longitude points.
         theta_padding = np.tile(
             np.arange(
-                90 - interhemispheric_coupling_latitude + latitude_step, 90 + latitude_step, latitude_step
+                90 - interhemispheric_coupling_latitude + latitude_step,
+                90 + latitude_step,
+                latitude_step,
             ).reshape((-1, 1)),
             (1, north_theta.shape[1]),
         )
@@ -311,8 +311,8 @@ for step in range(0, nstep):
     )
 
     simulation.set_conductance(
-        full_conductance_hall.flatten(),
-        full_conductance_pedersen.flatten(),
+        pedersen=full_conductance_pedersen.flatten(),
+        hall=full_conductance_hall.flatten(),
         theta=full_theta_centered.flatten(),
         phi=full_phi_centered.flatten(),
         time=dt * step,
@@ -326,9 +326,7 @@ for step in range(0, nstep):
         plot_global_polar_map(
             plt_lon,
             plt_lat,
-            kompe.SphericalTransform(
-                simulation.response.jr.field_space.representation, plt_grid
-            )
+            kompe.SphericalTransform(simulation.response.jr.field_space.representation, plt_grid)
             .synthesize_scalar(simulation.response.jr)
             .reshape(plt_lon.shape),
             cmap=plt.cm.bwr,
@@ -516,4 +514,4 @@ for step in range(0, nstep):
 simulation.impose_equilibrium()
 
 final_time = 3600  # seconds
-simulation.evolve_to_time(final_time, dt=dt, sampling_step_interval=1, saving_sample_interval=1)
+simulation.evolve_to_time(final_time, dt=dt, sampling_step_interval=1, write_sample_interval=1)

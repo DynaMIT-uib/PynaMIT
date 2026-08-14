@@ -72,7 +72,7 @@ conductance_lon = simulation.geometry.model_grid.lon
 hall, pedersen = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, date, starlight=1, dipole=True
 )
-simulation.set_conductance(hall, pedersen, lat=conductance_lat, lon=conductance_lon)
+simulation.set_conductance(pedersen=pedersen, hall=hall, lat=conductance_lat, lon=conductance_lon)
 
 # Get and set jr input.
 jr_lat = simulation.geometry.model_grid.lat
@@ -116,9 +116,7 @@ simulation.response.update_E()
 lat, lon = np.linspace(-89.9, 89.9, Ncs * 2), np.linspace(-180, 180, Ncs * 4)
 lat, lon = np.meshgrid(lat, lon)
 plt_grid = kompe.Grid(lat=lat, lon=lon)
-state_field_space = pynamit.FieldSpace(
-    simulation.geometry.horizontal_basis, field_type="scalar"
-)
+state_field_space = pynamit.FieldSpace(simulation.geometry.horizontal_basis, field_type="scalar")
 plt_state_evaluator = kompe.SphericalTransform(state_field_space.representation, plt_grid)
 
 G_Br = plt_state_evaluator.contract_scalar_coeffs_to_grid(simulation.response.m_ind_to_Br)
@@ -129,7 +127,9 @@ if PLOT_WIND:
     u_spherical_transform = kompe.SphericalTransform(
         state_field_space.representation, kompe.Grid(lat=u_lat, lon=u_lon)
     )
-    scalar_state_space = pynamit.FieldSpace(simulation.geometry.horizontal_basis, field_type="scalar")
+    scalar_state_space = pynamit.FieldSpace(
+        simulation.geometry.horizontal_basis, field_type="scalar"
+    )
 
     u_theta_sh = pynamit.FieldCoefficients(
         scalar_state_space, u_spherical_transform.analyze_scalar(u_theta)

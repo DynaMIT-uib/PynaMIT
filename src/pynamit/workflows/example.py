@@ -7,6 +7,7 @@ starting point for simulation scripts.
 
 from pathlib import Path
 
+from pynamit.simulation.runner import DEFAULT_DT_SECONDS
 from pynamit.storage import ArtifactStore
 from pynamit.workflows.example_inputs import prepare_example_inputs
 from pynamit.workflows.prepared_inputs import run_from_inputs
@@ -14,8 +15,9 @@ from pynamit.workflows.prepared_inputs import run_from_inputs
 
 def run_example(
     final_time=100,
-    saving_sample_interval=200,
-    dt=5e-4,
+    sampling_step_interval=1,
+    write_sample_interval=200,
+    dt=DEFAULT_DT_SECONDS,
     Nmax=20,
     Mmax=20,
     Ncs=30,
@@ -29,7 +31,7 @@ def run_example(
     use_wind=False,
     use_Q_eff=False,
     use_boundary_jr=True,
-    equilibrium_initialization=True,
+    initialize_from_equilibrium=True,
     run_dynamic=True,
     run_equilibrium=True,
     boundary_jr_projection_basis=None,
@@ -60,7 +62,9 @@ def run_example(
     ----------
     final_time : float, optional
         The final time of the simulation in seconds.
-    saving_sample_interval : int, optional
+    sampling_step_interval : int, optional
+        Number of integration steps between retained output samples.
+    write_sample_interval : int, optional
         Number of output samples between persistence writes.
     dt : float, optional
         The time step for the simulation.
@@ -93,7 +97,7 @@ def run_example(
         current input Q_eff instead of direct wind forcing.
     use_boundary_jr : bool, optional
         Whether to include radial-current driving in the simulation.
-    equilibrium_initialization : bool, optional
+    initialize_from_equilibrium : bool, optional
         Whether to initialize a new dynamic solution from equilibrium.
     run_dynamic : bool, optional
         Whether to run and save the time-dependent inductive solution.
@@ -199,14 +203,15 @@ def run_example(
         input_directory,
         simulation_directory=simulation_directory,
         final_time=final_time,
-        saving_sample_interval=saving_sample_interval,
+        sampling_step_interval=sampling_step_interval,
+        write_sample_interval=write_sample_interval,
         dt=dt,
         RM=RM,
         main_field_kind=main_field_kind,
         enable_pfac_coupling=enable_pfac_coupling,
         enable_interhemispheric_coupling=enable_interhemispheric_coupling,
         interhemispheric_coupling_latitude=interhemispheric_coupling_latitude,
-        equilibrium_initialization=equilibrium_initialization,
+        initialize_from_equilibrium=initialize_from_equilibrium,
         run_dynamic=run_dynamic,
         run_equilibrium=run_equilibrium,
         integrator=integrator,

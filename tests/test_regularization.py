@@ -29,7 +29,7 @@ def test_regularization(regression_approx):
         enable_interhemispheric_coupling=True,
         interhemispheric_coupling_latitude=50,
         use_wind=True,
-        equilibrium_initialization=True,
+        initialize_from_equilibrium=True,
         boundary_jr_projection_basis="SH",
         conductance_projection_basis="SH",
         u_projection_basis="SH",

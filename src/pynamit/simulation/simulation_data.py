@@ -11,7 +11,12 @@ import numpy as np
 import xarray as xr
 
 from pynamit.simulation.config import SIMULATION_SCHEMA_VERSION, SimulationConfig
-from pynamit.simulation.schema import SimulationSchema, build_simulation_schema
+from pynamit.simulation.schema import (
+    INPUT_VARIABLE_ATTRS,
+    OUTPUT_VARIABLE_ATTRS,
+    SimulationSchema,
+    build_simulation_schema,
+)
 from pynamit.storage import ArtifactStore, FieldTimeSeries
 
 
@@ -81,10 +86,20 @@ class SimulationData:
         gap_Br_response = artifact_store.load_dataarray("gap_Br_response", print_info=print_info)
         schema = build_simulation_schema(config, operator_cache=operator_cache)
 
-        input_series = FieldTimeSeries(schema.input_field_spaces, schema.input_variables)
+        input_series = FieldTimeSeries(
+            schema.input_field_spaces,
+            schema.input_variables,
+            variable_attrs=INPUT_VARIABLE_ATTRS,
+            time_origin=config.t0,
+        )
         input_series.load_all(artifact_store)
 
-        output_series = FieldTimeSeries(schema.output_field_spaces, schema.output_variables)
+        output_series = FieldTimeSeries(
+            schema.output_field_spaces,
+            schema.output_variables,
+            variable_attrs=OUTPUT_VARIABLE_ATTRS,
+            time_origin=config.t0,
+        )
         output_series.load_all(artifact_store)
 
         return cls(

@@ -50,8 +50,8 @@ request = ExternalInputRequest.from_model_coordinates(
     model_epoch=simulation.geometry.main_field.epoch,
     grid_id="figlayout-model-grid",
 )
-hall, pedersen, _, _ = get_conductance_inputs(date, request=request, kp=Kp)
-simulation.set_conductance(hall, pedersen, lat=model_grid.lat, lon=model_grid.lon)
+pedersen, hall, _, _ = get_conductance_inputs(date, request=request, kp=Kp)
+simulation.set_conductance(pedersen=pedersen, hall=hall, lat=model_grid.lat, lon=model_grid.lon)
 
 amps = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50)
 jr = (

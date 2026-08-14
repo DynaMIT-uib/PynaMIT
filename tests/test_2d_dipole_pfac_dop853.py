@@ -24,7 +24,7 @@ def test_2d_dipole_pfac_dop853(regression_approx):
         main_field_kind="dipole",
         enable_pfac_coupling=True,
         integrator="DOP853",
-        equilibrium_initialization=False,
+        initialize_from_equilibrium=False,
     )
 
     # Assert.

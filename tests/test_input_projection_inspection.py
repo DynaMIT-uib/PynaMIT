@@ -1,6 +1,7 @@
 """Tests for projected-input inspection helpers."""
 
 import numpy as np
+import pytest
 from kompe import SphericalTransform
 
 import pynamit
@@ -33,6 +34,19 @@ def test_evaluate_projected_input_accepts_input_preparation(tmp_path):
     values = evaluate_projected_input(preparation, "boundary_jr", 0.0)
 
     assert values["boundary_jr"].shape == (preparation.geometry.model_grid.size,)
+
+
+def test_evaluate_projected_input_accepts_saved_results(tmp_path):
+    """The array interface works after reopening prepared inputs."""
+    preparation = pynamit.InputPreparation(input_directory=tmp_path, Nmax=2, Mmax=1, Ncs=8)
+    coeffs = np.zeros(preparation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape)
+    preparation.set_boundary_jr(boundary_jr_coefficients=coeffs, time=0.0)
+
+    results = pynamit.SimulationResults.from_directory(tmp_path)
+    values = evaluate_projected_input(results, "boundary_jr", 0.0)
+
+    assert values["boundary_jr"].shape == (preparation.model_grid.size,)
+    assert results.geometry is None
 
 
 def test_evaluate_projected_input_accepts_an_explicit_field_series(tmp_path):
@@ -69,6 +83,22 @@ def test_evaluate_projected_input_corrects_explicit_transform_source(tmp_path):
     default = evaluate_projected_input(simulation, "boundary_jr", 0.0, grid=grid)
 
     np.testing.assert_allclose(corrected["boundary_jr"], default["boundary_jr"])
+
+
+def test_evaluate_projected_input_rejects_grid_and_transform_together(tmp_path):
+    """Do not let an explicit transform silently override a grid."""
+    preparation = pynamit.InputPreparation(input_directory=tmp_path, Nmax=2, Mmax=1, Ncs=8)
+    grid = preparation.model_grid
+    transform = SphericalTransform(preparation.data.schema.sh_basis, grid)
+
+    with pytest.raises(ValueError, match="either grid or transform"):
+        evaluate_projected_input(
+            preparation,
+            "boundary_jr",
+            0.0,
+            grid=grid,
+            transform=transform,
+        )
 
 
 def test_evaluate_projected_conductance_returns_physical_conductance(tmp_path):

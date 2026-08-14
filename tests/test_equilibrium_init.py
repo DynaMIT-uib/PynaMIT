@@ -30,7 +30,7 @@ def test_equilibrium_init(regression_approx):
         enable_interhemispheric_coupling=True,
         interhemispheric_coupling_latitude=50,
         use_wind=True,
-        equilibrium_initialization=True,
+        initialize_from_equilibrium=True,
         boundary_jr_projection_basis="SH",
         conductance_projection_basis="SH",
         u_projection_basis="SH",
@@ -70,7 +70,7 @@ def test_impose_equilibrium_at_current_time(tmp_path, monkeypatch):
         enable_interhemispheric_coupling=True,
         interhemispheric_coupling_latitude=50,
         use_wind=True,
-        equilibrium_initialization=False,
+        initialize_from_equilibrium=False,
         boundary_jr_projection_basis="SH",
         conductance_projection_basis="SH",
         u_projection_basis="SH",
@@ -99,7 +99,7 @@ def test_impose_equilibrium_updates_memory_without_persisting(tmp_path):
         Mmax=1,
         Ncs=8,
         enable_pfac_coupling=False,
-        equilibrium_initialization=False,
+        initialize_from_equilibrium=False,
         simulation_directory=tmp_path / "run",
         artifact_storage="netcdf",
     )
@@ -124,7 +124,7 @@ def test_impose_equilibrium_rejects_an_earlier_trajectory_time(tmp_path):
         Mmax=1,
         Ncs=8,
         enable_pfac_coupling=False,
-        saving_sample_interval=1,
+        write_sample_interval=1,
         simulation_directory=tmp_path / "run",
         artifact_storage="netcdf",
     )
@@ -133,7 +133,7 @@ def test_impose_equilibrium_rejects_an_earlier_trajectory_time(tmp_path):
         simulation.impose_equilibrium(time=0.0, quiet=True)
 
 
-def test_impose_equilibrium_matches_equilibrium_initialization(tmp_path, monkeypatch):
+def test_impose_equilibrium_matches_initialize_from_equilibrium(tmp_path, monkeypatch):
     """Explicit equilibrium should match initialized equilibrium."""
     common_kwargs = dict(
         final_time=0.0,
@@ -154,12 +154,12 @@ def test_impose_equilibrium_matches_equilibrium_initialization(tmp_path, monkeyp
     init_dir = tmp_path / "initialized"
     init_dir.mkdir()
     monkeypatch.chdir(init_dir)
-    initialized = run_example(**common_kwargs, equilibrium_initialization=True)
+    initialized = run_example(**common_kwargs, initialize_from_equilibrium=True)
 
     imposed_dir = tmp_path / "imposed"
     imposed_dir.mkdir()
     monkeypatch.chdir(imposed_dir)
-    imposed = run_example(**common_kwargs, equilibrium_initialization=False)
+    imposed = run_example(**common_kwargs, initialize_from_equilibrium=False)
     imposed.impose_equilibrium(quiet=True)
 
     initialized_entry = initialized.data.output_series.get_entry(
@@ -180,14 +180,14 @@ def test_evolve_to_time_can_run_equilibrium_without_dynamic_output(tmp_path):
     simulation = run_example(
         final_time=0.1,
         dt=0.05,
-        saving_sample_interval=1,
+        write_sample_interval=1,
         Nmax=4,
         Mmax=3,
         Ncs=8,
         main_field_kind="dipole",
         enable_pfac_coupling=False,
         use_wind=False,
-        equilibrium_initialization=False,
+        initialize_from_equilibrium=False,
         run_dynamic=False,
         run_equilibrium=True,
         simulation_directory=str(tmp_path / "equilibrium-only"),
@@ -213,14 +213,14 @@ def test_evolve_to_time_can_run_dynamic_output_without_equilibrium(tmp_path):
     simulation = run_example(
         final_time=0.1,
         dt=0.05,
-        saving_sample_interval=1,
+        write_sample_interval=1,
         Nmax=4,
         Mmax=3,
         Ncs=8,
         main_field_kind="dipole",
         enable_pfac_coupling=False,
         use_wind=False,
-        equilibrium_initialization=False,
+        initialize_from_equilibrium=False,
         run_dynamic=True,
         run_equilibrium=False,
         simulation_directory=str(tmp_path / "inductive-only"),
@@ -241,14 +241,14 @@ def test_evolve_to_time_split_modes_match_combined_numerically(tmp_path):
     common_kwargs = dict(
         final_time=0.1,
         dt=0.05,
-        saving_sample_interval=1,
+        write_sample_interval=1,
         Nmax=4,
         Mmax=3,
         Ncs=8,
         main_field_kind="dipole",
         enable_pfac_coupling=False,
         use_wind=False,
-        equilibrium_initialization=False,
+        initialize_from_equilibrium=False,
         multi_data=True,
         artifact_storage="netcdf",
     )

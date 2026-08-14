@@ -14,6 +14,10 @@ from pynamit.storage.field_time_series import TIME_TOLERANCE_SECONDS
 if TYPE_CHECKING:
     from pynamit.simulation.api import Simulation
 
+DEFAULT_DT_SECONDS = 5e-4
+DEFAULT_SAMPLING_STEP_INTERVAL = 200
+DEFAULT_WRITE_SAMPLE_INTERVAL = 10
+
 
 def _positive_integer(value, *, name):
     """Return a positive integer without silent truncation."""
@@ -54,9 +58,9 @@ class _EvolutionOptions:
     target_time: float
     dt: np.float64
     sampling_step_interval: int
-    saving_sample_interval: int
+    write_sample_interval: int
     quiet: bool
-    equilibrium_initialization: bool
+    initialize_from_equilibrium: bool
     run_dynamic: bool
     run_equilibrium: bool
 
@@ -68,9 +72,9 @@ class _EvolutionOptions:
         t,
         dt,
         sampling_step_interval,
-        saving_sample_interval,
+        write_sample_interval,
         quiet,
-        equilibrium_initialization,
+        initialize_from_equilibrium,
         run_dynamic,
         run_equilibrium,
     ):
@@ -98,18 +102,18 @@ class _EvolutionOptions:
         sampling_step_interval = _positive_integer(
             sampling_step_interval, name="sampling_step_interval"
         )
-        saving_sample_interval = _positive_integer(
-            saving_sample_interval, name="saving_sample_interval"
+        write_sample_interval = _positive_integer(
+            write_sample_interval, name="write_sample_interval"
         )
 
         return cls(
             target_time=target_time,
             dt=dt,
             sampling_step_interval=sampling_step_interval,
-            saving_sample_interval=saving_sample_interval,
+            write_sample_interval=write_sample_interval,
             quiet=_boolean_option(quiet, name="quiet"),
-            equilibrium_initialization=_boolean_option(
-                equilibrium_initialization, name="equilibrium_initialization"
+            initialize_from_equilibrium=_boolean_option(
+                initialize_from_equilibrium, name="initialize_from_equilibrium"
             ),
             run_dynamic=run_dynamic,
             run_equilibrium=run_equilibrium,
@@ -123,7 +127,7 @@ class _EvolutionOptions:
     @property
     def save_step_interval(self) -> int:
         """Return the step interval between persisted samples."""
-        return self.sampling_step_interval * self.saving_sample_interval
+        return self.sampling_step_interval * self.write_sample_interval
 
 
 class SimulationRunner:
@@ -143,11 +147,11 @@ class SimulationRunner:
     def evolve_to_time(
         self,
         t,
-        dt=5e-4,
-        sampling_step_interval=200,
-        saving_sample_interval=10,
+        dt=DEFAULT_DT_SECONDS,
+        sampling_step_interval=DEFAULT_SAMPLING_STEP_INTERVAL,
+        write_sample_interval=DEFAULT_WRITE_SAMPLE_INTERVAL,
         quiet=False,
-        equilibrium_initialization=True,
+        initialize_from_equilibrium=True,
         run_dynamic=True,
         run_equilibrium=None,
     ) -> None:
@@ -157,9 +161,9 @@ class SimulationRunner:
             t=t,
             dt=dt,
             sampling_step_interval=sampling_step_interval,
-            saving_sample_interval=saving_sample_interval,
+            write_sample_interval=write_sample_interval,
             quiet=quiet,
-            equilibrium_initialization=equilibrium_initialization,
+            initialize_from_equilibrium=initialize_from_equilibrium,
             run_dynamic=run_dynamic,
             run_equilibrium=run_equilibrium,
         )
@@ -280,7 +284,7 @@ class SimulationRunner:
 
     def _initialize_new_induced_Br(self, options: _EvolutionOptions):
         """Initialize induced Br from equilibrium or zero."""
-        if options.equilibrium_initialization:
+        if options.initialize_from_equilibrium:
             if not options.quiet:
                 print("Initializing dynamic induced Br from equilibrium.", flush=True)
             self.simulation.response.activate_inputs_at_time(

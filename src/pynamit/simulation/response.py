@@ -305,22 +305,22 @@ class ElectrodynamicResponse:
             )
         return self._boundary_Br_to_E_coeffs_cache
 
-    def _optimize_repeated_E_operator(
+    def _prepare_repeated_E_operator(
         self, op: LinearMap | None, *, compact_input: bool
     ) -> LinearMap | None:
-        """Prepare an E-coefficient map for repeated runtime use."""
+        """Use dense multiplication where it reduces repeated work."""
         if op is None:
             return None
         spaces_coincide = self.geometry.horizontal_basis is self.geometry.poloidal_basis
         if compact_input or spaces_coincide:
-            _ = op.array
+            op.to_matrix()
         return op
 
     @property
     def _runtime_induced_Br_to_E_coeffs(self) -> LinearMap:
         """Runtime map from physical induced Br to E coefficients."""
         if self._runtime_induced_Br_to_E_coeffs_cache is None:
-            self._runtime_induced_Br_to_E_coeffs_cache = self._optimize_repeated_E_operator(
+            self._runtime_induced_Br_to_E_coeffs_cache = self._prepare_repeated_E_operator(
                 self.induced_Br_to_E_coeffs, compact_input=True
             )
         return self._runtime_induced_Br_to_E_coeffs_cache
@@ -329,10 +329,8 @@ class ElectrodynamicResponse:
     def _runtime_toroidal_potential_to_E_coeffs(self) -> LinearMap:
         """Runtime map from toroidal potential to E coefficients."""
         if self._runtime_toroidal_potential_to_E_coeffs_cache is None:
-            self._runtime_toroidal_potential_to_E_coeffs_cache = (
-                self._optimize_repeated_E_operator(
-                    self.toroidal_potential_to_E_coeffs, compact_input=False
-                )
+            self._runtime_toroidal_potential_to_E_coeffs_cache = self._prepare_repeated_E_operator(
+                self.toroidal_potential_to_E_coeffs, compact_input=False
             )
         return self._runtime_toroidal_potential_to_E_coeffs_cache
 
@@ -340,7 +338,7 @@ class ElectrodynamicResponse:
     def _runtime_boundary_Br_to_E_coeffs(self) -> LinearMap | None:
         """Runtime map from Br coefficients to E coefficients."""
         if self._runtime_boundary_Br_to_E_coeffs_cache is None:
-            self._runtime_boundary_Br_to_E_coeffs_cache = self._optimize_repeated_E_operator(
+            self._runtime_boundary_Br_to_E_coeffs_cache = self._prepare_repeated_E_operator(
                 self.boundary_Br_to_E_coeffs, compact_input=True
             )
         return self._runtime_boundary_Br_to_E_coeffs_cache
@@ -349,7 +347,7 @@ class ElectrodynamicResponse:
     def _runtime_Q_eff_to_E_coeffs(self) -> LinearMap | None:
         """Runtime map from effective-current coefficients to E."""
         if self._runtime_Q_eff_to_E_coeffs_cache is None:
-            self._runtime_Q_eff_to_E_coeffs_cache = self._optimize_repeated_E_operator(
+            self._runtime_Q_eff_to_E_coeffs_cache = self._prepare_repeated_E_operator(
                 self.Q_eff_to_E_coeffs, compact_input=False
             )
         return self._runtime_Q_eff_to_E_coeffs_cache

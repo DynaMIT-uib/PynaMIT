@@ -140,8 +140,8 @@ def test_cs_reduced_induction_response_matches_full_E_response(tmp_path):
     grid = simulation.geometry.model_grid
     phase = np.linspace(0.0, 2.0 * np.pi, grid.size, endpoint=False)
     simulation.set_conductance(
-        1.0 + 0.1 * np.sin(2.0 * phase),
-        2.0 + 0.2 * np.cos(phase),
+        pedersen=2.0 + 0.2 * np.cos(phase),
+        hall=1.0 + 0.1 * np.sin(2.0 * phase),
         lat=grid.lat,
         lon=grid.lon,
         time=0.0,

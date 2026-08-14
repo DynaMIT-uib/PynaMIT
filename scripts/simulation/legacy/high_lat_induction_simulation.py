@@ -54,7 +54,7 @@ hall, pedersen = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, date, starlight=1, dipole=False
 )
 simulation.set_conductance(
-    hall, pedersen, lat=conductance_lat, lon=conductance_lon, reg_lambda=0.0001
+    pedersen=pedersen, hall=hall, lat=conductance_lat, lon=conductance_lon, reg_lambda=0.0001
 )
 
 print(datetime.datetime.now(), "setting jr")

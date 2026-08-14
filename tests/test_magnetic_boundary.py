@@ -27,7 +27,7 @@ def test_magnetic_boundary(regression_approx):
         enable_pfac_coupling=True,
         enable_interhemispheric_coupling=True,
         interhemispheric_coupling_latitude=50,
-        equilibrium_initialization=False,
+        initialize_from_equilibrium=False,
     )
 
     # Assert.

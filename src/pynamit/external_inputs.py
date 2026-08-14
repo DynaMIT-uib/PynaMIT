@@ -221,8 +221,8 @@ def save_fallback_dataset(
     *,
     lat: np.ndarray,
     lon: np.ndarray,
-    hall: np.ndarray,
     pedersen: np.ndarray,
+    hall: np.ndarray,
     jr: np.ndarray,
     u_theta: np.ndarray,
     u_phi: np.ndarray,
@@ -462,7 +462,15 @@ def get_conductance_inputs(
     kp: int = 5,
     starlight: float = 1.0,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Return Hardy/EUV conductance on the source PynaMIT grid."""
+    """Return Pedersen/Hall conductance on the source PynaMIT grid.
+
+    Returns
+    -------
+    pedersen, hall, lat, lon : ndarray
+        Conductance in siemens followed by the source-grid coordinates.
+        Lompe's native Hardy/EUV routine returns Hall first; that order
+        is converted explicitly at this adapter boundary.
+    """
     request = _coerce_request(lat, lon, request, grid_id="runtime-conductance-source")
     source_grid = request.source_grid
     centered_dipole_contract = CONDUCTANCE_PROVIDER_SPEC.request_coordinate_views["model"]
@@ -490,8 +498,8 @@ def get_conductance_inputs(
             pedersen, provider="Lompe Hardy/EUV", field="pedersen", expected_size=source_grid.size
         )
         return (
-            _expand_time_series(hall, time),
             _expand_time_series(pedersen, time),
+            _expand_time_series(hall, time),
             np.array(source_grid.lat, copy=True),
             np.array(source_grid.lon, copy=True),
         )
@@ -510,8 +518,8 @@ def get_conductance_inputs(
             spec=collection.providers[CONDUCTANCE_PROVIDER_SPEC.key],
         )
         return (
-            _expand_time_series(dataset.values["hall"], time),
             _expand_time_series(dataset.values["pedersen"], time),
+            _expand_time_series(dataset.values["hall"], time),
             np.array(dataset.source_grid.lat, copy=True),
             np.array(dataset.source_grid.lon, copy=True),
         )

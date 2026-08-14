@@ -24,7 +24,7 @@ def test_2d_igrf_pfac_hc_wind_cs_resistance_basis():
         enable_interhemispheric_coupling=True,
         interhemispheric_coupling_latitude=50,
         use_wind=True,
-        equilibrium_initialization=False,
+        initialize_from_equilibrium=False,
     )
 
     sh_resistance = run_example(**common_kwargs)

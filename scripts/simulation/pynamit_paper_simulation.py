@@ -53,7 +53,7 @@ class PaperSimulationSettings:
     simulation_time: float = 480.0
     interhemispheric_coupling_latitude: float = 45.0
     dt: float = 5e-4
-    saving_sample_interval: int = 200
+    write_sample_interval: int = 200
     conductance_lambda: float = 0.001
     wind_lambda: float = 0.001
     boundary_jr_lambda: float | None = None
@@ -80,9 +80,9 @@ def _json_value(value: Any) -> Any:
     return value
 
 
-def _prepared_input_datasets(simulation: pynamit.Simulation) -> list[str]:
-    """Return projected input artifacts present in ``simulation``."""
-    artifacts = simulation.data.artifact_store.scan_artifacts(INPUT_DATASET_KEYS)
+def _prepared_input_datasets(preparation: pynamit.InputPreparation) -> list[str]:
+    """Return projected input artifacts present in ``preparation``."""
+    artifacts = preparation.data.artifact_store.scan_artifacts(INPUT_DATASET_KEYS)
     return [key for key in INPUT_DATASET_KEYS if key in artifacts]
 
 
@@ -98,31 +98,32 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
     (input_directory / "paper_input_metadata.json").unlink(missing_ok=True)
 
     print(f"Writing paper input package: {input_directory}", flush=True)
-    simulation = pynamit.Simulation(
-        simulation_directory=input_directory,
+    preparation = pynamit.InputPreparation(
+        input_directory=input_directory,
         Nmax=settings.nmax,
         Mmax=settings.mmax,
         Ncs=settings.ncs,
         RI=RI,
         main_field_kind="igrf",
         artifact_storage=settings.artifact_storage,
-        enable_pfac_coupling=False,
-        enable_interhemispheric_coupling=False,
-        interhemispheric_coupling_latitude=settings.interhemispheric_coupling_latitude,
         area_weighted_least_squares=settings.area_weighted_least_squares,
         t0=str(settings.date),
     )
 
-    source_lat = simulation.model_grid.lat
-    source_lon = simulation.model_grid.lon
-    hall, pedersen, _, _ = get_conductance_inputs(
+    source_lat = preparation.model_grid.lat
+    source_lon = preparation.model_grid.lon
+    pedersen, hall, _, _ = get_conductance_inputs(
         settings.date, source_lat, source_lon, kp=settings.kp
     )
-    simulation.set_conductance(
-        hall, pedersen, lat=source_lat, lon=source_lon, reg_lambda=settings.conductance_lambda
+    preparation.set_conductance(
+        pedersen=pedersen,
+        hall=hall,
+        lat=source_lat,
+        lon=source_lon,
+        reg_lambda=settings.conductance_lambda,
     )
 
-    dipole_model = dipole.Dipole(simulation.geometry.main_field.epoch)
+    dipole_model = dipole.Dipole(preparation.geometry.main_field.epoch)
     boundary_jr, _, _ = get_jr_inputs(
         settings.date,
         source_lat,
@@ -130,7 +131,7 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
         amps_parameters=(400.0, 5.0, -5.0, float(dipole_model.tilt(settings.date)), 100.0),
         minlat=50.0,
     )
-    simulation.set_boundary_jr(
+    preparation.set_boundary_jr(
         boundary_jr, lat=source_lat, lon=source_lon, reg_lambda=settings.boundary_jr_lambda
     )
 
@@ -138,7 +139,7 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
     if wind is None:
         raise RuntimeError("HWM14 returned no wind data.")
     u_theta, u_phi, _, _, sqrt_weights = wind
-    simulation.set_neutral_wind(
+    preparation.set_neutral_wind(
         u_theta=u_theta,
         u_phi=u_phi,
         lat=source_lat,
@@ -149,8 +150,8 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
 
     write_input_manifest(
         input_directory,
-        simulation.data.config,
-        input_datasets=_prepared_input_datasets(simulation),
+        preparation.data.config,
+        input_datasets=_prepared_input_datasets(preparation),
         source="scripts.simulation.pynamit_paper_simulation",
         notes=[
             "Paper-style inputs use the shared Hardy, AMPS, and HWM adapters.",
@@ -183,7 +184,7 @@ def run_paper_simulation(settings: PaperSimulationSettings = SETTINGS) -> pynami
         enabled_inputs=("conductance", "u"),
         final_time=settings.simulation_time,
         dt=settings.dt,
-        saving_sample_interval=settings.saving_sample_interval,
+        write_sample_interval=settings.write_sample_interval,
         main_field_kind="igrf",
         fac_integration_radii=dipole_fac_integration_radii(
             RI, RI / np.cos(np.deg2rad(69.0)) ** 2, n_points=70
@@ -192,7 +193,7 @@ def run_paper_simulation(settings: PaperSimulationSettings = SETTINGS) -> pynami
         enable_interhemispheric_coupling=True,
         interhemispheric_coupling_latitude=settings.interhemispheric_coupling_latitude,
         interhemispheric_electric_field_weight=1e-5,
-        equilibrium_initialization=False,
+        initialize_from_equilibrium=False,
         run_dynamic=True,
         run_equilibrium=False,
         toroidal_potential_regularization_lambda=settings.toroidal_potential_regularization_lambda,
@@ -215,8 +216,8 @@ def run_paper_simulation(settings: PaperSimulationSettings = SETTINGS) -> pynami
         final_time,
         dt=settings.dt,
         sampling_step_interval=1,
-        saving_sample_interval=settings.saving_sample_interval,
-        equilibrium_initialization=False,
+        write_sample_interval=settings.write_sample_interval,
+        initialize_from_equilibrium=False,
         run_dynamic=True,
         run_equilibrium=False,
     )

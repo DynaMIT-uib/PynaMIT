@@ -32,7 +32,7 @@ def test_2d_igrf_pfac_hc_wind_grid(regression_approx):
         boundary_jr_projection_basis="CS",
         conductance_projection_basis="CS",
         u_projection_basis="CS",
-        equilibrium_initialization=False,
+        initialize_from_equilibrium=False,
     )
 
     # Assert.

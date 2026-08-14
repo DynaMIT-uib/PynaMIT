@@ -15,7 +15,7 @@ _VALUE_CHANGE_RTOL = 1e-6
 class FieldTimeSeries:
     """Persist and select time-indexed field coefficients."""
 
-    def __init__(self, field_spaces, variables):
+    def __init__(self, field_spaces, variables, *, variable_attrs=None, time_origin=None):
         """Initialize named coefficient series from their field spaces.
 
         Parameters
@@ -24,10 +24,16 @@ class FieldTimeSeries:
             Mapping from time-series group to ``FieldSpace``.
         variables : dict
             Variable names for each group.
+        variable_attrs : dict, optional
+            Physical xarray attributes for each group and variable.
+        time_origin : str, optional
+            UTC origin from which simulation times are measured.
         """
         self.variables = self._normalize_variables(variables)
         self.field_spaces = self._normalize_field_spaces(field_spaces)
         self._variable_field_spaces = self._expand_variable_field_spaces()
+        self.variable_attrs = self._normalize_variable_attrs(variable_attrs)
+        self.time_origin = None if time_origin is None else str(time_origin)
 
         # Initialize in-memory series and persistence bookkeeping.
         self.datasets = {}
@@ -37,6 +43,22 @@ class FieldTimeSeries:
         self._storage_kinds: dict[str, str] = {}
 
         self._coefficient_layouts = self._build_coefficient_layouts()
+
+    def _normalize_variable_attrs(self, variable_attrs):
+        """Return complete copied variable-attribute mappings."""
+        if variable_attrs is None:
+            return {key: {name: {} for name in names} for key, names in self.variables.items()}
+        if set(variable_attrs) != set(self.variables):
+            raise ValueError("Variable attributes and variables must use the same group keys.")
+        normalized = {}
+        for key, names in self.variables.items():
+            group_attrs = variable_attrs[key]
+            if set(group_attrs) != set(names):
+                raise ValueError(
+                    f"Variable attributes for {key!r} must use variables {sorted(names)}."
+                )
+            normalized[key] = {name: dict(group_attrs[name]) for name in names}
+        return normalized
 
     def _normalize_variables(self, variables):
         """Return variable-name tuples after schema validation."""
@@ -123,8 +145,54 @@ class FieldTimeSeries:
                     "dimension": dimension,
                     "index_names": index_names,
                     "index": index,
+                    "component_name": (
+                        None
+                        if field_space.field_type == "scalar"
+                        else "component"
+                        if shared_layout
+                        else f"{label}_component"
+                    ),
+                    "component_values": (
+                        None
+                        if field_space.field_type == "scalar"
+                        else np.repeat(np.array([0, 1], dtype=np.int8), field_space.index_length)
+                    ),
                 }
         return layouts
+
+    def _apply_metadata(self, key, dataset):
+        """Attach physical metadata while preserving stored values."""
+        dataset.coords["time"].attrs.setdefault("units", "s")
+        dataset.coords["time"].attrs.setdefault("long_name", "simulation time since t0")
+        if self.time_origin is not None:
+            dataset.coords["time"].attrs.setdefault("time_origin", self.time_origin)
+
+        for variable in self.variables[key]:
+            data_var = self.get_data_var_name(key, variable)
+            field_space = self.get_field_space(key, variable)
+            attrs = dataset[data_var].attrs
+            for name, value in self.variable_attrs[key][variable].items():
+                attrs.setdefault(name, value)
+            attrs.setdefault("physical_name", variable)
+            attrs.setdefault("coefficient_basis", field_space.kind)
+            attrs.setdefault("field_type", field_space.field_type)
+
+        for layout in self._coefficient_layouts[key].values():
+            component_name = layout["component_name"]
+            if component_name is not None and component_name in dataset.coords:
+                component_attrs = dataset.coords[component_name].attrs
+                component_attrs.setdefault("long_name", "Helmholtz coefficient component")
+                component_attrs.setdefault("flag_values", [0, 1])
+                component_attrs.setdefault("flag_meanings", "curl_free divergence_free")
+            for coordinate_name in layout["index_names"]:
+                if coordinate_name not in dataset.coords:
+                    continue
+                base_name = coordinate_name.rsplit("_", 1)[-1]
+                if base_name in {"n", "m"}:
+                    dataset.coords[coordinate_name].attrs.setdefault("units", "1")
+                elif base_name in {"theta", "phi"}:
+                    dataset.coords[coordinate_name].attrs.setdefault("units", "degrees")
+        return dataset
 
     def get_field_space(self, key, variable=None):
         """Return a group or variable field space."""
@@ -200,6 +268,18 @@ class FieldTimeSeries:
                     f"got {dataset[data_var].dims}."
                 )
 
+            layout = self._coefficient_layouts[key][variable]
+            component_name = layout["component_name"]
+            if component_name is not None and component_name in dataset.coords:
+                component = dataset.coords[component_name]
+                if component.dims != (dimension,) or not np.array_equal(
+                    component.values, layout["component_values"]
+                ):
+                    raise ValueError(
+                        f"Persisted {component_name!r} labels do not match the "
+                        "tangential coefficient layout."
+                    )
+
         indexes = {}
         for layout in self._coefficient_layouts[key].values():
             dimension = layout["dimension"]
@@ -239,7 +319,14 @@ class FieldTimeSeries:
                 restored = restored.assign_coords(
                     xr.Coordinates.from_pandas_multiindex(index, dim=dimension)
                 )
-            self.datasets[key] = restored
+            missing_components = {
+                layout["component_name"]: (layout["dimension"], layout["component_values"])
+                for layout in self._coefficient_layouts[key].values()
+                if layout["component_name"] is not None
+                and layout["component_name"] not in restored.coords
+            }
+            restored = restored.assign_coords(missing_components)
+            self.datasets[key] = self._apply_metadata(key, restored)
             self._pending_start[key] = int(self.datasets[key].sizes.get("time", 0))
             self._full_save_required[key] = False
             if storage_kind is not None:
@@ -290,7 +377,15 @@ class FieldTimeSeries:
             indexes.setdefault(layout["dimension"], layout["index"])
         for dimension, index in indexes.items():
             coords = coords.merge(xr.Coordinates.from_pandas_multiindex(index, dim=dimension))
-        return xr.Dataset(data_vars=data_vars, coords=coords)
+        component_coordinates = {}
+        for layout in self._coefficient_layouts[key].values():
+            component_name = layout["component_name"]
+            if component_name is not None:
+                component_coordinates.setdefault(
+                    component_name, (layout["dimension"], layout["component_values"])
+                )
+        coords = coords.assign(component_coordinates)
+        return self._apply_metadata(key, xr.Dataset(data_vars=data_vars, coords=coords))
 
     def _merge_entry_dataset(self, key, dataset, time_value):
         """Insert or replace one entry while preserving sorted times."""

@@ -42,9 +42,7 @@ simulation = pynamit.Simulation(
 jr_lat = simulation.geometry.model_grid.lat
 jr_lon = simulation.geometry.model_grid.lon
 jr_geo_lat, jr_geo_lon = simulation.geometry.main_field.model_to_geo_coordinates(
-    jr_lat,
-    jr_lon,
-    event_time=date,
+    jr_lat, jr_lon, event_time=date
 )
 apx = apexpy.Apex(refh=(RI - RE) * 1e-3, date=date)
 mlat, mlon = apx.geo2apex(jr_geo_lat, jr_geo_lon, (RI - RE) * 1e-3)
@@ -70,18 +68,11 @@ hwm14Obj = pyhwm2014.HWM142D(
 
 u_theta_geo = -hwm14Obj.Vwind.flatten() * WIND_FACTOR
 u_phi_geo = hwm14Obj.Uwind.flatten() * WIND_FACTOR
-u_geo_lat, u_geo_lon = np.meshgrid(
-    hwm14Obj.glatbins,
-    hwm14Obj.glonbins,
-    indexing="ij",
-)
+u_geo_lat, u_geo_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing="ij")
 u_geo_lat = u_geo_lat.reshape(-1)
 u_geo_lon = u_geo_lon.reshape(-1)
 u_lat, u_lon, u_phi, u_north = simulation.geometry.main_field.geo_to_model_coordinates(
-    u_geo_lat,
-    u_geo_lon,
-    east=u_phi_geo,
-    north=-u_theta_geo,
+    u_geo_lat, u_geo_lon, east=u_phi_geo, north=-u_theta_geo
 )
 u_theta = -u_north
 simulation.set_neutral_wind(
@@ -89,21 +80,14 @@ simulation.set_neutral_wind(
     u_phi=u_phi,
     lat=u_lat,
     lon=u_lon,
-    sqrt_weights=np.tile(
-        np.sqrt(np.sin(np.deg2rad(90 - u_geo_lat))),
-        (2, 1),
-    ),
+    sqrt_weights=np.tile(np.sqrt(np.sin(np.deg2rad(90 - u_geo_lat))), (2, 1)),
 )
 
 ## CONDUCTANCE GRID
 conductance_lat = simulation.geometry.model_grid.lat
 conductance_lon = simulation.geometry.model_grid.lon
-conductance_geo_lat, conductance_geo_lon = (
-    simulation.geometry.main_field.model_to_geo_coordinates(
-        conductance_lat,
-        conductance_lon,
-        event_time=date,
-    )
+conductance_geo_lat, conductance_geo_lon = simulation.geometry.main_field.model_to_geo_coordinates(
+    conductance_lat, conductance_lon, event_time=date
 )
 
 STEP = 2  # Number of seconds between each conductance update
@@ -119,7 +103,9 @@ while True:
         hall_EUV, pedersen_EUV = conductance.EUV_conductance(sza)
         # Add starlight.
         hall_EUV, pedersen_EUV = (np.sqrt(hall_EUV**2 + 1), np.sqrt(pedersen_EUV**2 + 1))
-        simulation.set_conductance(hall_EUV, pedersen_EUV, lat=conductance_lat, lon=conductance_lon)
+        simulation.set_conductance(
+            pedersen=pedersen_EUV, hall=hall_EUV, lat=conductance_lat, lon=conductance_lon
+        )
         print("Updated_conductance (without aurora) at t =", simulation.current_time, flush=True)
     elif simulation.current_time < 120 - FLOAT_ERROR_MARGIN:
         Kp = 1
@@ -127,7 +113,7 @@ while True:
             conductance_geo_lon, conductance_geo_lat, Kp, current_date, starlight=1, dipole=False
         )
         simulation.set_conductance(
-            hall_aurora, pedersen_aurora, lat=conductance_lat, lon=conductance_lon
+            pedersen=pedersen_aurora, hall=hall_aurora, lat=conductance_lat, lon=conductance_lon
         )
         print("Updated conductance (with aurora) at t =", simulation.current_time, flush=True)
     elif simulation.current_time < 180 - FLOAT_ERROR_MARGIN:
@@ -136,7 +122,7 @@ while True:
             conductance_geo_lon, conductance_geo_lat, Kp, current_date, starlight=1, dipole=False
         )
         simulation.set_conductance(
-            hall_aurora, pedersen_aurora, lat=conductance_lat, lon=conductance_lon
+            pedersen=pedersen_aurora, hall=hall_aurora, lat=conductance_lat, lon=conductance_lon
         )
         print("Updated conductance (with aurora) at t =", simulation.current_time, flush=True)
     elif simulation.current_time < 240 - FLOAT_ERROR_MARGIN:
@@ -145,7 +131,7 @@ while True:
             conductance_geo_lon, conductance_geo_lat, Kp, current_date, starlight=1, dipole=False
         )
         simulation.set_conductance(
-            hall_aurora, pedersen_aurora, lat=conductance_lat, lon=conductance_lon
+            pedersen=pedersen_aurora, hall=hall_aurora, lat=conductance_lat, lon=conductance_lon
         )
         print("Updated conductance (with aurora) at t =", simulation.current_time, flush=True)
     elif simulation.current_time < 360 - FLOAT_ERROR_MARGIN:
@@ -154,7 +140,7 @@ while True:
             conductance_geo_lon, conductance_geo_lat, Kp, current_date, starlight=1, dipole=False
         )
         simulation.set_conductance(
-            hall_aurora, pedersen_aurora, lat=conductance_lat, lon=conductance_lon
+            pedersen=pedersen_aurora, hall=hall_aurora, lat=conductance_lat, lon=conductance_lon
         )
         print("Updated conductance (with aurora) at t =", simulation.current_time, flush=True)
     elif simulation.current_time < 420 - FLOAT_ERROR_MARGIN:
@@ -163,7 +149,7 @@ while True:
             conductance_geo_lon, conductance_geo_lat, Kp, current_date, starlight=1, dipole=False
         )
         simulation.set_conductance(
-            hall_aurora, pedersen_aurora, lat=conductance_lat, lon=conductance_lon
+            pedersen=pedersen_aurora, hall=hall_aurora, lat=conductance_lat, lon=conductance_lon
         )
         print("Updated conductance (with aurora) at t =", simulation.current_time, flush=True)
     elif simulation.current_time < 480 - FLOAT_ERROR_MARGIN:
@@ -172,7 +158,7 @@ while True:
             conductance_geo_lon, conductance_geo_lat, Kp, current_date, starlight=1, dipole=False
         )
         simulation.set_conductance(
-            hall_aurora, pedersen_aurora, lat=conductance_lat, lon=conductance_lon
+            pedersen=pedersen_aurora, hall=hall_aurora, lat=conductance_lat, lon=conductance_lon
         )
         print("Updated conductance (with aurora) at t =", simulation.current_time, flush=True)
     elif simulation.current_time < 540 - FLOAT_ERROR_MARGIN:
@@ -181,7 +167,7 @@ while True:
             conductance_geo_lon, conductance_geo_lat, Kp, current_date, starlight=1, dipole=False
         )
         simulation.set_conductance(
-            hall_aurora, pedersen_aurora, lat=conductance_lat, lon=conductance_lon
+            pedersen=pedersen_aurora, hall=hall_aurora, lat=conductance_lat, lon=conductance_lon
         )
         print("Updated conductance (with aurora) at t =", simulation.current_time, flush=True)
     elif simulation.current_time < 600 - FLOAT_ERROR_MARGIN:
@@ -190,7 +176,7 @@ while True:
             conductance_geo_lon, conductance_geo_lat, Kp, current_date, starlight=1, dipole=False
         )
         simulation.set_conductance(
-            hall_aurora, pedersen_aurora, lat=conductance_lat, lon=conductance_lon
+            pedersen=pedersen_aurora, hall=hall_aurora, lat=conductance_lat, lon=conductance_lon
         )
         print("Updated conductance (with aurora) at t =", simulation.current_time, flush=True)
     else:

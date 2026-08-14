@@ -81,7 +81,7 @@ def test_magnetic_boundary_operators_are_available():
 
     assert callable(magnetic_boundary.induced_Br_to_gridded_JS_operator)
     assert callable(magnetic_boundary.boundary_jr_to_gridded_JS_operator)
-    assert callable(grid_evaluation.build_JS_operators)
+    assert callable(grid_evaluation.build_JS_matrices)
 
 
 def test_input_projection_comparison_recipe_is_importable():

@@ -36,9 +36,61 @@ INPUT_FIELD_TYPES = {
     "E_neutral_wind": "tangential",
 }
 
+INPUT_VARIABLE_ATTRS = {
+    "boundary_jr": {
+        "boundary_jr": {
+            "units": "A m-2",
+            "long_name": "upper-boundary outward radial current density",
+        }
+    },
+    "boundary_Br": {
+        "boundary_Br": {"units": "T", "long_name": "outer-boundary outward radial magnetic field"}
+    },
+    "conductance": {
+        "log_conductance_magnitude": {
+            "units": "1",
+            "long_name": "log conductance magnitude relative to 1 S",
+        },
+        "log_hall_to_pedersen_ratio": {
+            "units": "1",
+            "long_name": "log Hall-to-Pedersen conductance ratio",
+        },
+    },
+    "u": {"u": {"units": "m s-1", "long_name": "neutral wind velocity"}},
+    "Q_eff": {
+        "Q_eff": {"units": "A m-1", "long_name": "effective neutral-wind sheet-current forcing"}
+    },
+    "E_neutral_wind": {
+        "E_neutral_wind": {"units": "V m-1", "long_name": "equivalent neutral-wind electric field"}
+    },
+}
+
 OUTPUT_VARIABLES = {
     "dynamic": ("induced_Br", "boundary_jr", "Phi", "W"),
     "equilibrium": ("induced_Br", "boundary_jr", "Phi", "W"),
+}
+
+_OUTPUT_FIELD_ATTRS = {
+    "induced_Br": {
+        "units": "T",
+        "long_name": "outward radial magnetic perturbation at the ionosphere",
+    },
+    "boundary_jr": {
+        "units": "A m-2",
+        "long_name": "upper-boundary outward radial current density",
+    },
+    "Phi": {
+        "units": "V m-1",
+        "long_name": "curl-free electric potential divided by ionospheric radius",
+    },
+    "W": {
+        "units": "V m-1",
+        "long_name": "divergence-free electric potential divided by ionospheric radius",
+    },
+}
+OUTPUT_VARIABLE_ATTRS = {
+    key: {name: dict(attrs) for name, attrs in _OUTPUT_FIELD_ATTRS.items()}
+    for key in OUTPUT_VARIABLES
 }
 
 INPUT_DATASET_KEYS = tuple(INPUT_VARIABLES)
@@ -50,7 +102,9 @@ SIMULATION_ARTIFACT_NAMES = frozenset(
 
 __all__ = [
     "INPUT_DATASET_KEYS",
+    "INPUT_VARIABLE_ATTRS",
     "OUTPUT_DATASET_KEYS",
+    "OUTPUT_VARIABLE_ATTRS",
     "SIMULATION_ARTIFACT_NAMES",
     "SimulationSchema",
     "build_simulation_schema",

@@ -28,7 +28,7 @@ def test_2d_igrf_pfac_hc_wind_Q_eff(regression_approx):
         interhemispheric_coupling_latitude=50,
         use_wind=True,
         use_Q_eff=True,
-        equilibrium_initialization=False,
+        initialize_from_equilibrium=False,
     )
 
     coeff_array = magnetic_potential_coordinate_array(simulation)

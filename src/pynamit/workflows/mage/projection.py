@@ -648,8 +648,8 @@ class _MageInputProjector:
         _print_field_stats("  Hall conductance [S]", sigma_h)
         _print_field_stats("  Pedersen conductance [S]", sigma_p)
         self._preparation.set_conductance(
-            sigma_h,
-            sigma_p,
+            pedersen=sigma_p,
+            hall=sigma_h,
             lat=self._ionosphere_grid.lat,
             lon=self._ionosphere_grid.lon,
             time=input_time,

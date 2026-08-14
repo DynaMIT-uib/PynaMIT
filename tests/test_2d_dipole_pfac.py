@@ -23,7 +23,7 @@ def test_2d_dipole_pfac(regression_approx):
         Ncs=20,
         main_field_kind="dipole",
         enable_pfac_coupling=True,
-        equilibrium_initialization=False,
+        initialize_from_equilibrium=False,
     )
 
     # Assert.

@@ -62,7 +62,7 @@ hall, pedersen = conductance.hardy_EUV(
     starlight=1,
     dipole=True,
 )
-simulation.set_conductance(hall, pedersen, lat=conductance_lat, lon=conductance_lon)
+simulation.set_conductance(pedersen=pedersen, hall=hall, lat=conductance_lat, lon=conductance_lon)
 
 # Get and set jr input.
 jr_lat = simulation.geometry.model_grid.lat

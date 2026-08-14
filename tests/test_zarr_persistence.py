@@ -278,7 +278,7 @@ def test_run_example_default_simulation_directories_are_isolated(
         Ncs=8,
         main_field_kind="dipole",
         enable_pfac_coupling=False,
-        equilibrium_initialization=False,
+        initialize_from_equilibrium=False,
         artifact_storage="netcdf",
     )
     second = run_example(
@@ -289,7 +289,7 @@ def test_run_example_default_simulation_directories_are_isolated(
         Ncs=8,
         main_field_kind="dipole",
         enable_pfac_coupling=False,
-        equilibrium_initialization=False,
+        initialize_from_equilibrium=False,
         artifact_storage="netcdf",
     )
 
@@ -317,8 +317,8 @@ def test_simulation_restart_continues_to_match_direct_simulation(
         main_field_kind="dipole",
         enable_pfac_coupling=False,
         use_wind=False,
-        equilibrium_initialization=False,
-        saving_sample_interval=1,
+        initialize_from_equilibrium=False,
+        write_sample_interval=1,
         artifact_storage=artifact_storage,
     )
     direct = run_example(
@@ -336,8 +336,8 @@ def test_simulation_restart_continues_to_match_direct_simulation(
         t=0.1,
         dt=0.05,
         sampling_step_interval=1,
-        saving_sample_interval=1,
-        equilibrium_initialization=False,
+        write_sample_interval=1,
+        initialize_from_equilibrium=False,
         quiet=True,
     )
 

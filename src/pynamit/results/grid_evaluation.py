@@ -37,7 +37,7 @@ def transform_for_basis(basis, transform):
     )
 
 
-def build_JS_operators(settings, sh_basis, transform, boundary_jr_to_gap_Br_matrix=None):
+def build_JS_matrices(settings, sh_basis, transform, boundary_jr_to_gap_Br_matrix=None):
     """Build common coefficient-to-JS matrices.
 
     This is the low-level matrix bundle used by notebook and script
@@ -50,7 +50,7 @@ def build_JS_operators(settings, sh_basis, transform, boundary_jr_to_gap_Br_matr
         rm = None
     solid_harmonics = SolidHarmonicOperators(sh_basis)
     radius = float(setting_value(settings, "RI"))
-    induced_Br_to_JS = magnetic_boundary.induced_Br_to_gridded_JS_operator(
+    induced_Br_to_JS_matrix = magnetic_boundary.induced_Br_to_gridded_JS_operator(
         solid_harmonics,
         transform,
         radius=radius,
@@ -62,14 +62,14 @@ def build_JS_operators(settings, sh_basis, transform, boundary_jr_to_gap_Br_matr
     )
     if boundary_jr_to_gap_Br_matrix is None:
         boundary_jr_to_gap_Br_matrix = np.zeros((sh_basis.index_length, sh_basis.index_length))
-    boundary_jr_to_JS = magnetic_boundary.boundary_jr_to_gridded_JS_operator(
+    boundary_jr_to_JS_matrix = magnetic_boundary.boundary_jr_to_gridded_JS_operator(
         solid_harmonics,
         transform,
         poloidal_transform=transform,
-        boundary_jr_to_toroidal_potential=(boundary_jr_to_toroidal_potential),
+        boundary_jr_to_toroidal_potential=boundary_jr_to_toroidal_potential,
         boundary_jr_to_gap_Br=as_linear_map(boundary_jr_to_gap_Br_matrix),
     ).array
-    boundary_Br_to_JS = (
+    boundary_Br_to_JS_matrix = (
         None
         if rm is None
         else magnetic_boundary.boundary_Br_to_gridded_JS_operator(
@@ -77,14 +77,14 @@ def build_JS_operators(settings, sh_basis, transform, boundary_jr_to_gap_Br_matr
         ).array
     )
     return {
-        "induced_Br_to_JS": induced_Br_to_JS,
-        "boundary_jr_to_JS": boundary_jr_to_JS,
-        "boundary_Br_to_JS": boundary_Br_to_JS,
+        "induced_Br_to_JS": induced_Br_to_JS_matrix,
+        "boundary_jr_to_JS": boundary_jr_to_JS_matrix,
+        "boundary_Br_to_JS": boundary_Br_to_JS_matrix,
     }
 
 
 __all__ = [
-    "build_JS_operators",
+    "build_JS_matrices",
     "build_plot_grid",
     "model_grid_for_geographic_display",
     "transform_for_basis",

@@ -22,7 +22,7 @@ def test_2d_dipole(regression_approx):
         Mmax=12,
         Ncs=22,
         main_field_kind="dipole",
-        equilibrium_initialization=False,
+        initialize_from_equilibrium=False,
     )
 
     # Assert.

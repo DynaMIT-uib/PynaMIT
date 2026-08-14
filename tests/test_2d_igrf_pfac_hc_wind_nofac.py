@@ -30,7 +30,7 @@ def test_2d_igrf_pfac_hc_wind_nofac(regression_approx):
         interhemispheric_coupling_latitude=50,
         use_wind=True,
         use_boundary_jr=False,
-        equilibrium_initialization=False,
+        initialize_from_equilibrium=False,
     )
 
     # Assert.

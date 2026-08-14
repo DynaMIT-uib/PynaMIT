@@ -185,6 +185,10 @@ matrix is genuinely required. The tensor helper module contains only
 contractions and pseudoinverses that still operate on multidimensional arrays;
 do not add parallel wrappers for operations already expressed by
 ``LinearMap``.
+Materializing a map is also an execution decision: once its dense matrix is in
+memory, later applications reuse it. The response layer requests this only for
+runtime maps where dense multiplication is advantageous; plotting and export
+code should otherwise retain structured maps until a matrix is actually needed.
 When a rectangular map must become explicit, materialization probes the
 smaller side: input columns for tall maps and adjoint output rows for wide
 maps. This is important for rectangular surface-to-poloidal and
@@ -293,11 +297,12 @@ Input preparation and projection
 --------------------------------
 
 Input projection is intentionally separated from ``Simulation`` in
-``pynamit.simulation.inputs``.  Its private specification table declares the
-variables, mutual-exclusion group, and projection-control restrictions for
-each input stream. Every persisted input also has an explicit projection-basis
-setting in ``SimulationConfig``. ``Q_eff`` defaults to the ``u`` route because
-it is an alternative representation of the same wind forcing;
+``pynamit.simulation.inputs``. The simulation schema declares each stream's
+variables, field type, storage space, and projection basis; ``InputPipeline``
+applies the shared validation and projection rules. Every persisted input also
+has an explicit projection-basis setting in ``SimulationConfig``. ``Q_eff``
+defaults to the ``u`` route because it is an alternative representation of the
+same wind forcing;
 ``E_neutral_wind`` defaults to the horizontal model basis because it stores an
 equivalent electric field directly. Field type remains canonical in the
 schema's ``FieldSpace``. ``InputPipeline`` owns:
@@ -313,8 +318,8 @@ schema's ``FieldSpace``. ``InputPipeline`` owns:
 Public setters such as ``set_boundary_jr``, ``set_resistance``,
 ``set_neutral_wind``, ``set_Q_eff``, and ``set_E_neutral_wind`` should remain
 thin API methods.  When a new input stream is added, prefer extending the
-schema and the private input specification table over hand-writing a new
-projection path inside ``Simulation``.
+schema and the shared pipeline over hand-writing a new projection path inside
+``Simulation``.
 ``set_Q_eff_from_neutral_wind`` follows one coefficient-space route: it fits
 the stored ``Q_eff`` so its resistance-weighted electric response matches the
 projected wind forcing. ``calculate_Q_eff_from_neutral_wind`` is the separate

@@ -20,7 +20,7 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
         Ncs=8,
         main_field_kind="dipole",
         enable_pfac_coupling=False,
-        equilibrium_initialization=False,
+        initialize_from_equilibrium=False,
         use_wind=False,
         simulation_directory=str(tmp_path / "run"),
         boundary_jr_projection_basis="CS",

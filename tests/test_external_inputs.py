@@ -110,7 +110,7 @@ def test_native_geographic_conductance_uses_shared_library_request_grid(monkeypa
         2001, 5, 13, 0, 45, tzinfo=datetime.timezone(datetime.timedelta(hours=3))
     )
 
-    hall, pedersen, out_lat, out_lon = get_conductance_inputs(
+    pedersen, hall, out_lat, out_lon = get_conductance_inputs(
         date, None, None, None, request=request
     )
 
@@ -181,7 +181,7 @@ def test_native_dipole_conductance_uses_explicit_model_and_geo_views(monkeypatch
     monkeypatch.setattr(external_inputs_module.dipole, "Dipole", FakeDipole)
 
     date = _utc_now()
-    hall, pedersen, out_lat, out_lon = get_conductance_inputs(
+    pedersen, hall, out_lat, out_lon = get_conductance_inputs(
         date, None, None, None, request=request
     )
 
@@ -450,7 +450,7 @@ def test_fallback_all_providers_match_exact_source_grid(force_fallback):
     source = fallback.datasets["conductance"][source_grid_id].source_grid
     request = ExternalInputRequest(source)
 
-    hall, pedersen, hall_lat, hall_lon = get_conductance_inputs(
+    pedersen, hall, conductance_lat, conductance_lon = get_conductance_inputs(
         _utc_now(), None, None, None, request=request
     )
     jr, jr_lat, jr_lon = get_jr_inputs(_utc_now(), None, None, None, request=request)
@@ -459,8 +459,8 @@ def test_fallback_all_providers_match_exact_source_grid(force_fallback):
     u_theta, u_phi, wind_lat, wind_lon, weights = wind
 
     assert hall.shape == pedersen.shape == jr.shape == u_theta.shape == u_phi.shape
-    np.testing.assert_allclose(hall_lat, source.lat)
-    np.testing.assert_allclose(hall_lon, source.lon)
+    np.testing.assert_allclose(conductance_lat, source.lat)
+    np.testing.assert_allclose(conductance_lon, source.lon)
     np.testing.assert_allclose(jr_lat, source.lat)
     np.testing.assert_allclose(jr_lon, source.lon)
     np.testing.assert_allclose(wind_lat, source.lat)

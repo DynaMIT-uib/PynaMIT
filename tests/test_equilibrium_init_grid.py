@@ -29,7 +29,7 @@ def test_equilibrium_init_grid(regression_approx):
         enable_interhemispheric_coupling=True,
         interhemispheric_coupling_latitude=50,
         use_wind=True,
-        equilibrium_initialization=True,
+        initialize_from_equilibrium=True,
         boundary_jr_projection_basis="CS",
         conductance_projection_basis="CS",
         u_projection_basis="CS",

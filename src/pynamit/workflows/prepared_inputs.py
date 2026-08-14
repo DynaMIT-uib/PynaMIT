@@ -20,13 +20,13 @@ import numpy as np
 from pynamit.simulation import input_manifest as _input_manifest
 from pynamit.simulation.api import Simulation
 from pynamit.simulation.config import SimulationConfig
-from pynamit.simulation.runner import SimulationRunner
+from pynamit.simulation.runner import DEFAULT_DT_SECONDS, SimulationRunner
 from pynamit.simulation.schema import INPUT_DATASET_KEYS
 from pynamit.storage import ArtifactStore, FieldTimeSeries
 from pynamit.storage.field_time_series import TIME_TOLERANCE_SECONDS
 
 SIMULATION_MANIFEST_FILENAME = "pynamit_simulation_manifest.json"
-_SIMULATION_MANIFEST_VERSION = 4
+_SIMULATION_MANIFEST_VERSION = 5
 
 _SIMULATION_SETTING_KEYS = (
     "RM",
@@ -265,8 +265,8 @@ def run_from_inputs(
     enabled_inputs=None,
     final_time=100,
     sampling_step_interval=1,
-    saving_sample_interval=200,
-    dt=5e-4,
+    write_sample_interval=200,
+    dt=DEFAULT_DT_SECONDS,
     RM=None,
     main_field_kind=None,
     fac_integration_radii=None,
@@ -274,7 +274,7 @@ def run_from_inputs(
     enable_pfac_coupling=False,
     enable_interhemispheric_coupling=False,
     interhemispheric_coupling_latitude=50,
-    equilibrium_initialization=True,
+    initialize_from_equilibrium=True,
     run_dynamic=True,
     run_equilibrium=True,
     integrator="euler",
@@ -288,6 +288,10 @@ def run_from_inputs(
     skip_completed=False,
 ):
     """Run simulation from a prepared input package.
+
+    ``sampling_step_interval`` is the number of integration steps
+    between retained output samples. ``write_sample_interval`` is the
+    number of retained samples accumulated between persistence writes.
 
     With ``skip_completed=True``, a matching simulation returns ``None``
     before geometry construction when its requested outputs reach
@@ -340,25 +344,25 @@ def run_from_inputs(
         t=final_time,
         dt=dt,
         sampling_step_interval=sampling_step_interval,
-        saving_sample_interval=saving_sample_interval,
+        write_sample_interval=write_sample_interval,
         quiet=False,
-        equilibrium_initialization=equilibrium_initialization,
+        initialize_from_equilibrium=initialize_from_equilibrium,
         run_dynamic=run_dynamic,
         run_equilibrium=run_equilibrium,
     )
     final_time = options.target_time
     dt = float(options.dt)
     sampling_step_interval = options.sampling_step_interval
-    saving_sample_interval = options.saving_sample_interval
-    equilibrium_initialization = options.equilibrium_initialization
+    write_sample_interval = options.write_sample_interval
+    initialize_from_equilibrium = options.initialize_from_equilibrium
     run_dynamic = options.run_dynamic
     run_equilibrium = options.run_equilibrium
     time_evolution = {
         "final_time": final_time,
         "dt": dt,
         "sampling_step_interval": sampling_step_interval,
-        "saving_sample_interval": saving_sample_interval,
-        "equilibrium_initialization": equilibrium_initialization,
+        "write_sample_interval": write_sample_interval,
+        "initialize_from_equilibrium": initialize_from_equilibrium,
         "run_dynamic": run_dynamic,
         "run_equilibrium": run_equilibrium,
     }
@@ -431,8 +435,8 @@ def run_from_inputs(
         t=final_time,
         dt=dt,
         sampling_step_interval=sampling_step_interval,
-        saving_sample_interval=saving_sample_interval,
-        equilibrium_initialization=equilibrium_initialization,
+        write_sample_interval=write_sample_interval,
+        initialize_from_equilibrium=initialize_from_equilibrium,
         run_dynamic=run_dynamic,
         run_equilibrium=run_equilibrium,
     )

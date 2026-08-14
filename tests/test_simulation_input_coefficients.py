@@ -294,7 +294,7 @@ def test_set_conductance_can_store_native_cs_grid_values(tmp_path):
     hall = np.linspace(0.5, 2.0, grid.size)
     log_magnitude, log_ratio = conductance_to_log_coordinates(pedersen, hall)
 
-    simulation.set_conductance(hall, pedersen, lat=grid.lat, lon=grid.lon, time=6.0)
+    simulation.set_conductance(pedersen=pedersen, hall=hall, lat=grid.lat, lon=grid.lon, time=6.0)
 
     dataset = simulation.data.input_series.datasets["conductance"]
     np.testing.assert_allclose(
@@ -345,7 +345,11 @@ def test_set_conductance_cs_basis_remaps_non_model_grid(tmp_path):
     hall = np.full(grid.size, 0.5)
 
     simulation.set_conductance(
-        hall, pedersen, lat=grid.lat + np.linspace(0.0, 1e-3, grid.size), lon=grid.lon, time=6.0
+        pedersen=pedersen,
+        hall=hall,
+        lat=grid.lat + np.linspace(0.0, 1e-3, grid.size),
+        lon=grid.lon,
+        time=6.0,
     )
 
     dataset = simulation.data.input_series.datasets["conductance"]
@@ -363,7 +367,9 @@ def test_set_conductance_cs_basis_rejects_least_squares_options(tmp_path):
     hall = np.full(grid.size, 0.5)
 
     with np.testing.assert_raises_regex(ValueError, "reg_lambda"):
-        simulation.set_conductance(hall, pedersen, lat=grid.lat, lon=grid.lon, reg_lambda=1e-3)
+        simulation.set_conductance(
+            pedersen=pedersen, hall=hall, lat=grid.lat, lon=grid.lon, reg_lambda=1e-3
+        )
 
 
 def test_set_conductance_projects_dimensionless_log_coordinates(tmp_path, monkeypatch):
@@ -380,8 +386,8 @@ def test_set_conductance_projects_dimensionless_log_coordinates(tmp_path, monkey
     monkeypatch.setattr(simulation._input_pipeline, "set_scalar_input", record_set_scalar_input)
 
     simulation.set_conductance(
-        hall,
-        pedersen,
+        pedersen=pedersen,
+        hall=hall,
         lat=np.array([60.0, 61.0]),
         lon=np.array([10.0, 11.0]),
         time=7.0,
@@ -417,8 +423,8 @@ def test_set_resistance_projects_direct_log_conductance_coordinates(tmp_path, mo
     monkeypatch.setattr(simulation._input_pipeline, "set_scalar_input", record_set_scalar_input)
 
     simulation.set_resistance(
-        eta_p,
-        eta_h,
+        etaP=eta_p,
+        etaH=eta_h,
         lat=np.array([60.0, 61.0]),
         lon=np.array([10.0, 11.0]),
         time=7.0,

@@ -60,7 +60,7 @@ hall, pedersen = conductance.hardy_EUV(
 )
 
 simulation.set_conductance(
-    hall, pedersen, lat=conductance_lat, lon=conductance_lon, reg_lambda=0.001
+    pedersen=pedersen, hall=hall, lat=conductance_lat, lon=conductance_lon, reg_lambda=0.001
 )
 
 # Get and set jr input.
@@ -125,7 +125,10 @@ for period in PERIODS:
 
     print(datetime.datetime.now(), "Setting scaled jr value", flush=True)
     simulation.set_boundary_jr(
-        boundary_jr=scaled_jr_values, lat=jr_lat, lon=jr_lon, time=last_simulation_time + time_values
+        boundary_jr=scaled_jr_values,
+        lat=jr_lat,
+        lon=jr_lon,
+        time=last_simulation_time + time_values,
     )
 
     print(

@@ -195,8 +195,8 @@ for step in range(0, nstep):
     )
 
     simulation.set_conductance(
-        conductance_hall,
-        conductance_pedersen,
+        pedersen=conductance_pedersen,
+        hall=conductance_hall,
         lat=ionosphere_lat,
         lon=ionosphere_lon,
         time=dt * step,
@@ -254,4 +254,4 @@ if PLOT:
 
 print("Time evolution")
 final_time = 3600  # seconds
-simulation.evolve_to_time(final_time, dt=dt, sampling_step_interval=1, saving_sample_interval=1)
+simulation.evolve_to_time(final_time, dt=dt, sampling_step_interval=1, write_sample_interval=1)

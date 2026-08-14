@@ -26,7 +26,7 @@ def test_2d_dipole_pfac_hc_exp(regression_approx):
         enable_interhemispheric_coupling=True,
         interhemispheric_coupling_latitude=50,
         integrator="exponential",
-        equilibrium_initialization=False,
+        initialize_from_equilibrium=False,
     )
 
     # Assert.

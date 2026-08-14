@@ -48,6 +48,9 @@ mamba create -n pynamit -c conda-forge --file requirements/conda-common.txt jax 
 
 The `jax` and `zarr` packages are optional. `jax` enables the optional JAX
 backend, while `zarr` enables efficient xarray-based reads and writes.
+For NumPy-equivalent 64-bit precision with JAX, set `JAX_ENABLE_X64=1` before
+importing JAX; backend selection does not change JAX's process-wide precision
+policy.
 
 JAX accelerator support depends on the operating system, drivers, and hardware.
 The generic dependency in `requirements/conda-common.txt` is suitable for a
@@ -82,8 +85,8 @@ grid = simulation.model_grid
 
 # Replace these uniform arrays with measured or modelled grid samples.
 simulation.set_conductance(
-    hall=np.ones(grid.size),
     pedersen=2 * np.ones(grid.size),
+    hall=np.ones(grid.size),
     lat=grid.lat,
     lon=grid.lon,
 )
@@ -109,8 +112,8 @@ preparation = pynamit.InputPreparation(
 )
 grid = preparation.model_grid
 preparation.set_conductance(
-    hall=np.ones(grid.size),
     pedersen=2 * np.ones(grid.size),
+    hall=np.ones(grid.size),
     lat=grid.lat,
     lon=grid.lon,
 )
@@ -143,11 +146,16 @@ Result evaluation, plotting, the GUI, and specialized MAGE processing have
 separate namespaces:
 
 ```python
-from pynamit.results import evaluate_projected_input
+from pynamit.results import evaluate_projected_input, evaluate_simulation_output
 from pynamit.plotting import FigureSettings, render_figure
 from pynamit.gui import build_gui
 from pynamit.workflows.mage import ForcingSettings, prepare_forcing, project_forcing
 ```
+
+Both evaluation functions return ordinary dictionaries of arrays, so they are
+convenient in IPython without introducing a separate projection/result object.
+For example, ``evaluate_simulation_output(results, 10.0)`` evaluates the saved
+physical fields at 10 seconds on the model grid.
 
 `PynamEye` is deprecated and lives explicitly at
 `pynamit.plotting.legacy.PynamEye`.

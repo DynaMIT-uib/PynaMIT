@@ -143,12 +143,17 @@ def prepare_example_inputs(
         },
     )
 
-    hall, pedersen, hall_lat, hall_lon = get_conductance_inputs(
+    pedersen, hall, conductance_lat, conductance_lon = get_conductance_inputs(
         event_time, time=time, request=external_request
     )
-    _require_source_grid("Conductance adapter", external_request, hall_lat, hall_lon)
+    _require_source_grid("Conductance adapter", external_request, conductance_lat, conductance_lon)
     preparation.set_conductance(
-        hall, pedersen, lat=model_lat, lon=model_lon, reg_lambda=conductance_lambda, time=time
+        pedersen=pedersen,
+        hall=hall,
+        lat=model_lat,
+        lon=model_lon,
+        reg_lambda=conductance_lambda,
+        time=time,
     )
 
     if use_boundary_jr:

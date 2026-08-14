@@ -12,7 +12,9 @@ from pynamit.simulation.config import SIMULATION_SCHEMA_VERSION, SimulationConfi
 from pynamit.simulation.geometry import SimulationGeometry, build_main_field
 from pynamit.simulation.schema import (
     INPUT_DATASET_KEYS,
+    INPUT_VARIABLE_ATTRS,
     OUTPUT_DATASET_KEYS,
+    OUTPUT_VARIABLE_ATTRS,
     SimulationSchema,
     build_simulation_schema,
 )
@@ -160,7 +162,10 @@ class SimulationResults:
         """Load all persisted input time series for this simulation."""
         if self._input_series is None:
             self._input_series = FieldTimeSeries(
-                self.schema.input_field_spaces, self.schema.input_variables
+                self.schema.input_field_spaces,
+                self.schema.input_variables,
+                variable_attrs=INPUT_VARIABLE_ATTRS,
+                time_origin=self.config.t0,
             )
             self._input_series.load_all(self.artifact_store)
             self.datasets.update(self._input_series.datasets)
@@ -170,7 +175,10 @@ class SimulationResults:
         """Load all persisted output time series for this simulation."""
         if self._output_series is None:
             self._output_series = FieldTimeSeries(
-                self.schema.output_field_spaces, self.schema.output_variables
+                self.schema.output_field_spaces,
+                self.schema.output_variables,
+                variable_attrs=OUTPUT_VARIABLE_ATTRS,
+                time_origin=self.config.t0,
             )
             self._output_series.load_all(self.artifact_store)
             self.datasets.update(self._output_series.datasets)
