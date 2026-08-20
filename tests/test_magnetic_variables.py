@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from pynamit.simulation.api import Simulation
+from pynamit.simulation.simulation import Simulation
 
 
 @pytest.mark.parametrize("horizontal_basis_kind", ["SH", "CS"])
@@ -82,9 +82,9 @@ def test_gap_response_has_physical_domain_and_codomain(tmp_path):
         backend="numpy",
     )
     matrix = simulation.geometry.boundary_jr_to_gap_Br_matrix
-    simulation.data.save_gap_Br_response_if_missing(matrix)
+    simulation.data.save_boundary_jr_to_gap_Br_matrix_if_missing(matrix)
 
-    stored = simulation.data.gap_Br_response
+    stored = simulation.data.boundary_jr_to_gap_Br_matrix
     assert stored is not None
     assert stored.attrs["input_quantity"] == "boundary_jr_at_RI"
     assert stored.attrs["output_quantity"] == "unshielded_gap_Br_at_RI"

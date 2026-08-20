@@ -8,7 +8,7 @@ _LAZY_EXPORTS = {
         "plot_input_projection_comparison",
     ),
     "prepare_forcing": ("pynamit.workflows.mage.preparation", "prepare_forcing"),
-    "project_forcing": ("pynamit.workflows.mage.projection", "project_forcing"),
+    "prepare_inputs": ("pynamit.workflows.mage.projection", "prepare_inputs"),
     "write_input_projection_diagnostics": (
         "pynamit.workflows.mage.diagnostics",
         "write_input_projection_diagnostics",
@@ -33,4 +33,4 @@ def __dir__():
     return sorted(set(globals()) | set(_LAZY_EXPORTS))
 
 
-__all__ = ["ForcingSettings", "prepare_forcing", "project_forcing"]
+__all__ = ["ForcingSettings", "prepare_forcing", "prepare_inputs"]

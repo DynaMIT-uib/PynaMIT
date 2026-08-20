@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import asdict, dataclass, fields
+from datetime import time
 from pathlib import Path
 
 MAP_FILL_OPTIONS = {
@@ -43,7 +44,7 @@ class FigureSettings:
     """Settings for one PynaMIT figure."""
 
     simulation_directory: str = "."
-    data_directory: str = ""
+    station_data_directory: str = ""
     plot_type: str = "ground_curve_map"
     time_index: int = 0
     time_range: tuple[int, int] = (0, 0)
@@ -57,17 +58,17 @@ class FigureSettings:
     ground_quantity: str = "dbdt"
     include_station_data: bool = True
     show_station_labels: bool = True
-    show_inductive: bool = True
-    show_noninductive: bool = True
+    show_dynamic: bool = True
+    show_equilibrium: bool = True
     show_difference: bool = True
     show_reference_line: bool = True
     reference_time_of_day_utc: str = "18:31:00"
-    sim_time_offset_seconds: float = 30.0
+    simulation_time_offset_seconds: float = 30.0
     data_time_offset_seconds: float = 0.0
     dbdt_window_points: int = 1
     ground_model_lt_count: int = 8
     ground_model_lat_count: int = 7
-    ground_model_visual_even: bool = False
+    uniform_ground_longitude_count: bool = False
     show_pedersen_conductance_overlay: bool = False
     show_hall_conductance_overlay: bool = False
     min_abs_dip_latitude: float = 65.0
@@ -76,7 +77,7 @@ class FigureSettings:
     show_low_latitude_curve: bool = True
     curve_scale_mode: str = "manual"
     curve_scale_value: float = 10.0
-    curve_time_scale: float = 1.0
+    curve_time_width_scale: float = 1.0
     color_scale_mode: str = "manual"
     color_scale_percentile: float = 99.8
     manual_color_min: float | None = None
@@ -105,7 +106,7 @@ class FigureSettings:
         self._validate_choice("curve_scale_mode", self.curve_scale_mode, CURVE_SCALE_MODE_OPTIONS)
         self._validate_choice("color_scale_mode", self.color_scale_mode, COLOR_SCALE_MODE_OPTIONS)
         self._validate_range(
-            "hemisphere_min_abs_latitude", self.hemisphere_min_abs_latitude, 0, 90
+            "hemisphere_min_abs_latitude", self.hemisphere_min_abs_latitude, 0, 89.9
         )
         self._validate_range("min_abs_dip_latitude", self.min_abs_dip_latitude, 0, 90)
         self._validate_ordered_range("geo_lat_min", "geo_lat_max", -90, 90)
@@ -114,12 +115,18 @@ class FigureSettings:
         self._validate_integer("dbdt_window_points", self.dbdt_window_points, minimum=1)
         self._validate_integer("ground_model_lt_count", self.ground_model_lt_count, minimum=1)
         self._validate_integer("ground_model_lat_count", self.ground_model_lat_count, minimum=1)
+        try:
+            reference_time = time.fromisoformat(str(self.reference_time_of_day_utc))
+        except ValueError as exc:
+            raise ValueError("reference_time_of_day_utc must be an ISO time of day.") from exc
+        if reference_time.tzinfo is not None:
+            raise ValueError("reference_time_of_day_utc must not include a timezone offset.")
         self._validate_positive("low_latitude_scale", self.low_latitude_scale)
         self._validate_positive("curve_scale_value", self.curve_scale_value)
-        self._validate_positive("curve_time_scale", self.curve_time_scale)
+        self._validate_positive("curve_time_width_scale", self.curve_time_width_scale)
         self._validate_positive("movie_fps", self.movie_fps)
         self._validate_integer("movie_dpi", self.movie_dpi, minimum=1)
-        self._validate_finite("sim_time_offset_seconds", self.sim_time_offset_seconds)
+        self._validate_finite("simulation_time_offset_seconds", self.simulation_time_offset_seconds)
         self._validate_finite("data_time_offset_seconds", self.data_time_offset_seconds)
         self._validate_range("color_scale_percentile", self.color_scale_percentile, 0, 100)
         self._validate_optional_pair(

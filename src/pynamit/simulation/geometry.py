@@ -33,7 +33,7 @@ from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.electrodynamics import ionospheric_closure, magnetic_boundary
 
 logger = logging.getLogger(__name__)
-_GAP_BR_RESPONSE_CACHE_VERSION = 1
+_BOUNDARY_JR_TO_GAP_BR_CACHE_VERSION = 1
 
 
 def build_main_field(config: SimulationConfig) -> MainField:
@@ -60,7 +60,7 @@ class SimulationGeometry:
         cs_basis: GlobalCSBasis,
         main_field: MainField,
         config: SimulationConfig,
-        gap_Br_response_matrix: ArrayLike | None = None,
+        boundary_jr_to_gap_Br_matrix: ArrayLike | None = None,
         solid_harmonics: SolidHarmonicOperators | None = None,
         operator_cache=None,
     ) -> None:
@@ -103,7 +103,7 @@ class SimulationGeometry:
         self._init_constraint_mappings()
 
         # Restore a persisted PFAC map or build it on first access.
-        self._init_gap_Br_response_matrix(gap_Br_response_matrix)
+        self._init_boundary_jr_to_gap_Br_matrix(boundary_jr_to_gap_Br_matrix)
         self._poloidal_transform_cache = {}
 
     def __repr__(self):
@@ -143,21 +143,21 @@ class SimulationGeometry:
             self.solid_harmonics.poloidal_to_boundary_potential_jump_factor
         )
 
-    def _init_gap_Br_response_matrix(self, matrix: ArrayLike | None) -> None:
+    def _init_boundary_jr_to_gap_Br_matrix(self, matrix: ArrayLike | None) -> None:
         """Validate and retain an optional boundary-jr to gap-Br map."""
-        self._gap_Br_response_matrix = None
+        self._boundary_jr_to_gap_Br_matrix = None
         if matrix is None:
             return
         expected_shape = (self.poloidal_basis.index_length, self.horizontal_basis.index_length)
         matrix = np.asarray(matrix)
         if matrix.shape != expected_shape:
             raise ValueError(
-                f"gap_Br_response_matrix must have shape {expected_shape}; got {matrix.shape}."
+                f"boundary_jr_to_gap_Br_matrix must have shape {expected_shape}; got {matrix.shape}."
             )
         if not np.all(np.isfinite(matrix)):
-            raise ValueError("gap_Br_response_matrix must contain only finite values.")
-        self._gap_Br_response_matrix = matrix.copy()
-        self._gap_Br_response_matrix.flags.writeable = False
+            raise ValueError("boundary_jr_to_gap_Br_matrix must contain only finite values.")
+        self._boundary_jr_to_gap_Br_matrix = matrix.copy()
+        self._boundary_jr_to_gap_Br_matrix.flags.writeable = False
 
     @property
     def helmholtz_analysis_operator(self) -> LinearMap:
@@ -208,7 +208,7 @@ class SimulationGeometry:
 
     def _build_surface_gauge_operator(self) -> LinearMap | None:
         """Return a normalized zero-mean constraint if needed."""
-        if self.horizontal_basis.scalar_fields_are_mean_free_by_construction():
+        if self.horizontal_basis.omits_constant_mode():
             return None
 
         weights_source = self.horizontal_basis.scalar_mean_weights
@@ -476,9 +476,9 @@ class SimulationGeometry:
         external-source field incident on the ionosphere, before the
         ionospheric shielding sheet current is applied.
         """
-        if self._gap_Br_response_matrix is None:
-            self._build_gap_Br_response_matrix()
-        return self._gap_Br_response_matrix
+        if self._boundary_jr_to_gap_Br_matrix is None:
+            self._build_boundary_jr_to_gap_Br_matrix()
+        return self._boundary_jr_to_gap_Br_matrix
 
     def _pfac_boundary_response(self):
         """Return outer-boundary factors for the PFAC shell response."""
@@ -486,10 +486,10 @@ class SimulationGeometry:
             return None, -1.0
 
         outer_regular_to_ionosphere = np.asarray(
-            self.solid_harmonics.regular_reference_shift(self.RM, self.RI)
+            self.solid_harmonics.regular_reference_shift_factors(self.RM, self.RI)
         )
         ionosphere_irregular_to_outer = np.asarray(
-            self.solid_harmonics.irregular_reference_shift(self.RI, self.RM)
+            self.solid_harmonics.irregular_reference_shift_factors(self.RI, self.RM)
         )
         response_factor = -1.0 / (
             1.0 - outer_regular_to_ionosphere * ionosphere_irregular_to_outer
@@ -521,11 +521,11 @@ class SimulationGeometry:
         )
 
         poloidal_scale = np.array(
-            self.solid_harmonics.regular_reference_shift(radius, self.RI), copy=True
+            self.solid_harmonics.regular_reference_shift_factors(radius, self.RI), copy=True
         )
         if self.RM is not None:
             poloidal_scale -= outer_regular_to_ionosphere * np.asarray(
-                self.solid_harmonics.irregular_reference_shift(radius, self.RM)
+                self.solid_harmonics.irregular_reference_shift_factors(radius, self.RM)
             )
 
         poloidal_scale *= boundary_response_factor
@@ -537,24 +537,24 @@ class SimulationGeometry:
         )
         return np.asarray(integrand_operator.to_matrix(backend="numpy"))
 
-    def _build_gap_Br_response_matrix(self) -> None:
+    def _build_boundary_jr_to_gap_Br_matrix(self) -> None:
         """Construct the gap-Br map by radial integration."""
         if self.main_field.kind == "radial" or not self.enable_pfac_coupling:
             matrix = np.zeros(
                 (self.poloidal_basis.index_length, self.horizontal_basis.index_length)
             )
         elif self.operator_cache is None:
-            matrix = self._compute_gap_Br_response_matrix()
+            matrix = self._compute_boundary_jr_to_gap_Br_matrix()
         else:
             matrix = self.operator_cache.get_or_create(
                 "gap_Br_response",
-                self._gap_Br_response_cache_identity(),
-                self._compute_gap_Br_response_matrix,
+                self._boundary_jr_to_gap_Br_cache_identity(),
+                self._compute_boundary_jr_to_gap_Br_matrix,
             )
         matrix.flags.writeable = False
-        self._gap_Br_response_matrix = matrix
+        self._boundary_jr_to_gap_Br_matrix = matrix
 
-    def _gap_Br_response_cache_identity(self) -> dict:
+    def _boundary_jr_to_gap_Br_cache_identity(self) -> dict:
         """Return the exact identity of the gap-Br response."""
         field_components = (
             self.main_field_evaluation.Br,
@@ -563,7 +563,7 @@ class SimulationGeometry:
         )
         return {
             "algorithm": "boundary_jr_to_gap_Br_radial_integration",
-            "version": _GAP_BR_RESPONSE_CACHE_VERSION,
+            "version": _BOUNDARY_JR_TO_GAP_BR_CACHE_VERSION,
             "input_quantity": "boundary_jr_at_RI",
             "output_quantity": "unshielded_gap_Br_at_RI",
             "horizontal_basis": self.horizontal_basis.signature,
@@ -581,7 +581,7 @@ class SimulationGeometry:
             "area_weighted_least_squares": self.area_weighted_least_squares,
         }
 
-    def _compute_gap_Br_response_matrix(self) -> np.ndarray:
+    def _compute_boundary_jr_to_gap_Br_matrix(self) -> np.ndarray:
         """Compute the physical gap-field response from shell maps."""
         shielding_potential_response = np.zeros(
             (self.poloidal_basis.index_length, self.horizontal_basis.index_length)

@@ -25,7 +25,7 @@ def current_figure_settings(app) -> FigureSettings:
 
     return FigureSettings(
         simulation_directory=app.simulation_directory.value,
-        data_directory=app.figure_settings.data_directory,
+        station_data_directory=app.figure_settings.station_data_directory,
         plot_type=app.plot_type.value,
         time_index=int(app.time_index.value),
         time_range=tuple(int(value) for value in app.time_range.value),
@@ -38,18 +38,18 @@ def current_figure_settings(app) -> FigureSettings:
         ground_component=app.ground_component.value,
         ground_quantity=app.ground_quantity.value,
         include_station_data=bool(app.include_station_data.value),
-        show_inductive=bool(app.show_inductive.value),
-        show_noninductive=bool(app.show_noninductive.value),
+        show_dynamic=bool(app.show_dynamic.value),
+        show_equilibrium=bool(app.show_equilibrium.value),
         show_difference=bool(app.show_difference.value),
         show_reference_line=bool(app.show_reference_line.value),
         reference_time_of_day_utc=str(app.reference_time.value),
         show_station_labels=bool(app.figure_settings.show_station_labels),
-        sim_time_offset_seconds=float(app.sim_time_offset.value),
+        simulation_time_offset_seconds=float(app.sim_time_offset.value),
         data_time_offset_seconds=float(app.data_time_offset.value),
         dbdt_window_points=int(app.dbdt_window_points.value),
         ground_model_lt_count=int(app.ground_model_lt_count.value),
         ground_model_lat_count=int(app.ground_model_lat_count.value),
-        ground_model_visual_even=bool(app.ground_model_visual_even.value),
+        uniform_ground_longitude_count=bool(app.uniform_ground_longitude_count.value),
         show_pedersen_conductance_overlay=bool(app.show_pedersen_conductance_overlay.value),
         show_hall_conductance_overlay=bool(app.show_hall_conductance_overlay.value),
         min_abs_dip_latitude=float(app.low_lat_cutoff.value),
@@ -58,7 +58,7 @@ def current_figure_settings(app) -> FigureSettings:
         show_low_latitude_curve=bool(app.show_low_lat_curve.value),
         curve_scale_mode=app.curve_scale_mode.value,
         curve_scale_value=float(app.curve_scale.value),
-        curve_time_scale=float(app.time_scale.value),
+        curve_time_width_scale=float(app.time_scale.value),
         color_scale_mode=app.color_scale_mode.value,
         color_scale_percentile=float(app.color_scale_percentile.value),
         manual_color_min=float(app.manual_color_min.value) / color_display_scale,
@@ -99,15 +99,15 @@ def apply_figure_settings_to_widgets(app, settings: FigureSettings) -> None:
     set_widget_value(app.ground_component, settings.ground_component)
     set_widget_value(app.ground_quantity, settings.ground_quantity)
     set_widget_value(app.include_station_data, bool(settings.include_station_data))
-    set_widget_value(app.show_inductive, bool(settings.show_inductive))
-    set_widget_value(app.show_noninductive, bool(settings.show_noninductive))
+    set_widget_value(app.show_dynamic, bool(settings.show_dynamic))
+    set_widget_value(app.show_equilibrium, bool(settings.show_equilibrium))
     set_widget_value(app.show_difference, bool(settings.show_difference))
-    set_widget_value(app.sim_time_offset, float(settings.sim_time_offset_seconds))
+    set_widget_value(app.sim_time_offset, float(settings.simulation_time_offset_seconds))
     set_widget_value(app.data_time_offset, float(settings.data_time_offset_seconds))
     set_widget_value(app.dbdt_window_points, int(settings.dbdt_window_points))
     set_widget_value(app.ground_model_lt_count, int(settings.ground_model_lt_count))
     set_widget_value(app.ground_model_lat_count, int(settings.ground_model_lat_count))
-    set_widget_value(app.ground_model_visual_even, bool(settings.ground_model_visual_even))
+    set_widget_value(app.uniform_ground_longitude_count, bool(settings.uniform_ground_longitude_count))
     set_widget_value(
         app.show_pedersen_conductance_overlay, bool(settings.show_pedersen_conductance_overlay)
     )
@@ -118,7 +118,7 @@ def apply_figure_settings_to_widgets(app, settings: FigureSettings) -> None:
     set_widget_value(app.reference_time, str(settings.reference_time_of_day_utc))
     set_widget_value(app.curve_scale_mode, settings.curve_scale_mode)
     set_widget_value(app.curve_scale, float(settings.curve_scale_value))
-    set_widget_value(app.time_scale, float(settings.curve_time_scale))
+    set_widget_value(app.time_scale, float(settings.curve_time_width_scale))
     set_widget_value(app.low_lat_cutoff, float(settings.min_abs_dip_latitude))
     set_widget_value(app.low_lat_scale, float(settings.low_latitude_scale))
     set_widget_value(app.show_dip_equator_curve, bool(settings.show_dip_equator_curve))

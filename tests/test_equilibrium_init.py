@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from pynamit.simulation.api import Simulation
+from pynamit.simulation.simulation import Simulation
 from pynamit.workflows.example import run_example
 from tests import DETERMINISTIC_REGRESSION_RTOL, magnetic_potential_coordinate_array
 
@@ -124,7 +124,7 @@ def test_impose_equilibrium_rejects_an_earlier_trajectory_time(tmp_path):
         Mmax=1,
         Ncs=8,
         enable_pfac_coupling=False,
-        write_sample_interval=1,
+        samples_per_write=1,
         simulation_directory=tmp_path / "run",
         artifact_storage="netcdf",
     )
@@ -180,7 +180,7 @@ def test_evolve_to_time_can_run_equilibrium_without_dynamic_output(tmp_path):
     simulation = run_example(
         final_time=0.1,
         dt=0.05,
-        write_sample_interval=1,
+        samples_per_write=1,
         Nmax=4,
         Mmax=3,
         Ncs=8,
@@ -213,7 +213,7 @@ def test_evolve_to_time_can_run_dynamic_output_without_equilibrium(tmp_path):
     simulation = run_example(
         final_time=0.1,
         dt=0.05,
-        write_sample_interval=1,
+        samples_per_write=1,
         Nmax=4,
         Mmax=3,
         Ncs=8,
@@ -241,7 +241,7 @@ def test_evolve_to_time_split_modes_match_combined_numerically(tmp_path):
     common_kwargs = dict(
         final_time=0.1,
         dt=0.05,
-        write_sample_interval=1,
+        samples_per_write=1,
         Nmax=4,
         Mmax=3,
         Ncs=8,
@@ -263,7 +263,7 @@ def test_evolve_to_time_split_modes_match_combined_numerically(tmp_path):
         **common_kwargs,
         run_dynamic=True,
         run_equilibrium=False,
-        simulation_directory=str(tmp_path / "inductive"),
+        simulation_directory=str(tmp_path / "dynamic"),
     )
     equilibrium = run_example(
         **common_kwargs,

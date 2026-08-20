@@ -10,7 +10,7 @@ import xarray as xr
 from kompe import SHBasis
 
 from pynamit.fields import FieldSpace
-from pynamit.simulation.api import Simulation
+from pynamit.simulation.simulation import Simulation
 from pynamit.storage import ArtifactStore, FieldTimeSeries
 from pynamit.workflows.example import run_example
 from tests import magnetic_potential_coordinate_array
@@ -318,7 +318,7 @@ def test_simulation_restart_continues_to_match_direct_simulation(
         enable_pfac_coupling=False,
         use_wind=False,
         initialize_from_equilibrium=False,
-        write_sample_interval=1,
+        samples_per_write=1,
         artifact_storage=artifact_storage,
     )
     direct = run_example(
@@ -335,8 +335,8 @@ def test_simulation_restart_continues_to_match_direct_simulation(
     resumed.evolve_to_time(
         t=0.1,
         dt=0.05,
-        sampling_step_interval=1,
-        write_sample_interval=1,
+        steps_per_sample=1,
+        samples_per_write=1,
         initialize_from_equilibrium=False,
         quiet=True,
     )

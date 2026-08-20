@@ -16,7 +16,7 @@ def test_field_coefficients_applies_scalar_mean_free_projection():
     field = FieldCoefficients(field_space, coeffs)
 
     assert field.field_space is field_space
-    assert field.field_space.representation is basis
+    assert field.field_space.basis is basis
     assert field.field_space.mean_free
     np.testing.assert_allclose(basis.scalar_mean(field.array), 0.0, atol=1e-12)
     assert field.array.shape == coeffs.shape

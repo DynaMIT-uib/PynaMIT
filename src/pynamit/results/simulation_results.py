@@ -26,8 +26,9 @@ class SimulationResults:
     """Saved inputs, outputs, and geometry for one PynaMIT simulation.
 
     Unlike :class:`pynamit.Simulation`, this object is read-only and
-    does not construct a response model or evolution runner. Input and
-    output datasets are loaded lazily when their properties are used.
+    does not construct a response model or time-evolution state.
+    Input and output datasets are loaded lazily when their properties
+    are used.
     """
 
     artifact_store: ArtifactStore
@@ -36,7 +37,7 @@ class SimulationResults:
     schema: SimulationSchema
     main_field: MainField
     operator_cache: ArrayCache | None = None
-    gap_Br_response: xr.DataArray | None = None
+    boundary_jr_to_gap_Br_matrix: xr.DataArray | None = None
     geometry: SimulationGeometry | None = None
     _input_series: FieldTimeSeries | None = field(default=None, init=False, repr=False)
     _output_series: FieldTimeSeries | None = field(default=None, init=False, repr=False)
@@ -48,7 +49,7 @@ class SimulationResults:
         *,
         required_datasets=(),
         optional_datasets=(),
-        require_gap_Br_response=False,
+        require_boundary_jr_to_gap_Br_matrix=False,
         build_geometry=False,
         artifact_storage="auto",
         operator_cache_directory=None,
@@ -86,11 +87,14 @@ class SimulationResults:
         for key in optional_datasets:
             results._load_requested_dataset(key, required=False, print_info=print_info)
 
-        if require_gap_Br_response or build_geometry:
-            results.gap_Br_response = artifact_store.load_dataarray(
+        if require_boundary_jr_to_gap_Br_matrix or build_geometry:
+            results.boundary_jr_to_gap_Br_matrix = artifact_store.load_dataarray(
                 "gap_Br_response", print_info=print_info
             )
-            if require_gap_Br_response and results.gap_Br_response is None:
+            if (
+                require_boundary_jr_to_gap_Br_matrix
+                and results.boundary_jr_to_gap_Br_matrix is None
+            ):
                 raise ValueError(
                     f"No saved 'gap_Br_response' data array exists at {simulation_directory!r}"
                 )
@@ -145,14 +149,16 @@ class SimulationResults:
     def load_geometry(self) -> SimulationGeometry:
         """Load and return the geometry for this saved simulation."""
         if self.geometry is None:
-            if self.gap_Br_response is None:
-                self.gap_Br_response = self.artifact_store.load_dataarray("gap_Br_response")
+            if self.boundary_jr_to_gap_Br_matrix is None:
+                self.boundary_jr_to_gap_Br_matrix = self.artifact_store.load_dataarray(
+                    "gap_Br_response"
+                )
             self.geometry = SimulationGeometry(
                 horizontal_basis=self.schema.horizontal_basis,
                 cs_basis=self.schema.cs_basis,
                 main_field=self.main_field,
                 config=self.config,
-                gap_Br_response_matrix=self.gap_Br_response,
+                boundary_jr_to_gap_Br_matrix=self.boundary_jr_to_gap_Br_matrix,
                 solid_harmonics=self.schema.solid_harmonics,
                 operator_cache=self.operator_cache,
             )

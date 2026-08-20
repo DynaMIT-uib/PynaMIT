@@ -26,7 +26,7 @@ From the repository root, one way to install PynaMIT in a new conda
 environment is:
 
 ```bash
-conda create -n pynamit -c conda-forge --file requirements/conda-common.txt jax zarr
+conda create -n pynamit -c conda-forge --file requirements/conda-common.txt jax
 conda activate pynamit
 
 pip install -r requirements/pip-common.txt
@@ -43,11 +43,12 @@ install.
 The same pattern works with `mamba`:
 
 ```bash
-mamba create -n pynamit -c conda-forge --file requirements/conda-common.txt jax zarr
+mamba create -n pynamit -c conda-forge --file requirements/conda-common.txt jax
 ```
 
-The `jax` and `zarr` packages are optional. `jax` enables the optional JAX
-backend, while `zarr` enables efficient xarray-based reads and writes.
+The `jax` and `zarr` packages are optional runtime dependencies. The development
+requirements include `zarr` for persistence tests; add `jax` explicitly when
+creating the environment to enable the JAX backend.
 For NumPy-equivalent 64-bit precision with JAX, set `JAX_ENABLE_X64=1` before
 importing JAX; backend selection does not change JAX's process-wide precision
 policy.
@@ -65,9 +66,9 @@ Array mathematics and reusable operators then stay on that backend. SciPy-only
 algorithms and xarray persistence remain explicit CPU boundaries.
 
 JAX accelerator support depends on the operating system, drivers, and hardware.
-The generic dependency in `requirements/conda-common.txt` is suitable for a
-standard environment, but GPU/TPU-specific installations may require replacing
-or updating the JAX packages according to the
+The generic `jax` package in the environment command is suitable for a standard
+environment, but GPU/TPU-specific installations may require replacing it
+according to the
 [official JAX installation instructions](https://docs.jax.dev/en/latest/installation.html).
 
 The core dependencies declared in `pyproject.toml` are sufficient to import
@@ -116,8 +117,8 @@ operators or persistence details are needed.
 
 Inputs that will be reused by several simulations can instead be prepared in their
 own directory. `InputPreparation` has the same `set_*` methods as
-`Simulation`, but ordinary projection constructs neither a time-evolution
-runner nor the full simulation response geometry:
+`Simulation`, but ordinary projection constructs neither the time-evolution
+state nor the full simulation response geometry:
 
 ```python
 preparation = pynamit.InputPreparation(
@@ -162,7 +163,7 @@ separate namespaces:
 from pynamit.results import evaluate_projected_input, evaluate_simulation_output
 from pynamit.plotting import FigureSettings, render_figure
 from pynamit.gui import build_gui
-from pynamit.workflows.mage import ForcingSettings, prepare_forcing, project_forcing
+from pynamit.workflows.mage import ForcingSettings, prepare_forcing, prepare_inputs
 ```
 
 Both evaluation functions return ordinary dictionaries of arrays, so they are
@@ -183,6 +184,14 @@ pytest
 
 Some tests are skipped automatically if optional dependencies or native input
 datasets are not available.
+
+The same explicit splits used in CI are useful for focused local checks:
+
+```bash
+pytest --backend numpy --data-source fallback
+pytest --backend jax --data-source fallback
+pytest --backend numpy --data-source native
+```
 
 ## Examples and Paper Scripts
 

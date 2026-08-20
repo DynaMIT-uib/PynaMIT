@@ -18,10 +18,10 @@ from typing import Any
 import numpy as np
 
 from pynamit.simulation import input_manifest as _input_manifest
-from pynamit.simulation.api import Simulation
 from pynamit.simulation.config import SimulationConfig
-from pynamit.simulation.runner import DEFAULT_DT_SECONDS, SimulationRunner
+from pynamit.simulation.evolution import DEFAULT_DT_SECONDS, _TimeEvolution
 from pynamit.simulation.schema import INPUT_DATASET_KEYS
+from pynamit.simulation.simulation import Simulation
 from pynamit.storage import ArtifactStore, FieldTimeSeries
 from pynamit.storage.field_time_series import TIME_TOLERANCE_SECONDS
 
@@ -104,8 +104,6 @@ def _validate_and_select_prepared_inputs(
         allow_unlisted=allowed is not None,
         require=True,
     )
-    if manifest is None:
-        raise RuntimeError("Prepared-input validation returned no manifest.")
     selected_inputs = (
         available_inputs
         if allowed is None
@@ -264,8 +262,8 @@ def run_from_inputs(
     simulation_directory=None,
     enabled_inputs=None,
     final_time=100,
-    sampling_step_interval=1,
-    write_sample_interval=200,
+    steps_per_sample=1,
+    samples_per_write=200,
     dt=DEFAULT_DT_SECONDS,
     RM=None,
     main_field_kind=None,
@@ -279,7 +277,7 @@ def run_from_inputs(
     run_equilibrium=True,
     integrator="euler",
     least_squares_solver=None,
-    least_squares_preconditioner="pinv",
+    least_squares_preconditioner=None,
     reuse_preconditioner=False,
     toroidal_potential_regularization_lambda=0.0,
     artifact_storage="auto",
@@ -289,8 +287,8 @@ def run_from_inputs(
 ):
     """Run simulation from a prepared input package.
 
-    ``sampling_step_interval`` is the number of integration steps
-    between retained output samples. ``write_sample_interval`` is the
+    ``steps_per_sample`` is the number of integration steps
+    between retained output samples. ``samples_per_write`` is the
     number of retained samples accumulated between persistence writes.
 
     With ``skip_completed=True``, a matching simulation returns ``None``
@@ -339,12 +337,12 @@ def run_from_inputs(
     if not isinstance(skip_completed, (bool, np.bool_)):
         raise ValueError("skip_completed must be a boolean value.")
     skip_completed = bool(skip_completed)
-    options = SimulationRunner.normalize_evolution_options(
+    options = _TimeEvolution.normalize_evolution_options(
         config,
         t=final_time,
         dt=dt,
-        sampling_step_interval=sampling_step_interval,
-        write_sample_interval=write_sample_interval,
+        steps_per_sample=steps_per_sample,
+        samples_per_write=samples_per_write,
         quiet=False,
         initialize_from_equilibrium=initialize_from_equilibrium,
         run_dynamic=run_dynamic,
@@ -352,16 +350,16 @@ def run_from_inputs(
     )
     final_time = options.target_time
     dt = float(options.dt)
-    sampling_step_interval = options.sampling_step_interval
-    write_sample_interval = options.write_sample_interval
+    steps_per_sample = options.steps_per_sample
+    samples_per_write = options.samples_per_write
     initialize_from_equilibrium = options.initialize_from_equilibrium
     run_dynamic = options.run_dynamic
     run_equilibrium = options.run_equilibrium
     time_evolution = {
         "final_time": final_time,
         "dt": dt,
-        "sampling_step_interval": sampling_step_interval,
-        "write_sample_interval": write_sample_interval,
+        "steps_per_sample": steps_per_sample,
+        "samples_per_write": samples_per_write,
         "initialize_from_equilibrium": initialize_from_equilibrium,
         "run_dynamic": run_dynamic,
         "run_equilibrium": run_equilibrium,
@@ -434,8 +432,8 @@ def run_from_inputs(
     simulation.evolve_to_time(
         t=final_time,
         dt=dt,
-        sampling_step_interval=sampling_step_interval,
-        write_sample_interval=write_sample_interval,
+        steps_per_sample=steps_per_sample,
+        samples_per_write=samples_per_write,
         initialize_from_equilibrium=initialize_from_equilibrium,
         run_dynamic=run_dynamic,
         run_equilibrium=run_equilibrium,

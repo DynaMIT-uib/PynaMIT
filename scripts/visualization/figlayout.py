@@ -8,9 +8,9 @@ import pyamps
 import pyhwm2014  # https://github.com/rilma/pyHWM14
 
 import pynamit
-from pynamit.external_input_contracts import ExternalInputRequest
 from pynamit.external_inputs import get_conductance_inputs
-from pynamit.plotting.diagnostics import plot_output_diagnostics
+from pynamit.external_inputs.contracts import ExternalInputRequest
+from pynamit.plotting.quicklook import plot_output_quicklook
 
 RE = 6371.2e3
 RI = RE + 110e3
@@ -85,6 +85,6 @@ simulation.set_neutral_wind(
 )
 
 simulation.impose_equilibrium(time=0.0, save=True, quiet=True)
-plot_output_diagnostics(
+plot_output_quicklook(
     simulation, title="Output diagnostic summary", filename=None, noon_longitude=noon_longitude
 )

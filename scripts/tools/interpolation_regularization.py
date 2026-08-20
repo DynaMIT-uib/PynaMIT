@@ -10,8 +10,8 @@ import numpy as np
 import pyhwm2014  # https://github.com/rilma/pyHWM14
 
 import pynamit
-from pynamit.external_input_contracts import ExternalInputRequest
 from pynamit.external_inputs import get_conductance_inputs
+from pynamit.external_inputs.contracts import ExternalInputRequest
 from pynamit.geomagnetism import decimal_year
 
 plt.rcParams["figure.constrained_layout.use"] = True

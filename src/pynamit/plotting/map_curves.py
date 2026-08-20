@@ -41,11 +41,24 @@ def build_even_global_sites(
     keeps the same longitude count on every latitude row. That is useful
     for stylized comparison figures.
     """
-    min_lat, max_lat = sorted((float(min_lat), float(max_lat)))
+    min_lat = float(min_lat)
+    max_lat = float(max_lat)
+    if not np.isfinite(min_lat) or not np.isfinite(max_lat) or min_lat > max_lat:
+        raise ValueError("min_lat and max_lat must be finite and ordered.")
+    if min_lat < -90.0 or max_lat > 90.0:
+        raise ValueError("min_lat and max_lat must lie between -90 and 90 degrees.")
     if lat_count is None:
-        latitudes = np.arange(min_lat, max_lat + 0.5 * float(lat_step), float(lat_step))
+        lat_step = float(lat_step)
+        if not np.isfinite(lat_step) or lat_step <= 0.0:
+            raise ValueError("lat_step must be finite and positive.")
+        latitudes = np.arange(min_lat, max_lat + 0.5 * lat_step, lat_step)
     else:
-        lat_count = max(1, int(lat_count))
+        if isinstance(lat_count, (bool, np.bool_)):
+            raise ValueError("lat_count must be a positive integer.")
+        integer_lat_count = int(lat_count)
+        if integer_lat_count != lat_count or integer_lat_count < 1:
+            raise ValueError("lat_count must be a positive integer.")
+        lat_count = integer_lat_count
         if lat_count == 1:
             center_lat = 0.0 if min_lat <= 0.0 <= max_lat else 0.5 * (min_lat + max_lat)
             latitudes = np.array([center_lat], dtype=float)
@@ -53,9 +66,24 @@ def build_even_global_sites(
             latitudes = np.linspace(min_lat, max_lat, lat_count)
 
     if equatorial_count is None:
-        equatorial_count = max(int(round(360.0 / max(float(equatorial_spacing_deg), 1.0))), 1)
+        equatorial_spacing_deg = float(equatorial_spacing_deg)
+        if not np.isfinite(equatorial_spacing_deg) or equatorial_spacing_deg <= 0.0:
+            raise ValueError("equatorial_spacing_deg must be finite and positive.")
+        equatorial_count = max(int(round(360.0 / equatorial_spacing_deg)), 1)
     else:
-        equatorial_count = max(1, int(equatorial_count))
+        if isinstance(equatorial_count, (bool, np.bool_)):
+            raise ValueError("equatorial_count must be a positive integer.")
+        integer_equatorial_count = int(equatorial_count)
+        if integer_equatorial_count != equatorial_count or integer_equatorial_count < 1:
+            raise ValueError("equatorial_count must be a positive integer.")
+        equatorial_count = integer_equatorial_count
+
+    if isinstance(min_sites_per_row, (bool, np.bool_)):
+        raise ValueError("min_sites_per_row must be a positive integer.")
+    integer_min_sites = int(min_sites_per_row)
+    if integer_min_sites != min_sites_per_row or integer_min_sites < 1:
+        raise ValueError("min_sites_per_row must be a positive integer.")
+    min_sites_per_row = integer_min_sites
 
     lon_sites, lat_sites = [], []
     for row_index, latitude in enumerate(latitudes):
@@ -63,11 +91,7 @@ def build_even_global_sites(
             row_count = int(equatorial_count)
         else:
             cos_lat = float(np.cos(np.deg2rad(latitude)))
-            row_count = max(
-                int(min_sites_per_row), int(round(equatorial_count * max(cos_lat, 0.2)))
-            )
-        if row_count <= 0:
-            continue
+            row_count = max(min_sites_per_row, int(round(equatorial_count * max(cos_lat, 0.2))))
 
         if reference_time is None:
             row_spacing = 360.0 / float(row_count)
@@ -165,9 +189,9 @@ def curve_layer_zoffset(
     label = str(layer.get("label", "")).lower()
     if series_key == "measured" or (not series_key and "measured" in label):
         return float(measured_zoffset)
-    if series_key == "magnetostatic" or "magnetostatic" in label or "non-inductive" in label:
+    if series_key == "equilibrium" or "equilibrium" in label or "non-inductive" in label:
         return float(secondary_zoffset)
-    if series_key == "inductive" or "inductive" in label:
+    if series_key == "dynamic" or "dynamic" in label:
         return float(primary_zoffset)
     return float(secondary_zoffset)
 
@@ -196,11 +220,13 @@ def interpolate_curve_value_at_normalized_position(time_values, values, position
     """Interpolate one curve at a normalized time position."""
     time_arr = np.asarray(time_values, dtype=float).reshape(-1)
     value_arr = np.asarray(values, dtype=float).reshape(-1)
-    if time_arr.size == 0 or time_arr.size != value_arr.size:
+    if time_arr.size != value_arr.size:
+        raise ValueError("time_values and values must have the same length.")
+    if time_arr.size == 0:
         return np.nan
     position = float(position)
     if not np.isfinite(position):
-        return np.nan
+        raise ValueError("position must be finite.")
     finite = np.isfinite(time_arr) & np.isfinite(value_arr)
     if not np.any(finite):
         return np.nan
@@ -222,27 +248,34 @@ def _reference_center_values(reference_line, layers, n_sites, n_times):
     center_values = reference_line.get("center_values") if reference_line is not None else None
     if center_values is not None:
         center_values = np.asarray(center_values, dtype=float)
-        if center_values.shape == (n_sites, n_times):
-            return center_values
+        expected_shape = (n_sites, n_times)
+        if center_values.shape != expected_shape:
+            raise ValueError(
+                f"reference center_values must have shape {expected_shape}, "
+                f"got {center_values.shape}."
+            )
+        return center_values
     fallback_values = None
-    inductive_values = None
-    noninductive_values = None
+    dynamic_values = None
+    nondynamic_values = None
     for layer in layers:
         series_key = str(layer.get("series_key", "")).lower()
         label = str(layer.get("label", "")).lower()
         values = np.asarray(layer.get("values", []), dtype=float)
         if values.shape != (n_sites, n_times):
-            continue
+            raise ValueError(
+                f"Layer values must have shape {(n_sites, n_times)}, got {values.shape}."
+            )
         if series_key == "measured" or "measured" in label:
             return values
-        if series_key == "inductive" or ("inductive" in label and "non-inductive" not in label):
-            inductive_values = values
-        if series_key == "magnetostatic" or "magnetostatic" in label or "non-inductive" in label:
-            noninductive_values = values
+        if series_key == "dynamic" or ("dynamic" in label and "non-inductive" not in label):
+            dynamic_values = values
+        if series_key == "equilibrium" or "equilibrium" in label or "non-inductive" in label:
+            nondynamic_values = values
         if fallback_values is None:
             fallback_values = values
-    if inductive_values is not None and noninductive_values is not None:
-        stacked = np.stack([inductive_values, noninductive_values], axis=0)
+    if dynamic_values is not None and nondynamic_values is not None:
+        stacked = np.stack([dynamic_values, nondynamic_values], axis=0)
         finite = np.isfinite(stacked)
         count = finite.sum(axis=0)
         total = np.where(finite, stacked, 0.0).sum(axis=0)
@@ -276,26 +309,33 @@ def reference_aligned_curve_centers(
     time_arr = np.asarray(normalized_time, dtype=float).reshape(-1)
     curve_lon = lon_sites.copy()
     curve_lat = lat_sites.copy()
-    if lon_sites.size != lat_sites.size or reference_line is None or time_arr.size == 0:
+    if lon_sites.size != lat_sites.size:
+        raise ValueError("site_lon and site_lat must have the same length.")
+    if reference_line is None:
         return curve_lon, curve_lat
+    if time_arr.size == 0:
+        raise ValueError("normalized_time must not be empty when aligning a reference line.")
 
     reference_position = float(reference_line.get("position", np.nan))
     if not np.isfinite(reference_position):
-        return curve_lon, curve_lat
+        raise ValueError("reference_line position must be finite.")
 
     if site_curve_scale is None:
         site_scale = np.ones(lon_sites.size, dtype=float)
     else:
         site_scale = np.asarray(site_curve_scale, dtype=float).reshape(-1)
         if site_scale.size != lon_sites.size:
-            site_scale = np.ones(lon_sites.size, dtype=float)
-    site_scale = np.where(np.isfinite(site_scale) & (site_scale > 0.0), site_scale, 1.0)
+            raise ValueError("site_curve_scale must match the number of sites.")
+        if not np.all(np.isfinite(site_scale)) or np.any(site_scale <= 0.0):
+            raise ValueError("site_curve_scale values must be finite and positive.")
 
     center_values = _reference_center_values(reference_line, layers, lon_sites.size, time_arr.size)
     if center_values is None:
         return curve_lon, curve_lat
 
-    scale = max(float(value_scale), np.finfo(float).tiny)
+    scale = float(value_scale)
+    if not np.isfinite(scale) or scale <= 0.0:
+        raise ValueError("value_scale must be finite and positive.")
     for site_index in range(lon_sites.size):
         center_value = interpolate_curve_value_at_normalized_position(
             time_arr, center_values[site_index], reference_position
@@ -334,7 +374,10 @@ def _validated_curve_map_inputs(site_lon, site_lat, normalized_time, layers):
 def _curve_map_value_scale(layer_values, requested_scale):
     """Return a finite positive scale for all curve layers."""
     if requested_scale is not None:
-        return max(float(requested_scale), np.finfo(float).tiny)
+        scale = float(requested_scale)
+        if not np.isfinite(scale) or scale <= 0.0:
+            raise ValueError("value_scale must be finite and positive.")
+        return scale
     finite_chunks = [values[np.isfinite(values)] for values in layer_values]
     finite_chunks = [values for values in finite_chunks if values.size]
     if not finite_chunks:
@@ -350,7 +393,9 @@ def _curve_map_site_scale(site_curve_scale, n_sites):
     scales = np.asarray(site_curve_scale, dtype=float).reshape(-1)
     if scales.size != n_sites:
         raise ValueError("site_curve_scale must match the number of sites.")
-    return np.where(np.isfinite(scales) & (scales > 0.0), scales, 1.0)
+    if not np.all(np.isfinite(scales)) or np.any(scales <= 0.0):
+        raise ValueError("site_curve_scale values must be finite and positive.")
+    return scales
 
 
 def _curve_map_centers(values, site_values, *, name):
@@ -585,26 +630,34 @@ def draw_curve_scale_inset(
     color="0.2",
 ):
     """Draw a compact map-curve time/value scale inset."""
+    curve_width_deg = float(curve_width_deg)
+    curve_height_deg = float(curve_height_deg)
+    value_scale = float(value_scale)
+    scale_display_value = float(scale_display_value)
+    if not np.isfinite(curve_width_deg) or curve_width_deg <= 0.0:
+        raise ValueError("curve_width_deg must be finite and positive.")
+    if not np.isfinite(curve_height_deg) or curve_height_deg <= 0.0:
+        raise ValueError("curve_height_deg must be finite and positive.")
+    if not np.isfinite(value_scale) or value_scale <= 0.0:
+        raise ValueError("value_scale must be finite and positive.")
+    if not np.isfinite(scale_display_value) or scale_display_value <= 0.0:
+        raise ValueError("scale_display_value must be finite and positive.")
+
     if map_extent is None:
         map_width_deg, map_height_deg = 360.0, 180.0
     else:
         extent = np.asarray(map_extent, dtype=float).reshape(-1)
-        if extent.size >= 4:
-            map_width_deg = abs(float(extent[1]) - float(extent[0]))
-            map_height_deg = abs(float(extent[3]) - float(extent[2]))
-        else:
-            map_width_deg, map_height_deg = 360.0, 180.0
+        if extent.size != 4 or not np.all(np.isfinite(extent)):
+            raise ValueError("map_extent must contain four finite values.")
+        map_width_deg = abs(float(extent[1]) - float(extent[0]))
+        map_height_deg = abs(float(extent[3]) - float(extent[2]))
+        if map_width_deg == 0.0 or map_height_deg == 0.0:
+            raise ValueError("map_extent must have non-zero width and height.")
 
-    if not np.isfinite(map_width_deg) or map_width_deg <= 0.0:
-        map_width_deg = 360.0
-    if not np.isfinite(map_height_deg) or map_height_deg <= 0.0:
-        map_height_deg = 180.0
-
-    curve_width_ax = max(float(curve_width_deg) / map_width_deg, 0.02)
-    trace_height_ax = max(2.0 * float(curve_height_deg) / map_height_deg, 0.025)
-    full_trace_scale = 2.0 * max(float(value_scale), np.finfo(float).tiny)
-    scale_ratio = float(scale_display_value) / full_trace_scale
-    bar_height_ax = trace_height_ax * max(scale_ratio, 1e-6)
+    curve_width_ax = max(curve_width_deg / map_width_deg, 0.02)
+    trace_height_ax = max(2.0 * curve_height_deg / map_height_deg, 0.025)
+    scale_ratio = scale_display_value / (2.0 * value_scale)
+    bar_height_ax = trace_height_ax * scale_ratio
 
     left_margin_ax = 0.070
     right_margin_ax = 0.006
@@ -705,6 +758,18 @@ def local_time_window_is_full(lt_min, lt_max):
     return float(lt_min) <= 0.0 and float(lt_max) >= 24.0
 
 
+def _coordinate_window(values, *, name, lower, upper, ordered):
+    """Return a finite two-value coordinate window."""
+    window = np.asarray(values, dtype=float)
+    if window.shape != (2,) or not np.all(np.isfinite(window)):
+        raise ValueError(f"{name} must contain two finite values.")
+    if np.any(window < lower) or np.any(window > upper):
+        raise ValueError(f"{name} must lie between {lower:g} and {upper:g}.")
+    if ordered and window[0] > window[1]:
+        raise ValueError(f"{name} must be ordered from minimum to maximum.")
+    return float(window[0]), float(window[1])
+
+
 def geographic_local_time_mask(
     lat_values,
     lon_values,
@@ -719,12 +784,16 @@ def geographic_local_time_mask(
     if lat_arr.size != lon_arr.size:
         raise ValueError("lat_values and lon_values must have the same size.")
 
-    lat_min, lat_max = sorted(np.clip(np.asarray(lat_window, dtype=float), -90.0, 90.0))
+    lat_min, lat_max = _coordinate_window(
+        lat_window, name="lat_window", lower=-90.0, upper=90.0, ordered=True
+    )
     mask = (
         np.isfinite(lat_arr) & np.isfinite(lon_arr) & (lat_arr >= lat_min) & (lat_arr <= lat_max)
     )
 
-    lt_min, lt_max = np.clip(np.asarray(local_time_window, dtype=float), 0.0, 24.0)
+    lt_min, lt_max = _coordinate_window(
+        local_time_window, name="local_time_window", lower=0.0, upper=24.0, ordered=False
+    )
     if local_time_window_is_full(lt_min, lt_max):
         return mask
     if reference_time is None:
@@ -746,8 +815,12 @@ def local_time_window_extent(
     central_longitude=0.0,
 ):
     """Return a Cartopy extent for latitude/local-time map windows."""
-    lat_min, lat_max = sorted(np.clip(np.asarray(lat_window, dtype=float), -90.0, 90.0))
-    lt_min, lt_max = np.clip(np.asarray(local_time_window, dtype=float), 0.0, 24.0)
+    lat_min, lat_max = _coordinate_window(
+        lat_window, name="lat_window", lower=-90.0, upper=90.0, ordered=True
+    )
+    lt_min, lt_max = _coordinate_window(
+        local_time_window, name="local_time_window", lower=0.0, upper=24.0, ordered=False
+    )
     full_lat = lat_min <= -90.0 and lat_max >= 90.0
     full_lt = local_time_window_is_full(lt_min, lt_max)
     if full_lat and full_lt:

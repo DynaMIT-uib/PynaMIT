@@ -1,4 +1,4 @@
-name: Build, Test, and Deploy
+name: Test and publish documentation
 
 on:
   push:
@@ -6,32 +6,28 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+  packages: read
+
+env:
+  HOME: /tmp
+  GIT_CONFIG_GLOBAL: /tmp/.gitconfig
+
+defaults:
+  run:
+    shell: bash -leo pipefail {0}
+
 jobs:
-  build-and-test:
-    name: Build & Test (${{ matrix.variant }})
+  quality:
+    name: Code and documentation
     runs-on: ubuntu-latest
-    # Needed if your GHCR images are private
-    permissions:
-      contents: read
-      packages: read
-    strategy:
-      fail-fast: false
-      matrix:
-        variant: [jax, data]
-        date: ['2026-08-06']
-    # Use one container per matrix run
     container:
-      image: ghcr.io/dynamit-uib/pynamit:x86_64-${{ matrix.variant }}-${{ matrix.date }}
-    env:
-      HOME: /tmp
-      GIT_CONFIG_GLOBAL: /tmp/.gitconfig
-    defaults:
-      run:
-        shell: bash -leo pipefail {0}
+      image: ghcr.io/dynamit-uib/pynamit:x86_64-data-2026-08-06
 
     steps:
-      - name: Check out PynaMIT repository
-        uses: actions/checkout@v4
+      - name: Check out PynaMIT
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -41,27 +37,89 @@ jobs:
       - name: Install PynaMIT
         run: pip install "kompe @ git+https://github.com/DynaMIT-uib/kompe.git@main" .
 
-      - name: Lint PynaMIT code
-        run: ruff check
+      - name: Check code
+        run: |
+          ruff check .
+          ruff format --check src tests scripts
 
-      - name: Build PynaMIT documentation
-        run: sphinx-apidoc -o docs/source src && sphinx-build -b html docs/source docs/build
+      - name: Build documentation
+        run: sphinx-build -W --keep-going -b html docs/source docs/build
 
-      - name: Run PynaMIT tests
-        run: pytest -v
-
-      # Upload docs from only one variant to avoid duplicate artifacts
-      - name: Upload documentation artifact
-        if: github.ref == 'refs/heads/main' && matrix.variant == 'jax'
-        uses: actions/upload-pages-artifact@v3
+      - name: Upload documentation
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v5
         with:
           path: docs/build
 
+  test:
+    name: Test (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: NumPy and input providers
+            image: ghcr.io/dynamit-uib/pynamit:x86_64-data-2026-08-06
+            pytest_args: >-
+              --backend numpy
+              --data-source fallback
+              --data-source native
+          - name: JAX
+            image: ghcr.io/dynamit-uib/pynamit:x86_64-jax-2026-08-06
+            pytest_args: >-
+              --backend jax
+              --data-source fallback
+    container:
+      image: ${{ matrix.image }}
+
+    steps:
+      - name: Check out PynaMIT
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Mark checkout as safe for Git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Install PynaMIT
+        run: pip install "kompe @ git+https://github.com/DynaMIT-uib/kompe.git@main" .
+
+      - name: Run tests
+        run: pytest -q ${{ matrix.pytest_args }}
+
+  package:
+    name: Build package
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/dynamit-uib/pynamit:x86_64-data-2026-08-06
+
+    steps:
+      - name: Check out PynaMIT
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Mark checkout as safe for Git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Build and inspect distributions
+        run: |
+          pip install build twine "kompe @ git+https://github.com/DynaMIT-uib/kompe.git@main"
+          python -m build
+          python -m twine check dist/*
+
+      - name: Test the wheel outside the source tree
+        run: |
+          python -m venv --system-site-packages /tmp/pynamit-wheel
+          /tmp/pynamit-wheel/bin/pip install --no-deps dist/*.whl
+          cd /tmp
+          /tmp/pynamit-wheel/bin/python -c "from importlib.resources import files; from pynamit import InputPreparation, Simulation; assert files('pynamit.data').joinpath('fallback_inputs.json').is_file()"
+
   deploy:
-    name: Deploy
+    name: Deploy documentation
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    needs: build-and-test
+    needs: [quality, test, package]
     permissions:
       pages: write
       id-token: write
@@ -69,6 +127,6 @@ jobs:
       name: github-pages
       url: ${{ steps.deploy-docs.outputs.page_url }}
     steps:
-      - name: Deploy documentation to GitHub Pages
+      - name: Deploy documentation
         id: deploy-docs
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

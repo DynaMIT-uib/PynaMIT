@@ -158,6 +158,17 @@ def test_pedersen_hall_inversion_broadcasts_and_marks_zero_pair_invalid():
     assert np.isnan(etaH[1])
 
 
+def test_pedersen_hall_inversion_does_not_discard_small_finite_values():
+    """A small representable tensor remains invertible."""
+    pedersen = 0.75 * np.sqrt(np.finfo(float).tiny)
+
+    etaP, etaH = conductance_to_resistance(pedersen, 0.0)
+
+    assert np.isfinite(etaP)
+    assert etaP > 0.0
+    assert etaH == 0.0
+
+
 def test_geometry_tensors_encode_horizontal_ohms_law():
     """Closure geometry follows the magnetic-field direction."""
     btheta = np.array([0.3, -0.4])
@@ -241,6 +252,20 @@ def test_Q_eff_coefficient_solve_recovers_exact_response():
     operator = as_linear_map(matrix)
 
     coefficients = solve_Q_eff_coefficients(operator, matrix @ expected)
+
+    np.testing.assert_allclose(coefficients, expected)
+
+
+def test_Q_eff_regularization_weights_the_squared_coefficient_norm():
+    """reg_lambda weights ||Q_eff||² in the fitted objective."""
+    matrix = np.array([[2.0, 1.0], [-1.0, 3.0], [4.0, -2.0]])
+    rhs = np.array([1.0, -0.5, 2.0])
+    reg_lambda = 0.25
+
+    coefficients = solve_Q_eff_coefficients(as_linear_map(matrix), rhs, reg_lambda=reg_lambda)
+    expected = np.linalg.solve(
+        matrix.T @ matrix + reg_lambda * np.eye(matrix.shape[1]), matrix.T @ rhs
+    )
 
     np.testing.assert_allclose(coefficients, expected)
 

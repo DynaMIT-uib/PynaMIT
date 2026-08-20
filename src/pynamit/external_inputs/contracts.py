@@ -109,7 +109,7 @@ class ReferenceSurface:
 
 
 @dataclass(frozen=True)
-class CoordinateContract:
+class CoordinateConvention:
     """Semantic interpretation of horizontal coordinates."""
 
     coordinate_system: str
@@ -120,7 +120,7 @@ class CoordinateContract:
     reference_surface: ReferenceSurface
 
     def __post_init__(self) -> None:
-        """Validate and normalize the coordinate contract."""
+        """Validate and normalize the coordinate convention."""
         for name in (
             "coordinate_system",
             "angular_units",
@@ -141,8 +141,8 @@ class CoordinateContract:
             raise ValueError("Longitude must use the [-180, 180) convention.")
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> CoordinateContract:
-        """Construct a coordinate contract from metadata."""
+    def from_dict(cls, payload: Mapping[str, Any]) -> CoordinateConvention:
+        """Construct a coordinate convention from metadata."""
         return cls(
             coordinate_system=str(payload["coordinate_system"]),
             angular_units=str(payload["angular_units"]),
@@ -153,7 +153,7 @@ class CoordinateContract:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        """Return serialized coordinate-contract metadata."""
+        """Return serialized coordinate-convention metadata."""
         return {
             "coordinate_system": self.coordinate_system,
             "angular_units": self.angular_units,
@@ -165,7 +165,7 @@ class CoordinateContract:
 
     @property
     def signature(self) -> str:
-        """Return a stable contract signature."""
+        """Return a stable convention signature."""
         return hashlib.sha256(_canonical_json(self.to_dict()).encode("utf-8")).hexdigest()
 
     def normalize(self, lat: np.ndarray, lon: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -187,7 +187,7 @@ class CoordinateContract:
         return latitude, longitude
 
     def coordinate_identity(self, lat: np.ndarray, lon: np.ndarray) -> str:
-        """Hash the contract and normalized ordered coordinates."""
+        """Hash the convention and normalized ordered coordinates."""
         latitude, longitude = self.normalize(lat, lon)
         header = {
             "identity_version": _COORDINATE_IDENTITY_VERSION,
@@ -203,7 +203,7 @@ class CoordinateContract:
         return digest.hexdigest()
 
 
-PYNAMIT_SPHERICAL_GEO_110KM = CoordinateContract(
+PYNAMIT_SPHERICAL_GEO_110KM = CoordinateConvention(
     coordinate_system=GEOCENTRIC_GEOGRAPHIC,
     angular_units="degrees",
     latitude_definition="geocentric",
@@ -214,7 +214,7 @@ PYNAMIT_SPHERICAL_GEO_110KM = CoordinateContract(
     ),
 )
 
-PYNAMIT_CENTERED_DIPOLE_110KM = CoordinateContract(
+PYNAMIT_CENTERED_DIPOLE_110KM = CoordinateConvention(
     coordinate_system=CENTERED_DIPOLE,
     angular_units="degrees",
     latitude_definition="centered_dipole",
@@ -225,7 +225,7 @@ PYNAMIT_CENTERED_DIPOLE_110KM = CoordinateContract(
     ),
 )
 
-LIBRARY_GEOGRAPHIC_110KM = CoordinateContract(
+LIBRARY_GEOGRAPHIC_110KM = CoordinateConvention(
     coordinate_system="library_geographic",
     angular_units="degrees",
     latitude_definition="numerical_identity_from_geocentric",
@@ -238,16 +238,16 @@ LIBRARY_GEOGRAPHIC_110KM = CoordinateContract(
 
 
 @dataclass(frozen=True)
-class ProviderSpec:
+class InputProviderSpec:
     """Provider semantics independent of any particular sample grid."""
 
     key: str
     implementation: str
     sampling_policy: str
-    request_coordinate_contract: CoordinateContract
-    output_coordinate_contract: CoordinateContract
+    request_coordinate_convention: CoordinateConvention
+    output_coordinate_convention: CoordinateConvention
     fields: tuple[str, ...]
-    request_coordinate_views: Mapping[str, CoordinateContract] = field(default_factory=dict)
+    request_coordinate_views: Mapping[str, CoordinateConvention] = field(default_factory=dict)
     request_vector_basis: str | None = None
     output_vector_basis: str | None = None
     derived_coordinates: Mapping[str, Any] = field(default_factory=dict)
@@ -271,12 +271,14 @@ class ProviderSpec:
         object.__setattr__(self, "sampling_policy", policy)
         object.__setattr__(self, "fields", fields)
         coordinate_views = {
-            str(name).strip(): contract for name, contract in self.request_coordinate_views.items()
+            str(name).strip(): convention
+            for name, convention in self.request_coordinate_views.items()
         }
         if any(not name for name in coordinate_views) or not all(
-            isinstance(contract, CoordinateContract) for contract in coordinate_views.values()
+            isinstance(convention, CoordinateConvention)
+            for convention in coordinate_views.values()
         ):
-            raise ValueError("Provider coordinate views require named CoordinateContract values.")
+            raise ValueError("Provider coordinate views require named CoordinateConvention values.")
         object.__setattr__(self, "request_coordinate_views", MappingProxyType(coordinate_views))
         object.__setattr__(self, "derived_coordinates", _freeze_mapping(self.derived_coordinates))
         object.__setattr__(self, "adapter_assumptions", _freeze_mapping(self.adapter_assumptions))
@@ -287,22 +289,22 @@ class ProviderSpec:
                 object.__setattr__(self, name, value or None)
 
     @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> ProviderSpec:
+    def from_dict(cls, payload: Mapping[str, Any]) -> InputProviderSpec:
         """Construct a provider specification from metadata."""
         return cls(
             key=str(payload["key"]),
             implementation=str(payload["implementation"]),
             sampling_policy=str(payload["sampling_policy"]),
-            request_coordinate_contract=CoordinateContract.from_dict(
+            request_coordinate_convention=CoordinateConvention.from_dict(
                 payload["request_coordinate_contract"]
             ),
-            output_coordinate_contract=CoordinateContract.from_dict(
+            output_coordinate_convention=CoordinateConvention.from_dict(
                 payload["output_coordinate_contract"]
             ),
             fields=tuple(payload["fields"]),
             request_coordinate_views={
-                name: CoordinateContract.from_dict(contract)
-                for name, contract in payload.get("request_coordinate_views", {}).items()
+                name: CoordinateConvention.from_dict(convention)
+                for name, convention in payload.get("request_coordinate_views", {}).items()
             },
             request_vector_basis=payload.get("request_vector_basis"),
             output_vector_basis=payload.get("output_vector_basis"),
@@ -316,8 +318,8 @@ class ProviderSpec:
             "key": self.key,
             "implementation": self.implementation,
             "sampling_policy": self.sampling_policy,
-            "request_coordinate_contract": (self.request_coordinate_contract.to_dict()),
-            "output_coordinate_contract": (self.output_coordinate_contract.to_dict()),
+            "request_coordinate_contract": (self.request_coordinate_convention.to_dict()),
+            "output_coordinate_contract": (self.output_coordinate_convention.to_dict()),
             "fields": list(self.fields),
             "derived_coordinates": _json_value(self.derived_coordinates),
             "adapter_assumptions": _json_value(self.adapter_assumptions),
@@ -328,8 +330,8 @@ class ProviderSpec:
             result["output_vector_basis"] = self.output_vector_basis
         if self.request_coordinate_views:
             result["request_coordinate_views"] = {
-                name: contract.to_dict()
-                for name, contract in self.request_coordinate_views.items()
+                name: convention.to_dict()
+                for name, convention in self.request_coordinate_views.items()
             }
         return result
 
@@ -343,12 +345,12 @@ class ProviderSpec:
         return hash(self.signature)
 
 
-CONDUCTANCE_PROVIDER_SPEC = ProviderSpec(
+CONDUCTANCE_PROVIDER_SPEC = InputProviderSpec(
     key="conductance",
     implementation="lompe.conductance",
     sampling_policy="requested_positions",
-    request_coordinate_contract=LIBRARY_GEOGRAPHIC_110KM,
-    output_coordinate_contract=PYNAMIT_SPHERICAL_GEO_110KM,
+    request_coordinate_convention=LIBRARY_GEOGRAPHIC_110KM,
+    output_coordinate_convention=PYNAMIT_SPHERICAL_GEO_110KM,
     fields=("hall", "pedersen"),
     request_coordinate_views={"model": PYNAMIT_CENTERED_DIPOLE_110KM},
     derived_coordinates={
@@ -372,12 +374,12 @@ CONDUCTANCE_PROVIDER_SPEC = ProviderSpec(
     },
 )
 
-BOUNDARY_JR_PROVIDER_SPEC = ProviderSpec(
+BOUNDARY_JR_PROVIDER_SPEC = InputProviderSpec(
     key="boundary_jr",
     implementation="pyamps.AMPS.get_upward_current",
     sampling_policy="requested_positions",
-    request_coordinate_contract=LIBRARY_GEOGRAPHIC_110KM,
-    output_coordinate_contract=PYNAMIT_SPHERICAL_GEO_110KM,
+    request_coordinate_convention=LIBRARY_GEOGRAPHIC_110KM,
+    output_coordinate_convention=PYNAMIT_SPHERICAL_GEO_110KM,
     fields=("jr",),
     request_coordinate_views={"model": PYNAMIT_CENTERED_DIPOLE_110KM},
     derived_coordinates={
@@ -403,12 +405,12 @@ BOUNDARY_JR_PROVIDER_SPEC = ProviderSpec(
     },
 )
 
-NEUTRAL_WIND_PROVIDER_SPEC = ProviderSpec(
+NEUTRAL_WIND_PROVIDER_SPEC = InputProviderSpec(
     key="neutral_wind",
     implementation="pyhwm2014.hwm14_vectorized",
     sampling_policy="requested_positions",
-    request_coordinate_contract=LIBRARY_GEOGRAPHIC_110KM,
-    output_coordinate_contract=PYNAMIT_SPHERICAL_GEO_110KM,
+    request_coordinate_convention=LIBRARY_GEOGRAPHIC_110KM,
+    output_coordinate_convention=PYNAMIT_SPHERICAL_GEO_110KM,
     fields=("u_theta", "u_phi"),
     request_vector_basis="library_geographic_east_north",
     output_vector_basis="geocentric_spherical_theta_phi",
@@ -438,10 +440,10 @@ PROVIDER_SPECS = MappingProxyType(
 
 @dataclass(frozen=True)
 class SampleGrid:
-    """Immutable ordered coordinates under one coordinate contract."""
+    """Immutable ordered coordinates under one coordinate convention."""
 
     grid_id: str
-    coordinate_contract: CoordinateContract
+    coordinate_convention: CoordinateConvention
     lat: np.ndarray = field(repr=False, compare=False)
     lon: np.ndarray = field(repr=False, compare=False)
     sampling_geometry: Mapping[str, Any] = field(default_factory=dict)
@@ -453,7 +455,7 @@ class SampleGrid:
         grid_id = str(self.grid_id).strip()
         if not grid_id:
             raise ValueError("Sample-grid ID cannot be empty.")
-        latitude, longitude = self.coordinate_contract.normalize(self.lat, self.lon)
+        latitude, longitude = self.coordinate_convention.normalize(self.lat, self.lon)
         object.__setattr__(self, "grid_id", grid_id)
         object.__setattr__(self, "lat", latitude)
         object.__setattr__(self, "lon", longitude)
@@ -462,7 +464,7 @@ class SampleGrid:
         object.__setattr__(
             self,
             "coordinate_identity",
-            self.coordinate_contract.coordinate_identity(latitude, longitude),
+            self.coordinate_convention.coordinate_identity(latitude, longitude),
         )
 
     @property
@@ -479,7 +481,7 @@ class SampleGrid:
         """Construct and verify a serialized sample grid."""
         grid = cls(
             grid_id=grid_id,
-            coordinate_contract=CoordinateContract.from_dict(payload["coordinate_contract"]),
+            coordinate_convention=CoordinateConvention.from_dict(payload["coordinate_contract"]),
             lat=np.asarray(payload["lat"]),
             lon=np.asarray(payload["lon"]),
             sampling_geometry=payload.get("sampling_geometry", {}),
@@ -493,7 +495,7 @@ class SampleGrid:
     def to_dict(self) -> dict[str, Any]:
         """Return serialized grid metadata and coordinates."""
         return {
-            "coordinate_contract": self.coordinate_contract.to_dict(),
+            "coordinate_contract": self.coordinate_convention.to_dict(),
             "sampling_geometry": _json_value(self.sampling_geometry),
             "provenance": _json_value(self.provenance),
             "coordinate_identity": self.coordinate_identity,
@@ -503,19 +505,19 @@ class SampleGrid:
 
 
 def _spherical_geo_to_library_110km(
-    source_grid: SampleGrid, target_contract: CoordinateContract
+    source_grid: SampleGrid, target_convention: CoordinateConvention
 ) -> SampleGrid:
     """Create a library grid using the spherical identity map."""
-    altitude = target_contract.reference_surface.altitude_km
+    altitude = target_convention.reference_surface.altitude_km
     if altitude is None:
-        raise ValueError("Library request contract requires altitude_km.")
+        raise ValueError("Library request convention requires altitude_km.")
     latitude, longitude, _ = spherical_geo_to_library_geographic(
         source_grid.lat, source_grid.lon, altitude
     )
-    target_short = target_contract.signature[:12]
+    target_short = target_convention.signature[:12]
     return SampleGrid(
         grid_id=f"{source_grid.grid_id}--request-{target_short}",
-        coordinate_contract=target_contract,
+        coordinate_convention=target_convention,
         lat=latitude,
         lon=longitude,
         sampling_geometry={"type": "mapped_ordered_points", "source_grid_id": source_grid.grid_id},
@@ -536,18 +538,18 @@ class ExternalInputRequest:
         model_grid: SampleGrid | None = None,
         model_epoch: float | None = None,
     ):
-        if source_grid.coordinate_contract != PYNAMIT_SPHERICAL_GEO_110KM:
+        if source_grid.coordinate_convention != PYNAMIT_SPHERICAL_GEO_110KM:
             raise ValueError("External-input source_grid must be geocentric geographic.")
         model_grid = source_grid if model_grid is None else model_grid
         if model_grid.size != source_grid.size:
             raise ValueError("Model and geographic grids must contain the same ordered samples.")
-        if model_grid.coordinate_contract not in {
+        if model_grid.coordinate_convention not in {
             PYNAMIT_SPHERICAL_GEO_110KM,
             PYNAMIT_CENTERED_DIPOLE_110KM,
         }:
             raise ValueError("External-input model_grid uses an unsupported coordinate system.")
         if (
-            model_grid.coordinate_contract == PYNAMIT_SPHERICAL_GEO_110KM
+            model_grid.coordinate_convention == PYNAMIT_SPHERICAL_GEO_110KM
             and model_grid.coordinate_identity != source_grid.coordinate_identity
         ):
             raise ValueError("Geographic model and source grids must be identical.")
@@ -555,14 +557,14 @@ class ExternalInputRequest:
             model_epoch = float(model_epoch)
             if not np.isfinite(model_epoch):
                 raise ValueError("model_epoch must be finite.")
-        if model_grid.coordinate_contract == PYNAMIT_CENTERED_DIPOLE_110KM and model_epoch is None:
+        if model_grid.coordinate_convention == PYNAMIT_CENTERED_DIPOLE_110KM and model_epoch is None:
             raise ValueError("Centered-dipole model coordinates require model_epoch.")
         self.source_grid = source_grid
         self.model_grid = model_grid
         self.model_epoch = model_epoch
         self._request_grids: dict[str, SampleGrid] = {
-            source_grid.coordinate_contract.signature: source_grid,
-            model_grid.coordinate_contract.signature: model_grid,
+            source_grid.coordinate_convention.signature: source_grid,
+            model_grid.coordinate_convention.signature: model_grid,
         }
 
     @classmethod
@@ -579,7 +581,7 @@ class ExternalInputRequest:
         return cls(
             SampleGrid(
                 grid_id=grid_id,
-                coordinate_contract=PYNAMIT_SPHERICAL_GEO_110KM,
+                coordinate_convention=PYNAMIT_SPHERICAL_GEO_110KM,
                 lat=lat,
                 lon=lon,
                 sampling_geometry={} if sampling_geometry is None else sampling_geometry,
@@ -604,7 +606,7 @@ class ExternalInputRequest:
         """Construct model and GEO views of the same ordered samples."""
         coordinate_system = str(coordinate_system).strip().lower()
         try:
-            model_contract = {
+            model_convention = {
                 CENTERED_DIPOLE: PYNAMIT_CENTERED_DIPOLE_110KM,
                 GEOCENTRIC_GEOGRAPHIC: PYNAMIT_SPHERICAL_GEO_110KM,
             }[coordinate_system]
@@ -615,21 +617,21 @@ class ExternalInputRequest:
 
         source = SampleGrid(
             grid_id=grid_id,
-            coordinate_contract=PYNAMIT_SPHERICAL_GEO_110KM,
+            coordinate_convention=PYNAMIT_SPHERICAL_GEO_110KM,
             lat=geographic_lat,
             lon=geographic_lon,
             sampling_geometry={} if sampling_geometry is None else sampling_geometry,
             provenance={} if provenance is None else provenance,
         )
-        if model_contract == PYNAMIT_SPHERICAL_GEO_110KM:
-            model_identity = model_contract.coordinate_identity(lat, lon)
+        if model_convention == PYNAMIT_SPHERICAL_GEO_110KM:
+            model_identity = model_convention.coordinate_identity(lat, lon)
             if model_identity != source.coordinate_identity:
                 raise ValueError("Geographic model coordinates must match geographic samples.")
             model_grid = source
         else:
             model_grid = SampleGrid(
                 grid_id=f"{grid_id}--model",
-                coordinate_contract=model_contract,
+                coordinate_convention=model_convention,
                 lat=lat,
                 lon=lon,
                 sampling_geometry={"type": "coordinate_view", "source_grid_id": source.grid_id},
@@ -641,46 +643,46 @@ class ExternalInputRequest:
             )
         return cls(source, model_grid=model_grid, model_epoch=model_epoch)
 
-    def grid_for(self, spec_or_contract: ProviderSpec | CoordinateContract) -> SampleGrid:
-        """Return the cached request grid for a provider or contract."""
-        contract = (
-            spec_or_contract.request_coordinate_contract
-            if isinstance(spec_or_contract, ProviderSpec)
-            else spec_or_contract
+    def grid_for(self, spec_or_convention: InputProviderSpec | CoordinateConvention) -> SampleGrid:
+        """Return the request grid for a provider or convention."""
+        convention = (
+            spec_or_convention.request_coordinate_convention
+            if isinstance(spec_or_convention, InputProviderSpec)
+            else spec_or_convention
         )
-        cached = self._request_grids.get(contract.signature)
+        cached = self._request_grids.get(convention.signature)
         if cached is not None:
             return cached
 
         if not (
-            self.source_grid.coordinate_contract == PYNAMIT_SPHERICAL_GEO_110KM
-            and contract == LIBRARY_GEOGRAPHIC_110KM
+            self.source_grid.coordinate_convention == PYNAMIT_SPHERICAL_GEO_110KM
+            and convention == LIBRARY_GEOGRAPHIC_110KM
         ):
             raise ValueError(
                 "No coordinate conversion is defined from "
-                f"{self.source_grid.coordinate_contract.coordinate_system!r} "
-                f"to {contract.coordinate_system!r}."
+                f"{self.source_grid.coordinate_convention.coordinate_system!r} "
+                f"to {convention.coordinate_system!r}."
             )
-        converted = _spherical_geo_to_library_110km(self.source_grid, contract)
-        self._request_grids[contract.signature] = converted
+        converted = _spherical_geo_to_library_110km(self.source_grid, convention)
+        self._request_grids[convention.signature] = converted
         return converted
 
 
 @dataclass(frozen=True)
-class ProviderDataset:
+class CachedProviderData:
     """Provider values bound to shared source and request grids."""
 
-    spec: ProviderSpec
+    spec: InputProviderSpec
     source_grid: SampleGrid
     request_grid: SampleGrid
     values: Mapping[str, np.ndarray] = field(repr=False)
 
     def __post_init__(self) -> None:
         """Validate grid bindings and own the provider values."""
-        if self.source_grid.coordinate_contract != (self.spec.output_coordinate_contract):
-            raise ValueError("Provider output and source-grid contracts differ.")
-        if self.request_grid.coordinate_contract != (self.spec.request_coordinate_contract):
-            raise ValueError("Provider request and request-grid contracts differ.")
+        if self.source_grid.coordinate_convention != (self.spec.output_coordinate_convention):
+            raise ValueError("Provider output and source-grid conventions differ.")
+        if self.request_grid.coordinate_convention != (self.spec.request_coordinate_convention):
+            raise ValueError("Provider request and request-grid conventions differ.")
         if self.source_grid.size != self.request_grid.size:
             raise ValueError("Source and request grids must have equal sizes.")
 
@@ -722,8 +724,8 @@ class FallbackCollection:
     event_time: str | None
     time: np.ndarray = field(repr=False, compare=False)
     grids: Mapping[str, SampleGrid]
-    providers: Mapping[str, ProviderSpec]
-    datasets: Mapping[str, Mapping[str, ProviderDataset]]
+    providers: Mapping[str, InputProviderSpec]
+    datasets: Mapping[str, Mapping[str, CachedProviderData]]
 
     def __post_init__(self) -> None:
         """Validate and freeze the fallback collection."""
@@ -742,7 +744,7 @@ class FallbackCollection:
                 "Fallback provider/dataset keys differ: " + ", ".join(sorted(missing))
             )
 
-        normalized: dict[str, Mapping[str, ProviderDataset]] = {}
+        normalized: dict[str, Mapping[str, CachedProviderData]] = {}
         for provider_key, provider_datasets in self.datasets.items():
             spec = providers[provider_key]
             current = dict(provider_datasets)
@@ -780,16 +782,16 @@ class FallbackCollection:
             str(grid_id): SampleGrid.from_dict(str(grid_id), grid_payload)
             for grid_id, grid_payload in payload.get("grids", {}).items()
         }
-        providers: dict[str, ProviderSpec] = {}
-        datasets: dict[str, dict[str, ProviderDataset]] = {}
+        providers: dict[str, InputProviderSpec] = {}
+        datasets: dict[str, dict[str, CachedProviderData]] = {}
 
         for provider_key, provider_payload in payload.get("providers", {}).items():
             provider_key = str(provider_key)
-            spec = ProviderSpec.from_dict(provider_payload["spec"])
+            spec = InputProviderSpec.from_dict(provider_payload["spec"])
             if spec.key != provider_key:
                 raise ValueError("Provider key and serialized spec key differ.")
             providers[provider_key] = spec
-            provider_datasets: dict[str, ProviderDataset] = {}
+            provider_datasets: dict[str, CachedProviderData] = {}
             for dataset_payload in provider_payload.get("datasets", []):
                 source_grid_id = str(dataset_payload["source_grid_id"])
                 request_grid_id = str(dataset_payload["request_grid_id"])
@@ -800,7 +802,7 @@ class FallbackCollection:
                     raise ValueError(
                         f"Provider {provider_key!r} references an unknown grid."
                     ) from exc
-                provider_datasets[source_grid_id] = ProviderDataset(
+                provider_datasets[source_grid_id] = CachedProviderData(
                     spec=spec,
                     source_grid=source_grid,
                     request_grid=request_grid,

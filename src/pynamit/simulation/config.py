@@ -270,7 +270,7 @@ class SimulationConfig:
     save_equilibria: bool = True
     integrator: str = "euler"
     least_squares_solver: str | None = None
-    least_squares_preconditioner: str | None = "pinv"
+    least_squares_preconditioner: str | None = None
     reuse_preconditioner: bool = False
     toroidal_potential_regularization_lambda: float = 0.0
 

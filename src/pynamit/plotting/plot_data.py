@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import datetime as dt
+import stat
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -11,19 +14,28 @@ from kompe.constants import MU0
 
 from pynamit.coordinates import GEOCENTRIC_GEOGRAPHIC
 from pynamit.geomagnetism import MagneticFieldEvaluation
+from pynamit.plotting.figure_settings import FigureSettings
 from pynamit.plotting.map_coordinates import MapCoordinateContext
-from pynamit.results.field_maps import evaluate_conductance_values, evaluate_JS_from_maps
-from pynamit.results.grid_evaluation import build_plot_grid, model_grid_for_geographic_display
+from pynamit.results.evaluation import (
+    build_plot_grid,
+    evaluate_conductance_values,
+    evaluate_sheet_current_from_operators,
+    model_grid_for_geographic_display,
+)
 from pynamit.results.simulation_results import SimulationResults
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     joule_heating_from_current,
     pedersen_geometry_tensor,
 )
+from pynamit.simulation.schema import SIMULATION_ARTIFACT_NAMES
+from pynamit.storage import ArtifactStore
 
 INPUT_ARTIFACT_KEYS = ("boundary_Br", "boundary_jr", "conductance", "u", "Q_eff", "E_neutral_wind")
 TANGENTIAL_INPUT_KEYS = ("u", "Q_eff", "E_neutral_wind")
 OUTPUT_FIELD_NAMES = frozenset({"Br", "jr", "Jeq", "Phi", "W", "joule"})
 _DISPLAY_COORDINATE_SYSTEMS = frozenset({"model", "geographic"})
+_CACHE_ARTIFACTS = tuple(sorted(SIMULATION_ARTIFACT_NAMES))
+_PLOT_DATA_CACHE: dict[tuple[str, int, int], tuple[tuple, PlotData]] = {}
 
 
 def _normalize_display_coordinate_system(coordinate_system):
@@ -73,10 +85,10 @@ def _build_input_transforms(
             transforms[key] = None
             continue
         target_grid = vector_grid if key in TANGENTIAL_INPUT_KEYS else scalar_grid
-        representation = schema.input_field_spaces[key].representation
-        cache_key = (representation.signature, target_grid.signature)
+        basis = schema.input_field_spaces[key].basis
+        cache_key = (basis.signature, target_grid.signature)
         if cache_key not in transform_cache:
-            transform_cache[cache_key] = SphericalTransform(representation, target_grid)
+            transform_cache[cache_key] = SphericalTransform(basis, target_grid)
         transforms[key] = transform_cache[cache_key]
     return transforms
 
@@ -323,7 +335,7 @@ def compute_output_fields_at_index(
         if "joule" in field_names:
             if sheet_current_maps is None:
                 raise ValueError("sheet_current_maps are required for Joule heating.")
-            sheet_current = evaluate_JS_from_maps(
+            sheet_current = evaluate_sheet_current_from_operators(
                 boundary_jr,
                 induced_Br,
                 boundary_jr_to_JS=sheet_current_maps["boundary_jr_to_JS"],
@@ -419,7 +431,7 @@ def compute_input_fields_at_time(
 
 
 @dataclass
-class GridFields:
+class PlotData:
     """Evaluate stored coefficients on plotting grids."""
 
     results: SimulationResults
@@ -438,7 +450,7 @@ class GridFields:
     @classmethod
     def from_directory(
         cls, simulation_directory, *, nlat=60, nlon=100, wind_nlat=19, wind_nlon=37
-    ) -> GridFields:
+    ) -> PlotData:
         """Load artifacts needed by map and input-driver figures."""
         results = SimulationResults.from_directory(
             simulation_directory,
@@ -446,7 +458,7 @@ class GridFields:
         )
         schema = results.schema
         has_model_output = any(key in results.datasets for key in ("dynamic", "equilibrium"))
-        output_basis = schema.output_field_spaces["dynamic"]["boundary_jr"].representation
+        output_basis = schema.output_field_spaces["dynamic"]["boundary_jr"].basis
         lat, lon, grid = build_plot_grid(nlat=nlat, nlon=nlon)
         wind_lat, wind_lon, wind_grid = build_plot_grid(
             nlat=wind_nlat, nlon=wind_nlon, lat_range=(-75.0, 75.0), lon_range=(-180.0, 180.0)
@@ -490,7 +502,7 @@ class GridFields:
         """Summarize evaluated fields without printing their arrays."""
         inputs = ", ".join(self.available_inputs) or "none"
         return (
-            f"GridFields(n_time={self.n_time}, inputs=[{inputs}], "
+            f"PlotData(n_time={self.n_time}, inputs=[{inputs}], "
             f"has_model_output={self.has_model_output}, "
             f"simulation_directory={self.results.simulation_directory!r})"
         )
@@ -521,7 +533,7 @@ class GridFields:
         if evaluation.output_transform is None:
             output_basis = self.results.schema.output_field_spaces["dynamic"][
                 "boundary_jr"
-            ].representation
+            ].basis
             evaluation.output_transform = SphericalTransform(output_basis, evaluation.scalar_grid)
         return evaluation.output_transform
 
@@ -696,7 +708,7 @@ class GridFields:
             field_names=field_names,
         )
 
-    def output_grid_fields(self, index, *, field_names=None, coordinate_system="model"):
+    def output_plot_data(self, index, *, field_names=None, coordinate_system="model"):
         """Return gridded output fields in the requested coordinates."""
         fields = self.output_fields(
             index, field_names=field_names, coordinate_system=coordinate_system
@@ -707,13 +719,13 @@ class GridFields:
             for name, values in output_fields.items()
         }
 
-    def input_grid_fields(self, index, *, coordinate_system="model"):
+    def input_plot_data(self, index, *, coordinate_system="model"):
         """Return input-driver fields in the requested coordinates."""
-        return self.input_grid_fields_at_time(
+        return self.input_plot_data_at_time(
             self.timestamp_at_index(index), coordinate_system=coordinate_system
         )
 
-    def input_grid_fields_at_time(self, timestamp, *, coordinate_system="model"):
+    def input_plot_data_at_time(self, timestamp, *, coordinate_system="model"):
         """Return time-selected inputs in the requested coordinates."""
         coordinate_system = _normalize_display_coordinate_system(coordinate_system)
         evaluation = (
@@ -756,10 +768,84 @@ class GridFields:
         return fields
 
 
+def format_figure_time(timestamp):
+    """Return a compact title-friendly timestamp label."""
+    try:
+        return timestamp.strftime("%Y-%m-%d %H:%M:%S")
+    except AttributeError:
+        if isinstance(timestamp, (int, float)):
+            return str(dt.timedelta(seconds=float(timestamp)))
+        return str(timestamp)
+
+
+def _coerce_figure_settings(settings):
+    """Return a :class:`FigureSettings` instance."""
+    if isinstance(settings, FigureSettings):
+        return settings
+    return FigureSettings.from_dict(settings)
+
+
+def clear_plot_data_cache():
+    """Clear cached plotting data."""
+    _PLOT_DATA_CACHE.clear()
+
+
+def _path_fingerprint(path):
+    """Return a change fingerprint for one file or directory tree."""
+    try:
+        path_stat = path.stat()
+    except OSError:
+        return None
+    if not path.is_dir():
+        return ("file", path_stat.st_mtime_ns, path_stat.st_size)
+
+    latest_mtime = path_stat.st_mtime_ns
+    entry_count = 0
+    total_file_size = 0
+    for child in path.rglob("*"):
+        try:
+            child_stat = child.stat()
+        except OSError:
+            continue
+        entry_count += 1
+        latest_mtime = max(latest_mtime, child_stat.st_mtime_ns)
+        if stat.S_ISREG(child_stat.st_mode):
+            total_file_size += child_stat.st_size
+    return ("tree", latest_mtime, entry_count, total_file_size)
+
+
+def _artifact_fingerprint(simulation_directory):
+    directory = Path(simulation_directory).expanduser()
+    artifacts = ArtifactStore(directory)
+    fingerprint = []
+    for name in _CACHE_ARTIFACTS:
+        path = artifacts.existing_artifact_path(name)
+        if path is not None:
+            fingerprint.append((name, str(path), _path_fingerprint(path)))
+    return tuple(fingerprint)
+
+
+def get_plot_data(settings):
+    """Return cached plotting data for one simulation directory."""
+    settings = _coerce_figure_settings(settings)
+    simulation_directory = str(Path(settings.simulation_directory).expanduser().resolve())
+    key = (simulation_directory, 60, 100)
+    fingerprint = _artifact_fingerprint(simulation_directory)
+    cached = _PLOT_DATA_CACHE.get(key)
+    if cached is not None and cached[0] == fingerprint:
+        return cached[1]
+    plot_data = PlotData.from_directory(simulation_directory)
+    _PLOT_DATA_CACHE[key] = (fingerprint, plot_data)
+    return plot_data
+
+
 __all__ = [
-    "GridFields",
+    "PlotData",
+    "clear_plot_data_cache",
     "compute_input_fields_at_time",
     "compute_output_fields_at_index",
     "datetime_at_index",
+    "format_figure_time",
+    "get_plot_data",
     "time_index_from_dataset",
 ]

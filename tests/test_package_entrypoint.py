@@ -19,8 +19,8 @@ def test_simulation_package_has_an_explicit_public_api():
     assert hasattr(pynamit, "SimulationResults")
     assert not hasattr(pynamit, "RunResults")
     assert not hasattr(simulation_api, "RunData")
-    assert not hasattr(simulation_api, "InputPipeline")
-    assert not hasattr(simulation_api, "SimulationRunner")
+    assert not hasattr(simulation_api, "_InputProjector")
+    assert not hasattr(simulation_api, "_TimeEvolution")
     assert not hasattr(simulation_api.Simulation, "set_jr")
     assert not hasattr(simulation_api.Simulation, "set_u")
 

@@ -7,8 +7,8 @@ import numpy as np
 import ppigrf
 import pyhwm2014  # https://github.com/rilma/pyHWM14
 
-from pynamit.external_input_contracts import ExternalInputRequest
 from pynamit.external_inputs import get_conductance_inputs
+from pynamit.external_inputs.contracts import ExternalInputRequest
 
 Nmax, Mmax = 20, 20
 Ncs = 30

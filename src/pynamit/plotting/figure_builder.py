@@ -8,29 +8,29 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 
 from pynamit.plotting.field_comparison_figures import FieldComparisonRenderer
-from pynamit.plotting.figure_context import as_figure_settings, get_grid_fields
 from pynamit.plotting.figure_settings import FigureSettings
 from pynamit.plotting.ground_figures import GroundFigureRenderer
 from pynamit.plotting.input_driver_figures import InputDriverRenderer
+from pynamit.plotting.plot_data import _coerce_figure_settings, get_plot_data
 
 
-def render_figure(settings, grid_fields=None):
+def render_figure(settings, plot_data=None):
     """Render a Matplotlib figure from :class:`FigureSettings`."""
-    settings = as_figure_settings(settings)
+    settings = _coerce_figure_settings(settings)
     if settings.plot_type in {"global", "hemispheres"}:
-        return FieldComparisonRenderer(settings, grid_fields=grid_fields).render()
+        return FieldComparisonRenderer(settings, plot_data=plot_data).render()
     if settings.plot_type == "input_summary":
-        return InputDriverRenderer(settings, grid_fields=grid_fields).render()
+        return InputDriverRenderer(settings, plot_data=plot_data).render()
     if settings.plot_type == "ground_curve_map":
-        return GroundFigureRenderer(settings, grid_fields=grid_fields).render_curve_map()
+        return GroundFigureRenderer(settings, plot_data=plot_data).render_curve_map()
     if settings.plot_type == "ground_timeseries":
-        return GroundFigureRenderer(settings, grid_fields=grid_fields).render_timeseries()
+        return GroundFigureRenderer(settings, plot_data=plot_data).render_timeseries()
     raise NotImplementedError(f"{settings.plot_type!r} is not implemented by the figure renderer.")
 
 
 def save_movie(settings, output_path, *, fps=None, dpi=None):
     """Render a time-index movie as an animated GIF."""
-    settings = as_figure_settings(settings)
+    settings = _coerce_figure_settings(settings)
     if settings.plot_type not in {"global", "hemispheres", "input_summary"}:
         raise ValueError("Movie export is currently for global, hemisphere, and input maps.")
     output_path = Path(output_path).expanduser()
@@ -42,12 +42,12 @@ def save_movie(settings, output_path, *, fps=None, dpi=None):
     except ImportError as exc:  # pragma: no cover - optional dependency guard
         raise ImportError("Movie export requires Pillow.") from exc
 
-    grid_fields = get_grid_fields(settings)
+    plot_data = get_plot_data(settings)
     start, end = [int(value) for value in settings.time_range]
-    start = max(0, min(start, grid_fields.n_time - 1))
-    end = max(start, min(end, grid_fields.n_time - 1))
+    start = max(0, min(start, plot_data.n_time - 1))
+    end = max(start, min(end, plot_data.n_time - 1))
     if end == start:
-        end = min(grid_fields.n_time - 1, start + min(60, max(grid_fields.n_time - 1, 1)))
+        end = min(plot_data.n_time - 1, start + min(60, max(plot_data.n_time - 1, 1)))
 
     duration_ms = int(round(1000.0 / max(float(fps or settings.movie_fps), 1e-6)))
     frame_dpi = int(dpi or settings.movie_dpi)
@@ -59,7 +59,7 @@ def save_movie(settings, output_path, *, fps=None, dpi=None):
         for index in range(start, end + 1):
             frame_data = settings.to_dict()
             frame_data["time_index"] = index
-            fig = render_figure(FigureSettings.from_dict(frame_data), grid_fields=grid_fields)
+            fig = render_figure(FigureSettings.from_dict(frame_data), plot_data=plot_data)
             buffer = BytesIO()
             fig.savefig(buffer, format="png", dpi=frame_dpi, bbox_inches="tight")
             plt.close(fig)
@@ -73,10 +73,7 @@ def save_movie(settings, output_path, *, fps=None, dpi=None):
         )
     finally:
         for frame in frames:
-            try:
-                frame.close()
-            except Exception:
-                pass
+            frame.close()
     return output_path
 
 

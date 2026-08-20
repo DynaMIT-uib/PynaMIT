@@ -592,7 +592,7 @@ class _MageInputProjector:
         self._ionosphere_sqrt_weights = grid_sqrt_area_weights(ionosphere_grid)
         self._ionosphere_tangential_sqrt_weights = np.tile(self._ionosphere_sqrt_weights, (2, 1))
         conductance_space = preparation.data.schema.input_field_spaces["conductance"]
-        self._conductance_evaluator = conductance_space.representation.scalar_evaluation_operator(
+        self._conductance_evaluator = conductance_space.basis.scalar_evaluation_operator(
             ionosphere_grid
         )
 
@@ -643,7 +643,7 @@ class _MageInputProjector:
             raise ValueError("Hall conductance contains non-finite or negative values.")
         if np.any(~np.isfinite(sigma_p)) or np.any(sigma_p < 0.0):
             raise ValueError("Pedersen conductance contains non-finite or negative values.")
-        if np.any(sigma_p**2 + sigma_h**2 <= np.finfo(float).tiny):
+        if np.any((sigma_p == 0.0) & (sigma_h == 0.0)):
             raise ValueError("Pedersen and Hall conductance cannot both be zero.")
         _print_field_stats("  Hall conductance [S]", sigma_h)
         _print_field_stats("  Pedersen conductance [S]", sigma_p)
@@ -710,10 +710,10 @@ class _MageInputProjector:
         )
 
 
-def project_forcing(
+def prepare_inputs(
     *,
     forcing_path: str | Path,
-    projection_directory: str | Path,
+    input_directory: str | Path,
     dipole_B0_override: float | None,
     boundary_radius_override: float | None,
     nmax: int,
@@ -747,9 +747,9 @@ def project_forcing(
 
     import h5py
 
-    projection_directory = Path(projection_directory).expanduser()
+    input_directory = Path(input_directory).expanduser()
 
-    with _staged_input_package(projection_directory, artifact_storage) as staged_directory:
+    with _staged_input_package(input_directory, artifact_storage) as staged_directory:
         with h5py.File(forcing_path, "r") as file:
             _validate_prepared_forcing(file)
             nominal_times, input_times = _h5_time_vector_seconds(file["time"][:])
@@ -786,7 +786,7 @@ def project_forcing(
             )
 
             print(f"Using forcing file: {forcing_path}", flush=True)
-            print(f"Writing projected input package: {projection_directory}", flush=True)
+            print(f"Writing projected input package: {input_directory}", flush=True)
             print(f"Nominal event time: {event_time.isoformat()}", flush=True)
             print(
                 "Nominal forcing time span: "
@@ -950,8 +950,8 @@ def project_forcing(
                 },
             )
 
-    print(f"Projected input package written to {projection_directory}", flush=True)
-    return projection_directory
+    print(f"Projected input package written to {input_directory}", flush=True)
+    return input_directory
 
 
-__all__ = ["MAGE_MAIN_FIELD_KIND", "project_forcing"]
+__all__ = ["MAGE_MAIN_FIELD_KIND", "prepare_inputs"]

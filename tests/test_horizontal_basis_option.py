@@ -5,7 +5,7 @@ import pytest
 from kompe.constants import EARTH_RADIUS_M
 from kompe.math import tensor_pinv, weighted_tensor_pinv
 
-from pynamit.simulation.api import Simulation
+from pynamit.simulation.simulation import Simulation
 from pynamit.workflows.example import run_example
 
 
@@ -233,18 +233,18 @@ def test_cs_horizontal_basis_runs_with_pfac(tmp_path):
     )
 
     geometry = simulation.geometry
-    gap_Br_response = geometry.boundary_jr_to_gap_Br_matrix
-    assert isinstance(gap_Br_response, np.ndarray)
-    assert not gap_Br_response.flags.writeable
+    response_matrix = geometry.boundary_jr_to_gap_Br_matrix
+    assert isinstance(response_matrix, np.ndarray)
+    assert not response_matrix.flags.writeable
 
     assert simulation.data.schema.horizontal_basis is simulation.geometry.horizontal_basis
     assert simulation.geometry.solid_harmonics.basis is not simulation.geometry.horizontal_basis
-    assert gap_Br_response.shape == (
+    assert response_matrix.shape == (
         simulation.geometry.poloidal_basis.index_length,
         simulation.geometry.horizontal_basis.index_length,
     )
-    assert np.linalg.norm(gap_Br_response) > 0.0
-    assert np.all(np.isfinite(gap_Br_response))
+    assert np.linalg.norm(response_matrix) > 0.0
+    assert np.all(np.isfinite(response_matrix))
     assert np.all(np.isfinite(geometry.boundary_jr_to_gridded_JS_operator().array))
 
 

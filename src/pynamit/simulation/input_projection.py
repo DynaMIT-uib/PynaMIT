@@ -14,12 +14,12 @@ from pynamit.simulation.electrodynamics import ionospheric_closure
 from pynamit.simulation.schema import INPUT_VARIABLES
 
 if TYPE_CHECKING:
-    from pynamit.simulation.api import InputPreparation
+    from pynamit.simulation.input_preparation import InputPreparation
 
 _WIND_FORCING_KEYS = frozenset({"u", "Q_eff", "E_neutral_wind"})
 
 
-class InputPipeline:
+class _InputProjector:
     """Validate, project, and store inputs during preparation."""
 
     def __init__(self, preparation: InputPreparation):
@@ -28,15 +28,15 @@ class InputPipeline:
 
     def projection_transform_for(self, key: str) -> SphericalTransform:
         """Return the shared projection transform for one input."""
-        representation = self.preparation.data.schema.input_field_spaces[key].representation
-        if representation not in self._projection_transforms:
-            self._projection_transforms[representation] = SphericalTransform(
-                representation,
+        basis = self.preparation.data.schema.input_field_spaces[key].basis
+        if basis not in self._projection_transforms:
+            self._projection_transforms[basis] = SphericalTransform(
+                basis,
                 self.preparation.model_grid,
-                grid_remap_basis=self.preparation.data.schema.cs_basis,
+                remapping_basis=self.preparation.data.schema.cs_basis,
                 area_weighted=self.preparation.config.area_weighted_least_squares,
             )
-        return self._projection_transforms[representation]
+        return self._projection_transforms[basis]
 
     def radial_current_from_FAC(self, FAC, *, lat=None, lon=None, theta=None, phi=None):
         """Convert signed field-parallel samples to radial current.
@@ -270,7 +270,7 @@ class InputPipeline:
         """Evaluate wind-equivalent Q_eff samples on the model grid."""
         response = self.preparation._require_response()
         grid = self.preparation.geometry.model_grid
-        wind_representation = self.preparation.data.schema.input_field_spaces["u"].representation
+        wind_representation = self.preparation.data.schema.input_field_spaces["u"].basis
         wind_synthesis = wind_representation.helmholtz_synthesis_operator(grid)
         Q_eff_values = []
         for time_value, wind_coeffs in zip(input_time, wind_coeff_rows, strict=True):
@@ -294,7 +294,7 @@ class InputPipeline:
         """Fit stored Q_eff coefficients to wind-driven E."""
         response = self.preparation._require_response()
         q_field_space = self.preparation.data.schema.input_field_spaces["Q_eff"]
-        q_synthesis = q_field_space.representation.helmholtz_synthesis_operator(
+        q_synthesis = q_field_space.basis.helmholtz_synthesis_operator(
             self.preparation.geometry.model_grid
         )
         q_coeff_rows = []
@@ -385,7 +385,7 @@ class InputPipeline:
         """Project scalar input variables in one batched transform."""
         transform = self.projection_transform_for(key)
         normalized = {
-            var: transform.normalize_scalar_samples(values, input_grid)
+            var: transform.as_scalar_sample_rows(values, input_grid)
             for var, values in input_data.items()
         }
         for var, values in normalized.items():

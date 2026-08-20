@@ -6,22 +6,22 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-import pynamit.external_inputs as external_inputs_module
-from pynamit.external_input_contracts import (
+from pynamit.external_inputs import providers as external_inputs_module
+from pynamit.external_inputs.contracts import (
     BOUNDARY_JR_PROVIDER_SPEC,
     CONDUCTANCE_PROVIDER_SPEC,
     LIBRARY_GEOGRAPHIC_110KM,
     NEUTRAL_WIND_PROVIDER_SPEC,
     ExternalInputRequest,
 )
-from pynamit.external_inputs import (
+from pynamit.external_inputs.providers import (
     _expand_time_series,
     _library_horizontal_wind_to_spherical,
     _load_fallback,
     _select_fallback_entry,
+    get_boundary_jr_inputs,
     get_conductance_inputs,
     get_input_source,
-    get_jr_inputs,
     get_wind_inputs,
     save_fallback_dataset,
     set_input_source,
@@ -127,7 +127,7 @@ def test_native_geographic_conductance_uses_shared_library_request_grid(monkeypa
     np.testing.assert_allclose(captured["sza"][1], source.lon)
     assert captured["sza"][2] == provider_date
     assert captured["euv"][1:] == (100, "hp", "MoenBrekke1993")
-    assert provider_grid.coordinate_contract is LIBRARY_GEOGRAPHIC_110KM
+    assert provider_grid.coordinate_convention is LIBRARY_GEOGRAPHIC_110KM
     np.testing.assert_allclose(hall, np.sqrt(11.0))
     np.testing.assert_allclose(pedersen, np.sqrt(21.0))
     np.testing.assert_allclose(out_lat, source.lat)
@@ -236,7 +236,7 @@ def test_native_geographic_jr_uses_shared_library_request_grid(monkeypatch):
     date = datetime.datetime(
         2001, 5, 13, 0, 45, tzinfo=datetime.timezone(datetime.timedelta(hours=3))
     )
-    jr, out_lat, out_lon = get_jr_inputs(date, None, None, None, request=request)
+    jr, out_lat, out_lon = get_boundary_jr_inputs(date, None, None, None, request=request)
 
     expected_mlat = provider_grid.lat + 5.0
     expected_mlon = provider_grid.lon + 10.0
@@ -303,7 +303,7 @@ def test_native_dipole_jr_uses_explicit_model_view_and_epoch(monkeypatch):
         2001, 5, 13, 0, 45, tzinfo=datetime.timezone(datetime.timedelta(hours=3))
     )
 
-    jr, out_lat, out_lon = get_jr_inputs(date, None, None, None, request=request)
+    jr, out_lat, out_lon = get_boundary_jr_inputs(date, None, None, None, request=request)
 
     expected_date = datetime.datetime(2001, 5, 12, 21, 45)
     assert captured["epoch"] == pytest.approx(request.model_epoch)
@@ -436,9 +436,9 @@ def test_loaded_collection_shares_both_grid_views():
         assert hardy.source_grid is amps.source_grid is hwm.source_grid
         assert hardy.request_grid is amps.request_grid is hwm.request_grid
         assert (
-            hardy.spec.request_coordinate_contract
-            == amps.spec.request_coordinate_contract
-            == hwm.spec.request_coordinate_contract
+            hardy.spec.request_coordinate_convention
+            == amps.spec.request_coordinate_convention
+            == hwm.spec.request_coordinate_convention
             == LIBRARY_GEOGRAPHIC_110KM
         )
 
@@ -453,7 +453,7 @@ def test_fallback_all_providers_match_exact_source_grid(force_fallback):
     pedersen, hall, conductance_lat, conductance_lon = get_conductance_inputs(
         _utc_now(), None, None, None, request=request
     )
-    jr, jr_lat, jr_lon = get_jr_inputs(_utc_now(), None, None, None, request=request)
+    jr, jr_lat, jr_lon = get_boundary_jr_inputs(_utc_now(), None, None, None, request=request)
     wind = get_wind_inputs(_utc_now(), use_wind=True, time=None, request=request)
     assert wind is not None
     u_theta, u_phi, wind_lat, wind_lon, weights = wind

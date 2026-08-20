@@ -1,4 +1,4 @@
-"""Figure renderers for inductive/non-inductive field comparisons."""
+"""Figure renderers for dynamic/equilibrium field comparisons."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
 
-from pynamit.plotting.figure_context import as_figure_settings, figure_time_string, get_grid_fields
 from pynamit.plotting.figure_styles import (
     FIELD_DIFF_KWARGS,
     FIELD_PLOT_KWARGS,
@@ -16,6 +15,7 @@ from pynamit.plotting.figure_styles import (
     map_line_keys,
 )
 from pynamit.plotting.hemisphere import hemisphere_masks_for_latitude, make_hemisphere_polarplot
+from pynamit.plotting.plot_data import _coerce_figure_settings, format_figure_time, get_plot_data
 from pynamit.plotting.plot_helpers import (
     contour_kwargs_for_display,
     draw_line_contour_legend,
@@ -147,22 +147,22 @@ def _draw_field_comparison_artists(
 class FieldComparisonRenderer:
     """Render map comparisons from one saved simulation."""
 
-    def __init__(self, settings, grid_fields=None):
-        self.settings = as_figure_settings(settings)
-        self.grid_fields = get_grid_fields(self.settings) if grid_fields is None else grid_fields
+    def __init__(self, settings, plot_data=None):
+        self.settings = _coerce_figure_settings(settings)
+        self.plot_data = get_plot_data(self.settings) if plot_data is None else plot_data
 
     def render(self):
-        """Render inductive/non-inductive map panels."""
-        has_dynamic = "dynamic" in self.grid_fields.results.datasets
-        has_equilibrium = "equilibrium" in self.grid_fields.results.datasets
-        if self.settings.show_inductive and not has_dynamic:
+        """Render dynamic/equilibrium map panels."""
+        has_dynamic = "dynamic" in self.plot_data.results.datasets
+        has_equilibrium = "equilibrium" in self.plot_data.results.datasets
+        if self.settings.show_dynamic and not has_dynamic:
             raise ValueError(
-                "This simulation has no inductive dynamic output. Disable Inductive plots, "
+                "This simulation has no dynamic output. Disable Dynamic plots, "
                 "or rerun with run_dynamic=True."
             )
-        if self.settings.show_noninductive and not has_equilibrium:
+        if self.settings.show_equilibrium and not has_equilibrium:
             raise ValueError(
-                "This simulation has no equilibrium output. Disable Non-inductive plots, "
+                "This simulation has no equilibrium output. Disable Equilibrium plots, "
                 "or rerun with run_equilibrium=True."
             )
         if self.settings.show_difference and not (has_dynamic and has_equilibrium):
@@ -173,27 +173,27 @@ class FieldComparisonRenderer:
         display_coordinate_system = (
             "geographic" if self.settings.plot_type == "global" else "model"
         )
-        fields = self.grid_fields.output_grid_fields(
+        fields = self.plot_data.output_plot_data(
             self.settings.time_index,
             field_names=field_names,
             coordinate_system=display_coordinate_system,
         )
-        timestamp = self.grid_fields.timestamp_at_index(self.settings.time_index)
+        timestamp = self.plot_data.timestamp_at_index(self.settings.time_index)
         if self.settings.plot_type == "global":
-            display_latitude, display_longitude = self.grid_fields.lat, self.grid_fields.lon
-            display_coordinate_context = self.grid_fields.geographic_map_context(timestamp)
+            display_latitude, display_longitude = self.plot_data.lat, self.plot_data.lon
+            display_coordinate_context = self.plot_data.geographic_map_context(timestamp)
         else:
-            display_latitude, display_longitude = self.grid_fields.magnetic_plot_coordinates()
-            display_coordinate_context = self.grid_fields.magnetic_map_context(timestamp)
+            display_latitude, display_longitude = self.plot_data.magnetic_plot_coordinates()
+            display_coordinate_context = self.plot_data.magnetic_map_context(timestamp)
         plot_kwargs = {key: dict(value) for key, value in FIELD_PLOT_KWARGS.items()}
         diff_kwargs = {key: dict(value) for key, value in FIELD_DIFF_KWARGS.items()}
         filled_key = None if str(self.settings.fill) == "none" else str(self.settings.fill)
         if filled_key is not None:
             if self.settings.color_scale_mode == "percentile":
                 percentile_fields = []
-                if self.settings.show_inductive:
+                if self.settings.show_dynamic:
                     percentile_fields.append(fields[f"{filled_key}_dynamic"])
-                if self.settings.show_noninductive:
+                if self.settings.show_equilibrium:
                     percentile_fields.append(fields[f"{filled_key}_equilibrium"])
                 plot_kwargs[filled_key]["levels"] = percentile_contour_levels(
                     percentile_fields,
@@ -253,17 +253,17 @@ class FieldComparisonRenderer:
         line_keys = map_line_keys(self.settings.lines)
         line_label = ", ".join(line_keys) if line_keys else "none"
         fig.suptitle(
-            f"Time: {figure_time_string(timestamp)} | filled: {fill_label}; lines: {line_label}",
+            f"Time: {format_figure_time(timestamp)} | filled: {fill_label}; lines: {line_label}",
             fontsize=15,
         )
         return fig
 
     def _panel_specs(self):
         panels = []
-        if self.settings.show_inductive:
-            panels.append(("dynamic", "Inductive"))
-        if self.settings.show_noninductive:
-            panels.append(("equilibrium", "Non-inductive"))
+        if self.settings.show_dynamic:
+            panels.append(("dynamic", "Dynamic"))
+        if self.settings.show_equilibrium:
+            panels.append(("equilibrium", "Equilibrium"))
         if self.settings.show_difference:
             panels.append(("diff", "Difference"))
         return panels or [("empty", "No data selected")]
@@ -327,7 +327,7 @@ class FieldComparisonRenderer:
         return fig, axes_groups, colorbar_axes
 
     def _create_global_axes(self, panel_specs, n_panels, timestamp):
-        coordinate_context = self.grid_fields.geographic_map_context(timestamp)
+        coordinate_context = self.plot_data.geographic_map_context(timestamp)
         fig = plt.figure(figsize=(13, 6), constrained_layout=True)
         grid = gridspec.GridSpec(
             1,

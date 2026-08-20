@@ -19,7 +19,6 @@ from pynamit.magnetometers import (
     normalize_station_metadata,
     shift_station_datetime_index,
 )
-from pynamit.plotting.figure_context import as_figure_settings, get_grid_fields
 from pynamit.plotting.local_time import apply_local_time_grid_labels
 from pynamit.plotting.map_curves import (
     build_even_global_sites,
@@ -32,6 +31,7 @@ from pynamit.plotting.map_curves import (
     split_wrapped_curve,
     wrap_longitudes,
 )
+from pynamit.plotting.plot_data import _coerce_figure_settings, get_plot_data
 from pynamit.results.time_series import (
     compute_centered_difference_matrix_at_times,
     compute_centered_difference_series_at_times,
@@ -48,22 +48,22 @@ _STATION_FILE_CACHE = {}
 class GroundFigureRenderer:
     """Render ground magnetic figures."""
 
-    def __init__(self, settings, grid_fields=None):
-        self.settings = as_figure_settings(settings)
-        self.grid_fields = get_grid_fields(self.settings) if grid_fields is None else grid_fields
+    def __init__(self, settings, plot_data=None):
+        self.settings = _coerce_figure_settings(settings)
+        self.plot_data = get_plot_data(self.settings) if plot_data is None else plot_data
         self._station_table_cache = None
         self._station_data_directory_cache = None
 
     @property
     def _time_index(self):
         """Saved simulation time index."""
-        return self.grid_fields.time_index
+        return self.plot_data.time_index
 
     def render_curve_map(self):
         """Render a ground magnetic time-curve map."""
         target_times = self._ground_plot_times()
         source_times = self._time_index + pd.to_timedelta(
-            float(self.settings.sim_time_offset_seconds), unit="s"
+            float(self.settings.simulation_time_offset_seconds), unit="s"
         )
         dbdt_cadence_seconds = get_time_index_median_cadence_seconds(source_times)
         normalized_time = np.linspace(0.0, 1.0, len(target_times))
@@ -76,10 +76,10 @@ class GroundFigureRenderer:
                 "and local-time filtering."
             )
 
-        br_ind, bh_ind, br_equilibrium, bh_equilibrium = self._ground_field_matrices(lat, lon)
+        br_dynamic, bh_dynamic, br_equilibrium, bh_equilibrium = self._ground_field_matrices(lat, lon)
         layers = self._curve_layers(
-            br_ind,
-            bh_ind,
+            br_dynamic,
+            bh_dynamic,
             br_equilibrium,
             bh_equilibrium,
             source_times,
@@ -90,10 +90,10 @@ class GroundFigureRenderer:
         if not layers:
             raise ValueError("Enable at least one model series for the ground curve map.")
 
-        curve_width_deg = 10.0 * float(self.settings.curve_time_scale)
+        curve_width_deg = 10.0 * float(self.settings.curve_time_width_scale)
         curve_height_deg = 4.0
-        low_latitude_scale = max(float(self.settings.low_latitude_scale), np.finfo(float).tiny)
-        low_latitude_cutoff = max(float(self.settings.min_abs_dip_latitude), 0.0)
+        low_latitude_scale = float(self.settings.low_latitude_scale)
+        low_latitude_cutoff = float(self.settings.min_abs_dip_latitude)
         low_latitude_values = self._site_magnetic_latitude(lat, lon, target_times[0])
         site_curve_scale = np.where(
             np.abs(low_latitude_values) < low_latitude_cutoff, low_latitude_scale, 1.0
@@ -223,11 +223,11 @@ class GroundFigureRenderer:
         if rows.empty:
             raise ValueError(f"Unknown station {station_code!r}.")
         station = rows.iloc[0]
-        br_ind, bh_ind, br_equilibrium, bh_equilibrium = self._ground_field_matrices(
+        br_dynamic, bh_dynamic, br_equilibrium, bh_equilibrium = self._ground_field_matrices(
             [station["GEOLAT"]], [station["GEOLON"]]
         )
         source_times = self._time_index + pd.to_timedelta(
-            float(self.settings.sim_time_offset_seconds), unit="s"
+            float(self.settings.simulation_time_offset_seconds), unit="s"
         )
         dbdt_cadence_seconds = get_time_index_median_cadence_seconds(source_times)
         target_times = self._ground_plot_times()
@@ -246,28 +246,28 @@ class GroundFigureRenderer:
                             measured.index,
                             measured[component].to_numpy(dtype=float),
                             values.index,
-                            half_window_points=max(1, int(self.settings.dbdt_window_points)),
+                            half_window_points=self.settings.dbdt_window_points,
                             cadence_seconds=dbdt_cadence_seconds,
                         ),
                         index=values.index,
                     )
                 axis.plot(values.index, values, color="black", label="Measured")
             for br_values, bh_values, label, color, linestyle, enabled in [
-                (br_ind, bh_ind, "Inductive", "#D55E00", "-", self.settings.show_inductive),
+                (br_dynamic, bh_dynamic, "Dynamic", "#D55E00", "-", self.settings.show_dynamic),
                 (
                     br_equilibrium,
                     bh_equilibrium,
-                    "Non-inductive",
+                    "Equilibrium",
                     "#009E73",
                     "-",
-                    self.settings.show_noninductive,
+                    self.settings.show_equilibrium,
                 ),
             ]:
                 if not enabled:
                     continue
                 if br_values is None or bh_values is None:
                     raise ValueError(
-                        "This simulation has no equilibrium output. Disable Non-inductive "
+                        "This simulation has no equilibrium output. Disable Equilibrium "
                         "ground curves, or rerun with save_equilibria=True."
                     )
                 values = self._ground_matrix_at_times(
@@ -296,11 +296,11 @@ class GroundFigureRenderer:
     def _target_times(self):
         """Return the selected target time interval."""
         start, end = [int(value) for value in self.settings.time_range]
-        start = max(0, min(start, self.grid_fields.n_time - 1))
-        end = max(start, min(end, self.grid_fields.n_time - 1))
+        start = max(0, min(start, self.plot_data.n_time - 1))
+        end = max(start, min(end, self.plot_data.n_time - 1))
         if end == start:
             end = min(
-                self.grid_fields.n_time - 1, start + min(60, max(self.grid_fields.n_time - 1, 1))
+                self.plot_data.n_time - 1, start + min(60, max(self.plot_data.n_time - 1, 1))
             )
         return self._time_index[start : end + 1]
 
@@ -323,8 +323,8 @@ class GroundFigureRenderer:
             raise ValueError("site_lat and site_lon must have the same length.")
 
         key = (
-            id(self.grid_fields),
-            str(self.grid_fields.results.artifact_store.directory),
+            id(self.plot_data),
+            str(self.plot_data.results.artifact_store.directory),
             tuple(np.round(lat_arr, 8).tolist()),
             tuple(np.round(lon_arr, 8).tolist()),
         )
@@ -332,23 +332,23 @@ class GroundFigureRenderer:
         if cached is not None:
             return cached
 
-        geometry = self.grid_fields.load_geometry()
+        geometry = self.plot_data.load_geometry()
         grid = SphericalGrid(lat=lat_arr, lon=lon_arr)
-        ri = float(self.grid_fields.results.config.RI)
+        ri = float(self.plot_data.results.config.RI)
         solid_harmonics = geometry.solid_harmonics
         solid_basis = solid_harmonics.basis
         transform = SphericalTransform(solid_basis, grid)
-        ve_to_ground = solid_harmonics.regular_reference_shift(ri, EARTH_RADIUS_M)
+        ve_to_ground = solid_harmonics.regular_reference_shift_factors(ri, EARTH_RADIUS_M)
         induced_Br_to_br_ground = ve_to_ground * transform.scalar_synthesis_matrix
         induced_Br_to_bh_ground = ve_to_ground / solid_basis.n * transform.surface_gradient_matrix
 
-        induced_Br = self.grid_fields.dataset_values("dynamic", "induced_Br").T
-        equilibrium_dataset = self.grid_fields.results.datasets.get("equilibrium")
+        induced_Br = self.plot_data.dataset_values("dynamic", "induced_Br").T
+        equilibrium_dataset = self.plot_data.results.datasets.get("equilibrium")
         if equilibrium_dataset is None:
             br_equilibrium = None
             bh_equilibrium = None
         else:
-            equilibrium_induced_Br = self.grid_fields.dataset_values("equilibrium", "induced_Br").T
+            equilibrium_induced_Br = self.plot_data.dataset_values("equilibrium", "induced_Br").T
             br_equilibrium = induced_Br_to_br_ground.dot(equilibrium_induced_Br)
             bh_equilibrium = induced_Br_to_bh_ground.dot(equilibrium_induced_Br)
         cached = (
@@ -400,7 +400,7 @@ class GroundFigureRenderer:
             equatorial_count=self.settings.ground_model_lt_count,
             min_sites_per_row=1,
             reference_time=target_times[0],
-            visually_even=self.settings.ground_model_visual_even,
+            visually_even=self.settings.uniform_ground_longitude_count,
         )
         site_mask = geographic_local_time_mask(
             lat,
@@ -413,8 +413,8 @@ class GroundFigureRenderer:
 
     def _curve_layers(
         self,
-        br_ind,
-        bh_ind,
+        br_dynamic,
+        bh_dynamic,
         br_equilibrium,
         bh_equilibrium,
         source_times,
@@ -437,15 +437,15 @@ class GroundFigureRenderer:
                     "zorder": 8,
                 }
             )
-        if self.settings.show_inductive:
+        if self.settings.show_dynamic:
             layers.append(
                 {
-                    "series_key": "inductive",
-                    "label": "Inductive",
+                    "series_key": "dynamic",
+                    "label": "Dynamic",
                     "values": self._ground_matrix_at_times(
                         self.settings.ground_component,
-                        br_ind,
-                        bh_ind,
+                        br_dynamic,
+                        bh_dynamic,
                         source_times,
                         target_times,
                         quantity=self.settings.ground_quantity,
@@ -457,16 +457,16 @@ class GroundFigureRenderer:
                     "zorder": 7,
                 }
             )
-        if self.settings.show_noninductive:
+        if self.settings.show_equilibrium:
             if br_equilibrium is None or bh_equilibrium is None:
                 raise ValueError(
-                    "This simulation has no equilibrium output. Disable Non-inductive "
+                    "This simulation has no equilibrium output. Disable Equilibrium "
                     "ground curves, or rerun with save_equilibria=True."
                 )
             layers.append(
                 {
-                    "series_key": "magnetostatic",
-                    "label": "Non-inductive",
+                    "series_key": "equilibrium",
+                    "label": "Equilibrium",
                     "values": self._ground_matrix_at_times(
                         self.settings.ground_component,
                         br_equilibrium,
@@ -492,9 +492,9 @@ class GroundFigureRenderer:
         simulation_directory = Path(self.settings.simulation_directory).expanduser()
         repo_root = Path(__file__).resolve().parents[3]
         candidates = []
-        if self.settings.data_directory:
+        if self.settings.station_data_directory:
             candidates.append(
-                Path(self.settings.data_directory).expanduser() / "stations_full_list.csv"
+                Path(self.settings.station_data_directory).expanduser() / "stations_full_list.csv"
             )
         candidates.extend(
             [
@@ -513,7 +513,7 @@ class GroundFigureRenderer:
             except FileNotFoundError:
                 continue
         raise ValueError(
-            "Could not find stations_full_list.csv. Set data_directory in "
+            "Could not find stations_full_list.csv. Set station_data_directory in "
             "pynamit_plot_defaults.json or place station data in mag_data/."
         )
 
@@ -608,7 +608,7 @@ class GroundFigureRenderer:
                         measured.index,
                         measured[key].to_numpy(dtype=float),
                         target_times,
-                        half_window_points=max(1, int(self.settings.dbdt_window_points)),
+                        half_window_points=self.settings.dbdt_window_points,
                         cadence_seconds=dbdt_cadence_seconds,
                     )
                 )
@@ -643,10 +643,10 @@ class GroundFigureRenderer:
         """Return magnetic latitude used for low-latitude selection."""
         lat_arr = np.asarray(lat, dtype=float)
         lon_arr = np.asarray(lon, dtype=float)
-        main_field = self.grid_fields.load_geometry().main_field
+        main_field = self.plot_data.load_geometry().main_field
         if main_field.kind in {"igrf", "kaiju_dipole"}:
             mlat = main_field.magnetic_latitude(
-                self.grid_fields.results.config.RI, 90.0 - lat_arr, lon_arr
+                self.plot_data.results.config.RI, 90.0 - lat_arr, lon_arr
             )
             return np.asarray(mlat, dtype=float)
         if main_field.kind == "dipole":
@@ -730,8 +730,8 @@ class GroundFigureRenderer:
             source_index,
             self._ground_component_matrix(base, br_values, bh_values),
             target_index,
-            half_window_points=max(1, int(self.settings.dbdt_window_points)),
-            cadence_seconds=dbdt_cadence_seconds or cadence,
+            half_window_points=self.settings.dbdt_window_points,
+            cadence_seconds=(cadence if dbdt_cadence_seconds is None else dbdt_cadence_seconds),
         )
         return np.abs(values) if self._ground_component_uses_abs(component) else values
 
@@ -745,12 +745,12 @@ class GroundFigureRenderer:
             if valid.size:
                 finite.append(valid)
         if not finite:
-            return max(0.5 * float(fallback), np.finfo(float).tiny), float(fallback)
+            return 0.5 * float(fallback), float(fallback)
         display = float(np.nanpercentile(np.concatenate(finite), 95.0))
         if not np.isfinite(display) or display <= 0.0:
             display = float(fallback)
         display = float(np.ceil(2.0 * display))
-        return max(0.5 * display, np.finfo(float).tiny), display
+        return 0.5 * display, display
 
     @staticmethod
     def _duration_label(time_index):
@@ -790,12 +790,9 @@ class GroundFigureRenderer:
         """Return the reference line payload for curve maps."""
         if not self.settings.show_reference_line or len(target_times) < 2:
             return None
-        try:
-            reference_time = pd.Timestamp(
-                f"{target_times[0].date()} {self.settings.reference_time_of_day_utc}"
-            )
-        except ValueError:
-            return None
+        reference_time = pd.Timestamp(
+            f"{target_times[0].date()} {self.settings.reference_time_of_day_utc}"
+        )
         total_seconds = (target_times[-1] - target_times[0]).total_seconds()
         if total_seconds <= 0.0:
             return None
@@ -815,14 +812,11 @@ class GroundFigureRenderer:
     def _draw_reference_line_on_axis(self, axis, target_times):
         if not self.settings.show_reference_line:
             return
-        try:
-            ref_time = pd.Timestamp(
-                f"{target_times[0].date()} {self.settings.reference_time_of_day_utc}"
-            )
-            if target_times[0] <= ref_time <= target_times[-1]:
-                axis.axvline(ref_time, color="#0072B2", linestyle=(0, (1, 1)), zorder=20)
-        except ValueError:
-            pass
+        ref_time = pd.Timestamp(
+            f"{target_times[0].date()} {self.settings.reference_time_of_day_utc}"
+        )
+        if target_times[0] <= ref_time <= target_times[-1]:
+            axis.axvline(ref_time, color="#0072B2", linestyle=(0, (1, 1)), zorder=20)
 
     @staticmethod
     def _style_ground_map_axis(axis, data_projection, reference_time):
@@ -851,7 +845,7 @@ class GroundFigureRenderer:
         ):
             return handles
 
-        fields = self.grid_fields.input_grid_fields_at_time(target_time)
+        fields = self.plot_data.input_plot_data_at_time(target_time)
 
         overlay_specs = [
             (
@@ -886,8 +880,8 @@ class GroundFigureRenderer:
                     continue
                 levels = np.array([median], dtype=float)
             axis.contour(
-                self.grid_fields.lon,
-                self.grid_fields.lat,
+                self.plot_data.lon,
+                self.plot_data.lat,
                 values,
                 levels=levels,
                 colors=color,
@@ -911,7 +905,7 @@ class GroundFigureRenderer:
         return handles
 
     def _draw_low_latitude_curves(self, axis, data_projection, central_longitude):
-        main_field = self.grid_fields.load_geometry().main_field
+        main_field = self.plot_data.load_geometry().main_field
         boundary = float(self.settings.min_abs_dip_latitude)
         dip_equator_style = {
             "color": "#0072B2",
@@ -1029,12 +1023,9 @@ class GroundFigureRenderer:
         lon_arr = np.asarray(lon, dtype=float).reshape(-1)
         lat_arr = np.asarray(lat, dtype=float).reshape(-1)
         scale_arr = np.asarray(site_curve_scale, dtype=float).reshape(-1)
-        if scale_arr.size != lon_arr.size:
-            scale_arr = np.ones(lon_arr.size, dtype=float)
-        scale_arr = np.where(np.isfinite(scale_arr) & (scale_arr > 0.0), scale_arr, 1.0)
-        value_scale = max(float(value_scale), np.finfo(float).tiny)
+        value_scale = float(value_scale)
         vertical_axis_height = float(curve_height_deg) * (float(scale_display_value) / value_scale)
-        label_offset = 0.2 * max(vertical_axis_height, np.finfo(float).tiny)
+        label_offset = 0.2 * vertical_axis_height
         time_origin_offset = -0.5 * float(curve_width_deg)
         label_lon = wrap_longitudes(
             lon_arr + time_origin_offset, central_longitude=central_longitude

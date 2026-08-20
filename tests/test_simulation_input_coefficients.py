@@ -4,11 +4,11 @@ import numpy as np
 from kompe.constants import EARTH_RADIUS_M
 
 from pynamit.fields import FieldCoefficients
-from pynamit.simulation.api import Simulation
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     conductance_to_log_coordinates,
     resistance_to_log_conductance_coordinates,
 )
+from pynamit.simulation.simulation import Simulation
 
 
 def _small_simulation(tmp_path, **kwargs):
@@ -26,11 +26,11 @@ def _small_simulation(tmp_path, **kwargs):
 def test_simulation_reuses_input_transforms_for_shared_representations(tmp_path):
     """Input transforms are shared by representation and grid."""
     simulation = _small_simulation(tmp_path)
-    pipeline = simulation._input_pipeline
+    projector = simulation._input_projector
 
-    assert pipeline._projection_transforms == {}
+    assert projector._projection_transforms == {}
     transforms = {
-        key: pipeline.projection_transform_for(key)
+        key: projector.projection_transform_for(key)
         for key in ("boundary_jr", "boundary_Br", "u", "Q_eff", "E_neutral_wind", "conductance")
     }
 
@@ -53,7 +53,7 @@ def test_set_boundary_jr_accepts_input_basis_coefficients(tmp_path):
     dataset = simulation.data.input_series.datasets["boundary_jr"]
     np.testing.assert_allclose(dataset["SH_boundary_jr"].isel(time=0).values, boundary_jr_coeffs)
     np.testing.assert_allclose(dataset.time.values, [4.0])
-    assert simulation._input_pipeline._projection_transforms == {}
+    assert simulation._input_projector._projection_transforms == {}
 
 
 def test_set_boundary_Br_accepts_input_basis_coefficients(tmp_path):
@@ -308,12 +308,27 @@ def test_set_conductance_can_store_native_cs_grid_values(tmp_path):
     simulation.response.activate_inputs_at_time(simulation.data.input_series, time=6.0)
     np.testing.assert_allclose(simulation.response.log_conductance_magnitude.array, log_magnitude)
     np.testing.assert_allclose(simulation.response.log_hall_to_pedersen_ratio.array, log_ratio)
-    conductance_basis = simulation.response.log_conductance_magnitude.field_space.representation
+    conductance_basis = simulation.response.log_conductance_magnitude.field_space.basis
     np.testing.assert_allclose(
         conductance_basis.scalar_evaluation_operator(grid).to_matrix(backend="numpy"),
         np.eye(grid.size),
         atol=1e-12,
     )
+
+
+def test_set_conductance_rejects_mixed_samples_and_coefficients(tmp_path):
+    """Do not silently ignore samples when coefficients are supplied."""
+    simulation = _small_simulation(tmp_path)
+    field_space = simulation.data.schema.input_field_spaces["conductance"]
+    coefficients = np.zeros(field_space.coefficient_shape)
+
+    with np.testing.assert_raises_regex(ValueError, "cannot be combined with sample values"):
+        simulation.set_conductance(
+            pedersen=np.ones(simulation.geometry.model_grid.size),
+            hall=np.ones(simulation.geometry.model_grid.size),
+            log_magnitude_coefficients=coefficients,
+            log_ratio_coefficients=coefficients,
+        )
 
 
 def test_identical_conductance_history_retains_closure_caches(tmp_path):
@@ -335,6 +350,24 @@ def test_identical_conductance_history_retains_closure_caches(tmp_path):
 
     assert response.conductance_fingerprint == first_fingerprint
     assert response._induced_poloidal_potential_feedback_matrix is sentinel
+
+
+def test_conductance_activation_fingerprints_stored_coefficients(tmp_path, monkeypatch):
+    """Fingerprint stored conductance before backend transfer."""
+    simulation = _small_simulation(tmp_path)
+    field_space = simulation.data.schema.input_field_spaces["conductance"]
+    coefficients = np.zeros(field_space.coefficient_shape)
+    simulation.set_conductance(
+        log_magnitude_coefficients=coefficients, log_ratio_coefficients=coefficients, time=0.0
+    )
+
+    def fail_on_backend_copy(_array):
+        raise AssertionError("conductance activation copied an active backend array")
+
+    monkeypatch.setattr("pynamit.simulation.response.to_numpy", fail_on_backend_copy)
+    simulation.response.activate_inputs_at_time(simulation.data.input_series, time=0.0)
+
+    assert simulation.response.conductance_fingerprint
 
 
 def test_set_conductance_cs_basis_remaps_non_model_grid(tmp_path):
@@ -383,7 +416,7 @@ def test_set_conductance_projects_dimensionless_log_coordinates(tmp_path, monkey
         recorded["key"] = key
         recorded["kwargs"] = kwargs
 
-    monkeypatch.setattr(simulation._input_pipeline, "set_scalar_input", record_set_scalar_input)
+    monkeypatch.setattr(simulation._input_projector, "set_scalar_input", record_set_scalar_input)
 
     simulation.set_conductance(
         pedersen=pedersen,
@@ -420,7 +453,7 @@ def test_set_resistance_projects_direct_log_conductance_coordinates(tmp_path, mo
         recorded["key"] = key
         recorded["kwargs"] = kwargs
 
-    monkeypatch.setattr(simulation._input_pipeline, "set_scalar_input", record_set_scalar_input)
+    monkeypatch.setattr(simulation._input_projector, "set_scalar_input", record_set_scalar_input)
 
     simulation.set_resistance(
         etaP=eta_p,

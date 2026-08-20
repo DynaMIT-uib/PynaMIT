@@ -232,7 +232,9 @@ def percentile_contour_levels(
     if finite.size == 0:
         return fallback_levels
     n_levels = max(len(fallback_levels), 3)
-    percentile = float(np.clip(percentile, 0.0, 100.0))
+    percentile = float(percentile)
+    if not np.isfinite(percentile) or not 0.0 <= percentile <= 100.0:
+        raise ValueError("percentile must be between 0 and 100.")
     if strictly_positive:
         finite = finite[finite >= 0.0]
         if finite.size == 0:
@@ -249,27 +251,8 @@ def percentile_contour_levels(
 
 def set_contour_edges_to_face(contour):
     """Avoid hairline gaps in filled contour artists."""
-    try:
-        contour.set_edgecolor("face")
-        return contour
-    except Exception:
-        pass
-    for collection in getattr(contour, "collections", []):
-        try:
-            collection.set_edgecolor("face")
-        except Exception:
-            pass
+    contour.set_edgecolor("face")
     return contour
-
-
-def stabilize_polarplot(pax):
-    """Set stable aspect/anchor properties on a polplot axis."""
-    try:
-        pax.ax.set_aspect("equal", adjustable="box")
-        pax.ax.set_anchor("C")
-    except Exception:
-        pass
-    return pax
 
 
 @contextmanager
@@ -326,11 +309,8 @@ def style_global_axis(
         coordinate_context.apply_grid_labels(gridliner)
     elif local_time_reference is not None:
         apply_local_time_grid_labels(gridliner, reference_time=local_time_reference)
-    try:
-        gridliner.xlabel_style = {"size": label_size}
-        gridliner.ylabel_style = {"size": label_size}
-    except Exception:
-        pass
+    gridliner.xlabel_style = {"size": label_size}
+    gridliner.ylabel_style = {"size": label_size}
     return gridliner
 
 
@@ -417,7 +397,6 @@ __all__ = [
     "format_contour_interval",
     "get_ticks_from_levels",
     "set_contour_edges_to_face",
-    "stabilize_polarplot",
     "style_global_axis",
     "style_global_comparison_axis",
     "style_global_input_axis",

@@ -1,11 +1,16 @@
 [build-system]
-requires = ["setuptools", "setuptools_scm[toml]"]
+requires = ["setuptools>=77", "setuptools_scm[toml]>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "pynamit"
 dynamic = ["version"]
+description = "Inductive magnetosphere-ionosphere-thermosphere coupling on a spherical shell"
+readme = "README.md"
 requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{name = "PynaMIT Developers"}]
 dependencies = [
     "apexpy",
     "dipole @ git+https://github.com/klaundal/dipole.git@main",
@@ -17,6 +22,25 @@ dependencies = [
     "kompe>=0.2.0",
     "xarray",
 ]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+keywords = ["geophysics", "ionosphere", "magnetosphere", "space physics"]
+
+[project.urls]
+Homepage = "https://github.com/DynaMIT-uib/PynaMIT"
+Documentation = "https://dynamit-uib.github.io/PynaMIT/"
+Issues = "https://github.com/DynaMIT-uib/PynaMIT/issues"
+Repository = "https://github.com/DynaMIT-uib/PynaMIT.git"
 
 [project.optional-dependencies]
 jax = [
@@ -52,6 +76,9 @@ pynamit-gui = "pynamit.gui.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+pynamit = ["data/*.json"]
 
 [tool.setuptools_scm]
 

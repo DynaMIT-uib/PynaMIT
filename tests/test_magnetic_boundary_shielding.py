@@ -18,10 +18,10 @@ def test_boundary_br_continuation_reproduces_prescribed_outer_field():
     inner_radius = 6.5e6
     boundary_radius = 10.0e6
     regular_to_inner = np.asarray(
-        solid_harmonics.regular_reference_shift(boundary_radius, inner_radius)
+        solid_harmonics.regular_reference_shift_factors(boundary_radius, inner_radius)
     )
     irregular_to_boundary = np.asarray(
-        solid_harmonics.irregular_reference_shift(inner_radius, boundary_radius)
+        solid_harmonics.irregular_reference_shift_factors(inner_radius, boundary_radius)
     )
     denominator = 1.0 - regular_to_inner * irregular_to_boundary
     inner_br_per_poloidal = -(inner_radius**2) * np.asarray(
@@ -51,10 +51,10 @@ def test_optional_induced_Br_shielding_cancels_field_at_outer_boundary():
     inner_radius = 6.5e6
     boundary_radius = 10.0e6
     regular_to_inner = np.asarray(
-        solid_harmonics.regular_reference_shift(boundary_radius, inner_radius)
+        solid_harmonics.regular_reference_shift_factors(boundary_radius, inner_radius)
     )
     irregular_to_boundary = np.asarray(
-        solid_harmonics.irregular_reference_shift(inner_radius, boundary_radius)
+        solid_harmonics.irregular_reference_shift_factors(inner_radius, boundary_radius)
     )
     shielded_scale = shielded_induced_poloidal_scale(
         solid_harmonics, boundary_radius, inner_radius
@@ -63,7 +63,7 @@ def test_optional_induced_Br_shielding_cancels_field_at_outer_boundary():
     unshielded_part = irregular_to_boundary * shielded_scale
     image_at_inner = -regular_to_inner * irregular_to_boundary * shielded_scale
     image_part = image_at_inner * np.asarray(
-        solid_harmonics.regular_reference_shift(inner_radius, boundary_radius)
+        solid_harmonics.regular_reference_shift_factors(inner_radius, boundary_radius)
     )
     np.testing.assert_allclose(unshielded_part + image_part, 0.0, atol=1e-15)
     np.testing.assert_allclose(

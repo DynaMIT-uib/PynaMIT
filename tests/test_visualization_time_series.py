@@ -35,7 +35,7 @@ def test_datetime_index_to_epoch_ns_normalizes_resolution():
 
 def test_numeric_saved_times_use_mage_event_time_origin():
     """MAGE output seconds should be displayed from event t0."""
-    from pynamit.plotting.grid_fields import time_index_from_dataset
+    from pynamit.plotting.plot_data import time_index_from_dataset
 
     dataset = xr.Dataset(coords={"time": np.array([0.0, 10.0, 20.0])})
 
@@ -49,7 +49,7 @@ def test_numeric_saved_times_use_mage_event_time_origin():
 
 def test_numeric_saved_times_require_physical_start_time():
     """Numeric model seconds are not silently treated as Unix time."""
-    from pynamit.plotting.grid_fields import time_index_from_dataset
+    from pynamit.plotting.plot_data import time_index_from_dataset
 
     dataset = xr.Dataset(coords={"time": np.array([0.0, 10.0])})
 
@@ -59,7 +59,7 @@ def test_numeric_saved_times_require_physical_start_time():
 
 def test_saved_field_time_lookup_handles_mixed_datetime_resolutions():
     """Dataset lookup must normalize datetime resolutions."""
-    from pynamit.plotting.grid_fields import _dataset_index_at_time
+    from pynamit.plotting.plot_data import _dataset_index_at_time
 
     dataset = xr.Dataset(
         coords={
@@ -147,6 +147,17 @@ def test_centered_difference_series_uses_interpolated_window():
     np.testing.assert_allclose(derivative, np.array([np.nan, 2.0]))
 
 
+def test_centered_difference_series_rejects_invalid_numerical_settings():
+    """Invalid difference settings are not silently repaired."""
+    index = pd.date_range("2020-01-01", periods=3, freq="10s")
+    with pytest.raises(ValueError, match="half_window_points"):
+        compute_centered_difference_series_at_times(index, np.arange(3), index, 0)
+    with pytest.raises(ValueError, match="cadence_seconds"):
+        compute_centered_difference_series_at_times(
+            index, np.arange(3), index, cadence_seconds=-1.0
+        )
+
+
 def test_centered_difference_matrix_applies_rows():
     """Matrix centered differences keep one row per source row."""
     index = pd.date_range("2020-01-01", periods=5, freq="10s")
@@ -181,16 +192,15 @@ def test_compute_time_derivative_matrix_preserves_shape():
 
 
 def test_compute_time_derivative_matrix_rejects_invalid_time_axis():
-    """Nonmonotonic or mismatched time axes should return NaNs."""
+    """Invalid time axes fail at the data boundary."""
     invalid_index = pd.to_datetime(
         ["2020-01-01T00:00:00", "2020-01-01T00:00:10", "2020-01-01T00:00:05"]
     )
 
-    derivative = compute_time_derivative_matrix(np.ones((2, 3)), invalid_index)
-    mismatched = compute_time_derivative_matrix(np.ones((2, 4)), invalid_index)
-
-    assert np.all(np.isnan(derivative))
-    assert np.all(np.isnan(mismatched))
+    with pytest.raises(ValueError, match="strictly increasing"):
+        compute_time_derivative_matrix(np.ones((2, 3)), invalid_index)
+    with pytest.raises(ValueError, match="must match"):
+        compute_time_derivative_matrix(np.ones((2, 4)), invalid_index)
 
 
 def test_prominent_peak_candidates_separate_events():
@@ -231,6 +241,23 @@ def test_local_peak_abs_value_and_time_prefers_window():
 
     assert peak_value == 3.0
     assert peak_time == index[5]
+
+
+def test_peak_helpers_reject_invalid_inputs_instead_of_guessing():
+    """Bad settings should not select a plausible-looking peak."""
+    index = pd.date_range("2020-01-01", periods=3, freq="10s")
+    values = np.array([0.0, 1.0, 0.0])
+
+    with pytest.raises(ValueError, match="same length"):
+        prominent_peak_candidates(values[:-1], index)
+    with pytest.raises(ValueError, match="prominence_fraction"):
+        prominent_peak_candidates(values, index, prominence_fraction=-0.1)
+    with pytest.raises(ValueError, match="noise_floor_fraction"):
+        first_event_peak_abs_value_and_time(values, index, noise_floor_fraction=-0.1)
+    with pytest.raises(ValueError, match="half_window_seconds"):
+        local_peak_abs_value_and_time(values, index, index[1], half_window_seconds=-1.0)
+    with pytest.raises((TypeError, ValueError)):
+        local_peak_abs_value_and_time(values, index, "not a time")
 
 
 def test_vector_magnitude_helpers_preserve_nan_only_columns():
@@ -345,7 +372,7 @@ def test_reference_aligned_curve_centers_keep_reference_x_on_site():
         site_lon,
         site_lat,
         normalized_time,
-        [{"label": "Inductive", "series_key": "inductive", "values": center_values}],
+        [{"label": "Dynamic", "series_key": "dynamic", "values": center_values}],
         curve_width_deg=curve_width,
         curve_height_deg=curve_height,
         value_scale=value_scale,
@@ -395,8 +422,8 @@ def test_reference_aligned_curve_centers_prefers_measured_anchor():
     site_lat = np.array([50.0, 60.0])
     normalized_time = np.array([0.0, 1.0])
     measured = np.array([[10.0, 12.0], [20.0, 22.0]])
-    inductive = np.array([[1.0, 3.0], [2.0, 4.0]])
-    magnetostatic = np.array([[5.0, 7.0], [6.0, 8.0]])
+    dynamic = np.array([[1.0, 3.0], [2.0, 4.0]])
+    equilibrium = np.array([[5.0, 7.0], [6.0, 8.0]])
 
     curve_lon, curve_lat = reference_aligned_curve_centers(
         site_lon,
@@ -404,8 +431,8 @@ def test_reference_aligned_curve_centers_prefers_measured_anchor():
         normalized_time,
         [
             {"series_key": "measured", "values": measured},
-            {"series_key": "inductive", "values": inductive},
-            {"series_key": "magnetostatic", "values": magnetostatic},
+            {"series_key": "dynamic", "values": dynamic},
+            {"series_key": "equilibrium", "values": equilibrium},
         ],
         curve_width_deg=8.0,
         curve_height_deg=2.0,
@@ -424,16 +451,16 @@ def test_reference_aligned_curve_centers_averages_enabled_models():
     site_lon = np.array([10.0, 20.0])
     site_lat = np.array([50.0, 60.0])
     normalized_time = np.array([0.0, 1.0])
-    inductive = np.array([[1.0, 3.0], [np.nan, 4.0]])
-    magnetostatic = np.array([[5.0, 7.0], [6.0, np.nan]])
+    dynamic = np.array([[1.0, 3.0], [np.nan, 4.0]])
+    equilibrium = np.array([[5.0, 7.0], [6.0, np.nan]])
 
     curve_lon, curve_lat = reference_aligned_curve_centers(
         site_lon,
         site_lat,
         normalized_time,
         [
-            {"series_key": "inductive", "values": inductive},
-            {"series_key": "magnetostatic", "values": magnetostatic},
+            {"series_key": "dynamic", "values": dynamic},
+            {"series_key": "equilibrium", "values": equilibrium},
         ],
         curve_width_deg=8.0,
         curve_height_deg=2.0,
@@ -446,13 +473,35 @@ def test_reference_aligned_curve_centers_averages_enabled_models():
     np.testing.assert_allclose(curve_lat, site_lat - 2.0 * reference_values / 10.0)
 
 
+def test_curve_alignment_rejects_invalid_geometry_instead_of_guessing():
+    """Malformed geometry cannot silently disable alignment."""
+    from pynamit.plotting.map_curves import reference_aligned_curve_centers
+
+    kwargs = {
+        "site_lon": [0.0],
+        "site_lat": [60.0],
+        "normalized_time": [0.0, 1.0],
+        "layers": [{"series_key": "measured", "values": [[1.0, 2.0]]}],
+        "curve_width_deg": 10.0,
+        "curve_height_deg": 5.0,
+        "value_scale": 2.0,
+        "reference_line": {"position": 0.5},
+    }
+    with pytest.raises(ValueError, match="site_curve_scale"):
+        reference_aligned_curve_centers(**kwargs, site_curve_scale=[0.0])
+    with pytest.raises(ValueError, match="value_scale"):
+        reference_aligned_curve_centers(**{**kwargs, "value_scale": 0.0})
+    with pytest.raises(ValueError, match="position"):
+        reference_aligned_curve_centers(**{**kwargs, "reference_line": {"position": np.nan}})
+
+
 def test_ground_plot_times_preserve_one_second_station_resolution():
     """Ground plots keep a 1 s measured-data grid."""
     from pynamit.plotting.ground_figures import GroundFigureRenderer
 
     renderer = object.__new__(GroundFigureRenderer)
     renderer.settings = SimpleNamespace(time_range=(0, 2), include_station_data=True)
-    renderer.grid_fields = SimpleNamespace(
+    renderer.plot_data = SimpleNamespace(
         n_time=3,
         time_index=pd.to_datetime(
             ["2020-01-01T00:00:00.004", "2020-01-01T00:00:10.000", "2020-01-01T00:00:20.019"]

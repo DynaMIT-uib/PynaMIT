@@ -17,7 +17,10 @@ from pynamit.plotting.map_coordinates import MapCoordinateContext
 from pynamit.plotting.plot_helpers import build_percentile_color_scale, style_global_input_axis
 from pynamit.results.input_projection import evaluate_projected_input
 from pynamit.results.simulation_results import SimulationResults
-from pynamit.simulation.electrodynamics.ionospheric_closure import CONDUCTANCE_REFERENCE_S
+from pynamit.simulation.electrodynamics.ionospheric_closure import (
+    CONDUCTANCE_REFERENCE_S,
+    conductance_to_resistance,
+)
 
 DEFAULT_PROJECTION_COMPARISON_FIELDS = ("etaP", "etaH", "SigmaP", "SigmaH", "jr", "Br")
 
@@ -177,13 +180,13 @@ def _raw_field(h5_file, field: str, step: int) -> np.ndarray:
         return sigma_p
     if field == "SigmaH":
         return sigma_h
-    denominator = sigma_p**2 + sigma_h**2
-    if np.any(denominator <= np.finfo(float).tiny):
+    if np.any((sigma_p == 0.0) & (sigma_h == 0.0)):
         raise ValueError("Prepared conductances cannot both be zero.")
+    eta_p, eta_h = conductance_to_resistance(sigma_p, sigma_h)
     if field == "etaP":
-        return sigma_p / denominator
+        return np.asarray(eta_p)
     if field == "etaH":
-        return sigma_h / denominator
+        return np.asarray(eta_h)
     raise AssertionError(f"Unhandled projection-comparison field {field!r}.")
 
 
@@ -203,10 +206,10 @@ def _collect_comparison_data(h5_file, input_series, steps, fields, time_seconds,
                     f"Projected package has no {series_key!r} input required for {field!r}."
                 )
             field_space = input_series.get_field_space(series_key)
-            evaluator_key = (field_space.representation.signature, details["grid"])
+            evaluator_key = (field_space.basis.signature, details["grid"])
             if evaluator_key not in evaluators:
                 evaluators[evaluator_key] = SphericalTransform(
-                    field_space.representation, grid_details["grid"]
+                    field_space.basis, grid_details["grid"]
                 )
             evaluation_key = (step, series_key, details["grid"])
             if evaluation_key not in evaluations:
@@ -554,7 +557,7 @@ def _render_comparison_figure(
 
 def plot_input_projection_comparison(
     forcing_path,
-    projection_directory,
+    input_directory,
     *,
     steps=None,
     fields=DEFAULT_PROJECTION_COMPARISON_FIELDS,
@@ -572,10 +575,10 @@ def plot_input_projection_comparison(
     conductance fields.
     """
     forcing_path = Path(forcing_path).expanduser()
-    projection_directory = Path(projection_directory).expanduser()
+    input_directory = Path(input_directory).expanduser()
     fields = _validate_fields(fields)
     results = SimulationResults.from_directory(
-        projection_directory, operator_cache_directory=operator_cache_directory
+        input_directory, operator_cache_directory=operator_cache_directory
     )
     input_series = results.load_input_series()
     with h5py.File(forcing_path, "r") as h5_file:
@@ -595,7 +598,7 @@ def plot_input_projection_comparison(
         )
         report = _comparison_report(
             forcing_path=forcing_path,
-            projected_directory=projection_directory,
+            projected_directory=input_directory,
             steps=steps,
             fields=fields,
             timestamps=timestamps,
@@ -647,7 +650,7 @@ def _json_compatible(value):
 
 def write_input_projection_diagnostics(
     forcing_path,
-    projection_directory,
+    input_directory,
     *,
     output_directory=None,
     timesteps=None,
@@ -655,9 +658,9 @@ def write_input_projection_diagnostics(
     operator_cache_directory=None,
 ):
     """Write the comparison figure and JSON metrics."""
-    projection_directory = Path(projection_directory).expanduser()
+    input_directory = Path(input_directory).expanduser()
     diagnostics_directory = (
-        projection_directory / "diagnostics"
+        input_directory / "diagnostics"
         if output_directory is None
         else Path(output_directory).expanduser()
     )
@@ -666,7 +669,7 @@ def write_input_projection_diagnostics(
     metrics_path = diagnostics_directory / "input_projection_metrics.json"
     report = plot_input_projection_comparison(
         forcing_path,
-        projection_directory,
+        input_directory,
         steps=timesteps,
         fields=fields,
         figure_path=figure_path,

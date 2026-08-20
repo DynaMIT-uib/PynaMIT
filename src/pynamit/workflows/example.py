@@ -7,7 +7,7 @@ starting point for simulation scripts.
 
 from pathlib import Path
 
-from pynamit.simulation.runner import DEFAULT_DT_SECONDS
+from pynamit.simulation.evolution import DEFAULT_DT_SECONDS
 from pynamit.storage import ArtifactStore
 from pynamit.workflows.example_inputs import prepare_example_inputs
 from pynamit.workflows.prepared_inputs import run_from_inputs
@@ -15,8 +15,8 @@ from pynamit.workflows.prepared_inputs import run_from_inputs
 
 def run_example(
     final_time=100,
-    sampling_step_interval=1,
-    write_sample_interval=200,
+    steps_per_sample=1,
+    samples_per_write=200,
     dt=DEFAULT_DT_SECONDS,
     Nmax=20,
     Mmax=20,
@@ -46,7 +46,7 @@ def run_example(
     Q_eff_lambda=None,
     multi_data=False,
     least_squares_solver=None,
-    least_squares_preconditioner="pinv",
+    least_squares_preconditioner=None,
     reuse_preconditioner=False,
     toroidal_potential_regularization_lambda=0.0,
     simulation_directory=None,
@@ -62,9 +62,9 @@ def run_example(
     ----------
     final_time : float, optional
         The final time of the simulation in seconds.
-    sampling_step_interval : int, optional
+    steps_per_sample : int, optional
         Number of integration steps between retained output samples.
-    write_sample_interval : int, optional
+    samples_per_write : int, optional
         Number of output samples between persistence writes.
     dt : float, optional
         The time step for the simulation.
@@ -203,8 +203,8 @@ def run_example(
         input_directory,
         simulation_directory=simulation_directory,
         final_time=final_time,
-        sampling_step_interval=sampling_step_interval,
-        write_sample_interval=write_sample_interval,
+        steps_per_sample=steps_per_sample,
+        samples_per_write=samples_per_write,
         dt=dt,
         RM=RM,
         main_field_kind=main_field_kind,

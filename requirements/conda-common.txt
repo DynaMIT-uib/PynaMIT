@@ -7,12 +7,10 @@ python
 
 # scientific stack
 h5py
-jax>=0.4.26
 numpy
 pandas
 ppigrf
 scipy
-tqdm
 xarray
 zarr
 
@@ -23,7 +21,6 @@ mscorefonts
 panel
 
 # testing and documentation
-coveralls
 myst-parser
 pytest
 sphinx

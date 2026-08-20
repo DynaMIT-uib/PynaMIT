@@ -5,8 +5,8 @@ import pytest
 import xarray as xr
 
 import pynamit
-from pynamit.simulation.api import Simulation
 from pynamit.simulation.config import SimulationConfig
+from pynamit.simulation.simulation import Simulation
 from pynamit.simulation.simulation_data import SimulationData
 from pynamit.storage import ArtifactStore
 
@@ -44,14 +44,14 @@ def test_simulation_data_owns_schema_artifacts_and_field_series(tmp_path):
     assert data.simulation_directory == str(simulation_directory.resolve())
     assert not hasattr(data, "run_directory")
     assert data.settings_saved is False
-    assert data.gap_Br_response is None
+    assert data.boundary_jr_to_gap_Br_matrix is None
     assert data.config.horizontal_basis_kind == "CS"
     assert data.config.boundary_jr_projection_basis == "CS"
     data.save_settings_if_missing()
     output_spaces = data.schema.output_field_spaces["dynamic"]
     n_magnetic = output_spaces["induced_Br"].coefficient_length
     n_surface = output_spaces["boundary_jr"].coefficient_length
-    data.save_gap_Br_response_if_missing(np.zeros((n_magnetic, n_surface)))
+    data.save_boundary_jr_to_gap_Br_matrix_if_missing(np.zeros((n_magnetic, n_surface)))
     data.input_series.add_entry(
         "boundary_jr",
         {
@@ -70,11 +70,11 @@ def test_simulation_data_owns_schema_artifacts_and_field_series(tmp_path):
     )
 
     assert reloaded.settings_saved is True
-    assert reloaded.gap_Br_response is not None
-    assert reloaded.gap_Br_response.dims == ("poloidal_i", "surface_i")
+    assert reloaded.boundary_jr_to_gap_Br_matrix is not None
+    assert reloaded.boundary_jr_to_gap_Br_matrix.dims == ("poloidal_i", "surface_i")
     assert "boundary_jr" in reloaded.input_series.datasets
     assert "dynamic" in reloaded.output_series.datasets
-    np.testing.assert_allclose(reloaded.gap_Br_response.values, np.zeros((n_magnetic, n_surface)))
+    np.testing.assert_allclose(reloaded.boundary_jr_to_gap_Br_matrix.values, np.zeros((n_magnetic, n_surface)))
     np.testing.assert_allclose(
         reloaded.output_series.get_entry("dynamic", 0.0)["boundary_jr"], np.zeros(n_surface)
     )
@@ -154,7 +154,7 @@ def test_simulation_exposes_interactive_views_without_copying_data(tmp_path):
     ):
         assert not hasattr(simulation, redundant_name)
     assert simulation.main_field is simulation.geometry.main_field
-    assert simulation.data.gap_Br_response is None
+    assert simulation.data.boundary_jr_to_gap_Br_matrix is None
 
 
 @pytest.mark.parametrize(
@@ -181,9 +181,9 @@ def test_simulation_persists_only_active_gap_Br_response(
     boundary_jr_shape = simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
     simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
 
-    assert simulation.data.gap_Br_response is None
+    assert simulation.data.boundary_jr_to_gap_Br_matrix is None
     simulation.impose_equilibrium(time=0.0, quiet=True)
-    assert (simulation.data.gap_Br_response is not None) is expected_persisted
+    assert (simulation.data.boundary_jr_to_gap_Br_matrix is not None) is expected_persisted
 
 
 def test_simulation_from_directory_uses_saved_configuration(tmp_path):

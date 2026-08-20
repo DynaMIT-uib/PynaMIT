@@ -8,15 +8,15 @@ from pathlib import Path
 import numpy as np
 from kompe.constants import EARTH_RADIUS_M
 
-from pynamit.external_input_contracts import ExternalInputRequest
 from pynamit.external_inputs import (
+    get_boundary_jr_inputs,
     get_conductance_inputs,
     get_input_source,
-    get_jr_inputs,
     get_wind_inputs,
 )
-from pynamit.simulation.api import InputPreparation
+from pynamit.external_inputs.contracts import ExternalInputRequest
 from pynamit.simulation.input_manifest import clear_prepared_input_package
+from pynamit.simulation.simulation import InputPreparation
 from pynamit.storage import ArtifactStore
 
 _EXAMPLE_EVENT_TIME = _datetime.datetime(2001, 5, 12, 21, 45)
@@ -41,14 +41,14 @@ def _wind_to_model_coordinates(main_field, u_theta, u_phi, lat, lon, *, event_ti
 
 def _require_source_grid(provider_name, request, returned_lat, returned_lon):
     """Require an adapter to preserve the source-grid identity."""
-    returned_identity = request.source_grid.coordinate_contract.coordinate_identity(
+    returned_identity = request.source_grid.coordinate_convention.coordinate_identity(
         returned_lat, returned_lon
     )
     if returned_identity != request.source_grid.coordinate_identity:
         returned_size = np.asarray(returned_lat).size
         raise ValueError(
             f"{provider_name} must return values on the shared "
-            f"{request.source_grid.coordinate_contract.coordinate_system} "
+            f"{request.source_grid.coordinate_convention.coordinate_system} "
             f"source grid; expected {request.source_grid.size} ordered "
             f"points but received a different {returned_size}-point grid."
         )
@@ -157,7 +157,7 @@ def prepare_example_inputs(
     )
 
     if use_boundary_jr:
-        boundary_jr, jr_lat, jr_lon = get_jr_inputs(
+        boundary_jr, jr_lat, jr_lon = get_boundary_jr_inputs(
             event_time, time=time, request=external_request
         )
         _require_source_grid("AMPS boundary-jr adapter", external_request, jr_lat, jr_lon)

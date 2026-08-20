@@ -20,7 +20,7 @@ from pynamit.plotting.hemisphere import (
 )
 from pynamit.plotting.map_coordinates import MapCoordinateContext
 from pynamit.plotting.plot_helpers import style_global_axis
-from pynamit.results.grid_evaluation import model_grid_for_geographic_display
+from pynamit.results.evaluation import model_grid_for_geographic_display
 from pynamit.results.output_fields import (
     evaluate_boundary_jr,
     evaluate_equivalent_current_function,
@@ -113,7 +113,7 @@ def plot_global_polar_map(
     plt.close()
 
 
-def plot_output_diagnostics(
+def plot_output_quicklook(
     simulation,
     title=None,
     filename=None,

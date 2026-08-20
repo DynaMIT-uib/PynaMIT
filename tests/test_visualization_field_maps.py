@@ -1,13 +1,14 @@
 """Tests for reusable visualization field maps."""
 
 import numpy as np
+import pytest
 import scipy.sparse
 from kompe.math import as_linear_map
 
-from pynamit.results.field_maps import (
+from pynamit.results.evaluation import (
     evaluate_conductance_coefficients,
     evaluate_conductance_values,
-    evaluate_JS_from_maps,
+    evaluate_sheet_current_from_operators,
     evaluate_tangential_coefficients,
     evaluate_wind_coefficients,
 )
@@ -85,7 +86,7 @@ def test_tangential_and_wind_coefficients_share_component_convention():
 
 def test_JS_map_accepts_sparse_operators():
     """Visualization field maps use the shared LinearMap adapter."""
-    current = evaluate_JS_from_maps(
+    current = evaluate_sheet_current_from_operators(
         boundary_jr=np.array([1.0, 2.0]),
         induced_Br=np.array([3.0, 4.0]),
         boundary_jr_to_JS=scipy.sparse.csr_matrix(np.eye(4, 2)),
@@ -97,7 +98,7 @@ def test_JS_map_accepts_sparse_operators():
 
 def test_JS_map_includes_optional_boundary_field():
     """Boundary Br contributes through the same current-map adapter."""
-    current = evaluate_JS_from_maps(
+    current = evaluate_sheet_current_from_operators(
         boundary_jr=np.array([1.0, 2.0]),
         induced_Br=np.array([3.0, 4.0]),
         boundary_jr_to_JS=np.eye(4, 2),
@@ -143,3 +144,21 @@ def test_live_JS_evaluation_includes_boundary_field():
     )
 
     np.testing.assert_allclose(current, np.array([[22.0, 28.0], [0.0, 0.0]]))
+
+
+@pytest.mark.requires_jax
+@pytest.mark.parametrize("backend", ["jax"], ids=["backend=jax"])
+@pytest.mark.parametrize("data_source", ["fallback"], ids=["data=fallback"])
+def test_field_map_evaluation_preserves_jax_arrays(backend, data_source):
+    """Derived result fields stay on the active array backend."""
+    import jax.numpy as jnp
+
+    coefficients = jnp.array([0.1, -0.2])
+    values = evaluate_conductance_values(coefficients, coefficients)
+    current = evaluate_sheet_current_from_operators(
+        coefficients, coefficients, boundary_jr_to_JS=jnp.eye(4, 2), induced_Br_to_JS=jnp.eye(4, 2)
+    )
+
+    assert "jax" in type(values["SigmaP"]).__module__
+    assert "jax" in type(values["etaP"]).__module__
+    assert "jax" in type(current).__module__

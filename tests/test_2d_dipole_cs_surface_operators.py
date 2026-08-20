@@ -5,8 +5,8 @@ import pytest
 from kompe import GlobalCSBasis, SHBasis, SphericalGrid, SphericalTransform
 
 from pynamit.plotting.figure_settings import FigureSettings
-from pynamit.plotting.grid_fields import GridFields
 from pynamit.plotting.ground_figures import GroundFigureRenderer
+from pynamit.plotting.plot_data import PlotData
 from pynamit.workflows.example import run_example
 
 
@@ -37,8 +37,8 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
     assert simulation.geometry.solid_harmonics.basis is not simulation.geometry.horizontal_basis
     assert not simulation.data.schema.input_field_spaces["conductance"].mean_free
     output_spaces = simulation.data.schema.output_field_spaces["dynamic"]
-    assert output_spaces["induced_Br"].representation is simulation.geometry.poloidal_basis
-    assert output_spaces["boundary_jr"].representation is simulation.geometry.horizontal_basis
+    assert output_spaces["induced_Br"].basis is simulation.geometry.poloidal_basis
+    assert output_spaces["boundary_jr"].basis is simulation.geometry.horizontal_basis
 
     geometry = simulation.geometry
     spherical_transform = geometry.horizontal_transform
@@ -112,10 +112,10 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
         simulation.response.boundary_jr.array
     ) == (pytest.approx(0.0, abs=1e-18))
 
-    view = GridFields.from_directory(
+    view = PlotData.from_directory(
         simulation.data.simulation_directory, nlat=8, nlon=12, wind_nlat=5, wind_nlon=7
     )
-    fields = view.output_grid_fields(0)
+    fields = view.output_plot_data(0)
     assert isinstance(view.output_transform.basis, GlobalCSBasis)
     assert fields["Br_dynamic"].shape == view.lat.shape
     assert fields["jr_dynamic"].shape == view.lat.shape
@@ -126,10 +126,10 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
         FigureSettings(
             simulation_directory=simulation.data.simulation_directory, include_station_data=False
         ),
-        grid_fields=view,
+        plot_data=view,
     )
-    br_ind, bh_ind, _, _ = renderer._ground_field_matrices([65.0], [0.0])
-    assert br_ind.shape == (1, view.n_time)
-    assert bh_ind.shape == (2, 1, view.n_time)
-    assert np.all(np.isfinite(br_ind))
-    assert np.all(np.isfinite(bh_ind))
+    br_dynamic, bh_dynamic, _, _ = renderer._ground_field_matrices([65.0], [0.0])
+    assert br_dynamic.shape == (1, view.n_time)
+    assert bh_dynamic.shape == (2, 1, view.n_time)
+    assert np.all(np.isfinite(br_dynamic))
+    assert np.all(np.isfinite(bh_dynamic))

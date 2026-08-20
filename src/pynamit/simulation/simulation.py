@@ -6,16 +6,16 @@ from kompe.math import set_backend
 
 from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.electrodynamics import ionospheric_closure
+from pynamit.simulation.evolution import (
+    DEFAULT_DT_SECONDS,
+    DEFAULT_SAMPLES_PER_WRITE,
+    DEFAULT_STEPS_PER_SAMPLE,
+    _TimeEvolution,
+)
 from pynamit.simulation.geometry import SimulationGeometry, build_main_field
 from pynamit.simulation.input_manifest import write_input_manifest
-from pynamit.simulation.inputs import InputPipeline
+from pynamit.simulation.input_projection import _InputProjector
 from pynamit.simulation.response import ElectrodynamicResponse
-from pynamit.simulation.runner import (
-    DEFAULT_DT_SECONDS,
-    DEFAULT_SAMPLING_STEP_INTERVAL,
-    DEFAULT_WRITE_SAMPLE_INTERVAL,
-    SimulationRunner,
-)
 from pynamit.simulation.schema import INPUT_DATASET_KEYS
 from pynamit.simulation.simulation_data import SimulationData
 from pynamit.storage import ArrayCache, ArtifactStore
@@ -28,7 +28,7 @@ class InputPreparation:
     the ``set_*`` methods. Sampled values are projected immediately and
     the resulting coefficient time series are saved in
     ``input_directory``. The preparation object does not construct the
-    time-evolution runner.
+    time-evolution state.
 
     Attributes
     ----------
@@ -187,7 +187,6 @@ class InputPreparation:
             simulation_directory=directory,
             artifact_storage=artifact_storage,
             operator_cache=self.operator_cache,
-            print_info=True,
         )
         self.config = self.data.config
         self.input_directory = self.data.simulation_directory
@@ -196,11 +195,11 @@ class InputPreparation:
         self.main_field = build_main_field(self.config)
         self.model_grid = schema.cs_basis.mesh.cell_centers
         self._geometry = None
-        self._input_pipeline = InputPipeline(self)
+        self._input_projector = _InputProjector(self)
         self._response = None
         self.current_time = np.float64(0)
 
-        self.data.save_settings_if_missing(print_info=True)
+        self.data.save_settings_if_missing()
 
     def __repr__(self):
         """Summarize projected inputs for interactive sessions."""
@@ -221,7 +220,7 @@ class InputPreparation:
                 schema.cs_basis,
                 self.main_field,
                 self.config,
-                gap_Br_response_matrix=self.data.gap_Br_response,
+                boundary_jr_to_gap_Br_matrix=self.data.boundary_jr_to_gap_Br_matrix,
                 solid_harmonics=schema.solid_harmonics,
                 operator_cache=self.operator_cache,
             )
@@ -336,7 +335,7 @@ class InputPreparation:
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
         """
-        radial_current = self._input_pipeline.radial_current_from_FAC(
+        radial_current = self._input_projector.radial_current_from_FAC(
             FAC, lat=lat, lon=lon, theta=theta, phi=phi
         )
 
@@ -388,7 +387,7 @@ class InputPreparation:
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
         """
-        self._input_pipeline.set_scalar_input(
+        self._input_projector.set_scalar_input(
             "boundary_jr",
             samples={"boundary_jr": boundary_jr},
             coefficients={"boundary_jr": boundary_jr_coefficients},
@@ -444,7 +443,7 @@ class InputPreparation:
         if self.config.RM is None:
             raise ValueError("boundary_Br can only be set if magnetospheric radius (RM) is set.")
 
-        self._input_pipeline.set_scalar_input(
+        self._input_projector.set_scalar_input(
             "boundary_Br",
             samples={"boundary_Br": boundary_Br},
             coefficients={"boundary_Br": boundary_Br_coefficients},
@@ -496,7 +495,7 @@ class InputPreparation:
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
         """
-        self._input_pipeline.require_complete_values("resistance samples", etaP=etaP, etaH=etaH)
+        self._input_projector.require_complete_values("resistance samples", etaP=etaP, etaH=etaH)
         log_magnitude, log_ratio = ionospheric_closure.resistance_to_log_conductance_coordinates(
             etaP, etaH
         )
@@ -566,10 +565,13 @@ class InputPreparation:
             log_magnitude_coefficients is not None or log_ratio_coefficients is not None
         )
         if coefficients_supplied:
+            self._input_projector.require_no_sample_values(
+                "log-conductance coefficients", pedersen=pedersen, hall=hall
+            )
             log_magnitude = None
             log_ratio = None
         else:
-            self._input_pipeline.require_complete_values(
+            self._input_projector.require_complete_values(
                 "conductance samples", pedersen=pedersen, hall=hall
             )
             log_magnitude, log_ratio = ionospheric_closure.conductance_to_log_coordinates(
@@ -610,7 +612,7 @@ class InputPreparation:
         pinv_rtol=1e-15,
     ):
         """Store canonical conductance samples or coefficients."""
-        self._input_pipeline.set_scalar_input(
+        self._input_projector.set_scalar_input(
             "conductance",
             samples={
                 "log_conductance_magnitude": log_magnitude,
@@ -673,7 +675,7 @@ class InputPreparation:
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
         """
-        self._input_pipeline.set_tangential_input(
+        self._input_projector.set_tangential_input(
             "u",
             theta_component=u_theta,
             phi_component=u_phi,
@@ -737,7 +739,7 @@ class InputPreparation:
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
         """
-        self._input_pipeline.set_tangential_input(
+        self._input_projector.set_tangential_input(
             "Q_eff",
             theta_component=Q_eff_theta,
             phi_component=Q_eff_phi,
@@ -805,7 +807,7 @@ class InputPreparation:
         pinv_rtol : float, optional
             Relative tolerance for the pseudo-inverse.
         """
-        self._input_pipeline.set_tangential_input(
+        self._input_projector.set_tangential_input(
             "E_neutral_wind",
             theta_component=E_neutral_wind_theta,
             phi_component=E_neutral_wind_phi,
@@ -845,8 +847,8 @@ class InputPreparation:
         ``calculate_Q_eff_from_neutral_wind`` to inspect the equivalent
         model-grid field without storing it.
         """
-        self._input_pipeline.require_no_exclusive_conflict("Q_eff")
-        input_time, wind_coeff_rows = self._input_pipeline.project_tangential_samples(
+        self._input_projector.require_no_exclusive_conflict("Q_eff")
+        input_time, wind_coeff_rows = self._input_projector.project_tangential_samples(
             "u",
             u_theta,
             u_phi,
@@ -859,10 +861,10 @@ class InputPreparation:
             reg_lambda=wind_reg_lambda,
             pinv_rtol=pinv_rtol,
         )
-        q_coeff_rows = self._input_pipeline.fit_Q_eff_from_neutral_wind(
+        q_coeff_rows = self._input_projector.fit_Q_eff_from_neutral_wind(
             input_time, wind_coeff_rows, reg_lambda=Q_eff_reg_lambda, pinv_rtol=pinv_rtol
         )
-        self._input_pipeline.add_input_coefficients("Q_eff", {"Q_eff": q_coeff_rows}, input_time)
+        self._input_projector.add_input_coefficients("Q_eff", {"Q_eff": q_coeff_rows}, input_time)
 
     def calculate_Q_eff_from_neutral_wind(
         self,
@@ -884,7 +886,7 @@ class InputPreparation:
                 "calculating Q_eff from wind."
             )
 
-        input_time, wind_coeff_rows = self._input_pipeline.project_tangential_samples(
+        input_time, wind_coeff_rows = self._input_projector.project_tangential_samples(
             "u",
             u_theta,
             u_phi,
@@ -897,7 +899,7 @@ class InputPreparation:
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
         )
-        return self._input_pipeline.evaluate_Q_eff_from_neutral_wind(input_time, wind_coeff_rows)
+        return self._input_projector.evaluate_Q_eff_from_neutral_wind(input_time, wind_coeff_rows)
 
 
 class Simulation(InputPreparation):
@@ -905,7 +907,7 @@ class Simulation(InputPreparation):
 
     A simulation supports the same input setters as
     :class:`InputPreparation`, then adds the electrodynamic response and
-    time-evolution runner.
+    time evolution.
     """
 
     def __init__(
@@ -935,7 +937,7 @@ class Simulation(InputPreparation):
         save_equilibria=True,
         integrator="euler",
         least_squares_solver=None,
-        least_squares_preconditioner="pinv",
+        least_squares_preconditioner=None,
         reuse_preconditioner=False,
         toroidal_potential_regularization_lambda=0.0,
         artifact_storage="auto",
@@ -1039,7 +1041,7 @@ class Simulation(InputPreparation):
         self._open_simulation_runtime()
 
     def _open_simulation_runtime(self):
-        """Open outputs and the runner after the shared input state."""
+        """Initialize the response and evolution state."""
         self.simulation_directory = self.data.simulation_directory
         self.outputs = self.data.output_series.datasets
         self._require_response()
@@ -1047,7 +1049,7 @@ class Simulation(InputPreparation):
         self.current_time = (
             np.max(current_output.time.values) if current_output is not None else np.float64(0)
         )
-        self._runner = SimulationRunner(self)
+        self._time_evolution = _TimeEvolution(self)
 
     def __repr__(self):
         """Summarize the live simulation for interactive sessions."""
@@ -1117,8 +1119,8 @@ class Simulation(InputPreparation):
         self,
         t,
         dt=DEFAULT_DT_SECONDS,
-        sampling_step_interval=DEFAULT_SAMPLING_STEP_INTERVAL,
-        write_sample_interval=DEFAULT_WRITE_SAMPLE_INTERVAL,
+        steps_per_sample=DEFAULT_STEPS_PER_SAMPLE,
+        samples_per_write=DEFAULT_SAMPLES_PER_WRITE,
         quiet=False,
         initialize_from_equilibrium=True,
         run_dynamic=True,
@@ -1126,15 +1128,15 @@ class Simulation(InputPreparation):
     ):
         """Evolve the inductive solution to ``t`` seconds after ``t0``.
 
-        ``sampling_step_interval`` controls how often output is
-        retained; ``write_sample_interval`` controls how many retained
+        ``steps_per_sample`` controls how often output is
+        retained; ``samples_per_write`` controls how many retained
         samples are accumulated between persistence writes.
         """
-        return self._runner.evolve_to_time(
+        return self._time_evolution.evolve_to_time(
             t,
             dt=dt,
-            sampling_step_interval=sampling_step_interval,
-            write_sample_interval=write_sample_interval,
+            steps_per_sample=steps_per_sample,
+            samples_per_write=samples_per_write,
             quiet=quiet,
             initialize_from_equilibrium=initialize_from_equilibrium,
             run_dynamic=run_dynamic,
@@ -1143,7 +1145,7 @@ class Simulation(InputPreparation):
 
     def impose_equilibrium(self, time=None, interpolation=True, save=True, quiet=False):
         """Solve the instantaneous induction equilibrium."""
-        return self._runner.impose_equilibrium(
+        return self._time_evolution.impose_equilibrium(
             time=time, interpolation=interpolation, save=save, quiet=quiet
         )
 

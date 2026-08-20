@@ -10,26 +10,23 @@ from pathlib import Path
 import numpy as np
 from kompe.constants import EARTH_RADIUS_M
 
-from pynamit.external_input_contracts import (
+from pynamit import Simulation
+from pynamit.external_inputs import (
     BOUNDARY_JR_PROVIDER_SPEC,
     CONDUCTANCE_PROVIDER_SPEC,
     NEUTRAL_WIND_PROVIDER_SPEC,
     PROVIDER_SPECS,
+    CachedProviderData,
     ExternalInputRequest,
     FallbackCollection,
-    ProviderDataset,
-)
-from pynamit.external_inputs import (
-    FALLBACK_SCHEMA_VERSION,
-    _read_fallback,
+    get_boundary_jr_inputs,
     get_conductance_inputs,
-    get_jr_inputs,
     get_wind_inputs,
     native_inputs_available,
     set_input_source,
 )
+from pynamit.external_inputs.providers import FALLBACK_SCHEMA_VERSION, _read_fallback
 from pynamit.geomagnetism import decimal_year
-from pynamit.simulation.api import Simulation
 from pynamit.workflows.example_inputs import _EXAMPLE_EVENT_TIME
 
 OUTPUT = Path("src/pynamit/data/fallback_inputs.json")
@@ -66,7 +63,7 @@ def _require_source_grid(
     returned_lon: np.ndarray,
 ) -> None:
     """Require an adapter to preserve its source grid."""
-    returned = request.source_grid.coordinate_contract.coordinate_identity(
+    returned = request.source_grid.coordinate_convention.coordinate_identity(
         returned_lat, returned_lon
     )
     if returned != request.source_grid.coordinate_identity:
@@ -95,7 +92,7 @@ def main() -> None:
 
     set_input_source("native")
     grids = {}
-    datasets: dict[str, dict[str, ProviderDataset]] = {
+    datasets: dict[str, dict[str, CachedProviderData]] = {
         provider_key: {} for provider_key in PROVIDER_SPECS
     }
 
@@ -143,7 +140,7 @@ def main() -> None:
             pedersen, hall, conductance_lat, conductance_lon = get_conductance_inputs(
                 EVENT_TIME, request=request
             )
-            jr, jr_lat, jr_lon = get_jr_inputs(EVENT_TIME, request=request)
+            jr, jr_lat, jr_lon = get_boundary_jr_inputs(EVENT_TIME, request=request)
             wind = get_wind_inputs(EVENT_TIME, request=request)
             if wind is None:
                 raise RuntimeError("Native HWM14 returned no wind data.")
@@ -156,19 +153,19 @@ def main() -> None:
             _require_source_grid("HWM14", request, wind_lat, wind_lon)
 
             source = request.source_grid
-            datasets[CONDUCTANCE_PROVIDER_SPEC.key][source.grid_id] = ProviderDataset(
+            datasets[CONDUCTANCE_PROVIDER_SPEC.key][source.grid_id] = CachedProviderData(
                 spec=CONDUCTANCE_PROVIDER_SPEC,
                 source_grid=source,
                 request_grid=request.grid_for(CONDUCTANCE_PROVIDER_SPEC),
                 values={"hall": hall, "pedersen": pedersen},
             )
-            datasets[BOUNDARY_JR_PROVIDER_SPEC.key][source.grid_id] = ProviderDataset(
+            datasets[BOUNDARY_JR_PROVIDER_SPEC.key][source.grid_id] = CachedProviderData(
                 spec=BOUNDARY_JR_PROVIDER_SPEC,
                 source_grid=source,
                 request_grid=request.grid_for(BOUNDARY_JR_PROVIDER_SPEC),
                 values={"jr": jr},
             )
-            datasets[NEUTRAL_WIND_PROVIDER_SPEC.key][source.grid_id] = ProviderDataset(
+            datasets[NEUTRAL_WIND_PROVIDER_SPEC.key][source.grid_id] = CachedProviderData(
                 spec=NEUTRAL_WIND_PROVIDER_SPEC,
                 source_grid=source,
                 request_grid=request.grid_for(NEUTRAL_WIND_PROVIDER_SPEC),

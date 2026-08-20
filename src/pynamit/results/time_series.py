@@ -66,9 +66,18 @@ def compute_centered_difference_series_at_times(
 ):
     """Evaluate a centered finite difference on target datetimes."""
     target_index = pd.DatetimeIndex(pd.to_datetime(target_times))
-    half_window_points = max(1, int(half_window_points))
-    if cadence_seconds is None or not np.isfinite(cadence_seconds) or cadence_seconds <= 0.0:
+    if isinstance(half_window_points, (bool, np.bool_)):
+        raise ValueError("half_window_points must be a positive integer.")
+    integer_window = int(half_window_points)
+    if integer_window != half_window_points or integer_window < 1:
+        raise ValueError("half_window_points must be a positive integer.")
+    half_window_points = integer_window
+    if cadence_seconds is None:
         cadence_seconds = get_time_index_median_cadence_seconds(source_index)
+    else:
+        cadence_seconds = float(cadence_seconds)
+        if not np.isfinite(cadence_seconds) or cadence_seconds <= 0.0:
+            raise ValueError("cadence_seconds must be finite and positive.")
     if not np.isfinite(cadence_seconds) or cadence_seconds <= 0.0:
         return np.full(target_index.shape, np.nan, dtype=float)
 
@@ -102,17 +111,22 @@ def compute_time_derivative_matrix(values_matrix, time_index, half_window_points
     """Return same-grid centered derivatives along the last axis."""
     values_arr = np.asarray(values_matrix, dtype=float)
     time_ns = datetime_index_to_epoch_ns(time_index)
+    if values_arr.ndim == 0 or values_arr.shape[-1] != time_ns.size:
+        raise ValueError("The last values axis must match time_index.")
     if time_ns.size < 2:
         return np.full_like(values_arr, np.nan, dtype=float)
 
     time_seconds = (time_ns - time_ns[0]).astype(float) * 1e-9
-    if values_arr.shape[-1] != time_seconds.size or time_seconds.size < 2:
-        return np.full_like(values_arr, np.nan, dtype=float)
     if np.any(np.diff(time_seconds) <= 0.0):
-        return np.full_like(values_arr, np.nan, dtype=float)
+        raise ValueError("time_index must be strictly increasing.")
 
     n_times = time_seconds.size
-    half_window_points = max(1, int(half_window_points))
+    if isinstance(half_window_points, (bool, np.bool_)):
+        raise ValueError("half_window_points must be a positive integer.")
+    integer_window = int(half_window_points)
+    if integer_window != half_window_points or integer_window < 1:
+        raise ValueError("half_window_points must be a positive integer.")
+    half_window_points = integer_window
     if n_times <= 2 * half_window_points:
         return np.full_like(values_arr, np.nan, dtype=float)
 
@@ -175,10 +189,7 @@ def _find_prominent_peaks_numpy(values, min_prominence):
 
 def _estimate_peak_prominence_numpy(values, peak_idx):
     values_arr = np.asarray(values, dtype=float).reshape(-1)
-    try:
-        peak_idx = int(peak_idx)
-    except (TypeError, ValueError):
-        return np.nan
+    peak_idx = int(peak_idx)
     if peak_idx < 0 or peak_idx >= values_arr.size:
         return np.nan
     value = values_arr[peak_idx]
@@ -293,7 +304,7 @@ def _separated_peak_indices(
 ):
     """Keep the strongest peak within each minimum time separation."""
     candidate_times_ns = datetime_index_to_epoch_ns(target_index[candidate_indices]).astype(float)
-    min_separation_ns = max(0.0, float(min_separation_seconds)) * 1e9
+    min_separation_ns = min_separation_seconds * 1e9
     order = np.lexsort((candidate_times_ns, -candidate_values, -candidate_prominences))
     kept_indices = []
     kept_times_ns = []
@@ -314,7 +325,15 @@ def prominent_peak_candidates(
     """Return separated peaks from absolute time-series values."""
     values_arr = np.asarray(values, dtype=float).reshape(-1)
     target_index = pd.DatetimeIndex(time_index)
-    if values_arr.size != len(target_index) or values_arr.size == 0:
+    if values_arr.size != len(target_index):
+        raise ValueError("values and time_index must have the same length.")
+    min_separation_seconds = float(min_separation_seconds)
+    prominence_fraction = float(prominence_fraction)
+    if not np.isfinite(min_separation_seconds) or min_separation_seconds < 0.0:
+        raise ValueError("min_separation_seconds must be finite and non-negative.")
+    if not np.isfinite(prominence_fraction) or prominence_fraction < 0.0:
+        raise ValueError("prominence_fraction must be finite and non-negative.")
+    if values_arr.size == 0:
         return []
 
     valid = np.isfinite(values_arr)
@@ -332,7 +351,7 @@ def prominent_peak_candidates(
     if global_peak <= np.finfo(float).tiny:
         return _global_peak_candidate(abs_values, valid, target_index)
 
-    min_prominence = max(0.0, float(prominence_fraction)) * global_peak
+    min_prominence = prominence_fraction * global_peak
     candidate_indices, candidate_prominence_by_index = _finite_segment_peak_candidates(
         abs_values, min_prominence
     )
@@ -416,7 +435,12 @@ def first_event_peak_abs_value_and_time(
     """Return the first event-like absolute peak value and timestamp."""
     values_arr = np.asarray(values, dtype=float).reshape(-1)
     target_index = pd.DatetimeIndex(time_index)
-    if values_arr.size != len(target_index) or values_arr.size == 0:
+    if values_arr.size != len(target_index):
+        raise ValueError("values and time_index must have the same length.")
+    noise_floor_fraction = float(noise_floor_fraction)
+    if not np.isfinite(noise_floor_fraction) or noise_floor_fraction < 0.0:
+        raise ValueError("noise_floor_fraction must be finite and non-negative.")
+    if values_arr.size == 0:
         return most_prominent_peak_abs_value_and_time(values_arr, target_index)
 
     abs_values = np.where(np.isfinite(values_arr), np.abs(values_arr), np.nan)
@@ -428,7 +452,7 @@ def first_event_peak_abs_value_and_time(
     if not np.isfinite(global_peak) or global_peak <= np.finfo(float).tiny:
         return most_prominent_peak_abs_value_and_time(values_arr, target_index)
 
-    noise_floor = max(0.0, float(noise_floor_fraction)) * global_peak
+    noise_floor = noise_floor_fraction * global_peak
     above_floor = np.isfinite(abs_values) & (abs_values >= noise_floor)
     if not np.any(above_floor):
         return most_prominent_peak_abs_value_and_time(values_arr, target_index)
@@ -465,7 +489,9 @@ def local_peak_abs_value_and_time(
     """Return a peak near ``center_time``, falling back globally."""
     values_arr = np.asarray(values, dtype=float).reshape(-1)
     target_index = pd.DatetimeIndex(time_index)
-    if values_arr.size != len(target_index) or values_arr.size == 0:
+    if values_arr.size != len(target_index):
+        raise ValueError("values and time_index must have the same length.")
+    if values_arr.size == 0:
         return np.nan, None
     if center_time is None:
         return first_event_peak_abs_value_and_time(
@@ -476,21 +502,10 @@ def local_peak_abs_value_and_time(
             noise_floor_fraction=noise_floor_fraction,
         )
 
-    try:
-        center_time = pd.Timestamp(center_time)
-    except (TypeError, ValueError):
-        return first_event_peak_abs_value_and_time(
-            values_arr,
-            target_index,
-            min_separation_seconds=min_separation_seconds,
-            prominence_fraction=prominence_fraction,
-            noise_floor_fraction=noise_floor_fraction,
-        )
-    try:
-        half_window_seconds = float(half_window_seconds)
-    except (TypeError, ValueError):
-        half_window_seconds = 100.0
-    half_window_seconds = max(0.0, half_window_seconds)
+    center_time = pd.Timestamp(center_time)
+    half_window_seconds = float(half_window_seconds)
+    if not np.isfinite(half_window_seconds) or half_window_seconds < 0.0:
+        raise ValueError("half_window_seconds must be finite and non-negative.")
 
     seconds_from_center = np.abs((target_index - center_time).total_seconds())
     valid = np.isfinite(values_arr) & (seconds_from_center <= half_window_seconds)

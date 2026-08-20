@@ -54,7 +54,7 @@ def _capture_preparation(monkeypatch, *, source: str, directory, main_field_kind
     """Prepare inputs while retaining the provider-facing arrays."""
     captured: dict[str, dict[str, Any]] = {}
     original_conductance = example_inputs_module.get_conductance_inputs
-    original_jr = example_inputs_module.get_jr_inputs
+    original_jr = example_inputs_module.get_boundary_jr_inputs
     original_wind = example_inputs_module.get_wind_inputs
 
     def capture_conductance(*args, **kwargs):
@@ -95,7 +95,7 @@ def _capture_preparation(monkeypatch, *, source: str, directory, main_field_kind
 
     with monkeypatch.context() as patch:
         patch.setattr(example_inputs_module, "get_conductance_inputs", capture_conductance)
-        patch.setattr(example_inputs_module, "get_jr_inputs", capture_jr)
+        patch.setattr(example_inputs_module, "get_boundary_jr_inputs", capture_jr)
         patch.setattr(example_inputs_module, "get_wind_inputs", capture_wind)
         set_input_source(source)
         simulation = prepare_example_inputs(
@@ -190,11 +190,11 @@ def test_native_and_fallback_inputs_match_through_projection(
 
     native_request = native_raw["conductance"]["request"]
     fallback_request = fallback_raw["conductance"]["request"]
-    assert native_request.source_grid.coordinate_contract == (
-        fallback_request.source_grid.coordinate_contract
+    assert native_request.source_grid.coordinate_convention == (
+        fallback_request.source_grid.coordinate_convention
     )
-    assert native_request.model_grid.coordinate_contract == (
-        fallback_request.model_grid.coordinate_contract
+    assert native_request.model_grid.coordinate_convention == (
+        fallback_request.model_grid.coordinate_convention
     )
     assert native_request.model_epoch == pytest.approx(fallback_request.model_epoch)
     for view in ("source_grid", "model_grid"):
@@ -206,7 +206,7 @@ def test_native_and_fallback_inputs_match_through_projection(
         source_grid = request.source_grid
         for key in _INPUT_KEYS:
             assert raw_inputs[key]["request"] is request
-            returned_identity = source_grid.coordinate_contract.coordinate_identity(
+            returned_identity = source_grid.coordinate_convention.coordinate_identity(
                 raw_inputs[key]["lat"], raw_inputs[key]["lon"]
             )
             assert returned_identity == source_grid.coordinate_identity

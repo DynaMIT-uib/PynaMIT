@@ -7,7 +7,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from pynamit.external_input_contracts import (
+from pynamit.external_inputs.contracts import (
     BOUNDARY_JR_PROVIDER_SPEC,
     CONDUCTANCE_PROVIDER_SPEC,
     LIBRARY_GEOGRAPHIC_110KM,
@@ -15,10 +15,10 @@ from pynamit.external_input_contracts import (
     PROVIDER_SPECS,
     PYNAMIT_CENTERED_DIPOLE_110KM,
     PYNAMIT_SPHERICAL_GEO_110KM,
-    CoordinateContract,
+    CachedProviderData,
+    CoordinateConvention,
     ExternalInputRequest,
     FallbackCollection,
-    ProviderDataset,
     ReferenceSurface,
     SampleGrid,
 )
@@ -37,15 +37,15 @@ def test_provider_specs_are_independent_but_share_request_contract():
     assert CONDUCTANCE_PROVIDER_SPEC is not BOUNDARY_JR_PROVIDER_SPEC
     assert BOUNDARY_JR_PROVIDER_SPEC is not NEUTRAL_WIND_PROVIDER_SPEC
     assert (
-        CONDUCTANCE_PROVIDER_SPEC.request_coordinate_contract
-        is BOUNDARY_JR_PROVIDER_SPEC.request_coordinate_contract
-        is NEUTRAL_WIND_PROVIDER_SPEC.request_coordinate_contract
+        CONDUCTANCE_PROVIDER_SPEC.request_coordinate_convention
+        is BOUNDARY_JR_PROVIDER_SPEC.request_coordinate_convention
+        is NEUTRAL_WIND_PROVIDER_SPEC.request_coordinate_convention
         is LIBRARY_GEOGRAPHIC_110KM
     )
     assert (
-        CONDUCTANCE_PROVIDER_SPEC.output_coordinate_contract
-        is BOUNDARY_JR_PROVIDER_SPEC.output_coordinate_contract
-        is NEUTRAL_WIND_PROVIDER_SPEC.output_coordinate_contract
+        CONDUCTANCE_PROVIDER_SPEC.output_coordinate_convention
+        is BOUNDARY_JR_PROVIDER_SPEC.output_coordinate_convention
+        is NEUTRAL_WIND_PROVIDER_SPEC.output_coordinate_convention
         is PYNAMIT_SPHERICAL_GEO_110KM
     )
     assert CONDUCTANCE_PROVIDER_SPEC.fields == ("hall", "pedersen")
@@ -67,7 +67,7 @@ def test_shared_request_reuses_one_converted_grid_object():
     amps_grid = request.grid_for(BOUNDARY_JR_PROVIDER_SPEC)
     hwm_grid = request.grid_for(NEUTRAL_WIND_PROVIDER_SPEC)
     assert hardy_grid is amps_grid is hwm_grid
-    assert hardy_grid.coordinate_contract is LIBRARY_GEOGRAPHIC_110KM
+    assert hardy_grid.coordinate_convention is LIBRARY_GEOGRAPHIC_110KM
     np.testing.assert_array_equal(hardy_grid.lat, request.source_grid.lat)
     np.testing.assert_array_equal(hardy_grid.lon, request.source_grid.lon)
 
@@ -88,7 +88,7 @@ def test_model_request_retains_centered_dipole_and_geographic_views():
         model_epoch=2001.5,
     )
 
-    assert request.model_grid.coordinate_contract is PYNAMIT_CENTERED_DIPOLE_110KM
+    assert request.model_grid.coordinate_convention is PYNAMIT_CENTERED_DIPOLE_110KM
     np.testing.assert_array_equal(request.model_grid.lat, model_lat)
     np.testing.assert_array_equal(request.model_grid.lon, model_lon)
     np.testing.assert_array_equal(request.source_grid.lat, geo_lat)
@@ -131,9 +131,9 @@ def test_geographic_model_request_rejects_inconsistent_views():
         )
 
 
-def test_changing_one_provider_contract_does_not_change_the_others():
-    """A provider can independently adopt another interface contract."""
-    another_contract = CoordinateContract(
+def test_changing_one_provider_convention_does_not_change_the_others():
+    """Let one provider adopt another coordinate convention."""
+    another_convention = CoordinateConvention(
         coordinate_system="example_provider_coordinates",
         angular_units="degrees",
         latitude_definition="example",
@@ -141,10 +141,12 @@ def test_changing_one_provider_contract_does_not_change_the_others():
         longitude_wrap="[-180,180)",
         reference_surface=ReferenceSurface(kind="sphere", radius_m=6_500_000.0),
     )
-    changed = replace(BOUNDARY_JR_PROVIDER_SPEC, request_coordinate_contract=another_contract)
-    assert changed.request_coordinate_contract is another_contract
-    assert CONDUCTANCE_PROVIDER_SPEC.request_coordinate_contract is LIBRARY_GEOGRAPHIC_110KM
-    assert NEUTRAL_WIND_PROVIDER_SPEC.request_coordinate_contract is LIBRARY_GEOGRAPHIC_110KM
+    changed = replace(
+        BOUNDARY_JR_PROVIDER_SPEC, request_coordinate_convention=another_convention
+    )
+    assert changed.request_coordinate_convention is another_convention
+    assert CONDUCTANCE_PROVIDER_SPEC.request_coordinate_convention is LIBRARY_GEOGRAPHIC_110KM
+    assert NEUTRAL_WIND_PROVIDER_SPEC.request_coordinate_convention is LIBRARY_GEOGRAPHIC_110KM
 
 
 def test_library_request_mapping_is_numeric_identity():
@@ -154,22 +156,26 @@ def test_library_request_mapping_is_numeric_identity():
     np.testing.assert_array_equal(provider_grid.lat, request.source_grid.lat)
     np.testing.assert_array_equal(provider_grid.lon, request.source_grid.lon)
     assert provider_grid is not request.source_grid
-    assert provider_grid.coordinate_contract is LIBRARY_GEOGRAPHIC_110KM
+    assert provider_grid.coordinate_convention is LIBRARY_GEOGRAPHIC_110KM
 
 
 def test_coordinate_identity_normalizes_longitude_and_preserves_order():
     """Equivalent longitudes match while reordered samples do not."""
-    contract = PYNAMIT_SPHERICAL_GEO_110KM
-    first = contract.coordinate_identity(np.array([10.0, 20.0]), np.array([180.0, 350.0]))
-    equivalent = contract.coordinate_identity(np.array([10.0, 20.0]), np.array([-180.0, -10.0]))
-    reordered = contract.coordinate_identity(np.array([20.0, 10.0]), np.array([-10.0, -180.0]))
+    convention = PYNAMIT_SPHERICAL_GEO_110KM
+    first = convention.coordinate_identity(np.array([10.0, 20.0]), np.array([180.0, 350.0]))
+    equivalent = convention.coordinate_identity(
+        np.array([10.0, 20.0]), np.array([-180.0, -10.0])
+    )
+    reordered = convention.coordinate_identity(
+        np.array([20.0, 10.0]), np.array([-10.0, -180.0])
+    )
     assert first == equivalent
     assert first != reordered
 
 
 def test_coordinate_identity_ignores_float64_reconstruction_roundoff():
     """Sub-storage-precision differences identify the same grid."""
-    contract = PYNAMIT_SPHERICAL_GEO_110KM
+    convention = PYNAMIT_SPHERICAL_GEO_110KM
     lat = np.array([-40.14552, 13.086702597441118])
     lon = np.array([-20.99691648166619, 5.544013180231985])
     perturbed_lat = np.nextafter(lat, np.inf)
@@ -177,7 +183,7 @@ def test_coordinate_identity_ignores_float64_reconstruction_roundoff():
 
     assert not np.array_equal(lat, perturbed_lat)
     assert not np.array_equal(lon, perturbed_lon)
-    assert contract.coordinate_identity(lat, lon) == contract.coordinate_identity(
+    assert convention.coordinate_identity(lat, lon) == convention.coordinate_identity(
         perturbed_lat, perturbed_lon
     )
 
@@ -197,7 +203,7 @@ def test_sample_grid_is_immutable_and_owns_arrays():
     geometry = {"type": "sample_points"}
     grid = SampleGrid(
         grid_id="grid",
-        coordinate_contract=PYNAMIT_SPHERICAL_GEO_110KM,
+        coordinate_convention=PYNAMIT_SPHERICAL_GEO_110KM,
         lat=lat,
         lon=np.array([0.0, 30.0]),
         sampling_geometry=geometry,
@@ -212,19 +218,19 @@ def test_sample_grid_is_immutable_and_owns_arrays():
         grid.sampling_geometry["type"] = "changed"
 
 
-def test_provider_dataset_requires_both_grid_contracts():
-    """Provider datasets validate both coordinate contracts."""
+def test_provider_dataset_requires_both_grid_conventions():
+    """Provider datasets validate both coordinate conventions."""
     request = _request()
     source = request.source_grid
     provider_grid = request.grid_for(CONDUCTANCE_PROVIDER_SPEC)
-    with pytest.raises(ValueError, match="request-grid contracts differ"):
-        ProviderDataset(
+    with pytest.raises(ValueError, match="request-grid conventions differ"):
+        CachedProviderData(
             spec=CONDUCTANCE_PROVIDER_SPEC,
             source_grid=source,
             request_grid=source,
             values={"hall": np.ones(source.size), "pedersen": np.ones(source.size)},
         )
-    dataset = ProviderDataset(
+    dataset = CachedProviderData(
         spec=CONDUCTANCE_PROVIDER_SPEC,
         source_grid=source,
         request_grid=provider_grid,
@@ -241,7 +247,7 @@ def test_collection_roundtrip_shares_source_and_request_grids():
     provider_grid = request.grid_for(CONDUCTANCE_PROVIDER_SPEC)
     datasets = {
         "conductance": {
-            source.grid_id: ProviderDataset(
+            source.grid_id: CachedProviderData(
                 CONDUCTANCE_PROVIDER_SPEC,
                 source,
                 provider_grid,
@@ -249,7 +255,7 @@ def test_collection_roundtrip_shares_source_and_request_grids():
             )
         },
         "boundary_jr": {
-            source.grid_id: ProviderDataset(
+            source.grid_id: CachedProviderData(
                 BOUNDARY_JR_PROVIDER_SPEC,
                 source,
                 request.grid_for(BOUNDARY_JR_PROVIDER_SPEC),
@@ -257,7 +263,7 @@ def test_collection_roundtrip_shares_source_and_request_grids():
             )
         },
         "neutral_wind": {
-            source.grid_id: ProviderDataset(
+            source.grid_id: CachedProviderData(
                 NEUTRAL_WIND_PROVIDER_SPEC,
                 source,
                 request.grid_for(NEUTRAL_WIND_PROVIDER_SPEC),
@@ -280,7 +286,7 @@ def test_collection_roundtrip_shares_source_and_request_grids():
     assert hardy.source_grid is amps.source_grid is hwm.source_grid
     assert hardy.request_grid is amps.request_grid is hwm.request_grid
     assert (
-        hardy.spec.request_coordinate_contract
-        == amps.spec.request_coordinate_contract
-        == hwm.spec.request_coordinate_contract
+        hardy.spec.request_coordinate_convention
+        == amps.spec.request_coordinate_convention
+        == hwm.spec.request_coordinate_convention
     )

@@ -14,16 +14,16 @@ import apexpy
 import dipole
 import numpy as np
 
-from pynamit.external_input_contracts import (
+from pynamit.external_inputs.contracts import (
     BOUNDARY_JR_PROVIDER_SPEC,
     CONDUCTANCE_PROVIDER_SPEC,
     LIBRARY_GEOGRAPHIC_110KM,
     NEUTRAL_WIND_PROVIDER_SPEC,
     PROVIDER_SPECS,
+    CachedProviderData,
     ExternalInputRequest,
     FallbackCollection,
-    ProviderDataset,
-    ProviderSpec,
+    InputProviderSpec,
     SampleGrid,
 )
 from pynamit.geodesy import library_horizontal_to_spherical
@@ -210,7 +210,7 @@ def _coerce_request(
     if (lat is None) != (lon is None):
         raise ValueError("lat and lon must be supplied together.")
     if lat is not None:
-        supplied = request.source_grid.coordinate_contract.coordinate_identity(lat, lon)
+        supplied = request.source_grid.coordinate_convention.coordinate_identity(lat, lon)
         if supplied != request.source_grid.coordinate_identity:
             raise ValueError("Explicit coordinates do not match the shared request source grid.")
     return request
@@ -259,7 +259,7 @@ def save_fallback_dataset(
     wind_source_id = (
         str(grid_id)
         if scalar_lat.size == wind_lat.size
-        and scalar_request.source_grid.coordinate_contract.coordinate_identity(wind_lat, wind_lon)
+        and scalar_request.source_grid.coordinate_convention.coordinate_identity(wind_lat, wind_lon)
         == scalar_request.source_grid.coordinate_identity
         else f"{grid_id}-wind"
     )
@@ -280,7 +280,7 @@ def save_fallback_dataset(
 
     datasets = {
         CONDUCTANCE_PROVIDER_SPEC.key: {
-            scalar_request.source_grid.grid_id: ProviderDataset(
+            scalar_request.source_grid.grid_id: CachedProviderData(
                 spec=CONDUCTANCE_PROVIDER_SPEC,
                 source_grid=scalar_request.source_grid,
                 request_grid=scalar_request.grid_for(CONDUCTANCE_PROVIDER_SPEC),
@@ -288,7 +288,7 @@ def save_fallback_dataset(
             )
         },
         BOUNDARY_JR_PROVIDER_SPEC.key: {
-            scalar_request.source_grid.grid_id: ProviderDataset(
+            scalar_request.source_grid.grid_id: CachedProviderData(
                 spec=BOUNDARY_JR_PROVIDER_SPEC,
                 source_grid=scalar_request.source_grid,
                 request_grid=scalar_request.grid_for(BOUNDARY_JR_PROVIDER_SPEC),
@@ -296,7 +296,7 @@ def save_fallback_dataset(
             )
         },
         NEUTRAL_WIND_PROVIDER_SPEC.key: {
-            wind_request.source_grid.grid_id: ProviderDataset(
+            wind_request.source_grid.grid_id: CachedProviderData(
                 spec=NEUTRAL_WIND_PROVIDER_SPEC,
                 source_grid=wind_request.source_grid,
                 request_grid=wind_request.grid_for(NEUTRAL_WIND_PROVIDER_SPEC),
@@ -323,7 +323,7 @@ def save_fallback_dataset(
     return destination_path
 
 
-def _dataset_description(dataset: ProviderDataset) -> str:
+def _dataset_description(dataset: CachedProviderData) -> str:
     """Return a compact physical-grid description."""
     geometry = dataset.source_grid.sampling_geometry
     provenance = dataset.source_grid.provenance
@@ -333,12 +333,12 @@ def _dataset_description(dataset: ProviderDataset) -> str:
         details.append(f"Ncs={geometry['ncs']}")
     if "epoch" in origin:
         details.append(f"epoch={float(origin['epoch']):.6f}")
-    details.append(dataset.source_grid.coordinate_contract.coordinate_system)
+    details.append(dataset.source_grid.coordinate_convention.coordinate_system)
     details.append(f"{dataset.source_grid.size} ordered points")
     return f"{dataset.source_grid.grid_id} ({', '.join(details)})"
 
 
-def _dataset_sort_key(item: tuple[str, ProviderDataset]) -> tuple[Any, ...]:
+def _dataset_sort_key(item: tuple[str, CachedProviderData]) -> tuple[Any, ...]:
     """Return a natural diagnostic ordering for cached source grids."""
     source_grid_id, dataset = item
     geometry = dataset.source_grid.sampling_geometry
@@ -357,12 +357,12 @@ def _dataset_sort_key(item: tuple[str, ProviderDataset]) -> tuple[Any, ...]:
 
 
 def _select_fallback_entry(
-    entries: Mapping[str, ProviderDataset],
+    entries: Mapping[str, CachedProviderData],
     request: ExternalInputRequest,
     quantity: str,
     *,
-    spec: ProviderSpec,
-) -> ProviderDataset:
+    spec: InputProviderSpec,
+) -> CachedProviderData:
     """Select an exact source/request-grid pair for one provider."""
     if not entries:
         raise ValueError(f"No fallback {quantity} data available.")
@@ -473,10 +473,10 @@ def get_conductance_inputs(
     """
     request = _coerce_request(lat, lon, request, grid_id="runtime-conductance-source")
     source_grid = request.source_grid
-    centered_dipole_contract = CONDUCTANCE_PROVIDER_SPEC.request_coordinate_views["model"]
+    centered_dipole_convention = CONDUCTANCE_PROVIDER_SPEC.request_coordinate_views["model"]
     centered_dipole = (
         _validated_centered_dipole(request)
-        if request.model_grid.coordinate_contract == centered_dipole_contract
+        if request.model_grid.coordinate_convention == centered_dipole_convention
         else None
     )
     conductance = _load_optional_module("conductance", "lompe")
@@ -527,7 +527,7 @@ def get_conductance_inputs(
     raise RuntimeError("Native conductance inputs are not available.")
 
 
-def get_jr_inputs(
+def get_boundary_jr_inputs(
     date: Any,
     lat: np.ndarray | None = None,
     lon: np.ndarray | None = None,
@@ -540,10 +540,10 @@ def get_jr_inputs(
     """Return AMPS upward radial current on the source PynaMIT grid."""
     request = _coerce_request(lat, lon, request, grid_id="runtime-boundary-jr-source")
     source_grid = request.source_grid
-    centered_dipole_contract = BOUNDARY_JR_PROVIDER_SPEC.request_coordinate_views["model"]
+    centered_dipole_convention = BOUNDARY_JR_PROVIDER_SPEC.request_coordinate_views["model"]
     centered_dipole = (
         _validated_centered_dipole(request)
-        if request.model_grid.coordinate_contract == centered_dipole_contract
+        if request.model_grid.coordinate_convention == centered_dipole_convention
         else None
     )
     pyamps = _load_optional_module("pyamps", "pyamps")

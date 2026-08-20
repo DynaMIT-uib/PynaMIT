@@ -24,12 +24,13 @@ from pynamit.geomagnetism import MagneticFieldEvaluation
 from pynamit.plotting.map_coordinates import MapCoordinateContext
 from pynamit.plotting.plot_helpers import style_global_axis as style_cartopy_global_axis
 from pynamit.plotting.plot_helpers import suppress_empty_contour_warnings
-from pynamit.results.field_maps import (
+from pynamit.results.evaluation import (
     evaluate_conductance_coefficients,
-    evaluate_JS_from_maps,
+    evaluate_sheet_current_from_operators,
     evaluate_wind_coefficients,
+    model_grid_for_geographic_display,
+    transform_for_basis,
 )
-from pynamit.results.grid_evaluation import model_grid_for_geographic_display, transform_for_basis
 from pynamit.results.output_fields import (
     evaluate_boundary_jr_coefficients,
     evaluate_equivalent_current_coefficients,
@@ -121,7 +122,7 @@ class PynamEye:
                 f"No dynamic or equilibrium output dataset exists at {simulation_directory!r}."
             )
         self.datasets = self.results.datasets
-        self.gap_Br_response_matrix = (
+        self.boundary_jr_to_gap_Br_matrix = (
             None
             if self.results.geometry.main_field.kind == "radial"
             or not self.results.config.enable_pfac_coupling
@@ -230,7 +231,7 @@ class PynamEye:
         """Add region transforms."""
         self.transforms[region] = SphericalTransform(self.basis, grid)
         self.conductance_transforms[region] = SphericalTransform(
-            self.conductance_field_space.representation, grid
+            self.conductance_field_space.basis, grid
         )
         self.poloidal_transforms[region] = self.geometry.poloidal_transform_for(
             self.transforms[region]
@@ -286,7 +287,7 @@ class PynamEye:
             self.output_grid = self.geometry.model_grid
             self.transforms["num"] = self.geometry.horizontal_transform
             self.conductance_transforms["num"] = SphericalTransform(
-                self.conductance_field_space.representation, self.output_grid
+                self.conductance_field_space.basis, self.output_grid
             )
             self.poloidal_transforms["num"] = self.geometry.poloidal_transform
             self._num_pedersen_geometry = self.geometry.pedersen_geometry_tensor
@@ -297,7 +298,7 @@ class PynamEye:
 
         # Calculate electric field values on output_grid.
         current_maps = self._sheet_current_maps_for("num")
-        JS = evaluate_JS_from_maps(
+        JS = evaluate_sheet_current_from_operators(
             self.boundary_jr,
             self.induced_Br,
             boundary_jr_to_JS=current_maps["boundary_jr_to_JS"],
@@ -316,7 +317,7 @@ class PynamEye:
 
         self.u_coeffs = self.u.array
         wind_transform = transform_for_basis(
-            self.u.field_space.representation, self.transforms["num"]
+            self.u.field_space.basis, self.transforms["num"]
         )
         wind = evaluate_wind_coefficients(wind_transform, self.u)
         self.u_theta_on_grid = wind["u_theta"]
@@ -671,7 +672,7 @@ class PynamEye:
         self._fill_plot_defaults(kwargs, self.joule_defaults)
 
         current_maps = self._sheet_current_maps_for(region)
-        JS = evaluate_JS_from_maps(
+        JS = evaluate_sheet_current_from_operators(
             self.boundary_jr,
             self.induced_Br,
             boundary_jr_to_JS=current_maps["boundary_jr_to_JS"],
@@ -746,7 +747,7 @@ class PynamEye:
         if self.m_u is None:
             raise RuntimeError("No saved 'u' dataset is available for wind plotting.")
         wind_transform = transform_for_basis(
-            self.u.field_space.representation, self.transforms["global_vector"]
+            self.u.field_space.basis, self.transforms["global_vector"]
         )
         wind = evaluate_wind_coefficients(wind_transform, self.u, include_magnitude=False)
 

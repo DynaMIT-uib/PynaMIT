@@ -8,7 +8,7 @@ import xarray as xr
 from kompe.math import as_linear_map, set_backend, use_jax
 
 from pynamit.simulation.electrodynamics import induction
-from pynamit.simulation.runner import SimulationRunner
+from pynamit.simulation.evolution import _TimeEvolution
 
 
 class _FakeResponse:
@@ -57,15 +57,15 @@ def test_evolution_rejects_invalid_time_step(dt):
     """Invalid time steps fail before entering the run loop."""
     simulation = _FakeSimulation()
     with pytest.raises(ValueError, match="dt must be finite and greater than zero"):
-        SimulationRunner(simulation).evolve_to_time(1.0, dt=dt, quiet=True)
+        _TimeEvolution(simulation).evolve_to_time(1.0, dt=dt, quiet=True)
 
 
 @pytest.mark.parametrize("value", [0, -1, 1.5, True])
 def test_evolution_rejects_invalid_sample_intervals(value):
     """Sample controls must be positive integers without truncation."""
     simulation = _FakeSimulation()
-    with pytest.raises(ValueError, match="sampling_step_interval"):
-        SimulationRunner(simulation).evolve_to_time(1.0, sampling_step_interval=value, quiet=True)
+    with pytest.raises(ValueError, match="steps_per_sample"):
+        _TimeEvolution(simulation).evolve_to_time(1.0, steps_per_sample=value, quiet=True)
 
 
 @pytest.mark.parametrize(
@@ -83,7 +83,7 @@ def test_evolution_rejects_ambiguous_runtime_option_types(kwargs, match):
     simulation = _FakeSimulation()
 
     with pytest.raises(ValueError, match=match):
-        SimulationRunner(simulation).evolve_to_time(**kwargs)
+        _TimeEvolution(simulation).evolve_to_time(**kwargs)
 
 
 def test_evolution_rejects_backfill_from_later_checkpoint():
@@ -95,7 +95,7 @@ def test_evolution_rejects_backfill_from_later_checkpoint():
     )
 
     with pytest.raises(ValueError, match="precedes the active checkpoint"):
-        SimulationRunner(simulation).evolve_to_time(5.0, run_equilibrium=True, quiet=True)
+        _TimeEvolution(simulation).evolve_to_time(5.0, run_equilibrium=True, quiet=True)
 
 
 def test_evolution_records_and_saves_exact_off_grid_target(monkeypatch):
@@ -109,17 +109,17 @@ def test_evolution_records_and_saves_exact_off_grid_target(monkeypatch):
 
     monkeypatch.setattr(induction, "evolve_induced_Br", advance_by_dt)
 
-    runner = SimulationRunner(simulation)
+    evolution = _TimeEvolution(simulation)
     monkeypatch.setattr(
-        runner,
+        evolution,
         "_record_output_snapshot",
         lambda key, *_values: simulation.recorded.append((key, float(simulation.current_time))),
     )
-    runner.evolve_to_time(
+    evolution.evolve_to_time(
         0.25,
         dt=0.1,
-        sampling_step_interval=10,
-        write_sample_interval=10,
+        steps_per_sample=10,
+        samples_per_write=10,
         initialize_from_equilibrium=False,
         run_equilibrium=False,
         quiet=True,
@@ -133,7 +133,7 @@ def test_evolution_records_and_saves_exact_off_grid_target(monkeypatch):
 def test_exponential_propagator_reused_until_conductance_or_dt_changes(monkeypatch):
     """Cache exponentials for one conductance field and dt."""
     simulation = _FakeSimulation(integrator="exponential")
-    runner = SimulationRunner(simulation)
+    evolution = _TimeEvolution(simulation)
     calls = []
 
     def build_propagator(_response, dt, *, feedback_matrix):
@@ -142,12 +142,12 @@ def test_exponential_propagator_reused_until_conductance_or_dt_changes(monkeypat
 
     monkeypatch.setattr(induction, "poloidal_potential_exponential_propagator", build_propagator)
 
-    first = runner._exponential_propagator_for_step(0.1)
-    second = runner._exponential_propagator_for_step(0.1)
-    third = runner._exponential_propagator_for_step(0.05)
+    first = evolution._exponential_propagator_for_step(0.1)
+    second = evolution._exponential_propagator_for_step(0.1)
+    third = evolution._exponential_propagator_for_step(0.05)
     simulation.response.induced_poloidal_potential_feedback_matrix = np.eye(1) * 2.0
     simulation.response.conductance_fingerprint = "changed"
-    fourth = runner._exponential_propagator_for_step(0.05)
+    fourth = evolution._exponential_propagator_for_step(0.05)
 
     assert first is second
     assert len(calls) == 3
@@ -160,7 +160,7 @@ def test_exponential_propagator_identity_tracks_active_resistance(monkeypatch):
     """Equivalent closures reuse a propagator by exact resistance."""
     simulation = _FakeSimulation(integrator="exponential")
     simulation.response.conductance_fingerprint = "first"
-    runner = SimulationRunner(simulation)
+    evolution = _TimeEvolution(simulation)
     calls = []
 
     def build_propagator(_response, _dt, *, feedback_matrix):
@@ -169,11 +169,11 @@ def test_exponential_propagator_identity_tracks_active_resistance(monkeypatch):
 
     monkeypatch.setattr(induction, "poloidal_potential_exponential_propagator", build_propagator)
 
-    first = runner._exponential_propagator_for_step(0.1)
+    first = evolution._exponential_propagator_for_step(0.1)
     simulation.response.induced_poloidal_potential_feedback_matrix = np.eye(1) * 2.0
-    equivalent = runner._exponential_propagator_for_step(0.1)
+    equivalent = evolution._exponential_propagator_for_step(0.1)
     simulation.response.conductance_fingerprint = "second"
-    changed = runner._exponential_propagator_for_step(0.1)
+    changed = evolution._exponential_propagator_for_step(0.1)
 
     assert equivalent is first
     assert changed is not first
@@ -215,3 +215,40 @@ def test_exponential_step_returns_to_explicit_jax_backend(backend, data_source):
 
     assert "jax" in type(propagator).__module__
     assert "jax" in type(evolved).__module__
+
+
+@pytest.mark.requires_jax
+@pytest.mark.parametrize("backend", ["jax"], ids=["backend=jax"])
+@pytest.mark.parametrize("data_source", ["fallback"], ids=["data=fallback"])
+def test_output_snapshot_stays_on_jax_until_storage_boundary(backend, data_source):
+    """Keep output snapshots on JAX until the storage boundary."""
+    import jax.numpy as jnp
+
+    captured = {}
+    curl_free = as_linear_map(jnp.array([[1.0, 0.0]]), input_shape=(2, 1), output_shape=(1,))
+    divergence_free = as_linear_map(jnp.array([[0.0, 1.0]]), input_shape=(2, 1), output_shape=(1,))
+    geometry = SimpleNamespace(
+        helmholtz_curl_free_potential_operator=curl_free,
+        helmholtz_divergence_free_potential_operator=divergence_free,
+    )
+    response = SimpleNamespace(
+        calculate_induced_response=lambda _induced: (jnp.zeros((2, 1)), jnp.zeros(1)),
+        project_helmholtz_mean_free=lambda values: values,
+    )
+    simulation = SimpleNamespace(
+        response=response,
+        geometry=geometry,
+        current_time=np.float64(0.0),
+        data=SimpleNamespace(
+            output_series=SimpleNamespace(
+                add_entry=lambda key, values, time: captured.update(values)
+            )
+        ),
+    )
+
+    _TimeEvolution(simulation)._record_output_snapshot(
+        "dynamic", jnp.ones(1), jnp.ones((2, 1)), jnp.ones(1)
+    )
+
+    assert set(captured) == {"induced_Br", "boundary_jr", "Phi", "W"}
+    assert all("jax" in type(values).__module__ for values in captured.values())

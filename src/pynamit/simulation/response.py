@@ -12,10 +12,10 @@ from kompe.math import (
     LinearMap,
     MatrixBackend,
     as_linear_map,
-    block_after_jax_linalg,
     content_fingerprint,
     get_array_module,
     identity_linear_map,
+    synchronize_linalg_result,
     to_numpy,
 )
 
@@ -43,13 +43,13 @@ class ElectrodynamicResponse:
     """Compile and evaluate the instantaneous electrodynamic response.
 
     The model stores inputs active at one simulation time and assembles
-    their resistance-dependent response operators. The runner holds
-    the evolving ``induced_Br`` trajectory and passes it into response
-    calculations. Poloidal and toroidal magnetic potentials remain
-    private numerical coordinates.
+    their resistance-dependent response operators. ``_TimeEvolution``
+    holds the evolving ``induced_Br`` trajectory and passes it into
+    response calculations. Poloidal and toroidal magnetic potentials
+    remain private numerical coordinates.
     Time integration belongs to
     ``electrodynamics.induction``; evolution scheduling belongs to
-    ``SimulationRunner``.
+    ``_TimeEvolution``.
     """
 
     def __init__(self, geometry: SimulationGeometry, config: SimulationConfig) -> None:
@@ -121,8 +121,8 @@ class ElectrodynamicResponse:
             return None
         if self._Q_eff_to_E_coeffs_cache is None:
             if self._Q_eff_synthesis_operator_cache is None:
-                representation = self.Q_eff.field_space.representation
-                self._Q_eff_synthesis_operator_cache = representation.helmholtz_synthesis_operator(
+                basis = self.Q_eff.field_space.basis
+                self._Q_eff_synthesis_operator_cache = basis.helmholtz_synthesis_operator(
                     self.geometry.model_grid
                 )
             resistance_tensor = self.resistance_tensor_on_grid
@@ -142,15 +142,15 @@ class ElectrodynamicResponse:
         if self.E_neutral_wind is None:
             return None
         if self._E_neutral_wind_to_E_coeffs_cache is None:
-            representation = self.E_neutral_wind.field_space.representation
-            if representation.coefficients_are_compatible_with(self.geometry.horizontal_basis):
+            basis = self.E_neutral_wind.field_space.basis
+            if basis.coefficients_are_compatible_with(self.geometry.horizontal_basis):
                 self._E_neutral_wind_to_E_coeffs_cache = identity_linear_map(
                     (2, self.geometry.horizontal_basis.index_length)
                 )
             else:
                 self._E_neutral_wind_to_E_coeffs_cache = (
                     self.geometry.helmholtz_analysis_operator
-                    @ representation.helmholtz_synthesis_operator(self.geometry.model_grid)
+                    @ basis.helmholtz_synthesis_operator(self.geometry.model_grid)
                 )
         return self._E_neutral_wind_to_E_coeffs_cache
 
@@ -192,6 +192,17 @@ class ElectrodynamicResponse:
 
     # ----- Cached Physical Properties (dependent on resistance) -----
 
+    @staticmethod
+    def _fingerprint_conductance(field_space: Any, log_magnitude: Any, log_ratio: Any) -> str:
+        """Fingerprint stored conductance coefficients."""
+        return content_fingerprint(
+            {
+                "field_space": field_space.signature,
+                "log_conductance_magnitude": log_magnitude,
+                "log_hall_to_pedersen_ratio": log_ratio,
+            }
+        )
+
     @property
     def conductance_fingerprint(self) -> str:
         """Return the exact identity of the active conductance field."""
@@ -200,12 +211,10 @@ class ElectrodynamicResponse:
                 "Resistance or conductance must be set before it can be fingerprinted."
             )
         if self._conductance_fingerprint_cache is None:
-            self._conductance_fingerprint_cache = content_fingerprint(
-                {
-                    "field_space": self.log_conductance_magnitude.field_space.signature,
-                    "log_conductance_magnitude": to_numpy(self.log_conductance_magnitude.array),
-                    "log_hall_to_pedersen_ratio": to_numpy(self.log_hall_to_pedersen_ratio.array),
-                }
+            self._conductance_fingerprint_cache = self._fingerprint_conductance(
+                self.log_conductance_magnitude.field_space,
+                to_numpy(self.log_conductance_magnitude.array),
+                to_numpy(self.log_hall_to_pedersen_ratio.array),
             )
         return self._conductance_fingerprint_cache
 
@@ -224,8 +233,8 @@ class ElectrodynamicResponse:
             log_coordinate_coefficients = xp.stack(
                 [xp.asarray(magnitude_coefficients), xp.asarray(ratio_coefficients)], axis=1
             )
-            magnitude_basis = self.log_conductance_magnitude.field_space.representation
-            ratio_basis = self.log_hall_to_pedersen_ratio.field_space.representation
+            magnitude_basis = self.log_conductance_magnitude.field_space.basis
+            ratio_basis = self.log_hall_to_pedersen_ratio.field_space.basis
             if (
                 ratio_basis is not magnitude_basis
                 and not ratio_basis.coefficients_are_compatible_with(magnitude_basis)
@@ -405,7 +414,7 @@ class ElectrodynamicResponse:
                 solution_shape=self.geometry.horizontal_basis.index_length,
                 data_shapes=data_shapes,
                 regularization_matrices=reg_ops,
-                regularization_weights=reg_weights,
+                regularization_strengths=reg_weights,
             )
         return self._toroidal_potential_problem_cache
 
@@ -634,7 +643,7 @@ class ElectrodynamicResponse:
             if (self.log_conductance_magnitude is None or self.log_hall_to_pedersen_ratio is None)
             else self.conductance_fingerprint
         )
-        conductance_updated = False
+        active_conductance_fingerprint = None
         for key in input_series.datasets:
             updated_input = input_series.get_entry_if_changed(key, time, interpolation)
             if updated_input is None:
@@ -649,17 +658,21 @@ class ElectrodynamicResponse:
                 raise ValueError(
                     f"Unsupported active input variables: {sorted(unknown_variables)}."
                 )
+            if key == "conductance":
+                active_conductance_fingerprint = self._fingerprint_conductance(
+                    field_space,
+                    updated_input["log_conductance_magnitude"],
+                    updated_input["log_hall_to_pedersen_ratio"],
+                )
             for variable, coefficients in updated_input.items():
                 setattr(
                     self,
                     variable,
                     FieldCoefficients(field_space, coeffs=coefficients, name=variable),
                 )
-            conductance_updated |= key == "conductance"
 
-        if conductance_updated:
-            self._conductance_fingerprint_cache = None
-            active_conductance_fingerprint = self.conductance_fingerprint
+        if active_conductance_fingerprint is not None:
+            self._conductance_fingerprint_cache = active_conductance_fingerprint
             if active_conductance_fingerprint == previous_conductance_fingerprint:
                 logger.info("Conductance coefficients unchanged: retaining closure caches.")
                 return
@@ -677,11 +690,8 @@ class ElectrodynamicResponse:
     # ----- Response Calculation -----
 
     @staticmethod
-    def _apply_operator(op: LinearMap | None, coeffs: Any, output_shape: tuple[int, ...]) -> Any:
-        if op is None or coeffs is None:
-            array_module = op.array_module(coeffs) if op is not None else get_array_module(coeffs)
-            return array_module.zeros(output_shape)
-
+    def _apply_operator(op: LinearMap, coeffs: Any, output_shape: tuple[int, ...]) -> Any:
+        """Apply a required response operator and restore its shape."""
         array_module = op.array_module(coeffs)
         coeffs_arr = array_module.asarray(coeffs)
         return op.matvec(coeffs_arr.reshape(-1)).reshape(output_shape)
@@ -812,7 +822,7 @@ class ElectrodynamicResponse:
                 return self._noninductive_E_df_to_equilibrium_induced_poloidal_potential_operator
 
             array_module = get_array_module(self.induced_poloidal_potential_feedback_matrix)
-            feedback_pinv = block_after_jax_linalg(
+            feedback_pinv = synchronize_linalg_result(
                 array_module.linalg.pinv(
                     self.induced_poloidal_potential_feedback_matrix, rtol=1e-15
                 )

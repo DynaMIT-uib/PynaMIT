@@ -22,11 +22,15 @@ def _invert_pedersen_hall_pair(pedersen, hall):
     pedersen, hall = xp.broadcast_arrays(
         xp.asarray(pedersen, dtype=float), xp.asarray(hall, dtype=float)
     )
-    denominator = pedersen**2 + hall**2
-    valid = xp.isfinite(denominator) & (denominator > xp.finfo(denominator.dtype).tiny)
+    scale = xp.maximum(xp.abs(pedersen), xp.abs(hall))
+    valid = xp.isfinite(scale) & (scale > 0.0)
+    safe_scale = xp.where(valid, scale, xp.ones_like(scale))
+    scaled_pedersen = pedersen / safe_scale
+    scaled_hall = hall / safe_scale
+    denominator = safe_scale * (scaled_pedersen**2 + scaled_hall**2)
     safe_denominator = xp.where(valid, denominator, xp.ones_like(denominator))
-    inverse_pedersen = xp.where(valid, pedersen / safe_denominator, xp.nan)
-    inverse_hall = xp.where(valid, hall / safe_denominator, xp.nan)
+    inverse_pedersen = xp.where(valid, scaled_pedersen / safe_denominator, xp.nan)
+    inverse_hall = xp.where(valid, scaled_hall / safe_denominator, xp.nan)
     return inverse_pedersen, inverse_hall
 
 
@@ -344,8 +348,8 @@ def Q_eff_on_grid_from_wind(wind_on_grid, wind_to_E_grid, resistance_tensor):
 
 
 def solve_Q_eff_coefficients(Q_eff_to_E, E_wind_coeffs, *, reg_lambda=None, pinv_rtol=1e-15):
-    """Solve for Q_eff coefficients matching wind-driven E."""
-    xp = get_array_module(E_wind_coeffs, *Q_eff_to_E.backend_context)
+    """Fit Q_eff, adding ``reg_lambda * ||Q_eff||²`` when requested."""
+    xp = get_array_module(E_wind_coeffs, *Q_eff_to_E.backend_operands)
     backend = "numpy" if xp is np else "jax"
     matrix = xp.asarray(Q_eff_to_E.to_matrix(backend=backend))
     rhs = xp.asarray(E_wind_coeffs).reshape(-1)
@@ -356,7 +360,7 @@ def solve_Q_eff_coefficients(Q_eff_to_E, E_wind_coeffs, *, reg_lambda=None, pinv
     if not np.isfinite(weight) or weight < 0.0:
         raise ValueError("reg_lambda must be finite and non-negative.")
     if weight > 0.0:
-        regularization = weight * xp.eye(matrix.shape[1], dtype=matrix.dtype)
+        regularization = weight**0.5 * xp.eye(matrix.shape[1], dtype=matrix.dtype)
         matrix = xp.vstack([matrix, regularization])
         rhs = xp.concatenate([rhs, xp.zeros(matrix.shape[1], dtype=rhs.dtype)])
     coefficients, *_ = xp.linalg.lstsq(matrix, rhs, rcond=tolerance)

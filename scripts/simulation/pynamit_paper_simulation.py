@@ -53,7 +53,7 @@ class PaperSimulationSettings:
     simulation_time: float = 480.0
     interhemispheric_coupling_latitude: float = 45.0
     dt: float = 5e-4
-    write_sample_interval: int = 200
+    samples_per_write: int = 200
     conductance_lambda: float = 0.001
     wind_lambda: float = 0.001
     boundary_jr_lambda: float | None = None
@@ -90,7 +90,11 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
     """Project paper inputs through the shared library adapters."""
     import dipole
 
-    from pynamit.external_inputs import get_conductance_inputs, get_jr_inputs, get_wind_inputs
+    from pynamit.external_inputs import (
+        get_boundary_jr_inputs,
+        get_conductance_inputs,
+        get_wind_inputs,
+    )
 
     input_directory = Path(settings.input_directory).expanduser()
     input_directory.mkdir(parents=True, exist_ok=True)
@@ -124,7 +128,7 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
     )
 
     dipole_model = dipole.Dipole(preparation.main_field.epoch)
-    boundary_jr, _, _ = get_jr_inputs(
+    boundary_jr, _, _ = get_boundary_jr_inputs(
         settings.date,
         source_lat,
         source_lon,
@@ -184,7 +188,7 @@ def run_paper_simulation(settings: PaperSimulationSettings = SETTINGS) -> pynami
         enabled_inputs=("conductance", "u"),
         final_time=settings.simulation_time,
         dt=settings.dt,
-        write_sample_interval=settings.write_sample_interval,
+        samples_per_write=settings.samples_per_write,
         main_field_kind="igrf",
         fac_integration_radii=dipole_fac_integration_radii(
             RI, RI / np.cos(np.deg2rad(69.0)) ** 2, n_points=70
@@ -215,8 +219,8 @@ def run_paper_simulation(settings: PaperSimulationSettings = SETTINGS) -> pynami
     simulation.evolve_to_time(
         final_time,
         dt=settings.dt,
-        sampling_step_interval=1,
-        write_sample_interval=settings.write_sample_interval,
+        steps_per_sample=1,
+        samples_per_write=settings.samples_per_write,
         initialize_from_equilibrium=False,
         run_dynamic=True,
         run_equilibrium=False,

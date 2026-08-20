@@ -18,7 +18,7 @@ def test_new_package_entry_points_are_available():
     """Each maintained namespace exposes its main interactive tools."""
     results = importlib.import_module("pynamit.results")
     plotting = importlib.import_module("pynamit.plotting")
-    grid_fields = importlib.import_module("pynamit.plotting.grid_fields")
+    plot_data = importlib.import_module("pynamit.plotting.plot_data")
     gui = importlib.import_module("pynamit.gui")
     mage = importlib.import_module("pynamit.workflows.mage")
 
@@ -27,15 +27,15 @@ def test_new_package_entry_points_are_available():
     assert not hasattr(pynamit, "RunResults")
     assert callable(results.evaluate_projected_input)
     assert plotting.FigureSettings.__name__ == "FigureSettings"
-    assert plotting.GridFields.__name__ == "GridFields"
+    assert plotting.PlotData.__name__ == "PlotData"
     assert not hasattr(plotting, "RunFields")
-    assert callable(grid_fields.compute_output_fields_at_index)
+    assert callable(plot_data.compute_output_fields_at_index)
     assert callable(plotting.render_figure)
     assert gui.PynamitGUI.__name__ == "PynamitGUI"
     assert callable(gui.build_gui)
     assert mage.ForcingSettings.__name__ == "ForcingSettings"
     assert callable(mage.prepare_forcing)
-    assert callable(mage.project_forcing)
+    assert callable(mage.prepare_inputs)
 
 
 def test_optional_namespaces_advertise_only_the_common_api():
@@ -46,13 +46,13 @@ def test_optional_namespaces_advertise_only_the_common_api():
 
     assert plotting.__all__ == ["FigureSettings", "render_figure", "save_movie"]
     assert gui.__all__ == ["PynamitGUI", "build_gui"]
-    assert mage.__all__ == ["ForcingSettings", "prepare_forcing", "project_forcing"]
-    assert {"FigureSettings", "GridFields", "plot_output_diagnostics"}.issubset(dir(plotting))
+    assert mage.__all__ == ["ForcingSettings", "prepare_forcing", "prepare_inputs"]
+    assert {"FigureSettings", "PlotData", "plot_output_quicklook"}.issubset(dir(plotting))
     assert {"PynamitGUI", "build_gui", "main"}.issubset(dir(gui))
     assert {
         "ForcingSettings",
         "prepare_forcing",
-        "project_forcing",
+        "prepare_inputs",
         "write_input_projection_diagnostics",
     }.issubset(dir(mage))
     for name in (
@@ -74,14 +74,14 @@ def test_optional_namespaces_advertise_only_the_common_api():
 
 def test_magnetic_boundary_operators_are_available():
     """JS operators are available from their owning modules."""
-    grid_evaluation = importlib.import_module("pynamit.results.grid_evaluation")
+    evaluation = importlib.import_module("pynamit.results.evaluation")
     magnetic_boundary = importlib.import_module(
         "pynamit.simulation.electrodynamics.magnetic_boundary"
     )
 
     assert callable(magnetic_boundary.induced_Br_to_gridded_JS_operator)
     assert callable(magnetic_boundary.boundary_jr_to_gridded_JS_operator)
-    assert callable(grid_evaluation.build_JS_matrices)
+    assert callable(evaluation.build_sheet_current_matrices)
 
 
 def test_input_projection_comparison_recipe_is_importable():
@@ -92,9 +92,9 @@ def test_input_projection_comparison_recipe_is_importable():
     assert callable(diagnostics.write_input_projection_diagnostics)
 
 
-def test_grid_fields_loads_projected_input_package_without_output(tmp_path):
+def test_plot_data_loads_projected_input_package_without_output(tmp_path):
     """Projection packages should be inspectable before a run exists."""
-    grid_fields = importlib.import_module("pynamit.plotting.grid_fields")
+    plot_data = importlib.import_module("pynamit.plotting.plot_data")
 
     simulation = pynamit.Simulation(
         simulation_directory=tmp_path,
@@ -118,7 +118,7 @@ def test_grid_fields_loads_projected_input_package_without_output(tmp_path):
     boundary_Br_shape = simulation.data.schema.input_field_spaces["boundary_Br"].coefficient_shape
     simulation.set_boundary_Br(boundary_Br_coefficients=np.zeros(boundary_Br_shape), time=0.0)
 
-    view = grid_fields.GridFields.from_directory(tmp_path)
+    view = plot_data.PlotData.from_directory(tmp_path)
 
     assert view.has_model_output is False
     assert not hasattr(view, "run_view")
@@ -135,9 +135,9 @@ def test_grid_fields_loads_projected_input_package_without_output(tmp_path):
     assert view.input_transforms["E_neutral_wind"] is None
 
 
-def test_grid_fields_loads_without_boundary_br(tmp_path):
+def test_plot_data_loads_without_boundary_br(tmp_path):
     """Ordinary simulations without RM/Br artifacts can be inspected."""
-    grid_fields = importlib.import_module("pynamit.plotting.grid_fields")
+    plot_data = importlib.import_module("pynamit.plotting.plot_data")
 
     simulation = pynamit.Simulation(
         simulation_directory=tmp_path,
@@ -157,16 +157,16 @@ def test_grid_fields_loads_without_boundary_br(tmp_path):
     simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
     simulation.impose_equilibrium(time=0.0, save=True, quiet=True)
 
-    view = grid_fields.GridFields.from_directory(tmp_path)
+    view = plot_data.PlotData.from_directory(tmp_path)
     assert view.results.geometry is None
     assert view.output_evaluation_context is None
     assert view.sheet_current_maps is None
     with pytest.raises(ValueError, match="Unknown output fields"):
-        view.output_grid_fields(0, field_names={"not-a-field"})
+        view.output_plot_data(0, field_names={"not-a-field"})
     assert view.results.geometry is None
 
-    fields = view.output_grid_fields(0, field_names={"Br"})
-    input_fields = view.input_grid_fields(0)
+    fields = view.output_plot_data(0, field_names={"Br"})
+    input_fields = view.input_plot_data(0)
 
     assert view.has_model_output
     assert view.results.geometry is not None
@@ -181,7 +181,7 @@ def test_grid_fields_loads_without_boundary_br(tmp_path):
 
 def test_saved_output_joule_uses_pedersen_dissipation():
     """Saved-output Joule heating follows the Pedersen closure."""
-    grid_fields = importlib.import_module("pynamit.plotting.grid_fields")
+    plot_data = importlib.import_module("pynamit.plotting.plot_data")
 
     class IdentityEvaluator:
         scalar_synthesis_matrix = np.eye(2)
@@ -231,7 +231,7 @@ def test_saved_output_joule_uses_pedersen_dissipation():
         data_var_name=lambda _dataset_key, variable_name: f"SH_{variable_name}",
     )
 
-    fields = grid_fields.compute_output_fields_at_index(
+    fields = plot_data.compute_output_fields_at_index(
         0,
         results,
         IdentityEvaluator(),
@@ -244,7 +244,7 @@ def test_saved_output_joule_uses_pedersen_dissipation():
     np.testing.assert_allclose(fields["joule"], [70.0, 288.0])
 
     results.datasets = {"equilibrium": output, "conductance": conductance}
-    equilibrium_fields = grid_fields.compute_output_fields_at_index(
+    equilibrium_fields = plot_data.compute_output_fields_at_index(
         0,
         results,
         IdentityEvaluator(),
@@ -257,9 +257,9 @@ def test_saved_output_joule_uses_pedersen_dissipation():
     np.testing.assert_allclose(equilibrium_fields["joule"], fields["joule"])
 
 
-def test_grid_fields_supports_equilibrium_only_output(tmp_path):
+def test_plot_data_supports_equilibrium_only_output(tmp_path):
     """An equilibrium-only run remains visualizable."""
-    grid_fields = importlib.import_module("pynamit.plotting.grid_fields")
+    plot_data = importlib.import_module("pynamit.plotting.plot_data")
 
     simulation = pynamit.Simulation(
         simulation_directory=tmp_path,
@@ -280,8 +280,8 @@ def test_grid_fields_supports_equilibrium_only_output(tmp_path):
     simulation.impose_equilibrium(time=0.0, save=True, quiet=True)
     simulation.data.artifact_store.remove_artifact("dynamic")
 
-    view = grid_fields.GridFields.from_directory(tmp_path)
-    fields = view.output_grid_fields(0)
+    view = plot_data.PlotData.from_directory(tmp_path)
+    fields = view.output_plot_data(0)
 
     assert view.has_model_output
     assert "dynamic" not in view.results.datasets
@@ -291,9 +291,9 @@ def test_grid_fields_supports_equilibrium_only_output(tmp_path):
     assert "Br_dynamic" not in fields
 
 
-def test_grid_fields_aligns_inputs_by_time_not_index(tmp_path):
+def test_plot_data_aligns_inputs_by_time_not_index(tmp_path):
     """Sparse outputs should use dense inputs at matching times."""
-    grid_fields = importlib.import_module("pynamit.plotting.grid_fields")
+    plot_data = importlib.import_module("pynamit.plotting.plot_data")
 
     simulation = pynamit.Simulation(
         simulation_directory=tmp_path,
@@ -321,8 +321,8 @@ def test_grid_fields_aligns_inputs_by_time_not_index(tmp_path):
         simulation.data.output_series.add_entry("dynamic", empty_output, time)
     simulation.data.output_series.save("dynamic", simulation.data.artifact_store)
 
-    view = grid_fields.GridFields.from_directory(tmp_path)
-    fields = view.input_grid_fields(1)
+    view = plot_data.PlotData.from_directory(tmp_path)
+    fields = view.input_plot_data(1)
     expected = (
         view.input_transforms["boundary_Br"]
         .scalar_synthesis_matrix.dot(br_coefficients[2])
@@ -334,9 +334,9 @@ def test_grid_fields_aligns_inputs_by_time_not_index(tmp_path):
     np.testing.assert_allclose(fields["Br"], expected)
 
 
-def test_grid_fields_inspects_neutral_wind_electric_field_input(tmp_path):
+def test_plot_data_inspects_neutral_wind_electric_field_input(tmp_path):
     """Projected neutral-wind E packages should be inspectable."""
-    grid_fields = importlib.import_module("pynamit.plotting.grid_fields")
+    plot_data = importlib.import_module("pynamit.plotting.plot_data")
 
     simulation = pynamit.Simulation(
         simulation_directory=tmp_path,
@@ -354,8 +354,8 @@ def test_grid_fields_inspects_neutral_wind_electric_field_input(tmp_path):
         E_neutral_wind_cf=cf_coeffs, E_neutral_wind_df=df_coeffs, time=0.0
     )
 
-    view = grid_fields.GridFields.from_directory(tmp_path)
-    fields = view.input_grid_fields(0)
+    view = plot_data.PlotData.from_directory(tmp_path)
+    fields = view.input_plot_data(0)
 
     assert view.available_inputs == ("E_neutral_wind",)
     assert fields["E_neutral_wind_theta"].shape == view.wind_lat.shape
@@ -363,9 +363,9 @@ def test_grid_fields_inspects_neutral_wind_electric_field_input(tmp_path):
     assert np.any(np.isfinite(fields["E_neutral_wind_theta"]))
 
 
-def test_grid_fields_keeps_model_and_geographic_evaluation_grids_separate(tmp_path):
+def test_plot_data_keeps_model_and_geographic_evaluation_grids_separate(tmp_path):
     """Geographic maps must not replace the magnetic hemisphere grid."""
-    grid_fields = importlib.import_module("pynamit.plotting.grid_fields")
+    plot_data = importlib.import_module("pynamit.plotting.plot_data")
 
     simulation = pynamit.Simulation(
         simulation_directory=tmp_path,
@@ -386,7 +386,7 @@ def test_grid_fields_keeps_model_and_geographic_evaluation_grids_separate(tmp_pa
     simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
     simulation.impose_equilibrium(time=0.0, save=True, quiet=True)
 
-    view = grid_fields.GridFields.from_directory(tmp_path, nlat=6, nlon=8)
+    view = plot_data.PlotData.from_directory(tmp_path, nlat=6, nlon=8)
     geographic = view._get_geographic_evaluation()
     geographic_output_transform = view._geographic_output_transform(geographic)
     expected_lat, expected_lon = view.results.main_field.geo_to_model_coordinates(
@@ -399,14 +399,14 @@ def test_grid_fields_keeps_model_and_geographic_evaluation_grids_separate(tmp_pa
     np.testing.assert_allclose(geographic_output_transform.grid.lon, expected_lon.reshape(-1))
     assert geographic_output_transform.grid != view.output_transform.grid
     assert view._get_geographic_evaluation() is geographic
-    assert view.geographic_map_context() == grid_fields.MapCoordinateContext.geographic(
+    assert view.geographic_map_context() == plot_data.MapCoordinateContext.geographic(
         pd.Timestamp(view._start_time()).to_pydatetime()
     )
 
 
-def test_grid_fields_reuses_earth_fixed_geographic_mapping(tmp_path):
+def test_plot_data_reuses_earth_fixed_geographic_mapping(tmp_path):
     """Kaiju model and display geometry stay fixed in GEO."""
-    grid_fields = importlib.import_module("pynamit.plotting.grid_fields")
+    plot_data = importlib.import_module("pynamit.plotting.plot_data")
     simulation = pynamit.Simulation(
         simulation_directory=tmp_path,
         Nmax=2,
@@ -423,7 +423,7 @@ def test_grid_fields_reuses_earth_fixed_geographic_mapping(tmp_path):
         boundary_jr_coefficients=np.zeros((2, *boundary_jr_shape)), time=np.array([0.0, 3600.0])
     )
 
-    view = grid_fields.GridFields.from_directory(tmp_path, nlat=6, nlon=8)
+    view = plot_data.PlotData.from_directory(tmp_path, nlat=6, nlon=8)
     first_time = view.timestamp_at_index(0)
     last_time = view.timestamp_at_index(1)
     first = view._get_geographic_evaluation(first_time)
@@ -441,7 +441,7 @@ def test_grid_fields_reuses_earth_fixed_geographic_mapping(tmp_path):
 
 def test_kaiju_hemisphere_plot_coordinates_are_magnetic(tmp_path):
     """Kaiju polar plots rotate GEO samples into MAG and use MLT."""
-    grid_fields = importlib.import_module("pynamit.plotting.grid_fields")
+    plot_data = importlib.import_module("pynamit.plotting.plot_data")
     simulation = pynamit.Simulation(
         simulation_directory=tmp_path,
         Nmax=2,
@@ -456,7 +456,7 @@ def test_kaiju_hemisphere_plot_coordinates_are_magnetic(tmp_path):
     boundary_jr_shape = simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
     simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
 
-    view = grid_fields.GridFields.from_directory(tmp_path, nlat=6, nlon=8)
+    view = plot_data.PlotData.from_directory(tmp_path, nlat=6, nlon=8)
     magnetic_latitude, magnetic_longitude = view.magnetic_plot_coordinates()
     expected = view.results.main_field.geographic_to_magnetic_coordinates(view.lat, view.lon)
     timestamp = view.timestamp_at_index(0)
@@ -474,7 +474,7 @@ def test_kaiju_hemisphere_plot_coordinates_are_magnetic(tmp_path):
 
 def test_geographic_input_vectors_are_rotated_to_geographic_components(tmp_path):
     """Global quivers use geographic tangent-vector components."""
-    grid_fields = importlib.import_module("pynamit.plotting.grid_fields")
+    plot_data = importlib.import_module("pynamit.plotting.plot_data")
 
     simulation = pynamit.Simulation(
         simulation_directory=tmp_path,
@@ -490,8 +490,8 @@ def test_geographic_input_vectors_are_rotated_to_geographic_components(tmp_path)
     u_df = np.linspace(1.0, 0.0, wind_shape[1])
     simulation.set_neutral_wind(u_cf=u_cf, u_df=u_df, time=0.0)
 
-    view = grid_fields.GridFields.from_directory(tmp_path, wind_nlat=5, wind_nlon=7)
-    fields = view.input_grid_fields(0, coordinate_system="geographic")
+    view = plot_data.PlotData.from_directory(tmp_path, wind_nlat=5, wind_nlon=7)
+    fields = view.input_plot_data(0, coordinate_system="geographic")
     evaluation = view._get_geographic_evaluation()
     coefficients = view.dataset_values("u", "u")[0]
     model_theta, model_phi = evaluation.input_transforms["u"].synthesize_helmholtz(coefficients)
@@ -506,9 +506,9 @@ def test_geographic_input_vectors_are_rotated_to_geographic_components(tmp_path)
     np.testing.assert_allclose(fields["wind_theta"], -expected_north.reshape(view.wind_lat.shape))
 
 
-def test_grid_fields_rejects_unknown_display_coordinate_system(tmp_path):
+def test_plot_data_rejects_unknown_display_coordinate_system(tmp_path):
     """Display-coordinate selection should fail explicitly on typos."""
-    grid_fields = importlib.import_module("pynamit.plotting.grid_fields")
+    plot_data = importlib.import_module("pynamit.plotting.plot_data")
 
     simulation = pynamit.Simulation(
         simulation_directory=tmp_path,
@@ -520,10 +520,10 @@ def test_grid_fields_rejects_unknown_display_coordinate_system(tmp_path):
     )
     boundary_jr_shape = simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
     simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
-    view = grid_fields.GridFields.from_directory(tmp_path)
+    view = plot_data.PlotData.from_directory(tmp_path)
 
     with pytest.raises(ValueError, match="coordinate_system"):
-        view.input_grid_fields(0, coordinate_system="geomagnetic-ish")
+        view.input_plot_data(0, coordinate_system="geomagnetic-ish")
 
 
 @pytest.mark.parametrize(
@@ -545,7 +545,7 @@ def test_field_renderer_selects_coordinates_for_map_type(
         results = type("Results", (), {"datasets": {"dynamic": object()}})()
         coordinate_system = None
 
-        def output_grid_fields(self, index, *, field_names, coordinate_system):
+        def output_plot_data(self, index, *, field_names, coordinate_system):
             del index, field_names
             self.coordinate_system = coordinate_system
             return {"Br_dynamic": np.zeros(self.lat.shape)}
@@ -575,10 +575,10 @@ def test_field_renderer_selects_coordinates_for_map_type(
     )
     view = CapturingView()
     settings = figure_settings.FigureSettings(
-        plot_type=plot_type, show_inductive=True, show_noninductive=False, show_difference=False
+        plot_type=plot_type, show_dynamic=True, show_equilibrium=False, show_difference=False
     )
 
-    figure = figures.FieldComparisonRenderer(settings, grid_fields=view).render()
+    figure = figures.FieldComparisonRenderer(settings, plot_data=view).render()
     try:
         assert view.coordinate_system == expected_coordinate_system
         if plot_type == "global":
@@ -602,7 +602,7 @@ def test_field_renderer_applies_manual_fill_and_line_levels(monkeypatch):
         results = type("Results", (), {"datasets": {"equilibrium": object()}})()
 
         @classmethod
-        def output_grid_fields(cls, index, *, field_names, coordinate_system):
+        def output_plot_data(cls, index, *, field_names, coordinate_system):
             del index, field_names, coordinate_system
             return {
                 "jr_equilibrium": np.zeros(cls.lat.shape),
@@ -628,8 +628,8 @@ def test_field_renderer_applies_manual_fill_and_line_levels(monkeypatch):
         plot_type="global",
         fill="jr",
         lines="Phi",
-        show_inductive=False,
-        show_noninductive=True,
+        show_dynamic=False,
+        show_equilibrium=True,
         show_difference=False,
         manual_color_min=-5e-7,
         manual_color_max=5e-7,
@@ -638,7 +638,7 @@ def test_field_renderer_applies_manual_fill_and_line_levels(monkeypatch):
         line_levels_per_sign=3,
     )
 
-    figure = figures.FieldComparisonRenderer(settings, grid_fields=View()).render()
+    figure = figures.FieldComparisonRenderer(settings, plot_data=View()).render()
     try:
         np.testing.assert_allclose(
             captured["plot_kwargs"]["jr"]["levels"], np.linspace(-5e-7, 5e-7, 18)
@@ -685,7 +685,7 @@ def test_hemisphere_renderer_uses_cutoff_and_writes_coordinate_labels(monkeypatc
         hemisphere_min_abs_latitude=42.0,
     )
 
-    figure, _, _ = renderer._create_hemisphere_axes([("dynamic", "Inductive")], 1)
+    figure, _, _ = renderer._create_hemisphere_axes([("dynamic", "Dynamic")], 1)
     try:
         assert len(captured) == 1
         assert captured[0].min_abs_latitude == 42.0
@@ -735,7 +735,7 @@ def test_input_summary_keeps_polar_jr_model_aligned(monkeypatch):
         def __init__(self):
             self.coordinate_systems = []
 
-        def input_grid_fields(self, index, *, coordinate_system):
+        def input_plot_data(self, index, *, coordinate_system):
             del index
             self.coordinate_systems.append(coordinate_system)
             shape = self.lat.shape
@@ -781,7 +781,7 @@ def test_input_summary_keeps_polar_jr_model_aligned(monkeypatch):
     view = CapturingView()
     settings = figure_settings.FigureSettings(plot_type="input_summary")
 
-    figure = figures.InputDriverRenderer(settings, grid_fields=view).render()
+    figure = figures.InputDriverRenderer(settings, plot_data=view).render()
     try:
         assert view.coordinate_systems == ["model", "geographic"]
         geo_axes = [axis for axis in figure.axes if hasattr(axis, "projection")]
@@ -812,13 +812,14 @@ def test_publication_script_export_is_jupyter_friendly():
         {"time_index": -1},
         {"time_range": (0.5, 2)},
         {"dbdt_window_points": 1.5},
+        {"reference_time_of_day_utc": "not a time"},
         {"color_scale_mode": "fixed"},
         {"color_scale_percentile": np.nan},
         {"manual_color_min": -1.0},
         {"manual_color_min": 1.0, "manual_color_max": -1.0},
         {"line_first_abs_level": 1.0},
         {"line_first_abs_level": 1.0, "line_interval": 0.0, "line_levels_per_sign": 2},
-        {"sim_time_offset_seconds": np.inf},
+        {"simulation_time_offset_seconds": np.inf},
     ],
 )
 def test_figure_settings_reject_invalid_renderer_values(kwargs):
@@ -846,7 +847,7 @@ def test_simulation_plot_defaults_are_applied(tmp_path):
     (tmp_path / "pynamit_plot_defaults.json").write_text(
         """
         {
-          "data_directory": "/tmp/mag_data",
+          "station_data_directory": "/tmp/mag_data",
           "plot_type": "ground_timeseries",
           "ground_station": "OTT",
           "time_range": [4, 12]
@@ -858,46 +859,48 @@ def test_simulation_plot_defaults_are_applied(tmp_path):
     settings = figure_settings.FigureSettings.from_simulation_directory(tmp_path)
 
     assert settings.simulation_directory == str(tmp_path)
-    assert settings.data_directory == "/tmp/mag_data"
+    assert settings.station_data_directory == "/tmp/mag_data"
     assert settings.plot_type == "ground_timeseries"
     assert settings.ground_station == "OTT"
     assert settings.time_range == (4, 12)
 
 
-def test_grid_fields_cache_replaces_stale_simulation_version(tmp_path, monkeypatch):
+def test_plot_data_cache_replaces_stale_simulation_version(tmp_path, monkeypatch):
     """Live updates replace rather than accumulate cached views."""
-    figure_context = importlib.import_module("pynamit.plotting.figure_context")
+    plot_data_module = importlib.import_module("pynamit.plotting.plot_data")
     figure_settings = importlib.import_module("pynamit.plotting.figure_settings")
     fingerprint = [("dynamic", 1)]
     views = iter((object(), object()))
     monkeypatch.setattr(
-        figure_context, "_artifact_fingerprint", lambda _directory: tuple(fingerprint)
+        plot_data_module, "_artifact_fingerprint", lambda _directory: tuple(fingerprint)
     )
     monkeypatch.setattr(
-        figure_context.GridFields, "from_directory", staticmethod(lambda _directory: next(views))
+        plot_data_module.PlotData,
+        "from_directory",
+        staticmethod(lambda _directory: next(views)),
     )
-    figure_context.clear_grid_fields_cache()
+    plot_data_module.clear_plot_data_cache()
     settings = figure_settings.FigureSettings(simulation_directory=str(tmp_path))
 
-    first = figure_context.get_grid_fields(settings)
-    assert figure_context.get_grid_fields(settings) is first
+    first = plot_data_module.get_plot_data(settings)
+    assert plot_data_module.get_plot_data(settings) is first
     fingerprint[0] = ("dynamic", 2)
-    second = figure_context.get_grid_fields(settings)
+    second = plot_data_module.get_plot_data(settings)
 
     assert second is not first
-    assert len(figure_context._GRID_FIELDS_CACHE) == 1
+    assert len(plot_data_module._PLOT_DATA_CACHE) == 1
 
 
-def test_grid_fields_fingerprint_detects_nested_store_changes(tmp_path):
+def test_plot_data_fingerprint_detects_nested_store_changes(tmp_path):
     """In-place Zarr chunk additions invalidate cached grid fields."""
-    figure_context = importlib.import_module("pynamit.plotting.figure_context")
+    plot_data_module = importlib.import_module("pynamit.plotting.plot_data")
     chunk_directory = tmp_path / "dynamic.zarr" / "SH_induced_Br"
     chunk_directory.mkdir(parents=True)
     (chunk_directory / "0").write_bytes(b"first")
 
-    before = figure_context._artifact_fingerprint(tmp_path)
+    before = plot_data_module._artifact_fingerprint(tmp_path)
     (chunk_directory / "1").write_bytes(b"second")
-    after = figure_context._artifact_fingerprint(tmp_path)
+    after = plot_data_module._artifact_fingerprint(tmp_path)
 
     assert after != before
 

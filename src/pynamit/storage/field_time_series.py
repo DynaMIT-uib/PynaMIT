@@ -10,7 +10,6 @@ from kompe.math import to_numpy
 from pynamit.fields import FieldCoefficients, FieldSpace
 
 TIME_TOLERANCE_SECONDS = 1e-6
-_VALUE_CHANGE_RTOL = 1e-6
 
 
 class FieldTimeSeries:
@@ -436,17 +435,14 @@ class FieldTimeSeries:
             previous_keys = [(key, var) for var in self.variables[key]]
             has_previous = all(item in self._previous_entries for item in previous_keys)
             changed = not has_previous or not all(
-                np.allclose(
-                    current_data[var],
-                    self._previous_entries[(key, var)],
-                    rtol=_VALUE_CHANGE_RTOL,
-                    atol=0.0,
+                np.array_equal(
+                    current_data[var], self._previous_entries[(key, var)], equal_nan=True
                 )
                 for var in self.variables[key]
             )
             if changed:
                 for var in self.variables[key]:
-                    self._previous_entries[(key, var)] = current_data[var]
+                    self._previous_entries[(key, var)] = np.array(current_data[var], copy=True)
                 return current_data
 
         # No new data available.
@@ -494,14 +490,13 @@ class FieldTimeSeries:
                 dataset_after = self.datasets[key].sel(
                     time=[time + TIME_TOLERANCE_SECONDS], method="bfill"
                 )
+                interpolation_fraction = (time - dataset_before_time) / (
+                    dataset_after.time.item() - dataset_before_time
+                )
                 for var in self.variables[key]:
-                    current_data[var] += (
-                        (time - dataset_before_time)
-                        / (dataset_after.time.item() - dataset_before_time)
-                        * (
-                            dataset_after[self.get_data_var_name(key, var)].values.reshape(-1)
-                            - dataset_before[self.get_data_var_name(key, var)].values.reshape(-1)
-                        )
+                    current_data[var] = current_data[var] + interpolation_fraction * (
+                        dataset_after[self.get_data_var_name(key, var)].values.reshape(-1)
+                        - dataset_before[self.get_data_var_name(key, var)].values.reshape(-1)
                     )
 
             return current_data

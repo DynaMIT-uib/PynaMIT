@@ -1,4 +1,4 @@
-"""Simulation execution, sampling, and persistence orchestration."""
+"""Time evolution, output sampling, and persistence."""
 
 from __future__ import annotations
 
@@ -6,17 +6,17 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
-from kompe.math import get_array_module, to_numpy
+from kompe.math import get_array_module
 
 from pynamit.simulation.electrodynamics import induction
 from pynamit.storage.field_time_series import TIME_TOLERANCE_SECONDS
 
 if TYPE_CHECKING:
-    from pynamit.simulation.api import Simulation
+    from pynamit.simulation.simulation import Simulation
 
 DEFAULT_DT_SECONDS = 5e-4
-DEFAULT_SAMPLING_STEP_INTERVAL = 200
-DEFAULT_WRITE_SAMPLE_INTERVAL = 10
+DEFAULT_STEPS_PER_SAMPLE = 200
+DEFAULT_SAMPLES_PER_WRITE = 10
 
 
 def _positive_integer(value, *, name):
@@ -57,8 +57,8 @@ class _EvolutionOptions:
 
     target_time: float
     dt: np.float64
-    sampling_step_interval: int
-    write_sample_interval: int
+    steps_per_sample: int
+    samples_per_write: int
     quiet: bool
     initialize_from_equilibrium: bool
     run_dynamic: bool
@@ -71,8 +71,8 @@ class _EvolutionOptions:
         *,
         t,
         dt,
-        sampling_step_interval,
-        write_sample_interval,
+        steps_per_sample,
+        samples_per_write,
         quiet,
         initialize_from_equilibrium,
         run_dynamic,
@@ -99,18 +99,18 @@ class _EvolutionOptions:
         if not run_dynamic and not run_equilibrium:
             raise ValueError("At least one of run_dynamic or run_equilibrium must be True.")
 
-        sampling_step_interval = _positive_integer(
-            sampling_step_interval, name="sampling_step_interval"
+        steps_per_sample = _positive_integer(
+            steps_per_sample, name="steps_per_sample"
         )
-        write_sample_interval = _positive_integer(
-            write_sample_interval, name="write_sample_interval"
+        samples_per_write = _positive_integer(
+            samples_per_write, name="samples_per_write"
         )
 
         return cls(
             target_time=target_time,
             dt=dt,
-            sampling_step_interval=sampling_step_interval,
-            write_sample_interval=write_sample_interval,
+            steps_per_sample=steps_per_sample,
+            samples_per_write=samples_per_write,
             quiet=_boolean_option(quiet, name="quiet"),
             initialize_from_equilibrium=_boolean_option(
                 initialize_from_equilibrium, name="initialize_from_equilibrium"
@@ -122,16 +122,16 @@ class _EvolutionOptions:
     @property
     def step_increment(self) -> int:
         """Return loop-step increment for enabled evolution modes."""
-        return 1 if self.run_dynamic else self.sampling_step_interval
+        return 1 if self.run_dynamic else self.steps_per_sample
 
     @property
     def save_step_interval(self) -> int:
         """Return the step interval between persisted samples."""
-        return self.sampling_step_interval * self.write_sample_interval
+        return self.steps_per_sample * self.samples_per_write
 
 
-class SimulationRunner:
-    """Coordinate simulation execution, sampling, and persistence."""
+class _TimeEvolution:
+    """Advance one simulation and retain its exponential propagator."""
 
     def __init__(self, simulation: Simulation):
         self.simulation = simulation
@@ -148,8 +148,8 @@ class SimulationRunner:
         self,
         t,
         dt=DEFAULT_DT_SECONDS,
-        sampling_step_interval=DEFAULT_SAMPLING_STEP_INTERVAL,
-        write_sample_interval=DEFAULT_WRITE_SAMPLE_INTERVAL,
+        steps_per_sample=DEFAULT_STEPS_PER_SAMPLE,
+        samples_per_write=DEFAULT_SAMPLES_PER_WRITE,
         quiet=False,
         initialize_from_equilibrium=True,
         run_dynamic=True,
@@ -160,8 +160,8 @@ class SimulationRunner:
             self.simulation.config,
             t=t,
             dt=dt,
-            sampling_step_interval=sampling_step_interval,
-            write_sample_interval=write_sample_interval,
+            steps_per_sample=steps_per_sample,
+            samples_per_write=samples_per_write,
             quiet=quiet,
             initialize_from_equilibrium=initialize_from_equilibrium,
             run_dynamic=run_dynamic,
@@ -183,10 +183,10 @@ class SimulationRunner:
             self.simulation.geometry.main_field.kind != "radial"
             and self.simulation.config.enable_pfac_coupling
         ):
-            self.simulation.data.save_gap_Br_response_if_missing(
+            self.simulation.data.save_boundary_jr_to_gap_Br_matrix_if_missing(
                 self.simulation.geometry.boundary_jr_to_gap_Br_matrix, print_info=not options.quiet
             )
-        self._run_loop(options, dynamic_induced_Br)
+        self._evolution_loop(options, dynamic_induced_Br)
 
     def impose_equilibrium(self, *, time=None, interpolation=True, save=True, quiet=False):
         """Solve and optionally save the instantaneous equilibrium."""
@@ -220,7 +220,7 @@ class SimulationRunner:
             and self.simulation.geometry.main_field.kind != "radial"
             and self.simulation.config.enable_pfac_coupling
         ):
-            self.simulation.data.save_gap_Br_response_if_missing(
+            self.simulation.data.save_boundary_jr_to_gap_Br_matrix_if_missing(
                 self.simulation.geometry.boundary_jr_to_gap_Br_matrix, print_info=not quiet
             )
         self._record_output_snapshot(
@@ -321,8 +321,8 @@ class SimulationRunner:
             return False
         return float(np.max(dataset.time.values)) >= float(target_time) - TIME_TOLERANCE_SECONDS
 
-    def _run_loop(self, options: _EvolutionOptions, dynamic_induced_Br) -> None:
-        """Run the configured evolution loop."""
+    def _evolution_loop(self, options: _EvolutionOptions, dynamic_induced_Br) -> None:
+        """Advance through the configured evolution loop."""
         step = 0
         total_steps_estimate = self._total_steps_estimate(options)
 
@@ -342,7 +342,7 @@ class SimulationRunner:
             is_final_step = (
                 float(self.simulation.current_time) >= options.target_time - TIME_TOLERANCE_SECONDS
             )
-            is_sample_step = is_final_step or step % options.sampling_step_interval == 0
+            is_sample_step = is_final_step or step % options.steps_per_sample == 0
             should_save_sample = is_final_step or (
                 is_sample_step and step % options.save_step_interval == 0
             )
@@ -482,15 +482,13 @@ class SimulationRunner:
         boundary_jr = boundary_jr_noninductive + boundary_jr_induced
 
         output_data = {
-            "induced_Br": to_numpy(induced_Br),
-            "boundary_jr": to_numpy(boundary_jr),
-            "Phi": to_numpy(
-                self.simulation.geometry.helmholtz_curl_free_potential_operator.matvec(E_coeffs)
+            "induced_Br": induced_Br,
+            "boundary_jr": boundary_jr,
+            "Phi": self.simulation.geometry.helmholtz_curl_free_potential_operator.matvec(
+                E_coeffs
             ),
-            "W": to_numpy(
-                self.simulation.geometry.helmholtz_divergence_free_potential_operator.matvec(
-                    E_coeffs
-                )
+            "W": self.simulation.geometry.helmholtz_divergence_free_potential_operator.matvec(
+                E_coeffs
             ),
         }
         self.simulation.data.output_series.add_entry(

@@ -3,11 +3,11 @@
 from kompe.spherical_transform import SphericalTransform
 
 from pynamit.fields import FieldCoefficients
-from pynamit.results.field_maps import (
+from pynamit.results.evaluation import (
     evaluate_conductance_values,
     evaluate_tangential_coefficients,
+    transform_for_basis,
 )
-from pynamit.results.grid_evaluation import transform_for_basis
 from pynamit.storage import FieldTimeSeries
 
 
@@ -72,9 +72,9 @@ def evaluate_projected_input(
     field_space = series.get_field_space(key)
     target_grid = default_grid if grid is None else grid
     if transform is not None:
-        transform = transform_for_basis(field_space.representation, transform)
+        transform = transform_for_basis(field_space.basis, transform)
     elif target_grid is not None:
-        transform = SphericalTransform(field_space.representation, target_grid)
+        transform = SphericalTransform(field_space.basis, target_grid)
     else:
         raise ValueError("A target grid or transform is required.")
 

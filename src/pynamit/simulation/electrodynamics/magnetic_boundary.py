@@ -58,10 +58,10 @@ def external_Br_to_gridded_JS_operator(solid_harmonics, transform):
 def shielded_induced_poloidal_scale(solid_harmonics, boundary_radius, radius):
     """Return the optional zero-Br outer image-response scale."""
     regular_shift = _coefficient_scale(
-        solid_harmonics.regular_reference_shift(boundary_radius, radius)
+        solid_harmonics.regular_reference_shift_factors(boundary_radius, radius)
     )
     irregular_shift = _coefficient_scale(
-        solid_harmonics.irregular_reference_shift(radius, boundary_radius)
+        solid_harmonics.irregular_reference_shift_factors(radius, boundary_radius)
     )
     return 1.0 / (1.0 - regular_shift * irregular_shift)
 
@@ -92,10 +92,10 @@ def boundary_Br_to_ionosphere_external_Br_scale(solid_harmonics, boundary_radius
     reproduce the prescribed field at ``boundary_radius``.
     """
     regular_shift = _coefficient_scale(
-        solid_harmonics.regular_reference_shift(boundary_radius, radius)
+        solid_harmonics.regular_reference_shift_factors(boundary_radius, radius)
     )
     irregular_shift = _coefficient_scale(
-        solid_harmonics.irregular_reference_shift(radius, boundary_radius)
+        solid_harmonics.irregular_reference_shift_factors(radius, boundary_radius)
     )
     return regular_shift / (1.0 - regular_shift * irregular_shift)
 

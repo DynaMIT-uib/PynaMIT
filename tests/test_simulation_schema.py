@@ -80,14 +80,14 @@ def test_sh_schema_uses_mean_free_sh_inputs_and_outputs():
 
     assert schema.horizontal_basis is schema.mean_free_sh_basis
     assert schema.solid_harmonics.basis is schema.horizontal_basis
-    assert schema.input_field_spaces["boundary_jr"].representation is schema.mean_free_sh_basis
-    assert schema.input_field_spaces["boundary_Br"].representation is schema.mean_free_sh_basis
-    assert schema.input_field_spaces["u"].representation is schema.mean_free_sh_basis
-    assert schema.input_field_spaces["Q_eff"].representation is schema.mean_free_sh_basis
-    assert schema.input_field_spaces["conductance"].representation is schema.sh_basis
+    assert schema.input_field_spaces["boundary_jr"].basis is schema.mean_free_sh_basis
+    assert schema.input_field_spaces["boundary_Br"].basis is schema.mean_free_sh_basis
+    assert schema.input_field_spaces["u"].basis is schema.mean_free_sh_basis
+    assert schema.input_field_spaces["Q_eff"].basis is schema.mean_free_sh_basis
+    assert schema.input_field_spaces["conductance"].basis is schema.sh_basis
     assert schema.input_projection_bases["conductance"] is schema.sh_basis
     assert all(
-        space.representation is schema.horizontal_basis
+        space.basis is schema.horizontal_basis
         for space in schema.output_field_spaces["dynamic"].values()
     )
 
@@ -108,18 +108,18 @@ def test_cs_schema_separates_poloidal_and_surface_output_spaces():
 
     assert schema.horizontal_basis is schema.cs_basis
     assert schema.solid_harmonics.basis is schema.mean_free_sh_basis
-    assert schema.input_field_spaces["boundary_Br"].representation is schema.mean_free_sh_basis
+    assert schema.input_field_spaces["boundary_Br"].basis is schema.mean_free_sh_basis
     assert all(
-        space.representation is schema.cs_basis
+        space.basis is schema.cs_basis
         for key, space in schema.input_field_spaces.items()
         if key != "boundary_Br"
     )
     assert all(basis is schema.cs_basis for basis in schema.input_projection_bases.values())
 
     output_spaces = schema.output_field_spaces["dynamic"]
-    assert output_spaces["induced_Br"].representation is schema.mean_free_sh_basis
+    assert output_spaces["induced_Br"].basis is schema.mean_free_sh_basis
     assert all(
-        output_spaces[name].representation is schema.cs_basis
+        output_spaces[name].basis is schema.cs_basis
         for name in ("boundary_jr", "Phi", "W")
     )
     assert output_spaces["induced_Br"].mean_free
@@ -141,8 +141,8 @@ def test_schema_respects_input_projection_basis_for_sh_mode():
         )
     )
 
-    assert schema.input_field_spaces["boundary_jr"].representation is schema.mean_free_sh_basis
-    assert schema.input_field_spaces["conductance"].representation is schema.cs_basis
+    assert schema.input_field_spaces["boundary_jr"].basis is schema.mean_free_sh_basis
+    assert schema.input_field_spaces["conductance"].basis is schema.cs_basis
     assert all(basis is schema.cs_basis for basis in schema.input_projection_bases.values())
 
 
@@ -151,7 +151,7 @@ def test_sh_schema_can_store_conductance_on_cs_grid():
     schema = build_simulation_schema(_settings(conductance_projection_basis="CS"))
 
     assert schema.horizontal_basis is schema.mean_free_sh_basis
-    assert schema.input_field_spaces["conductance"].representation is schema.cs_basis
+    assert schema.input_field_spaces["conductance"].basis is schema.cs_basis
     assert schema.input_projection_bases["conductance"] is schema.cs_basis
     assert not schema.input_field_spaces["conductance"].mean_free
 

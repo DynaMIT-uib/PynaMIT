@@ -52,31 +52,6 @@ def test_apply_operator_keeps_linear_map_on_jax():
 
 
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
-def test_apply_operator_absence_uses_linear_map_backend_context():
-    """Absent-input outputs follow the LinearMap backend context."""
-    import jax.numpy as jnp
-
-    previous_backend = use_jax()
-    operator = einsum_linear_map(
-        component_tensors=[jnp.asarray(np.eye(2))],
-        einsum_string_dense="ij->ij",
-        einsum_string_matvec="ij,j->i",
-        einsum_string_rmatvec="i,ij->j",
-        output_shape=(2,),
-        input_shape=(2,),
-    )
-
-    try:
-        set_backend("numpy")
-        result = ElectrodynamicResponse._apply_operator(operator, None, (2,))
-    finally:
-        set_backend(previous_backend)
-
-    assert "jax" in type(result).__module__
-    np.testing.assert_allclose(np.asarray(result), np.zeros(2))
-
-
-@pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
 def test_u_coeffs_to_E_coeffs_is_linear_map_on_jax():
     """Wind-to-E is exposed as a shaped LinearMap."""
     import jax.numpy as jnp
@@ -148,7 +123,7 @@ def test_Q_eff_coeffs_to_E_coeffs_uses_resistance_tensor_operator():
             helmholtz_analysis, input_shape=(2, n_grid), output_shape=(2, n)
         ),
     )
-    response.Q_eff = SimpleNamespace(field_space=SimpleNamespace(representation=q_representation))
+    response.Q_eff = SimpleNamespace(field_space=SimpleNamespace(basis=q_representation))
     response._Q_eff_synthesis_operator_cache = None
     response._Q_eff_to_E_coeffs_cache = None
     response._resistance_tensor_on_grid = M_total
@@ -509,7 +484,7 @@ def test_resistance_tensor_uses_conductance_synthesis_operator_without_matrix():
     response.geometry = SimpleNamespace(
         model_grid=model_grid, pedersen_geometry_tensor=bP, hall_geometry_tensor=bH
     )
-    field_space = SimpleNamespace(representation=conductance_basis)
+    field_space = SimpleNamespace(basis=conductance_basis)
     response.log_conductance_magnitude = SimpleNamespace(
         array=log_magnitude, field_space=field_space
     )
@@ -554,11 +529,11 @@ def test_resistance_tensor_rejects_incompatible_conductance_storage_bases():
     )
     response.log_conductance_magnitude = SimpleNamespace(
         array=np.ones(n_coeffs),
-        field_space=SimpleNamespace(representation=ConductanceBasis("magnitude")),
+        field_space=SimpleNamespace(basis=ConductanceBasis("magnitude")),
     )
     response.log_hall_to_pedersen_ratio = SimpleNamespace(
         array=np.ones(n_coeffs),
-        field_space=SimpleNamespace(representation=ConductanceBasis("ratio")),
+        field_space=SimpleNamespace(basis=ConductanceBasis("ratio")),
     )
     response._resistance_tensor_on_grid = None
 

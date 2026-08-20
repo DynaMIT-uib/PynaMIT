@@ -59,7 +59,7 @@ def test_panel_defaults_to_showing_noninductive_results():
     settings = FigureSettings()
     assert settings.simulation_directory == "."
     assert settings.time_range == (0, 0)
-    assert settings.show_noninductive is True
+    assert settings.show_equilibrium is True
 
 
 def test_panel_manual_scales_start_from_field_presets(tmp_path, monkeypatch):
@@ -68,16 +68,16 @@ def test_panel_manual_scales_start_from_field_presets(tmp_path, monkeypatch):
 
     assert app.color_scale_mode.options == {"Manual": "manual", "Percentile": "percentile"}
     assert app.color_scale_mode.value == "manual"
-    assert app.manual_color_min.name == "Color min (nT)"
-    assert app.manual_color_max.name == "Color max (nT)"
+    assert app.manual_color_min.label == "Color min (nT)"
+    assert app.manual_color_max.label == "Color max (nT)"
     assert app.manual_color_min.value == -85.0
     assert app.manual_color_max.value == 85.0
 
     app.fill.value = "jr"
     app.lines.value = "Phi"
 
-    assert app.manual_color_min.name == "Color min (µA/m²)"
-    assert app.manual_color_max.name == "Color max (µA/m²)"
+    assert app.manual_color_min.label == "Color min (µA/m²)"
+    assert app.manual_color_max.label == "Color max (µA/m²)"
     assert app.manual_color_min.value == -0.85
     assert app.manual_color_max.value == 0.85
     assert app.line_first_abs_level.value == 4.0

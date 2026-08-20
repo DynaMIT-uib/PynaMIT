@@ -15,9 +15,9 @@ import numpy as np
 from kompe.constants import EARTH_RADIUS_M
 from kompe.math import block_until_ready, to_numpy
 
-from pynamit.external_input_contracts import ExternalInputRequest
+from pynamit import Simulation
 from pynamit.external_inputs import get_conductance_inputs
-from pynamit.simulation.api import Simulation
+from pynamit.external_inputs.contracts import ExternalInputRequest
 
 
 def build_simulation(

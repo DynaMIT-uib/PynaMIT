@@ -8,14 +8,13 @@ import pytest
 from kompe.constants import EARTH_RADIUS_M
 
 import pynamit
-from pynamit.external_input_contracts import (
+from pynamit.external_inputs.contracts import (
     BOUNDARY_JR_PROVIDER_SPEC,
     CONDUCTANCE_PROVIDER_SPEC,
     NEUTRAL_WIND_PROVIDER_SPEC,
     PYNAMIT_CENTERED_DIPOLE_110KM,
 )
 from pynamit.geomagnetism import MainField, decimal_year
-from pynamit.simulation.api import Simulation
 from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.input_manifest import (
     INPUT_MANIFEST_FILENAME,
@@ -30,6 +29,7 @@ from pynamit.simulation.input_manifest import (
     validate_prepared_input_compatibility,
     write_input_manifest,
 )
+from pynamit.simulation.simulation import Simulation
 from pynamit.storage import ArtifactStore
 from pynamit.workflows import example_inputs as example_inputs_module
 from pynamit.workflows.example_inputs import prepare_example_inputs
@@ -110,7 +110,7 @@ def test_default_inputs_share_one_provider_request_cache(tmp_path, monkeypatch):
         return original_set_neutral_wind(self, *args, lat=lat, lon=lon, **kwargs)
 
     monkeypatch.setattr(example_inputs_module, "get_conductance_inputs", fake_conductance)
-    monkeypatch.setattr(example_inputs_module, "get_jr_inputs", fake_boundary_jr)
+    monkeypatch.setattr(example_inputs_module, "get_boundary_jr_inputs", fake_boundary_jr)
     monkeypatch.setattr(example_inputs_module, "get_wind_inputs", fake_wind)
     monkeypatch.setattr(
         example_inputs_module.InputPreparation, "set_conductance", capture_set_conductance
@@ -133,7 +133,7 @@ def test_default_inputs_share_one_provider_request_cache(tmp_path, monkeypatch):
         artifact_storage="netcdf",
     )
     assert isinstance(prepared, pynamit.InputPreparation)
-    assert not hasattr(prepared, "_runner")
+    assert not hasattr(prepared, "_time_evolution")
     assert not hasattr(prepared, "outputs")
     assert not hasattr(prepared, "response")
     assert len(captured["requests"]) == 3
@@ -151,7 +151,7 @@ def test_default_inputs_share_one_provider_request_cache(tmp_path, monkeypatch):
     )
     np.testing.assert_allclose(request.source_grid.lat, expected_geo[0])
     np.testing.assert_allclose(request.source_grid.lon, expected_geo[1])
-    assert request.model_grid.coordinate_contract is PYNAMIT_CENTERED_DIPOLE_110KM
+    assert request.model_grid.coordinate_convention is PYNAMIT_CENTERED_DIPOLE_110KM
     assert request.model_epoch == pytest.approx(prepared.main_field.epoch)
     np.testing.assert_allclose(request.model_grid.lat, model_grid.lat)
     np.testing.assert_allclose(request.model_grid.lon, model_grid.lon)
@@ -411,8 +411,8 @@ def test_prepare_and_run_from_inputs_smoke(tmp_path):
         final_time=0.0,
         dt=0.01,
         RM=2 * EARTH_RADIUS_M,
-        sampling_step_interval=2,
-        write_sample_interval=1,
+        steps_per_sample=2,
+        samples_per_write=1,
         artifact_storage="netcdf",
     )
 
@@ -427,7 +427,7 @@ def test_prepare_and_run_from_inputs_smoke(tmp_path):
     )
     assert simulation_manifest["version"] == 5
     assert simulation_manifest["input_manifest"] == manifest
-    assert simulation_manifest["time_evolution"]["sampling_step_interval"] == 2
+    assert simulation_manifest["time_evolution"]["steps_per_sample"] == 2
 
     selected_simulation = run_from_inputs(
         input_directory,
@@ -436,7 +436,7 @@ def test_prepare_and_run_from_inputs_smoke(tmp_path):
         final_time=0.0,
         dt=0.01,
         RM=2 * EARTH_RADIUS_M,
-        write_sample_interval=1,
+        samples_per_write=1,
         artifact_storage="netcdf",
     )
 
@@ -445,7 +445,7 @@ def test_prepare_and_run_from_inputs_smoke(tmp_path):
 
 
 def test_manual_input_preparation_writes_a_reusable_package(tmp_path):
-    """Interactive preparation stores coefficients without a runner."""
+    """Store interactively prepared coefficients without evolution."""
     input_directory = tmp_path / "inputs"
     preparation = pynamit.InputPreparation(
         input_directory=input_directory, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf"
@@ -464,7 +464,7 @@ def test_manual_input_preparation_writes_a_reusable_package(tmp_path):
     assert manifest["source"] == "test"
     assert manifest["input_contract"]["input_datasets"] == ["conductance"]
     assert set(reopened.inputs) == {"conductance"}
-    assert not hasattr(reopened, "_runner")
+    assert not hasattr(reopened, "_time_evolution")
 
 
 def test_run_from_inputs_rejects_changed_input_identity(tmp_path):
@@ -657,7 +657,7 @@ def test_run_from_inputs_errors_on_requested_missing_dataset(tmp_path):
             enabled_inputs=("u",),
             final_time=0.0,
             dt=0.01,
-            write_sample_interval=1,
+            samples_per_write=1,
             artifact_storage="netcdf",
         )
 

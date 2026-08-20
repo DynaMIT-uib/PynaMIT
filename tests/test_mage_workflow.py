@@ -77,7 +77,7 @@ from pynamit.workflows.mage.projection import (
     _load_weighted_winds,
     _source_file_metadata,
     _validate_prepared_forcing,
-    project_forcing,
+    prepare_inputs,
 )
 
 
@@ -475,7 +475,7 @@ def test_mage_projection_sweeps_configured_resolutions(monkeypatch, tmp_path):
     """Every configured resolution uses the same projection path."""
     calls = []
     monkeypatch.setattr(
-        "scripts.simulation.mage_project.project_forcing", lambda **kwargs: calls.append(kwargs)
+        "scripts.simulation.mage_project.prepare_inputs", lambda **kwargs: calls.append(kwargs)
     )
     settings = ProjectionSettings(
         forcing_path=tmp_path / "forcing.h5",
@@ -492,7 +492,7 @@ def test_mage_projection_sweeps_configured_resolutions(monkeypatch, tmp_path):
         (60, 60, 60),
         (80, 80, 80),
     ]
-    assert [call["projection_directory"] for call in calls] == [
+    assert [call["input_directory"] for call in calls] == [
         tmp_path / "resolutions" / "N20_M20_Ncs20" / "projections" / "default",
         tmp_path / "resolutions" / "N40_M40_Ncs40" / "projections" / "default",
         tmp_path / "resolutions" / "N60_M60_Ncs60" / "projections" / "default",
@@ -508,12 +508,12 @@ def test_mage_projection_sweeps_configured_resolutions(monkeypatch, tmp_path):
 
 def test_mage_projection_writes_configured_diagnostics(monkeypatch, tmp_path):
     """The projection sweep also produces inspectable diagnostics."""
-    projection_directory = (
+    input_directory = (
         tmp_path / "resolutions" / "N20_M20_Ncs20" / "projections" / "regularization-1"
     )
     monkeypatch.setattr(
-        "scripts.simulation.mage_project.project_forcing",
-        lambda **kwargs: kwargs["projection_directory"],
+        "scripts.simulation.mage_project.prepare_inputs",
+        lambda **kwargs: kwargs["input_directory"],
     )
     calls = []
     monkeypatch.setattr(
@@ -533,7 +533,7 @@ def test_mage_projection_writes_configured_diagnostics(monkeypatch, tmp_path):
 
     assert calls == [
         (
-            (settings.forcing_path, projection_directory),
+            (settings.forcing_path, input_directory),
             {
                 "timesteps": (0, -1),
                 "fields": ("etaP", "SigmaP"),
@@ -550,7 +550,7 @@ def test_mage_projection_validates_sweep_before_projecting(monkeypatch, tmp_path
     """Reject an invalid sweep before replacing projected packages."""
     calls = []
     monkeypatch.setattr(
-        "scripts.simulation.mage_project.project_forcing", lambda **kwargs: calls.append(kwargs)
+        "scripts.simulation.mage_project.prepare_inputs", lambda **kwargs: calls.append(kwargs)
     )
     settings = ProjectionSettings(
         resolutions_directory=tmp_path / "resolutions",
@@ -687,9 +687,9 @@ def test_mage_projection_replaces_stale_pynamit_input_artifacts(tmp_path):
 def test_invalid_forcing_does_not_remove_existing_projection(tmp_path):
     """Validate source before replacing projected inputs."""
     forcing_path = tmp_path / "incomplete.h5"
-    projection_directory = tmp_path / "projection"
-    projection_directory.mkdir()
-    existing_input = projection_directory / "boundary_jr.ncdf"
+    input_directory = tmp_path / "projection"
+    input_directory.mkdir()
+    existing_input = input_directory / "boundary_jr.ncdf"
     existing_input.write_text("existing", encoding="utf-8")
     with h5py.File(forcing_path, "w") as output:
         output.attrs["kind"] = MAGE_FORCING_KIND
@@ -697,9 +697,9 @@ def test_invalid_forcing_does_not_remove_existing_projection(tmp_path):
         output.attrs["complete"] = False
 
     with pytest.raises(RuntimeError, match="incomplete"):
-        project_forcing(
+        prepare_inputs(
             forcing_path=forcing_path,
-            projection_directory=projection_directory,
+            input_directory=input_directory,
             dipole_B0_override=None,
             boundary_radius_override=None,
             nmax=2,
@@ -1064,9 +1064,9 @@ def test_mage_step_limits_require_positive_integers(tmp_path, max_steps):
         )
 
     with pytest.raises(ValueError, match="positive integer"):
-        project_forcing(
+        prepare_inputs(
             forcing_path=tmp_path / "missing.h5",
-            projection_directory=tmp_path / "projection",
+            input_directory=tmp_path / "projection",
             dipole_B0_override=None,
             boundary_radius_override=None,
             nmax=2,
@@ -1359,12 +1359,12 @@ def test_mage_source_file_metadata_is_lightweight(tmp_path):
 def test_mage_projection_reuses_geometry_for_complete_input_series(tmp_path):
     """Project a MAGE time series through one fixed geometry."""
     forcing_path = tmp_path / "forcing.h5"
-    projection_directory = tmp_path / "projection"
+    input_directory = tmp_path / "projection"
     _write_projection_forcing(forcing_path)
 
-    result = project_forcing(
+    result = prepare_inputs(
         forcing_path=forcing_path,
-        projection_directory=projection_directory,
+        input_directory=input_directory,
         dipole_B0_override=None,
         boundary_radius_override=None,
         nmax=2,
@@ -1378,24 +1378,24 @@ def test_mage_projection_reuses_geometry_for_complete_input_series(tmp_path):
         artifact_storage="netcdf",
     )
 
-    assert result == projection_directory
-    assert (projection_directory / "pynamit_input_manifest.json").is_file()
+    assert result == input_directory
+    assert (input_directory / "pynamit_input_manifest.json").is_file()
     manifest = json.loads(
-        (projection_directory / "pynamit_input_manifest.json").read_text(encoding="utf-8")
+        (input_directory / "pynamit_input_manifest.json").read_text(encoding="utf-8")
     )
     assert manifest["metadata"]["projection_regularization"]["boundary_Br_lambda"] == 0.1
     for dataset in ("boundary_Br", "boundary_jr", "conductance", "E_neutral_wind"):
-        assert (projection_directory / f"{dataset}.ncdf").is_file()
+        assert (input_directory / f"{dataset}.ncdf").is_file()
 
 
 def test_projection_diagnostics_write_figure_and_area_weighted_metrics(monkeypatch, tmp_path):
     """Compare a projection package with its prepared source."""
     forcing_path = tmp_path / "forcing.h5"
-    projection_directory = tmp_path / "projection"
+    input_directory = tmp_path / "projection"
     _write_projection_forcing(forcing_path)
-    project_forcing(
+    prepare_inputs(
         forcing_path=forcing_path,
-        projection_directory=projection_directory,
+        input_directory=input_directory,
         dipole_B0_override=None,
         boundary_radius_override=None,
         nmax=2,
@@ -1414,7 +1414,7 @@ def test_projection_diagnostics_write_figure_and_area_weighted_metrics(monkeypat
 
     with mpl.rc_context({"text.usetex": False}):
         result = write_input_projection_diagnostics(
-            forcing_path, projection_directory, timesteps=None, fields=("etaP", "SigmaP")
+            forcing_path, input_directory, timesteps=None, fields=("etaP", "SigmaP")
         )
 
     assert result["figure"].is_file()
@@ -1433,15 +1433,15 @@ def test_projection_diagnostics_write_figure_and_area_weighted_metrics(monkeypat
 def test_mage_projection_rejects_incompatible_prepared_units(tmp_path):
     """The forcing contract must make unit conversions explicit."""
     forcing_path = tmp_path / "forcing.h5"
-    projection_directory = tmp_path / "projection"
+    input_directory = tmp_path / "projection"
     _write_projection_forcing(forcing_path)
     with h5py.File(forcing_path, "r+") as forcing:
         forcing["delta_Br"].attrs["units"] = "T"
 
     with pytest.raises(RuntimeError, match="incompatible dataset units.*delta_Br"):
-        project_forcing(
+        prepare_inputs(
             forcing_path=forcing_path,
-            projection_directory=projection_directory,
+            input_directory=input_directory,
             dipole_B0_override=None,
             boundary_radius_override=None,
             nmax=2,
@@ -1471,18 +1471,18 @@ def test_mage_projection_requires_pynamit_dipole_reference_radius(tmp_path):
 def test_projection_failure_preserves_last_complete_package(tmp_path):
     """A failed projection must not replace reusable inputs."""
     forcing_path = tmp_path / "forcing.h5"
-    projection_directory = tmp_path / "projection"
-    projection_directory.mkdir()
-    existing_input = projection_directory / "boundary_jr.ncdf"
+    input_directory = tmp_path / "projection"
+    input_directory.mkdir()
+    existing_input = input_directory / "boundary_jr.ncdf"
     existing_input.write_text("existing", encoding="utf-8")
     hall = np.ones((2, 4, 4)) * 5.0
     hall[1] = -1.0
     _write_projection_forcing(forcing_path, hall_conductance=hall)
 
     with pytest.raises(RuntimeError, match="Hall conductance violates.*global hard floor"):
-        project_forcing(
+        prepare_inputs(
             forcing_path=forcing_path,
-            projection_directory=projection_directory,
+            input_directory=input_directory,
             dipole_B0_override=None,
             boundary_radius_override=None,
             nmax=2,
@@ -1503,15 +1503,15 @@ def test_projection_failure_preserves_last_complete_package(tmp_path):
 def test_projection_rejects_subfloor_hall_anywhere_on_global_sheet(tmp_path):
     """The global sheet floor is independent of ReMIX FAC coverage."""
     forcing_path = tmp_path / "forcing.h5"
-    projection_directory = tmp_path / "projection"
+    input_directory = tmp_path / "projection"
     hall = np.full((2, 4, 4), 5.0)
     hall[:, 1:3, :] = 0.0
     _write_projection_forcing(forcing_path, hall_conductance=hall)
 
     with pytest.raises(RuntimeError, match="Hall conductance violates.*global hard floor"):
-        project_forcing(
+        prepare_inputs(
             forcing_path=forcing_path,
-            projection_directory=projection_directory,
+            input_directory=input_directory,
             dipole_B0_override=None,
             boundary_radius_override=None,
             nmax=2,

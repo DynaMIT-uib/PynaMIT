@@ -33,8 +33,8 @@ PynaMIT has four API tiers:
   non-underscored member of the collaborator's concrete class. Named geometry
   maps and response operators are advanced diagnostic surfaces and may be
   expensive to materialize.
-* Underscored attributes, including ``simulation._input_pipeline`` and
-  ``simulation._runner``, caches, and scheduling helpers are internal. Tests
+* Underscored attributes, including ``simulation._input_projector`` and
+  ``simulation._time_evolution``, caches, and scheduling helpers are internal. Tests
   may exercise these objects directly without turning them into user API.
 
 Spherical grids, bases, and transforms are imported directly from Kompe.
@@ -56,10 +56,10 @@ The main setup path is:
 2. ``build_simulation_schema`` creates the spherical-harmonic, solid-harmonic,
    and cubed-sphere basis objects, then declares the input and output
    ``FieldSpace`` metadata used by storage and transforms.
-3. ``Simulation`` attaches an ``InputPipeline``, which lazily builds reusable
+3. ``Simulation`` attaches an ``_InputProjector``, which lazily builds reusable
    input transforms on the geometry's canonical model grid and owns all input
    validation, projection, and coefficient storage.
-4. ``Simulation`` attaches a ``SimulationRunner`` for restart handling, sample
+4. ``Simulation`` attaches a ``_TimeEvolution`` for restart handling, sample
    scheduling, progress reporting, and output save decisions.
 5. ``SimulationGeometry`` is constructed once as the numerical spatial context.
    ``ElectrodynamicResponse`` receives it and owns the instantaneous forcing
@@ -101,11 +101,11 @@ The simulation package is grouped by runtime role::
 
     simulation/
       __init__.py            stable Simulation and SimulationConfig exports
-      api.py                 public simulation facade
+      simulation.py          public preparation and simulation objects
       response.py            active inputs, response solves, and operator caches
       geometry.py            simulation-specific spatial and magnetic mappings
-      runner.py              execution, sampling, and persistence decisions
-      inputs.py              input validation, projection, and storage
+      evolution.py           time evolution, sampling, and persistence
+      input_projection.py    input validation, projection, and storage
       config.py/schema.py    normalized configuration and field spaces
       simulation_data.py     persisted simulation context
       input_manifest.py      prepared-input file contract
@@ -297,15 +297,15 @@ Input preparation and projection
 --------------------------------
 
 Input projection is intentionally separated from ``Simulation`` in
-``pynamit.simulation.inputs``. The simulation schema declares each stream's
-variables, field type, storage space, and projection basis; ``InputPipeline``
+``pynamit.simulation.input_projection``. The simulation schema declares each stream's
+variables, field type, storage space, and projection basis; ``_InputProjector``
 applies the shared validation and projection rules. Every persisted input also
 has an explicit projection-basis setting in ``SimulationConfig``. ``Q_eff``
 defaults to the ``u`` route because it is an alternative representation of the
 same wind forcing;
 ``E_neutral_wind`` defaults to the horizontal model basis because it stores an
 equivalent electric field directly. Field type remains canonical in the
-schema's ``FieldSpace``. ``InputPipeline`` owns:
+schema's ``FieldSpace``. ``_InputProjector`` owns:
 
 * sample-vs-coefficient validation;
 * gridded scalar and tangential projection;
@@ -318,7 +318,7 @@ schema's ``FieldSpace``. ``InputPipeline`` owns:
 Public setters such as ``set_boundary_jr``, ``set_resistance``,
 ``set_neutral_wind``, ``set_Q_eff``, and ``set_E_neutral_wind`` should remain
 thin API methods.  When a new input stream is added, prefer extending the
-schema and the shared pipeline over hand-writing a new projection path inside
+schema and the shared projector over hand-writing a new projection path inside
 ``Simulation``.
 ``set_Q_eff_from_neutral_wind`` follows one coefficient-space route: it fits
 the stored ``Q_eff`` so its resistance-weighted electric response matches the
@@ -341,7 +341,7 @@ settings, paths, and directory naming while delegating reusable validation and
 numerical work to package modules.
 
 External empirical inputs use immutable value objects with separate source,
-library-interface, and output semantics. ``ProviderSpec`` describes one
+library-interface, and output semantics. ``InputProviderSpec`` describes one
 library adapter and independently declares its request contract, output
 contract, fields, and vector basis. Hardy, AMPS, and HWM remain independently
 configurable even though their current request contracts are equal.
@@ -385,7 +385,7 @@ reuse compatible projection operators according to mathematical signatures
 rather than provider names.
 
 Fallback files contain a shared registry of source and library-request grids.
-Each ``ProviderDataset`` references both grid objects and its independent
+Each ``CachedProviderData`` references both grid objects and its independent
 provider specification. Coordinate identities hash the full coordinate
 contract together with normalized ordered coordinate pairs. Equal contracts
 and grids are structurally shared after loading, while different contracts
@@ -442,7 +442,7 @@ GEO model longitudes as magnetic longitudes.
 projection geometry, least-squares weighting, and construction of a reusable
 coefficient-space input package. Internally, one private projector owns the
 grids and numerical operators that are invariant across forcing times; the
-public ``project_forcing`` function owns the HDF5 and manifest workflow. It
+public ``prepare_inputs`` function owns the HDF5 and manifest workflow. It
 builds in a temporary sibling directory and replaces the published artifacts
 only after every projected time and the package manifest succeed.
 Finally, ``mage_run.py`` creates any number of named simulations from one projected
@@ -513,7 +513,7 @@ instead of mirroring individual coefficient names:
   dissipation ``etaP * J.T @ P @ J``; ``J dot E`` is electromagnetic work and
   is not generally the same quantity when neutral motion contributes to the
   closure. Its functions remain numerical kernels; iteration over input times
-  and coefficient storage belong to ``InputPipeline``.
+  and coefficient storage belong to ``_InputProjector``.
 * ``electrodynamics.induction`` owns Faraday evolution of physical
   ``induced_Br``, including Euler, exponential, and SciPy integration and the
   corresponding instantaneous equilibrium. It integrates in the private
@@ -670,16 +670,16 @@ Response and evolution
 ----------------------
 
 ``Simulation`` exposes ``evolve_to_time`` as the stable public API, but delegates
-execution to ``SimulationRunner``. ``SimulationRunner`` owns restart
+execution to ``_TimeEvolution``. ``_TimeEvolution`` owns restart
 short-circuiting, sample scheduling, progress reporting, and output save
 decisions, including assembly of complete output snapshots and the one-shot
 ``impose_equilibrium`` implementation behind the public facade. The requested
 target time is always an exact final sample and checkpoint, including when it
 is not an integer multiple of the nominal time step. Sampling and saving
 intervals are validated as positive integers, and a later active checkpoint
-cannot be used to fabricate a missing earlier output. The runner also reuses
-exponential propagators while the closure operator and step duration remain
-unchanged. The runner may decide when to update active inputs or save outputs, but
+cannot be used to fabricate a missing earlier output. The evolution object also
+reuses exponential propagators while the closure operator and step duration remain
+unchanged. It may decide when to update active inputs or save outputs, but
 time-stepping equations belong in
 ``electrodynamics.induction``, closure-dependent operator caches belong in
 ``ElectrodynamicResponse``, and artifact details belong in ``SimulationData``.
@@ -694,7 +694,7 @@ algebraic response implied by the current resistance. The evolving
 ``induced_Br`` remains an explicit value owned by the running branch because
 one simulation can carry both dynamic and equilibrium solutions for the same active
 inputs.
-``SimulationRunner`` manages those branch lifetimes and passes their
+``_TimeEvolution`` manages those branch lifetimes and passes their
 coefficient vectors into response methods. The persisted artifact name
 ``dynamic`` identifies the time-dependent output stream; ``equilibrium``
 identifies the instantaneous zero-Faraday-rate comparison.
@@ -759,7 +759,7 @@ to panel-specific modules.
 Saved simulation loading has one persistence path. ``SimulationResults`` uses the same
 ``ArtifactStore`` abstraction as simulation persistence and constructs the canonical
 configuration, schema, main field, and optional geometry. The plotting-grid
-``GridFields`` builds on that loaded context rather than
+``PlotData`` builds on that loaded context rather than
 reimplementing artifact discovery. Figure renderers directly retain their
 serializable settings and cached grid fields, then own only
 their respective figure families.
@@ -778,7 +778,7 @@ top-level directory timestamp does not change.
 Specialized saved views should retain canonical context, not reconstruct or
 re-own it. ``SimulationResults`` is the sole owner of the simulation directory, artifacts,
 configuration, schema, main field, and optional geometry.
-``GridFields`` owns only plotting grids, spherical transforms, and derived
+``PlotData`` owns only plotting grids, spherical transforms, and derived
 field caches. SimulationGeometry and dense sheet-current maps are built only when an
 output-field calculation needs them, and the sheet-current maps are
 specifically deferred until Joule heating is requested. Input-driver and
@@ -789,7 +789,7 @@ rebuilding main fields, schemas, and transforms from raw settings. An
 present; only difference plots require both.
 
 ``PynamEye`` remains an explicitly named legacy frontend for existing scripts.
-New saved simulation behavior should enter through ``SimulationResults`` or ``GridFields``
+New saved simulation behavior should enter through ``SimulationResults`` or ``PlotData``
 and the ``FigureSettings`` renderer path, not create another loading or
 rendering stack.
 
@@ -810,13 +810,13 @@ Use these rules when extending the codebase:
 * Add settings to ``SimulationConfig`` before threading ad hoc constructor
   values through the system.
 * Add persisted streams to ``simulation.schema`` before adding storage code.
-* Add input projection behavior to ``InputPipeline`` and its specification
+* Add input projection behavior to ``_InputProjector`` and its specification
   table before adding logic to ``Simulation`` setters.
 * Put reusable boundary-current equations in
   ``electrodynamics.magnetic_boundary``, constitutive ``JS``/wind-to-``E``
   equations in ``electrodynamics.ionospheric_closure``, and magnetic
   time-stepping equations in ``electrodynamics.induction``.
-* Add execution behavior to ``SimulationRunner`` before expanding
+* Add execution behavior to ``_TimeEvolution`` before expanding
   ``Simulation.evolve_to_time``.
 * Add cubed-sphere internals to the focused CS collaborator that owns the
   concept.

@@ -100,6 +100,8 @@ def test_simulation_config_dataset_roundtrip_preserves_stored_sentinels():
         main_field_B0=None,
         enable_pfac_coupling=False,
         area_weighted_least_squares=True,
+        least_squares_solver="lsmr",
+        least_squares_preconditioner="pinv",
         reuse_preconditioner=True,
         toroidal_potential_regularization_lambda=1e-3,
     )
@@ -115,6 +117,8 @@ def test_simulation_config_dataset_roundtrip_preserves_stored_sentinels():
     assert restored.main_field_B0 is None
     assert not restored.enable_pfac_coupling
     assert restored.area_weighted_least_squares
+    assert restored.least_squares_solver == "lsmr"
+    assert restored.least_squares_preconditioner == "pinv"
     assert restored.reuse_preconditioner
     assert restored.toroidal_potential_regularization_lambda == pytest.approx(1e-3)
     np.testing.assert_allclose(restored.fac_integration_radii, config.fac_integration_radii)
@@ -128,6 +132,7 @@ def test_simulation_config_from_minimal_settings_accepts_missing_defaults():
 
     assert config.Nmax == 3
     assert config.Mmax == 2
+    assert config.least_squares_preconditioner is None
     assert config.Ncs == 4
     assert config.horizontal_basis_kind == "SH"
     assert config.conductance_projection_basis == "SH"

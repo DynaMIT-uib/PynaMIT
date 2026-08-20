@@ -41,7 +41,7 @@ def test_2d_igrf_pfac_hc_wind_cs_resistance_basis():
         "CS_log_hall_to_pedersen_ratio" in cs_resistance.data.input_series.datasets["conductance"]
     )
     assert (
-        cs_resistance.data.schema.input_field_spaces["conductance"].representation
+        cs_resistance.data.schema.input_field_spaces["conductance"].basis
         is cs_resistance.data.schema.cs_basis
     )
     assert cs_coeffs.shape == sh_coeffs.shape

@@ -334,9 +334,7 @@ class ArtifactStore:
         if storage_kind == "zarr":
             with self._zarr_config_context():
                 return xr.open_zarr(filename, **ZARR_OPEN_KWARGS)
-        if filename.exists():
-            return xr.load_dataset(filename)
-        return None
+        return xr.load_dataset(filename)
 
     def load_dataarray(self, name, print_info=False, *, storage: str | None = None):
         """Load a DataArray from the available storage backend."""
@@ -358,9 +356,7 @@ class ArtifactStore:
                     f"found {data_var_names}."
                 )
             return dataset[data_var_names[0]]
-        if filename.exists():
-            return xr.load_dataarray(filename)
-        return None
+        return xr.load_dataarray(filename)
 
     def save_dataarray(self, dataarray, name, print_info=False, *, storage: str | None = None):
         """Save a DataArray using the configured storage backend."""

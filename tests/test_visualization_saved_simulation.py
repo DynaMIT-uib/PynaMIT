@@ -28,14 +28,14 @@ def test_simulation_results_loads_core_visualization_objects(tmp_path):
     assert not hasattr(results, "run_directory")
     assert results.schema.horizontal_basis is results.schema.mean_free_sh_basis
     assert results.main_field.kind == simulation.geometry.main_field.kind
-    assert results.gap_Br_response is None
+    assert results.boundary_jr_to_gap_Br_matrix is None
     assert results.geometry is not None
     assert input_series.field_spaces == results.schema.input_field_spaces
     assert output_series.field_spaces == results.schema.output_field_spaces
 
 
 def test_simulation_results_is_the_core_saved_simulation_api(tmp_path):
-    """The core results object loads datasets without a live runner."""
+    """Load saved datasets without live time evolution."""
     simulation = pynamit.Simulation(
         simulation_directory=tmp_path,
         Nmax=2,

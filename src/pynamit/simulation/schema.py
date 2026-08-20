@@ -147,7 +147,7 @@ def field_spaces_from_bases(
     field_spaces = {}
     for key, basis in bases.items():
         default_mean_free = (
-            basis.scalar_fields_are_mean_free_by_construction()
+            basis.omits_constant_mode()
             if isinstance(basis, SurfaceDifferentialBasis)
             else False
         )

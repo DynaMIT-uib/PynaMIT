@@ -30,7 +30,7 @@ class SimulationData:
     input_series: FieldTimeSeries
     output_series: FieldTimeSeries
     settings_saved: bool = False
-    gap_Br_response: xr.DataArray | None = None
+    boundary_jr_to_gap_Br_matrix: xr.DataArray | None = None
 
     def __repr__(self):
         """Summarize persisted data without printing xarray datasets."""
@@ -83,7 +83,9 @@ class SimulationData:
                     "Mismatch between Simulation object arguments and settings on file."
                 )
 
-        gap_Br_response = artifact_store.load_dataarray("gap_Br_response", print_info=print_info)
+        boundary_jr_to_gap_Br_matrix = artifact_store.load_dataarray(
+            "gap_Br_response", print_info=print_info
+        )
         schema = build_simulation_schema(config, operator_cache=operator_cache)
 
         input_series = FieldTimeSeries(
@@ -109,7 +111,7 @@ class SimulationData:
             input_series=input_series,
             output_series=output_series,
             settings_saved=stored_settings is not None,
-            gap_Br_response=gap_Br_response,
+            boundary_jr_to_gap_Br_matrix=boundary_jr_to_gap_Br_matrix,
         )
 
     @property
@@ -126,9 +128,9 @@ class SimulationData:
         )
         self.settings_saved = True
 
-    def save_gap_Br_response_if_missing(self, matrix, *, print_info=False):
+    def save_boundary_jr_to_gap_Br_matrix_if_missing(self, matrix, *, print_info=False):
         """Persist the physical gap-field response for restart."""
-        if self.gap_Br_response is not None:
+        if self.boundary_jr_to_gap_Br_matrix is not None:
             return
         matrix = np.asarray(matrix)
         if matrix.ndim != 2:
@@ -144,4 +146,4 @@ class SimulationData:
             },
         )
         self.artifact_store.save_dataarray(dataarray, "gap_Br_response", print_info=print_info)
-        self.gap_Br_response = dataarray
+        self.boundary_jr_to_gap_Br_matrix = dataarray

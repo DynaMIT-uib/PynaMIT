@@ -14,7 +14,6 @@ from pynamit.gui.figure_settings_binding import (
     set_widget_value,
 )
 from pynamit.plotting.figure_builder import render_figure, save_movie
-from pynamit.plotting.figure_context import clear_grid_fields_cache, get_grid_fields
 from pynamit.plotting.figure_settings import (
     MAP_FILL_OPTIONS,
     MAP_LINE_OPTIONS,
@@ -29,6 +28,7 @@ from pynamit.plotting.figure_styles import (
     manual_line_parameters,
     map_line_keys,
 )
+from pynamit.plotting.plot_data import clear_plot_data_cache, get_plot_data
 from pynamit.simulation.config import INTEGRATORS
 
 PANEL_PLOT_TYPE_OPTIONS = {label: key for key, label in PLOT_TYPE_OPTIONS.items()}
@@ -110,7 +110,7 @@ class PynamitGUI:
         self.figure_settings = FigureSettings.from_simulation_directory(
             str(simulation_directory or _default_simulation_directory())
         )
-        self.grid_fields = None
+        self.plot_data = None
         self.figure = None
         self._busy = False
         self._syncing_style_controls = False
@@ -131,7 +131,7 @@ class PynamitGUI:
     def _build_mode_widgets(self):
         pn = self.pn
         self.app_mode = pn.widgets.Select(
-            label="Mode",
+            name="Mode",
             options={
                 "Visualize simulation": "visualize",
                 "Prepare example inputs": "prepare_example_inputs",
@@ -141,130 +141,130 @@ class PynamitGUI:
             width=180,
         )
         self.simulation_directory = pn.widgets.TextInput(
-            label="Simulation directory",
+            name="Simulation directory",
             value=self.figure_settings.simulation_directory,
             min_width=280,
         )
-        self.load_button = pn.widgets.Button(label="Load", color="primary", width=85)
+        self.load_button = pn.widgets.Button(name="Load", button_type="primary", width=85)
         self.plot_type = pn.widgets.Select(
-            label="Plot",
+            name="Plot",
             options=PANEL_PLOT_TYPE_OPTIONS,
             value=self.figure_settings.plot_type,
             width=180,
         )
         self.time_index = pn.widgets.IntSlider(
-            label="Time", start=0, end=0, value=0, step=1, min_width=320
+            name="Time", start=0, end=0, value=0, step=1, min_width=320
         )
         self.time_label = pn.pane.Markdown("", width=260)
         self.time_range = pn.widgets.IntRangeSlider(
-            label="Time range", start=0, end=0, value=(0, 0), step=1, min_width=320
+            name="Time range", start=0, end=0, value=(0, 0), step=1, min_width=320
         )
 
     def _build_input_preparation_widgets(self, default_input_directory):
         pn = self.pn
         self.prepared_input_directory = pn.widgets.TextInput(
-            label="Input package", value=default_input_directory, min_width=280
+            name="Input package", value=default_input_directory, min_width=280
         )
-        self.prepare_Nmax = pn.widgets.IntInput(label="Nmax", value=20, start=1, width=90)
-        self.prepare_Mmax = pn.widgets.IntInput(label="Mmax", value=20, start=0, width=90)
-        self.prepare_Ncs = pn.widgets.IntInput(label="Ncs", value=30, start=4, width=90)
+        self.prepare_Nmax = pn.widgets.IntInput(name="Nmax", value=20, start=1, width=90)
+        self.prepare_Mmax = pn.widgets.IntInput(name="Mmax", value=20, start=0, width=90)
+        self.prepare_Ncs = pn.widgets.IntInput(name="Ncs", value=30, start=4, width=90)
         self.prepare_final_time = pn.widgets.FloatInput(
-            label="Input final time", value=100.0, start=0.0, width=140
+            name="Input final time", value=100.0, start=0.0, width=140
         )
         self.prepare_horizontal_basis = pn.widgets.Select(
-            label="Basis",
+            name="Basis",
             options={"Spherical harmonics": "SH", "Cubed sphere": "CS"},
             value="SH",
             width=170,
         )
         self.prepare_use_boundary_jr = pn.widgets.Checkbox(
-            label="Boundary jr", value=True, width=110
+            name="Boundary jr", value=True, width=110
         )
-        self.prepare_use_wind = pn.widgets.Checkbox(label="u", value=False, width=70)
-        self.prepare_use_q_eff = pn.widgets.Checkbox(label="Q_eff from u", value=False, width=120)
-        self.prepare_multi_data = pn.widgets.Checkbox(label="multi-time", value=False, width=120)
+        self.prepare_use_wind = pn.widgets.Checkbox(name="u", value=False, width=70)
+        self.prepare_use_q_eff = pn.widgets.Checkbox(name="Q_eff from u", value=False, width=120)
+        self.prepare_multi_data = pn.widgets.Checkbox(name="multi-time", value=False, width=120)
         self.prepare_button = pn.widgets.Button(
-            label="Prepare 12 May 2001 example", color="primary", width=220
+            name="Prepare 12 May 2001 example", button_type="primary", width=220
         )
 
     def _build_simulation_widgets(self, default_input_directory):
         pn = self.pn
         self.simulation_input_directory = pn.widgets.TextInput(
-            label="Input package", value=default_input_directory, min_width=280
+            name="Input package", value=default_input_directory, min_width=280
         )
         self.new_simulation_directory = pn.widgets.TextInput(
-            label="Simulation output",
+            name="Simulation output",
             value=self.figure_settings.simulation_directory,
             min_width=280,
         )
         self.sim_final_time = pn.widgets.FloatInput(
-            label="Final time", value=100.0, start=0.0, width=120
+            name="Final time", value=100.0, start=0.0, width=120
         )
-        self.sim_dt = pn.widgets.FloatInput(label="dt", value=5e-4, start=1e-12, width=110)
-        self.sim_write_sample_interval = pn.widgets.IntInput(
-            label="Samples per save", value=200, start=1, width=150
+        self.sim_dt = pn.widgets.FloatInput(name="dt", value=5e-4, start=1e-12, width=110)
+        self.sim_samples_per_write = pn.widgets.IntInput(
+            name="Samples per save", value=200, start=1, width=150
         )
         self.sim_integrator = pn.widgets.Select(
-            label="Integrator", options=list(INTEGRATORS.values()), value="euler", width=140
+            name="Integrator", options=list(INTEGRATORS.values()), value="euler", width=140
         )
         self.sim_enable_pfac_coupling = pn.widgets.Checkbox(
-            label="PFAC coupling", value=False, width=130
+            name="PFAC coupling", value=False, width=130
         )
         self.sim_enable_interhemispheric_coupling = pn.widgets.Checkbox(
-            label="Interhemispheric coupling", value=False, width=190
+            name="Interhemispheric coupling", value=False, width=190
         )
         self.sim_magnetic_boundary_shielding = pn.widgets.Checkbox(
-            label="Boundary shielding", value=False, width=150
+            name="Boundary shielding", value=False, width=150
         )
-        self.sim_run_dynamic = pn.widgets.Checkbox(label="Dynamic", value=True, width=110)
-        self.sim_run_equilibrium = pn.widgets.Checkbox(label="Equilibrium", value=True, width=130)
+        self.sim_run_dynamic = pn.widgets.Checkbox(name="Dynamic", value=True, width=110)
+        self.sim_run_equilibrium = pn.widgets.Checkbox(name="Equilibrium", value=True, width=130)
         self.sim_interhemispheric_coupling_latitude = pn.widgets.FloatInput(
-            label="Coupling latitude", value=50.0, width=140
+            name="Coupling latitude", value=50.0, width=140
         )
-        self.sim_use_conductance = pn.widgets.Checkbox(label="Conductance", value=True, width=120)
-        self.sim_use_boundary_jr = pn.widgets.Checkbox(label="Boundary jr", value=True, width=110)
-        self.sim_use_br = pn.widgets.Checkbox(label="Br", value=True, width=70)
-        self.sim_use_u = pn.widgets.Checkbox(label="u", value=True, width=70)
-        self.sim_use_q_eff = pn.widgets.Checkbox(label="Q_eff", value=True, width=90)
+        self.sim_use_conductance = pn.widgets.Checkbox(name="Conductance", value=True, width=120)
+        self.sim_use_boundary_jr = pn.widgets.Checkbox(name="Boundary jr", value=True, width=110)
+        self.sim_use_br = pn.widgets.Checkbox(name="Br", value=True, width=70)
+        self.sim_use_u = pn.widgets.Checkbox(name="u", value=True, width=70)
+        self.sim_use_q_eff = pn.widgets.Checkbox(name="Q_eff", value=True, width=90)
         self.sim_use_e_neutral_wind = pn.widgets.Checkbox(
-            label="Neutral-wind E", value=True, width=130
+            name="Neutral-wind E", value=True, width=130
         )
         self.run_simulation_button = pn.widgets.Button(
-            label="Run from inputs", color="primary", width=150
+            name="Run from inputs", button_type="primary", width=150
         )
 
     def _build_data_widgets(self):
         pn = self.pn
         self.fill = pn.widgets.Select(
-            label="Filled contours",
+            name="Filled contours",
             options={label: key for key, label in MAP_FILL_OPTIONS.items()},
             value=self.figure_settings.fill,
             width=210,
         )
         self.lines = pn.widgets.Select(
-            label="Contour lines",
+            name="Contour lines",
             options={label: key for key, label in MAP_LINE_OPTIONS.items()},
             value=self.figure_settings.lines,
             width=210,
         )
         self.show_north = pn.widgets.Checkbox(
-            label="North", value=self.figure_settings.show_north, width=90
+            name="North", value=self.figure_settings.show_north, width=90
         )
         self.show_south = pn.widgets.Checkbox(
-            label="South", value=self.figure_settings.show_south, width=90
+            name="South", value=self.figure_settings.show_south, width=90
         )
         self.min_abs_lat = pn.widgets.FloatInput(
-            label="Min |lat|",
+            name="Min |lat|",
             value=self.figure_settings.hemisphere_min_abs_latitude,
             start=0,
             end=89.9,
             width=130,
         )
         self.station = pn.widgets.TextInput(
-            label="Station", value=self.figure_settings.ground_station, width=120
+            name="Station", value=self.figure_settings.ground_station, width=120
         )
         self.ground_component = pn.widgets.Select(
-            label="Component",
+            name="Component",
             options={
                 "Magnitude": "Magnitude",
                 "North": "North",
@@ -278,60 +278,62 @@ class PynamitGUI:
             width=150,
         )
         self.ground_quantity = pn.widgets.Select(
-            label="Signal",
+            name="Signal",
             options={"dB/dt": "dbdt", "B": "b"},
             value=self.figure_settings.ground_quantity,
             width=110,
         )
         self.include_station_data = pn.widgets.Checkbox(
-            label="Measured", value=self.figure_settings.include_station_data, width=95
+            name="Measured", value=self.figure_settings.include_station_data, width=95
         )
-        self.show_inductive = pn.widgets.Checkbox(
-            label="Inductive", value=self.figure_settings.show_inductive, width=100
+        self.show_dynamic = pn.widgets.Checkbox(
+            name="Dynamic", value=self.figure_settings.show_dynamic, width=100
         )
-        self.show_noninductive = pn.widgets.Checkbox(
-            label="Non-inductive", value=self.figure_settings.show_noninductive, width=130
+        self.show_equilibrium = pn.widgets.Checkbox(
+            name="Equilibrium", value=self.figure_settings.show_equilibrium, width=130
         )
         self.show_difference = pn.widgets.Checkbox(
-            label="Difference", value=self.figure_settings.show_difference, width=120
+            name="Difference", value=self.figure_settings.show_difference, width=120
         )
         self.sim_time_offset = pn.widgets.FloatInput(
-            label="Sim shift (s)", value=self.figure_settings.sim_time_offset_seconds, width=130
+            name="Sim shift (s)", value=self.figure_settings.simulation_time_offset_seconds, width=130
         )
         self.data_time_offset = pn.widgets.FloatInput(
-            label="Data shift (s)", value=self.figure_settings.data_time_offset_seconds, width=130
+            name="Data shift (s)", value=self.figure_settings.data_time_offset_seconds, width=130
         )
         self.dbdt_window_points = pn.widgets.IntInput(
-            label="dB/dt pts",
+            name="dB/dt pts",
             value=int(self.figure_settings.dbdt_window_points),
             start=1,
             end=20,
             width=120,
         )
         self.ground_model_lt_count = pn.widgets.IntInput(
-            label="Model LT n",
+            name="Model LT n",
             value=int(self.figure_settings.ground_model_lt_count),
             start=1,
             end=72,
             width=120,
         )
         self.ground_model_lat_count = pn.widgets.IntInput(
-            label="Model lat n",
+            name="Model lat n",
             value=int(self.figure_settings.ground_model_lat_count),
             start=1,
             end=60,
             width=125,
         )
-        self.ground_model_visual_even = pn.widgets.Checkbox(
-            label="Visual grid", value=self.figure_settings.ground_model_visual_even, width=110
+        self.uniform_ground_longitude_count = pn.widgets.Checkbox(
+            name="Uniform longitude count",
+            value=self.figure_settings.uniform_ground_longitude_count,
+            width=170,
         )
         self.show_pedersen_conductance_overlay = pn.widgets.Checkbox(
-            label="Pedersen contours",
+            name="Pedersen contours",
             value=self.figure_settings.show_pedersen_conductance_overlay,
             width=145,
         )
         self.show_hall_conductance_overlay = pn.widgets.Checkbox(
-            label="Hall contours",
+            name="Hall contours",
             value=self.figure_settings.show_hall_conductance_overlay,
             width=120,
         )
@@ -341,91 +343,91 @@ class PynamitGUI:
         color_min, color_max = _manual_color_values(self.figure_settings)
         line_start, line_interval, line_count = _manual_line_values(self.figure_settings)
         self.show_reference_line = pn.widgets.Checkbox(
-            label="Reference line", value=self.figure_settings.show_reference_line, width=130
+            name="Reference line", value=self.figure_settings.show_reference_line, width=130
         )
         self.reference_time = pn.widgets.TextInput(
-            label="Ref. UTC", value=self.figure_settings.reference_time_of_day_utc, width=130
+            name="Ref. UTC", value=self.figure_settings.reference_time_of_day_utc, width=130
         )
         self.curve_scale_mode = pn.widgets.Select(
-            label="Curve scale",
+            name="Curve scale",
             options={"Manual": "manual", "Automatic": "auto"},
             value=self.figure_settings.curve_scale_mode,
             width=130,
         )
         self.curve_scale = pn.widgets.FloatInput(
-            label="Scale value",
+            name="Scale value",
             value=self.figure_settings.curve_scale_value,
             start=0.01,
             width=120,
         )
         self.time_scale = pn.widgets.FloatInput(
-            label="Time x", value=self.figure_settings.curve_time_scale, start=0.1, width=110
+            name="Time x", value=self.figure_settings.curve_time_width_scale, start=0.1, width=110
         )
         self.low_lat_cutoff = pn.widgets.FloatInput(
-            label="Low-lat selection",
+            name="Low-lat selection",
             value=self.figure_settings.min_abs_dip_latitude,
             start=0.0,
             width=155,
         )
         self.low_lat_scale = pn.widgets.FloatInput(
-            label="Low-lat x", value=self.figure_settings.low_latitude_scale, start=0.01, width=110
+            name="Low-lat x", value=self.figure_settings.low_latitude_scale, start=0.01, width=110
         )
         self.show_dip_equator_curve = pn.widgets.Checkbox(
-            label="Dip equator", value=self.figure_settings.show_dip_equator_curve, width=120
+            name="Dip equator", value=self.figure_settings.show_dip_equator_curve, width=120
         )
         self.show_low_lat_curve = pn.widgets.Checkbox(
-            label="Low-lat curve", value=self.figure_settings.show_low_latitude_curve, width=125
+            name="Low-lat curve", value=self.figure_settings.show_low_latitude_curve, width=125
         )
         self.color_scale_mode = pn.widgets.Select(
-            label="Color scale",
+            name="Color scale",
             options={"Manual": "manual", "Percentile": "percentile"},
             value=self.figure_settings.color_scale_mode,
             width=130,
         )
         self.color_scale_percentile = pn.widgets.FloatInput(
-            label="Percentile",
+            name="Percentile",
             value=self.figure_settings.color_scale_percentile,
             start=0.0,
             end=100.0,
             width=110,
         )
         self.manual_color_min = pn.widgets.FloatInput(
-            label="Color min", value=color_min, width=150
+            name="Color min", value=color_min, width=150
         )
         self.manual_color_max = pn.widgets.FloatInput(
-            label="Color max", value=color_max, width=150
+            name="Color max", value=color_max, width=150
         )
         self.line_first_abs_level = pn.widgets.FloatInput(
-            label="First |line|", value=line_start, start=0.0, width=150
+            name="First |line|", value=line_start, start=0.0, width=150
         )
         self.line_interval = pn.widgets.FloatInput(
-            label="Line spacing", value=line_interval, start=0.0, width=150
+            name="Line spacing", value=line_interval, start=0.0, width=150
         )
         self.line_levels_per_sign = pn.widgets.IntInput(
-            label="Lines / sign", value=line_count, start=1, width=130
+            name="Lines / sign", value=line_count, start=1, width=130
         )
         self.geo_lat_min = pn.widgets.FloatInput(
-            label="Geo lat min", value=self.figure_settings.geo_lat_min, width=130
+            name="Geo lat min", value=self.figure_settings.geo_lat_min, width=130
         )
         self.geo_lat_max = pn.widgets.FloatInput(
-            label="Geo lat max", value=self.figure_settings.geo_lat_max, width=130
+            name="Geo lat max", value=self.figure_settings.geo_lat_max, width=130
         )
         self.local_time_min = pn.widgets.FloatInput(
-            label="LT min",
+            name="LT min",
             value=self.figure_settings.local_time_min,
             start=0.0,
             end=24.0,
             width=110,
         )
         self.local_time_max = pn.widgets.FloatInput(
-            label="LT max",
+            name="LT max",
             value=self.figure_settings.local_time_max,
             start=0.0,
             end=24.0,
             width=110,
         )
         self.zoom_window = pn.widgets.Checkbox(
-            label="Zoom window", value=self.figure_settings.zoom_window, width=130
+            name="Zoom window", value=self.figure_settings.zoom_window, width=130
         )
         self._sync_style_control_labels()
 
@@ -436,10 +438,10 @@ class PynamitGUI:
         line_key = line_keys[0] if line_keys else "Phi"
         color_units, _ = manual_color_control_units(fill_key)
         line_units = PANEL_LINE_UNITS[line_key]
-        self.manual_color_min.name = f"Color min ({color_units})"
-        self.manual_color_max.name = f"Color max ({color_units})"
-        self.line_first_abs_level.name = f"First |line| ({line_units})"
-        self.line_interval.name = f"Line spacing ({line_units})"
+        self.manual_color_min.label = f"Color min ({color_units})"
+        self.manual_color_max.label = f"Color max ({color_units})"
+        self.line_first_abs_level.label = f"First |line| ({line_units})"
+        self.line_interval.label = f"Line spacing ({line_units})"
 
     def _reset_manual_color_controls(self):
         """Load the selected filled field's existing preset."""
@@ -459,21 +461,21 @@ class PynamitGUI:
     def _build_output_widgets(self):
         pn = self.pn
         self._pending_overwrite = None
-        self.redraw_button = pn.widgets.Button(label="Redraw", color="primary", width=95)
-        self.save_button = pn.widgets.Button(label="Save figure", color="warning", width=120)
-        self.save_movie_button = pn.widgets.Button(label="Save movie", color="warning", width=120)
+        self.redraw_button = pn.widgets.Button(name="Redraw", button_type="primary", width=95)
+        self.save_button = pn.widgets.Button(name="Save figure", button_type="warning", width=120)
+        self.save_movie_button = pn.widgets.Button(name="Save movie", button_type="warning", width=120)
         self.output_filename = pn.widgets.TextInput(
-            label="Figure path",
+            name="Figure path",
             value=str(_absolute_output_path("pynamit_figure.png")),
             min_width=360,
         )
         self.movie_filename = pn.widgets.TextInput(
-            label="Movie path",
+            name="Movie path",
             value=str(_absolute_output_path(self.figure_settings.movie_filename)),
             min_width=360,
         )
         self.movie_fps = pn.widgets.FloatInput(
-            label="FPS", value=self.figure_settings.movie_fps, start=0.1, width=90
+            name="FPS", value=self.figure_settings.movie_fps, start=0.1, width=90
         )
         self.overwrite_message = pn.pane.Str(
             "",
@@ -481,9 +483,9 @@ class PynamitGUI:
             sizing_mode="stretch_width",
         )
         self.confirm_overwrite_button = pn.widgets.Button(
-            label="Overwrite", color="danger", width=110
+            name="Overwrite", button_type="danger", width=110
         )
-        self.cancel_overwrite_button = pn.widgets.Button(label="Cancel", width=90)
+        self.cancel_overwrite_button = pn.widgets.Button(name="Cancel", width=90)
         self.overwrite_modal = pn.Modal(
             pn.Column(
                 pn.pane.Markdown("### Replace existing file?"),
@@ -501,14 +503,14 @@ class PynamitGUI:
             label="Download .py",
             filename="pynamit_figure.py",
             callback=self._download_script,
-            color="success",
+            button_type="success",
             width=130,
         )
         self.figure_settings_download = pn.widgets.FileDownload(
             label="Download settings",
             filename="pynamit_figure.json",
             callback=self._download_settings,
-            color="success",
+            button_type="success",
             width=135,
         )
         self.status = pn.pane.Markdown("", sizing_mode="stretch_width")
@@ -544,15 +546,15 @@ class PynamitGUI:
             self.ground_component,
             self.ground_quantity,
             self.include_station_data,
-            self.show_inductive,
-            self.show_noninductive,
+            self.show_dynamic,
+            self.show_equilibrium,
             self.show_difference,
             self.sim_time_offset,
             self.data_time_offset,
             self.dbdt_window_points,
             self.ground_model_lt_count,
             self.ground_model_lat_count,
-            self.ground_model_visual_even,
+            self.uniform_ground_longitude_count,
             self.show_pedersen_conductance_overlay,
             self.show_hall_conductance_overlay,
             self.show_reference_line,
@@ -686,7 +688,7 @@ class PynamitGUI:
                 simulation_directory=simulation_directory,
                 enabled_inputs=enabled_inputs,
                 final_time=float(self.sim_final_time.value),
-                write_sample_interval=int(self.sim_write_sample_interval.value),
+                samples_per_write=int(self.sim_samples_per_write.value),
                 dt=float(self.sim_dt.value),
                 enable_pfac_coupling=bool(self.sim_enable_pfac_coupling.value),
                 enable_interhemispheric_coupling=bool(
@@ -720,7 +722,7 @@ class PynamitGUI:
         self._busy = True
         should_redraw = False
         try:
-            clear_grid_fields_cache()
+            clear_plot_data_cache()
             simulation_directory = self.simulation_directory.value
             expanded_simulation_directory = str(Path(simulation_directory).expanduser())
             if expanded_simulation_directory != self._loaded_simulation_directory:
@@ -729,35 +731,35 @@ class PynamitGUI:
                 )
             else:
                 self.figure_settings = current_figure_settings(self)
-            self.grid_fields = get_grid_fields(self.figure_settings)
+            self.plot_data = get_plot_data(self.figure_settings)
             if (
-                not self.grid_fields.has_model_output
+                not self.plot_data.has_model_output
                 and self.figure_settings.plot_type != "input_summary"
             ):
                 settings_data = self.figure_settings.to_dict()
                 settings_data["plot_type"] = "input_summary"
                 self.figure_settings = self.figure_settings.from_dict(settings_data)
             elif (
-                self.grid_fields.has_model_output
+                self.plot_data.has_model_output
                 and self.figure_settings.plot_type != "input_summary"
             ):
-                has_state = "dynamic" in self.grid_fields.results.datasets
-                has_steady = "equilibrium" in self.grid_fields.results.datasets
+                has_state = "dynamic" in self.plot_data.results.datasets
+                has_steady = "equilibrium" in self.plot_data.results.datasets
                 settings_data = self.figure_settings.to_dict()
                 if not has_state and settings_data["plot_type"] not in {"global", "hemispheres"}:
                     settings_data["plot_type"] = "global"
-                settings_data["show_inductive"] = bool(
-                    has_state and settings_data["show_inductive"]
+                settings_data["show_dynamic"] = bool(
+                    has_state and settings_data["show_dynamic"]
                 )
-                settings_data["show_noninductive"] = bool(
-                    has_steady and (settings_data["show_noninductive"] or not has_state)
+                settings_data["show_equilibrium"] = bool(
+                    has_steady and (settings_data["show_equilibrium"] or not has_state)
                 )
                 settings_data["show_difference"] = bool(
                     has_state and has_steady and settings_data["show_difference"]
                 )
                 self.figure_settings = self.figure_settings.from_dict(settings_data)
-            self.time_index.end = max(0, self.grid_fields.n_time - 1)
-            self.time_range.end = max(0, self.grid_fields.n_time - 1)
+            self.time_index.end = max(0, self.plot_data.n_time - 1)
+            self.time_range.end = max(0, self.plot_data.n_time - 1)
             if self.time_range.value == (0, 0):
                 self.time_range.value = (0, min(int(self.time_range.end), 60))
             apply_figure_settings_to_widgets(self, self.figure_settings)
@@ -793,7 +795,7 @@ class PynamitGUI:
             return
         if self.app_mode.value != "visualize":
             return
-        if self.grid_fields is None:
+        if self.plot_data is None:
             return
         self.figure_settings = current_figure_settings(self)
         self._sync_visibility()
@@ -806,17 +808,17 @@ class PynamitGUI:
         try:
             self.figure_settings = current_figure_settings(self)
             self._sync_visibility()
-            grid_fields = (
-                self.grid_fields
-                if self.grid_fields is not None
-                else get_grid_fields(self.figure_settings)
+            plot_data = (
+                self.plot_data
+                if self.plot_data is not None
+                else get_plot_data(self.figure_settings)
             )
-            index = min(max(0, int(self.figure_settings.time_index)), grid_fields.n_time - 1)
-            time_text = grid_fields.timestamp_at_index(index).strftime("%Y-%m-%d %H:%M:%S")
+            index = min(max(0, int(self.figure_settings.time_index)), plot_data.n_time - 1)
+            time_text = plot_data.timestamp_at_index(index).strftime("%Y-%m-%d %H:%M:%S")
             self.time_label.object = f"**{time_text}**"
             if self.figure is not None:
                 plt.close(self.figure)
-            self.figure = render_figure(self.figure_settings, grid_fields=grid_fields)
+            self.figure = render_figure(self.figure_settings, plot_data=plot_data)
             self.plot_pane.object = self.figure
             self._set_status("")
         except Exception:
@@ -954,7 +956,7 @@ class PynamitGUI:
             self._control_row(
                 self.sim_final_time,
                 self.sim_dt,
-                self.sim_write_sample_interval,
+                self.sim_samples_per_write,
                 self.sim_integrator,
             ),
             self._control_row(
@@ -981,8 +983,8 @@ class PynamitGUI:
         data_controls = pn.Card(
             self._control_row(self.fill, self.lines),
             self._control_row(
-                self.show_inductive,
-                self.show_noninductive,
+                self.show_dynamic,
+                self.show_equilibrium,
                 self.include_station_data,
                 self.show_difference,
             ),
@@ -993,7 +995,7 @@ class PynamitGUI:
             self._control_row(
                 self.ground_model_lt_count,
                 self.ground_model_lat_count,
-                self.ground_model_visual_even,
+                self.uniform_ground_longitude_count,
             ),
             self._control_row(
                 self.show_pedersen_conductance_overlay, self.show_hall_conductance_overlay
@@ -1120,8 +1122,8 @@ class PynamitGUI:
         self.time_range.visible = True
         self.fill.visible = is_map
         self.lines.visible = is_map
-        self.show_inductive.visible = is_map or is_ground
-        self.show_noninductive.visible = is_map or is_ground
+        self.show_dynamic.visible = is_map or is_ground
+        self.show_equilibrium.visible = is_map or is_ground
         self.show_difference.visible = is_map
         self.show_north.visible = plot_type == "hemispheres"
         self.show_south.visible = plot_type == "hemispheres"
@@ -1136,7 +1138,7 @@ class PynamitGUI:
         show_model_grid_controls = is_ground_curve and not self.include_station_data.value
         self.ground_model_lt_count.visible = show_model_grid_controls
         self.ground_model_lat_count.visible = show_model_grid_controls
-        self.ground_model_visual_even.visible = show_model_grid_controls
+        self.uniform_ground_longitude_count.visible = show_model_grid_controls
         self.show_pedersen_conductance_overlay.visible = is_ground_curve
         self.show_hall_conductance_overlay.visible = is_ground_curve
 

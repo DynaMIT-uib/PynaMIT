@@ -4,6 +4,7 @@ import datetime as dt
 
 import cartopy.crs as ccrs
 import numpy as np
+import pytest
 from kompe import SHBasis, SolidHarmonicOperators, SphericalTransform
 from kompe.constants import EARTH_RADIUS_M, MU0
 
@@ -39,8 +40,8 @@ from pynamit.plotting.plot_helpers import (
     symmetric_contour_levels,
     symmetric_contour_levels_without_zero,
 )
-from pynamit.results.grid_evaluation import build_JS_matrices, build_plot_grid
-from pynamit.simulation.api import Simulation
+from pynamit.results.evaluation import build_plot_grid, build_sheet_current_matrices
+from pynamit.simulation.simulation import Simulation
 from pynamit.storage import ArtifactStore
 
 
@@ -89,8 +90,10 @@ def test_hemisphere_helpers_are_parameterized_notebook_primitives():
     """Hemisphere masks should use an explicit configurable cutoff."""
     latitudes = np.array([-80.0, -40.0, 0.0, 45.0, 70.0])
 
-    assert coerce_hemisphere_min_abs_latitude("bad", default=40.0) == 40.0
-    assert coerce_hemisphere_min_abs_latitude(95.0) == 89.9
+    with pytest.raises(ValueError):
+        coerce_hemisphere_min_abs_latitude("bad")
+    with pytest.raises(ValueError, match="hemisphere_min_abs_latitude"):
+        coerce_hemisphere_min_abs_latitude(95.0)
     north, south = hemisphere_masks_for_latitude(latitudes, min_abs_latitude=40.0)
 
     np.testing.assert_array_equal(north, np.array([False, False, False, True, True]))
@@ -125,6 +128,26 @@ def test_map_curve_sampling_matches_notebook_distribution():
     assert np.count_nonzero(lat == 60.0) == 6
     assert np.all(lon >= -180.0)
     assert np.all(lon < 180.0)
+
+
+def test_map_curve_sampling_rejects_invalid_geometry_settings():
+    """Invalid sampling geometry is not silently repaired."""
+    with pytest.raises(ValueError, match="ordered"):
+        build_even_global_sites(min_lat=60.0, max_lat=-60.0)
+    with pytest.raises(ValueError, match="lat_step"):
+        build_even_global_sites(lat_step=0.0)
+    with pytest.raises(ValueError, match="lat_count"):
+        build_even_global_sites(lat_count=0)
+    with pytest.raises(ValueError, match="equatorial_count"):
+        build_even_global_sites(equatorial_count=1.5)
+
+
+def test_percentile_contours_reject_invalid_percentiles():
+    """Invalid percentile requests are not silently clipped."""
+    from pynamit.plotting.plot_helpers import percentile_contour_levels
+
+    with pytest.raises(ValueError, match="percentile"):
+        percentile_contour_levels([np.arange(3.0)], np.arange(3.0), percentile=101.0)
 
 
 def test_map_curve_sampling_can_use_local_time_rows():
@@ -167,12 +190,12 @@ def test_map_curve_layer_builder_filters_visible_series():
     layers = build_timeseries_curve_layers(
         [
             {"series_key": "measured", "label": "Measured", "values": [[1.0, 2.0]]},
-            {"series_key": "inductive", "label": "Inductive", "values": [[3.0, 4.0]]},
+            {"series_key": "dynamic", "label": "Dynamic", "values": [[3.0, 4.0]]},
         ],
-        visible_series={"inductive"},
+        visible_series={"dynamic"},
     )
 
-    assert [layer["series_key"] for layer in layers] == ["inductive"]
+    assert [layer["series_key"] for layer in layers] == ["dynamic"]
     np.testing.assert_allclose(layers[0]["values"], np.array([[3.0, 4.0]]))
 
 
@@ -206,6 +229,15 @@ def test_geographic_local_time_window_helpers_are_parameterized():
         ),
         np.array([-180.0, 0.0, -30.0, 60.0]),
     )
+
+
+def test_geographic_window_helpers_reject_invalid_limits():
+    """Coordinate windows are not silently sorted or clipped."""
+    reference_time = dt.datetime(2011, 10, 24, 18, 30)
+    with pytest.raises(ValueError, match="lat_window"):
+        geographic_local_time_mask([0.0], [0.0], lat_window=(30.0, -30.0))
+    with pytest.raises(ValueError, match="local_time_window"):
+        local_time_window_extent(local_time_window=(-1.0, 12.0), reference_time=reference_time)
 
 
 def test_artifact_store_reports_existing_visualization_artifact_path(tmp_path):
@@ -391,7 +423,7 @@ def test_grid_helpers_are_importable_from_visualization():
     assert grid.size == 12
 
 
-def test_build_JS_matrices_matches_core_formulas():
+def test_build_sheet_current_matrices_matches_core_formulas():
     """Shared JS helper follows geometry formulas."""
 
     class Settings:
@@ -405,7 +437,7 @@ def test_build_JS_matrices_matches_core_formulas():
     transform = SphericalTransform(sh_basis, grid)
     boundary_jr_to_gap_Br = np.eye(sh_basis.index_length)
 
-    matrices = build_JS_matrices(
+    matrices = build_sheet_current_matrices(
         Settings, sh_basis, transform, boundary_jr_to_gap_Br_matrix=boundary_jr_to_gap_Br
     )
 
@@ -415,8 +447,8 @@ def test_build_JS_matrices_matches_core_formulas():
         / MU0
     )
     toroidal_to_JS = -transform.surface_gradient_matrix / MU0
-    regular_shift = solid_harmonics.regular_reference_shift(Settings.RM, Settings.RI)
-    irregular_shift = solid_harmonics.irregular_reference_shift(Settings.RI, Settings.RM)
+    regular_shift = solid_harmonics.regular_reference_shift_factors(Settings.RM, Settings.RI)
+    irregular_shift = solid_harmonics.irregular_reference_shift_factors(Settings.RI, Settings.RM)
     denominator = 1.0 - regular_shift * irregular_shift
     induced_potential_to_Br = -(Settings.RI**2) * np.diag(
         sh_basis.surface_laplacian_matrix(Settings.RI)
@@ -444,7 +476,7 @@ def test_build_JS_matrices_matches_core_formulas():
     )
 
 
-def test_build_JS_matrices_defaults_to_unshielded_rm():
+def test_build_sheet_current_matrices_defaults_to_unshielded_rm():
     """RM does not impose shielding unless requested."""
 
     class Settings:
@@ -456,7 +488,7 @@ def test_build_JS_matrices_defaults_to_unshielded_rm():
     _, _, grid = build_plot_grid(nlat=4, nlon=5)
     transform = SphericalTransform(sh_basis, grid)
 
-    matrices = build_JS_matrices(Settings, sh_basis, transform)
+    matrices = build_sheet_current_matrices(Settings, sh_basis, transform)
     poloidal_to_JS = (
         -transform.rhat_cross_gradient_matrix
         * solid_harmonics.poloidal_to_boundary_potential_jump_factor.reshape(1, 1, -1)
@@ -467,7 +499,7 @@ def test_build_JS_matrices_defaults_to_unshielded_rm():
     np.testing.assert_allclose(matrices["induced_Br_to_JS"], poloidal_to_JS / degree_factor)
 
 
-def test_build_JS_matrices_omits_boundary_map_without_rm():
+def test_build_sheet_current_matrices_omits_boundary_map_without_rm():
     """A run without a magnetic boundary allocates no zero Br map."""
 
     class Settings:
@@ -478,12 +510,12 @@ def test_build_JS_matrices_omits_boundary_map_without_rm():
     _, _, grid = build_plot_grid(nlat=4, nlon=5)
     transform = SphericalTransform(sh_basis, grid)
 
-    matrices = build_JS_matrices(Settings, sh_basis, transform)
+    matrices = build_sheet_current_matrices(Settings, sh_basis, transform)
 
     assert matrices["boundary_Br_to_JS"] is None
 
 
-def test_build_JS_matrices_matches_geometry(tmp_path):
+def test_build_sheet_current_matrices_matches_geometry(tmp_path):
     """Notebook helper matches SimulationGeometry JS conventions."""
     simulation = Simulation(
         simulation_directory=str(tmp_path / "run"),
@@ -497,7 +529,7 @@ def test_build_JS_matrices_matches_geometry(tmp_path):
     geometry = simulation.geometry
     _, _, grid = build_plot_grid(nlat=4, nlon=5)
     transform = SphericalTransform(simulation.geometry.horizontal_basis, grid)
-    matrices = build_JS_matrices(
+    matrices = build_sheet_current_matrices(
         simulation.data.config,
         simulation.geometry.horizontal_basis,
         transform,

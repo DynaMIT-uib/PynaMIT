@@ -3,11 +3,11 @@
 _LAZY_EXPORTS = {
     "FigureSettings": ("pynamit.plotting.figure_settings", "FigureSettings"),
     "MapCoordinateContext": ("pynamit.plotting.map_coordinates", "MapCoordinateContext"),
-    "GridFields": ("pynamit.plotting.grid_fields", "GridFields"),
+    "PlotData": ("pynamit.plotting.plot_data", "PlotData"),
     "render_figure": ("pynamit.plotting.figure_builder", "render_figure"),
     "save_movie": ("pynamit.plotting.figure_builder", "save_movie"),
-    "plot_global_polar_map": ("pynamit.plotting.diagnostics", "plot_global_polar_map"),
-    "plot_output_diagnostics": ("pynamit.plotting.diagnostics", "plot_output_diagnostics"),
+    "plot_global_polar_map": ("pynamit.plotting.quicklook", "plot_global_polar_map"),
+    "plot_output_quicklook": ("pynamit.plotting.quicklook", "plot_output_quicklook"),
 }
 
 

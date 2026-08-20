@@ -187,6 +187,25 @@ def test_timeseries_change_tracking_is_group_scoped():
     assert timeseries.get_entry_if_changed("second", 0.0) is None
 
 
+def test_timeseries_change_tracking_is_exact_and_owns_its_reference():
+    """Track small changes without exposing the stored reference."""
+    basis = SHBasis(2, 1)
+    field_space = FieldSpace(basis)
+    timeseries = FieldTimeSeries({"sample": field_space}, {"sample": ("value",)})
+    first = np.ones(field_space.coefficient_shape)
+    second = first + 1e-7
+    timeseries.add_entry("sample", {"value": first}, time=0.0)
+    timeseries.add_entry("sample", {"value": second}, time=2.0)
+
+    selected = timeseries.get_entry_if_changed("sample", 0.0)
+    selected["value"][:] = 10.0
+    assert timeseries.get_entry_if_changed("sample", 0.0) is None
+
+    changed = timeseries.get_entry_if_changed("sample", 1.0, interpolation=True)
+    assert changed is not None
+    np.testing.assert_allclose(changed["value"], first + 0.5e-7, rtol=0.0, atol=1e-15)
+
+
 def test_timeseries_requires_field_space_and_name_only_variables():
     """Time-series schema keeps field types in FieldSpace only."""
     basis = GlobalCSBasis(4)

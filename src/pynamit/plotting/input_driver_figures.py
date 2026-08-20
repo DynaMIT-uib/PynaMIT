@@ -6,9 +6,9 @@ import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
 import numpy as np
 
-from pynamit.plotting.figure_context import as_figure_settings, figure_time_string, get_grid_fields
 from pynamit.plotting.figure_styles import INPUT_SUMMARY_KWARGS
 from pynamit.plotting.hemisphere import hemisphere_masks_for_latitude, make_hemisphere_polarplot
+from pynamit.plotting.plot_data import _coerce_figure_settings, format_figure_time, get_plot_data
 from pynamit.plotting.plot_helpers import (
     add_panel_label,
     contour_kwargs_for_display,
@@ -21,21 +21,21 @@ from pynamit.plotting.plot_helpers import (
 class InputDriverRenderer:
     """Render projected input drivers on the saved simulation grid."""
 
-    def __init__(self, settings, grid_fields=None):
-        self.settings = as_figure_settings(settings)
-        self.grid_fields = get_grid_fields(self.settings) if grid_fields is None else grid_fields
+    def __init__(self, settings, plot_data=None):
+        self.settings = _coerce_figure_settings(settings)
+        self.plot_data = get_plot_data(self.settings) if plot_data is None else plot_data
 
     def render(self):
         """Render projected input drivers."""
-        model_fields = self.grid_fields.input_grid_fields(
+        model_fields = self.plot_data.input_plot_data(
             self.settings.time_index, coordinate_system="model"
         )
-        geographic_fields = self.grid_fields.input_grid_fields(
+        geographic_fields = self.plot_data.input_plot_data(
             self.settings.time_index, coordinate_system="geographic"
         )
-        timestamp = self.grid_fields.timestamp_at_index(self.settings.time_index)
-        magnetic_latitude, magnetic_longitude = self.grid_fields.magnetic_plot_coordinates()
-        magnetic_coordinate_context = self.grid_fields.magnetic_map_context(timestamp)
+        timestamp = self.plot_data.timestamp_at_index(self.settings.time_index)
+        magnetic_latitude, magnetic_longitude = self.plot_data.magnetic_plot_coordinates()
+        magnetic_coordinate_context = self.plot_data.magnetic_map_context(timestamp)
         input_kwargs = self._plot_kwargs({**geographic_fields, "jr": model_fields["jr"]})
 
         fig = plt.figure(figsize=(14, 7.875))
@@ -49,7 +49,7 @@ class InputDriverRenderer:
             fig.add_axes(layout["jr_s"]),
             min_abs_latitude=self.settings.hemisphere_min_abs_latitude,
         )
-        coordinate_context = self.grid_fields.geographic_map_context(timestamp)
+        coordinate_context = self.plot_data.geographic_map_context(timestamp)
         global_projection = coordinate_context.projection()
         ax_br = fig.add_axes(layout["Br"], projection=global_projection)
         ax_source = fig.add_axes(layout["source"], projection=global_projection)
@@ -78,7 +78,7 @@ class InputDriverRenderer:
             add_panel_label(axis, label)
 
         self._draw_colorbars(fig, layout, jr_n, br_mappable, conductance_mappable, input_kwargs)
-        fig.suptitle(f"Input drivers at {figure_time_string(timestamp)}", fontsize=15, y=0.975)
+        fig.suptitle(f"Input drivers at {format_figure_time(timestamp)}", fontsize=15, y=0.975)
         return fig
 
     def _plot_kwargs(self, fields):
@@ -218,13 +218,10 @@ class InputDriverRenderer:
         set_contour_edges_to_face(jr_s)
         pax_jr_n.ax.set_title(r"Input $j_r$ north", fontsize=11)
         pax_jr_s.ax.set_title(r"Input $j_r$ south", fontsize=11)
-        try:
-            pax_jr_n.writeLATlabels(color="black", backgroundcolor=(0, 0, 0, 0), north=True)
-            pax_jr_n.writeLTlabels()
-            pax_jr_s.writeLATlabels(color="black", backgroundcolor=(0, 0, 0, 0), north=False)
-            pax_jr_s.writeLTlabels()
-        except Exception:
-            pass
+        pax_jr_n.writeLATlabels(color="black", backgroundcolor=(0, 0, 0, 0), north=True)
+        pax_jr_n.writeLTlabels()
+        pax_jr_s.writeLATlabels(color="black", backgroundcolor=(0, 0, 0, 0), north=False)
+        pax_jr_s.writeLTlabels()
         return jr_n
 
     def _draw_global_scalars(
@@ -265,8 +262,8 @@ class InputDriverRenderer:
                 axis.set_title(title, fontsize=11)
                 continue
             contour = axis.contourf(
-                self.grid_fields.lon,
-                self.grid_fields.lat,
+                self.plot_data.lon,
+                self.plot_data.lat,
                 fields[field_key] * plot_kwargs.get("scale", 1.0),
                 transform=ccrs.PlateCarree(),
                 **contour_kwargs_for_display(plot_kwargs),
@@ -322,8 +319,8 @@ class InputDriverRenderer:
 
         if selected is not None:
             quiver = axis.quiver(
-                self.grid_fields.wind_lon,
-                self.grid_fields.wind_lat,
+                self.plot_data.wind_lon,
+                self.plot_data.wind_lat,
                 selected["east"],
                 selected["north"],
                 transform=ccrs.PlateCarree(),
