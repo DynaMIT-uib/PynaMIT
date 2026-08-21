@@ -99,12 +99,8 @@ class _EvolutionOptions:
         if not run_dynamic and not run_equilibrium:
             raise ValueError("At least one of run_dynamic or run_equilibrium must be True.")
 
-        steps_per_sample = _positive_integer(
-            steps_per_sample, name="steps_per_sample"
-        )
-        samples_per_write = _positive_integer(
-            samples_per_write, name="samples_per_write"
-        )
+        steps_per_sample = _positive_integer(steps_per_sample, name="steps_per_sample")
+        samples_per_write = _positive_integer(samples_per_write, name="samples_per_write")
 
         return cls(
             target_time=target_time,

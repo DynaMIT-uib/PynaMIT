@@ -316,9 +316,7 @@ class PynamEye:
         etaH_on_grid = closure_values["etaH"]
 
         self.u_coeffs = self.u.array
-        wind_transform = transform_for_basis(
-            self.u.field_space.basis, self.transforms["num"]
-        )
+        wind_transform = transform_for_basis(self.u.field_space.basis, self.transforms["num"])
         wind = evaluate_wind_coefficients(wind_transform, self.u)
         self.u_theta_on_grid = wind["u_theta"]
         self.u_phi_on_grid = wind["u_phi"]

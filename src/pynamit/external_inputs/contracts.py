@@ -278,7 +278,9 @@ class InputProviderSpec:
             isinstance(convention, CoordinateConvention)
             for convention in coordinate_views.values()
         ):
-            raise ValueError("Provider coordinate views require named CoordinateConvention values.")
+            raise ValueError(
+                "Provider coordinate views require named CoordinateConvention values."
+            )
         object.__setattr__(self, "request_coordinate_views", MappingProxyType(coordinate_views))
         object.__setattr__(self, "derived_coordinates", _freeze_mapping(self.derived_coordinates))
         object.__setattr__(self, "adapter_assumptions", _freeze_mapping(self.adapter_assumptions))
@@ -557,7 +559,10 @@ class ExternalInputRequest:
             model_epoch = float(model_epoch)
             if not np.isfinite(model_epoch):
                 raise ValueError("model_epoch must be finite.")
-        if model_grid.coordinate_convention == PYNAMIT_CENTERED_DIPOLE_110KM and model_epoch is None:
+        if (
+            model_grid.coordinate_convention == PYNAMIT_CENTERED_DIPOLE_110KM
+            and model_epoch is None
+        ):
             raise ValueError("Centered-dipole model coordinates require model_epoch.")
         self.source_grid = source_grid
         self.model_grid = model_grid

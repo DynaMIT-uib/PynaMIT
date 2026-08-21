@@ -259,7 +259,9 @@ def save_fallback_dataset(
     wind_source_id = (
         str(grid_id)
         if scalar_lat.size == wind_lat.size
-        and scalar_request.source_grid.coordinate_convention.coordinate_identity(wind_lat, wind_lon)
+        and scalar_request.source_grid.coordinate_convention.coordinate_identity(
+            wind_lat, wind_lon
+        )
         == scalar_request.source_grid.coordinate_identity
         else f"{grid_id}-wind"
     )

@@ -126,7 +126,9 @@ class FigureSettings:
         self._validate_positive("curve_time_width_scale", self.curve_time_width_scale)
         self._validate_positive("movie_fps", self.movie_fps)
         self._validate_integer("movie_dpi", self.movie_dpi, minimum=1)
-        self._validate_finite("simulation_time_offset_seconds", self.simulation_time_offset_seconds)
+        self._validate_finite(
+            "simulation_time_offset_seconds", self.simulation_time_offset_seconds
+        )
         self._validate_finite("data_time_offset_seconds", self.data_time_offset_seconds)
         self._validate_range("color_scale_percentile", self.color_scale_percentile, 0, 100)
         self._validate_optional_pair(

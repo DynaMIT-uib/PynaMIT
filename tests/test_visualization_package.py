@@ -875,9 +875,7 @@ def test_plot_data_cache_replaces_stale_simulation_version(tmp_path, monkeypatch
         plot_data_module, "_artifact_fingerprint", lambda _directory: tuple(fingerprint)
     )
     monkeypatch.setattr(
-        plot_data_module.PlotData,
-        "from_directory",
-        staticmethod(lambda _directory: next(views)),
+        plot_data_module.PlotData, "from_directory", staticmethod(lambda _directory: next(views))
     )
     plot_data_module.clear_plot_data_cache()
     settings = figure_settings.FigureSettings(simulation_directory=str(tmp_path))

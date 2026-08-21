@@ -74,7 +74,9 @@ def test_simulation_data_owns_schema_artifacts_and_field_series(tmp_path):
     assert reloaded.boundary_jr_to_gap_Br_matrix.dims == ("poloidal_i", "surface_i")
     assert "boundary_jr" in reloaded.input_series.datasets
     assert "dynamic" in reloaded.output_series.datasets
-    np.testing.assert_allclose(reloaded.boundary_jr_to_gap_Br_matrix.values, np.zeros((n_magnetic, n_surface)))
+    np.testing.assert_allclose(
+        reloaded.boundary_jr_to_gap_Br_matrix.values, np.zeros((n_magnetic, n_surface))
+    )
     np.testing.assert_allclose(
         reloaded.output_series.get_entry("dynamic", 0.0)["boundary_jr"], np.zeros(n_surface)
     )

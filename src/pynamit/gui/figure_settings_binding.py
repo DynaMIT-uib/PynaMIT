@@ -107,7 +107,9 @@ def apply_figure_settings_to_widgets(app, settings: FigureSettings) -> None:
     set_widget_value(app.dbdt_window_points, int(settings.dbdt_window_points))
     set_widget_value(app.ground_model_lt_count, int(settings.ground_model_lt_count))
     set_widget_value(app.ground_model_lat_count, int(settings.ground_model_lat_count))
-    set_widget_value(app.uniform_ground_longitude_count, bool(settings.uniform_ground_longitude_count))
+    set_widget_value(
+        app.uniform_ground_longitude_count, bool(settings.uniform_ground_longitude_count)
+    )
     set_widget_value(
         app.show_pedersen_conductance_overlay, bool(settings.show_pedersen_conductance_overlay)
     )

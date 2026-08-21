@@ -87,11 +87,7 @@ class FieldSpace:
     @property
     def signature(self):
         """Return coefficient-layout and storage-policy identity."""
-        return (
-            self.basis.coefficient_space_signature,
-            self.field_type,
-            bool(self.mean_free),
-        )
+        return (self.basis.coefficient_space_signature, self.field_type, bool(self.mean_free))
 
     def multiindex_arrays(self):
         """Return arrays for xarray's coefficient axis."""

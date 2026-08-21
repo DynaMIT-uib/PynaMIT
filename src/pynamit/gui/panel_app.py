@@ -296,7 +296,9 @@ class PynamitGUI:
             name="Difference", value=self.figure_settings.show_difference, width=120
         )
         self.sim_time_offset = pn.widgets.FloatInput(
-            name="Sim shift (s)", value=self.figure_settings.simulation_time_offset_seconds, width=130
+            name="Sim shift (s)",
+            value=self.figure_settings.simulation_time_offset_seconds,
+            width=130,
         )
         self.data_time_offset = pn.widgets.FloatInput(
             name="Data shift (s)", value=self.figure_settings.data_time_offset_seconds, width=130
@@ -355,10 +357,7 @@ class PynamitGUI:
             width=130,
         )
         self.curve_scale = pn.widgets.FloatInput(
-            name="Scale value",
-            value=self.figure_settings.curve_scale_value,
-            start=0.01,
-            width=120,
+            name="Scale value", value=self.figure_settings.curve_scale_value, start=0.01, width=120
         )
         self.time_scale = pn.widgets.FloatInput(
             name="Time x", value=self.figure_settings.curve_time_width_scale, start=0.1, width=110
@@ -391,12 +390,8 @@ class PynamitGUI:
             end=100.0,
             width=110,
         )
-        self.manual_color_min = pn.widgets.FloatInput(
-            name="Color min", value=color_min, width=150
-        )
-        self.manual_color_max = pn.widgets.FloatInput(
-            name="Color max", value=color_max, width=150
-        )
+        self.manual_color_min = pn.widgets.FloatInput(name="Color min", value=color_min, width=150)
+        self.manual_color_max = pn.widgets.FloatInput(name="Color max", value=color_max, width=150)
         self.line_first_abs_level = pn.widgets.FloatInput(
             name="First |line|", value=line_start, start=0.0, width=150
         )
@@ -463,7 +458,9 @@ class PynamitGUI:
         self._pending_overwrite = None
         self.redraw_button = pn.widgets.Button(name="Redraw", button_type="primary", width=95)
         self.save_button = pn.widgets.Button(name="Save figure", button_type="warning", width=120)
-        self.save_movie_button = pn.widgets.Button(name="Save movie", button_type="warning", width=120)
+        self.save_movie_button = pn.widgets.Button(
+            name="Save movie", button_type="warning", width=120
+        )
         self.output_filename = pn.widgets.TextInput(
             name="Figure path",
             value=str(_absolute_output_path("pynamit_figure.png")),
@@ -748,9 +745,7 @@ class PynamitGUI:
                 settings_data = self.figure_settings.to_dict()
                 if not has_state and settings_data["plot_type"] not in {"global", "hemispheres"}:
                     settings_data["plot_type"] = "global"
-                settings_data["show_dynamic"] = bool(
-                    has_state and settings_data["show_dynamic"]
-                )
+                settings_data["show_dynamic"] = bool(has_state and settings_data["show_dynamic"])
                 settings_data["show_equilibrium"] = bool(
                     has_steady and (settings_data["show_equilibrium"] or not has_state)
                 )
@@ -954,10 +949,7 @@ class PynamitGUI:
         simulation_controls = pn.Card(
             self._control_row(self.simulation_input_directory, self.new_simulation_directory),
             self._control_row(
-                self.sim_final_time,
-                self.sim_dt,
-                self.sim_samples_per_write,
-                self.sim_integrator,
+                self.sim_final_time, self.sim_dt, self.sim_samples_per_write, self.sim_integrator
             ),
             self._control_row(
                 self.sim_enable_pfac_coupling,

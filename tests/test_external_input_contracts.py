@@ -141,9 +141,7 @@ def test_changing_one_provider_convention_does_not_change_the_others():
         longitude_wrap="[-180,180)",
         reference_surface=ReferenceSurface(kind="sphere", radius_m=6_500_000.0),
     )
-    changed = replace(
-        BOUNDARY_JR_PROVIDER_SPEC, request_coordinate_convention=another_convention
-    )
+    changed = replace(BOUNDARY_JR_PROVIDER_SPEC, request_coordinate_convention=another_convention)
     assert changed.request_coordinate_convention is another_convention
     assert CONDUCTANCE_PROVIDER_SPEC.request_coordinate_convention is LIBRARY_GEOGRAPHIC_110KM
     assert NEUTRAL_WIND_PROVIDER_SPEC.request_coordinate_convention is LIBRARY_GEOGRAPHIC_110KM
@@ -163,12 +161,8 @@ def test_coordinate_identity_normalizes_longitude_and_preserves_order():
     """Equivalent longitudes match while reordered samples do not."""
     convention = PYNAMIT_SPHERICAL_GEO_110KM
     first = convention.coordinate_identity(np.array([10.0, 20.0]), np.array([180.0, 350.0]))
-    equivalent = convention.coordinate_identity(
-        np.array([10.0, 20.0]), np.array([-180.0, -10.0])
-    )
-    reordered = convention.coordinate_identity(
-        np.array([20.0, 10.0]), np.array([-10.0, -180.0])
-    )
+    equivalent = convention.coordinate_identity(np.array([10.0, 20.0]), np.array([-180.0, -10.0]))
+    reordered = convention.coordinate_identity(np.array([20.0, 10.0]), np.array([-10.0, -180.0]))
     assert first == equivalent
     assert first != reordered
 

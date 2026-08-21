@@ -119,9 +119,7 @@ def transform_for_basis(basis, transform):
     )
 
 
-def build_sheet_current_matrices(
-    settings, sh_basis, transform, boundary_jr_to_gap_Br_matrix=None
-):
+def build_sheet_current_matrices(settings, sh_basis, transform, boundary_jr_to_gap_Br_matrix=None):
     """Build coefficient-to-JS matrices for direct array workflows."""
     rm = setting_value(settings, "RM", None)
     rm = None if rm in (None, 0, 0.0) else float(rm)
@@ -138,9 +136,7 @@ def build_sheet_current_matrices(
         MU0 / radius * sh_basis.mean_free_surface_poisson_operator(radius)
     )
     if boundary_jr_to_gap_Br_matrix is None:
-        boundary_jr_to_gap_Br_matrix = np.zeros(
-            (sh_basis.index_length, sh_basis.index_length)
-        )
+        boundary_jr_to_gap_Br_matrix = np.zeros((sh_basis.index_length, sh_basis.index_length))
     boundary_jr_to_JS_matrix = magnetic_boundary.boundary_jr_to_gridded_JS_operator(
         solid_harmonics,
         transform,

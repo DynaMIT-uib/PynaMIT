@@ -147,9 +147,7 @@ def field_spaces_from_bases(
     field_spaces = {}
     for key, basis in bases.items():
         default_mean_free = (
-            basis.omits_constant_mode()
-            if isinstance(basis, SurfaceDifferentialBasis)
-            else False
+            basis.omits_constant_mode() if isinstance(basis, SurfaceDifferentialBasis) else False
         )
         field_spaces[key] = FieldSpace(
             basis,

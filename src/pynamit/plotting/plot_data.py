@@ -531,9 +531,7 @@ class PlotData:
     def _geographic_output_transform(self, evaluation):
         """Return the lazy output transform for a geographic map."""
         if evaluation.output_transform is None:
-            output_basis = self.results.schema.output_field_spaces["dynamic"][
-                "boundary_jr"
-            ].basis
+            output_basis = self.results.schema.output_field_spaces["dynamic"]["boundary_jr"].basis
             evaluation.output_transform = SphericalTransform(output_basis, evaluation.scalar_grid)
         return evaluation.output_transform
 

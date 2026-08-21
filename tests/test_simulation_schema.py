@@ -119,8 +119,7 @@ def test_cs_schema_separates_poloidal_and_surface_output_spaces():
     output_spaces = schema.output_field_spaces["dynamic"]
     assert output_spaces["induced_Br"].basis is schema.mean_free_sh_basis
     assert all(
-        output_spaces[name].basis is schema.cs_basis
-        for name in ("boundary_jr", "Phi", "W")
+        output_spaces[name].basis is schema.cs_basis for name in ("boundary_jr", "Phi", "W")
     )
     assert output_spaces["induced_Br"].mean_free
     assert not output_spaces["boundary_jr"].mean_free

@@ -528,12 +528,10 @@ def test_resistance_tensor_rejects_incompatible_conductance_storage_bases():
         hall_geometry_tensor=0.0,
     )
     response.log_conductance_magnitude = SimpleNamespace(
-        array=np.ones(n_coeffs),
-        field_space=SimpleNamespace(basis=ConductanceBasis("magnitude")),
+        array=np.ones(n_coeffs), field_space=SimpleNamespace(basis=ConductanceBasis("magnitude"))
     )
     response.log_hall_to_pedersen_ratio = SimpleNamespace(
-        array=np.ones(n_coeffs),
-        field_space=SimpleNamespace(basis=ConductanceBasis("ratio")),
+        array=np.ones(n_coeffs), field_space=SimpleNamespace(basis=ConductanceBasis("ratio"))
     )
     response._resistance_tensor_on_grid = None
 

@@ -76,7 +76,9 @@ class GroundFigureRenderer:
                 "and local-time filtering."
             )
 
-        br_dynamic, bh_dynamic, br_equilibrium, bh_equilibrium = self._ground_field_matrices(lat, lon)
+        br_dynamic, bh_dynamic, br_equilibrium, bh_equilibrium = self._ground_field_matrices(
+            lat, lon
+        )
         layers = self._curve_layers(
             br_dynamic,
             bh_dynamic,
