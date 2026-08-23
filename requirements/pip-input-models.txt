@@ -1,0 +1,4 @@
+# pyHWM2014 is installed separately with --no-deps because its metadata
+# currently requires the nonexistent ``timeutil`` package.
+pyamps
+lompe @ git+https://github.com/klaundal/lompe.git@main

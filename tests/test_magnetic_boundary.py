@@ -3,8 +3,8 @@
 import numpy as np
 from kompe.constants import EARTH_RADIUS_M
 
-from pynamit.workflows.example import run_example
 from tests import magnetic_potential_coordinate_array
+from tests.example_scenario import run_example
 
 
 def test_magnetic_boundary(regression_approx):

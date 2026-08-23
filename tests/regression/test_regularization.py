@@ -1,20 +1,19 @@
-"""IGRF, PFAC, HC, and wind test without radial-current driving."""
+"""Regularization test module."""
 
 import numpy as np
 import pytest
-
-from pynamit.workflows.example import run_example
 from tests import magnetic_potential_coordinate_array
+from tests.example_scenario import run_example
 
 
-@pytest.mark.apexpy_precision
 @pytest.mark.native_hwm_precision
-def test_2d_igrf_pfac_hc_wind_nofac(regression_approx):
-    """Test 2D IGRF/PFAC/HC/wind simulation without jr input."""
+def test_regularization(regression_approx):
+    """Test simulation with regularization."""
     # Arrange.
-    expected_coeff_norm = 4.697819564788567e-09
-    expected_coeff_max = 1.4877275957047607e-09
-    expected_coeff_min = -1.5713770148202498e-09
+    # HWM winds are rotated from geographic into dipole coordinates.
+    expected_coeff_norm = 1.3854487806257512e-08
+    expected_coeff_max = 1.4790884377354876e-09
+    expected_coeff_min = -5.878522743901925e-09
     expected_n_coeffs = 228
 
     # Act.
@@ -24,13 +23,18 @@ def test_2d_igrf_pfac_hc_wind_nofac(regression_approx):
         Nmax=10,
         Mmax=8,
         Ncs=18,
-        main_field_kind="igrf",
+        main_field_kind="dipole",
         enable_pfac_coupling=True,
         enable_interhemispheric_coupling=True,
         interhemispheric_coupling_latitude=50,
         use_wind=True,
-        use_boundary_jr=False,
-        initialize_from_equilibrium=False,
+        initialize_from_equilibrium=True,
+        boundary_jr_projection_basis="SH",
+        conductance_projection_basis="SH",
+        u_projection_basis="SH",
+        boundary_jr_lambda=1e-3,
+        conductance_lambda=1e-3,
+        u_lambda=1e-3,
     )
 
     # Assert.
@@ -46,7 +50,6 @@ def test_2d_igrf_pfac_hc_wind_nofac(regression_approx):
     print("actual_coeff_min: ", actual_coeff_min)
     print("actual_n_coeffs: ", actual_n_coeffs)
 
-    assert "jr" not in simulation.data.input_series.datasets
     assert actual_coeff_norm == regression_approx(expected_coeff_norm)
     assert actual_coeff_max == regression_approx(expected_coeff_max)
     assert actual_coeff_min == regression_approx(expected_coeff_min)

@@ -1,9 +1,8 @@
 """IGRF, PFAC, HC, and wind test with CS resistance storage."""
 
 import numpy as np
-
-from pynamit.workflows.example import run_example
 from tests import magnetic_potential_coordinate_array
+from tests.example_scenario import run_example
 
 
 def _final_magnetic_coordinates(simulation):

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from tests.example_scenario import EVENT_TIME
 
 from pynamit.external_inputs import providers as external_inputs_module
 from pynamit.external_inputs.contracts import (
@@ -15,7 +16,6 @@ from pynamit.external_inputs.contracts import (
     ExternalInputRequest,
 )
 from pynamit.external_inputs.providers import (
-    _expand_time_series,
     _library_horizontal_wind_to_spherical,
     _load_fallback,
     _select_fallback_entry,
@@ -111,7 +111,7 @@ def test_native_geographic_conductance_uses_shared_library_request_grid(monkeypa
     )
 
     pedersen, hall, out_lat, out_lon = get_conductance_inputs(
-        date, None, None, None, request=request
+        date, request=request, kp=5, starlight=1.0
     )
 
     provider_date = datetime.datetime(2001, 5, 12, 21, 45)
@@ -182,7 +182,7 @@ def test_native_dipole_conductance_uses_explicit_model_and_geo_views(monkeypatch
 
     date = _utc_now()
     pedersen, hall, out_lat, out_lon = get_conductance_inputs(
-        date, None, None, None, request=request
+        date, request=request, kp=5, starlight=1.0
     )
 
     assert captured["epoch"] == pytest.approx(request.model_epoch)
@@ -236,7 +236,9 @@ def test_native_geographic_jr_uses_shared_library_request_grid(monkeypatch):
     date = datetime.datetime(
         2001, 5, 13, 0, 45, tzinfo=datetime.timezone(datetime.timedelta(hours=3))
     )
-    jr, out_lat, out_lon = get_boundary_jr_inputs(date, None, None, None, request=request)
+    jr, out_lat, out_lon = get_boundary_jr_inputs(
+        date, request=request, v=300.0, By=0.0, Bz=-4.0, tilt=20.0, f107=100.0, minlat=50.0
+    )
 
     expected_mlat = provider_grid.lat + 5.0
     expected_mlon = provider_grid.lon + 10.0
@@ -303,7 +305,9 @@ def test_native_dipole_jr_uses_explicit_model_view_and_epoch(monkeypatch):
         2001, 5, 13, 0, 45, tzinfo=datetime.timezone(datetime.timedelta(hours=3))
     )
 
-    jr, out_lat, out_lon = get_boundary_jr_inputs(date, None, None, None, request=request)
+    jr, out_lat, out_lon = get_boundary_jr_inputs(
+        date, request=request, v=300.0, By=0.0, Bz=-4.0, tilt=20.0, f107=100.0, minlat=50.0
+    )
 
     expected_date = datetime.datetime(2001, 5, 12, 21, 45)
     assert captured["epoch"] == pytest.approx(request.model_epoch)
@@ -338,9 +342,7 @@ def test_native_wind_uses_requested_positions_and_correct_date(monkeypatch):
     date = datetime.datetime(
         2001, 5, 13, 0, 45, 30, 500000, tzinfo=datetime.timezone(datetime.timedelta(hours=3))
     )
-    result = get_wind_inputs(date, use_wind=True, time=None, request=request)
-    assert result is not None
-    u_theta, u_phi, lat, lon, weights = result
+    u_theta, u_phi, lat, lon, weights = get_wind_inputs(date, request=request, ap=(-1, 35))
 
     np.testing.assert_allclose(captured["glat_deg"], provider_grid.lat)
     np.testing.assert_allclose(captured["glon_deg"], provider_grid.lon)
@@ -387,7 +389,7 @@ def test_native_conductance_rejects_wrong_sample_count(monkeypatch):
     )
 
     with pytest.raises(ValueError, match="2 'hall' values for a 3-point"):
-        get_conductance_inputs(_utc_now(), None, None, None, request=_request())
+        get_conductance_inputs(_utc_now(), request=_request(), kp=5, starlight=1.0)
 
 
 def test_library_wind_mapping_is_spherical_component_identity():
@@ -422,13 +424,26 @@ def test_fallback_rejects_inconsistent_dipole_and_geo_views(force_fallback):
     )
 
     with pytest.raises(ValueError, match="physical GEO samples disagree"):
-        get_conductance_inputs(_utc_now(), None, None, None, request=inconsistent)
+        get_conductance_inputs(_utc_now(), request=inconsistent, kp=5, starlight=1.0)
 
 
 def test_loaded_collection_shares_both_grid_views():
     """Providers share source and request-grid objects."""
     fallback = _load_fallback()
-    assert fallback.version == 6
+    assert fallback.version == 7
+    assert fallback.event_time == EVENT_TIME.isoformat()
+    assert fallback.conditions == {
+        "conductance": {"kp": 5, "starlight": 1.0},
+        "boundary_jr": {
+            "v": 300.0,
+            "By": 0.0,
+            "Bz": -4.0,
+            "tilt": 20.0,
+            "f107": 100.0,
+            "minlat": 50.0,
+        },
+        "neutral_wind": {"ap": (-1, 35)},
+    }
     for source_grid_id in fallback.datasets["conductance"]:
         hardy = fallback.datasets["conductance"][source_grid_id]
         amps = fallback.datasets["boundary_jr"][source_grid_id]
@@ -451,12 +466,14 @@ def test_fallback_all_providers_match_exact_source_grid(force_fallback):
     request = ExternalInputRequest(source)
 
     pedersen, hall, conductance_lat, conductance_lon = get_conductance_inputs(
-        _utc_now(), None, None, None, request=request
+        EVENT_TIME, request=request, kp=5, starlight=1.0
     )
-    jr, jr_lat, jr_lon = get_boundary_jr_inputs(_utc_now(), None, None, None, request=request)
-    wind = get_wind_inputs(_utc_now(), use_wind=True, time=None, request=request)
-    assert wind is not None
-    u_theta, u_phi, wind_lat, wind_lon, weights = wind
+    jr, jr_lat, jr_lon = get_boundary_jr_inputs(
+        EVENT_TIME, request=request, v=300.0, By=0.0, Bz=-4.0, tilt=20.0, f107=100.0, minlat=50.0
+    )
+    u_theta, u_phi, wind_lat, wind_lon, weights = get_wind_inputs(
+        EVENT_TIME, request=request, ap=(-1, 35)
+    )
 
     assert hall.shape == pedersen.shape == jr.shape == u_theta.shape == u_phi.shape
     np.testing.assert_allclose(conductance_lat, source.lat)
@@ -466,6 +483,21 @@ def test_fallback_all_providers_match_exact_source_grid(force_fallback):
     np.testing.assert_allclose(wind_lat, source.lat)
     np.testing.assert_allclose(wind_lon, source.lon)
     assert weights is None
+
+
+def test_fallback_rejects_another_event_time(force_fallback):
+    """A bundled snapshot cannot silently stand in for another event."""
+    fallback = _load_fallback()
+    source_grid_id = next(iter(fallback.datasets["conductance"]))
+    source = fallback.datasets["conductance"][source_grid_id].source_grid
+
+    with pytest.raises(ValueError, match="describe only 2001-05-12 21:45:00 UTC"):
+        get_conductance_inputs(
+            datetime.datetime(2001, 5, 12, 21, 46),
+            request=ExternalInputRequest(source),
+            kp=5,
+            starlight=1.0,
+        )
 
 
 def test_fallback_selection_is_provider_specific():
@@ -487,6 +519,29 @@ def test_fallback_selection_is_provider_specific():
         )
 
 
+def test_fallback_rejects_conditions_other_than_its_cached_event(force_fallback):
+    """Cached fields cannot represent different physical drivers."""
+    fallback = _load_fallback()
+    source_grid_id = next(iter(fallback.datasets["conductance"]))
+    request = ExternalInputRequest(fallback.datasets["conductance"][source_grid_id].source_grid)
+
+    with pytest.raises(ValueError, match="conductance fallback data use"):
+        get_conductance_inputs(EVENT_TIME, request=request, kp=4, starlight=1.0)
+    with pytest.raises(ValueError, match="AMPS fallback data use"):
+        get_boundary_jr_inputs(
+            EVENT_TIME,
+            request=request,
+            v=301.0,
+            By=0.0,
+            Bz=-4.0,
+            tilt=20.0,
+            f107=100.0,
+            minlat=50.0,
+        )
+    with pytest.raises(ValueError, match="HWM fallback data use"):
+        get_wind_inputs(EVENT_TIME, request=request, ap=(-1, 34))
+
+
 def test_fallback_error_lists_compatible_grid_geometry():
     """Missing-grid diagnostics describe available source grids."""
     fallback = _load_fallback()
@@ -503,28 +558,6 @@ def test_fallback_error_lists_compatible_grid_geometry():
     message = str(error.value)
     assert "Available compatible grids:" in message
     assert "geographic-ncs-18 (geocentric_geographic, Ncs=18" in message
-
-
-def test_synthetic_multi_time_scaling_is_preserved(force_fallback):
-    """Constructed changes exercise multi-step input functionality."""
-    fallback = _load_fallback()
-    source_grid_id = next(iter(fallback.datasets["neutral_wind"]))
-    source = fallback.datasets["neutral_wind"][source_grid_id].source_grid
-    request = ExternalInputRequest(source)
-    time = np.array([0.0, 10.0, 20.0])
-
-    wind = get_wind_inputs(_utc_now(), use_wind=True, time=time, request=request)
-    assert wind is not None
-    u_theta, u_phi, *_ = wind
-    assert u_theta.shape == (time.size, source.size)
-    assert u_phi.shape == (time.size, source.size)
-    np.testing.assert_allclose(u_theta[-1], 2.0 * u_theta[0])
-    np.testing.assert_allclose(u_phi[-1], 2.0 * u_phi[0])
-
-
-def test_wind_disabled_requires_no_grid():
-    """Disabled wind does not require source coordinates."""
-    assert get_wind_inputs(_utc_now(), use_wind=False, time=None) is None
 
 
 def test_fallback_roundtrip_defaults_to_one_shared_source_grid(tmp_path):
@@ -558,14 +591,6 @@ def test_fallback_roundtrip_defaults_to_one_shared_source_grid(tmp_path):
     np.testing.assert_allclose(amps.values["jr"], (base - 0.25).reshape(-1))
 
 
-def test_expand_time_series_returns_caller_owned_values():
-    """Caller mutation cannot change cached provider values."""
-    source = np.array([1.0, 2.0, 3.0])
-    result = _expand_time_series(source, None)
-    result[0] = 99.0
-    assert source[0] == pytest.approx(1.0)
-
-
 def test_native_conductance_accepts_explicit_kp(monkeypatch):
     """Provider physics parameters are separate from contracts."""
     captured = {}
@@ -597,6 +622,11 @@ def test_native_conductance_accepts_explicit_kp(monkeypatch):
         external_inputs_module, "_load_optional_module", lambda _name, _package: FakeConductance
     )
     get_conductance_inputs(
-        _utc_now(), request.source_grid.lat, request.source_grid.lon, None, request=request, kp=4.0
+        _utc_now(),
+        request.source_grid.lat,
+        request.source_grid.lon,
+        request=request,
+        kp=4.0,
+        starlight=1.0,
     )
     assert captured["kp"] == pytest.approx(4.0)

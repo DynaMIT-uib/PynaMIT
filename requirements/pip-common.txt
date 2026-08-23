@@ -1,4 +1,3 @@
 apexpy
-kompe @ git+https://github.com/DynaMIT-uib/kompe.git@main
 dipole @ git+https://github.com/klaundal/dipole.git@main
 polplot @ git+https://github.com/klaundal/polplot.git@main

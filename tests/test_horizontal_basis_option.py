@@ -6,7 +6,7 @@ from kompe.constants import EARTH_RADIUS_M
 from kompe.math import tensor_pinv, weighted_tensor_pinv
 
 from pynamit.simulation.simulation import Simulation
-from pynamit.workflows.example import run_example
+from tests.example_scenario import run_example
 
 
 def test_default_horizontal_basis_is_sh(tmp_path):

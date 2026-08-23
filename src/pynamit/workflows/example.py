@@ -1,7 +1,7 @@
-"""End-to-end workflow for PynaMIT's bundled example.
+"""End-to-end workflow using PynaMIT's empirical input providers.
 
-This module contains ``run_example``, which prepares the bundled example
-inputs and runs a simulation. It is primarily used for testing and as a
+This module contains ``run_example``, which prepares one explicitly
+specified empirical event and runs a simulation. It is primarily a
 starting point for simulation scripts.
 """
 
@@ -44,7 +44,6 @@ def run_example(
     conductance_lambda=None,
     u_lambda=None,
     Q_eff_lambda=None,
-    multi_data=False,
     least_squares_solver=None,
     least_squares_preconditioner=None,
     reuse_preconditioner=False,
@@ -55,8 +54,19 @@ def run_example(
     horizontal_basis_kind="SH",
     area_weighted_least_squares=False,
     magnetic_boundary_shielding=False,
+    *,
+    event_time,
+    kp,
+    starlight_conductance_S,
+    solar_wind_speed_km_s,
+    imf_By_nT,
+    imf_Bz_nT,
+    dipole_tilt_deg,
+    f107_sfu,
+    amps_min_latitude_deg,
+    hwm_ap,
 ):
-    """Prepare the bundled example inputs and run a PynaMIT simulation.
+    """Prepare one empirical event and run a PynaMIT simulation.
 
     Parameters
     ----------
@@ -157,6 +167,24 @@ def run_example(
     area_weighted_least_squares : bool, optional
         Use surface-area weights for least-squares projections when no
         explicit ``sqrt_weights`` are supplied.
+    event_time : datetime
+        Time passed to the empirical input models.
+    kp : float
+        Planetary K index passed to the conductance model.
+    starlight_conductance_S : float
+        Background conductance in siemens.
+    solar_wind_speed_km_s : float
+        Solar-wind speed passed to AMPS, in km/s.
+    imf_By_nT, imf_Bz_nT : float
+        Interplanetary magnetic-field components passed to AMPS, in nT.
+    dipole_tilt_deg : float
+        Dipole tilt passed to AMPS, in degrees.
+    f107_sfu : float
+        F10.7 solar flux passed to AMPS, in solar flux units.
+    amps_min_latitude_deg : float
+        AMPS minimum latitude in degrees.
+    hwm_ap : sequence of float
+        Geomagnetic activity values passed to HWM.
 
     Returns
     -------
@@ -174,7 +202,16 @@ def run_example(
 
     prepare_example_inputs(
         input_directory=input_directory,
-        final_time=final_time,
+        event_time=event_time,
+        kp=kp,
+        starlight_conductance_S=starlight_conductance_S,
+        solar_wind_speed_km_s=solar_wind_speed_km_s,
+        imf_By_nT=imf_By_nT,
+        imf_Bz_nT=imf_Bz_nT,
+        dipole_tilt_deg=dipole_tilt_deg,
+        f107_sfu=f107_sfu,
+        amps_min_latitude_deg=amps_min_latitude_deg,
+        hwm_ap=hwm_ap,
         Nmax=Nmax,
         Mmax=Mmax,
         Ncs=Ncs,
@@ -190,7 +227,6 @@ def run_example(
         conductance_lambda=conductance_lambda,
         u_lambda=u_lambda,
         Q_eff_lambda=Q_eff_lambda,
-        multi_data=multi_data,
         artifact_storage=artifact_storage,
         horizontal_basis_kind=horizontal_basis_kind,
         area_weighted_least_squares=area_weighted_least_squares,

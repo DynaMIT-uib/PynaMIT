@@ -12,8 +12,8 @@ from kompe import SHBasis
 from pynamit.fields import FieldSpace
 from pynamit.simulation.simulation import Simulation
 from pynamit.storage import ArtifactStore, FieldTimeSeries
-from pynamit.workflows.example import run_example
 from tests import magnetic_potential_coordinate_array
+from tests.example_scenario import run_example
 
 
 def _small_dataset(values: np.ndarray | None = None) -> xr.Dataset:

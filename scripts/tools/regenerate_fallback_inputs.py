@@ -9,6 +9,18 @@ from pathlib import Path
 
 import numpy as np
 from kompe.constants import EARTH_RADIUS_M
+from tests.example_scenario import (
+    AMPS_MIN_LATITUDE_DEG,
+    DIPOLE_TILT_DEG,
+    EVENT_TIME,
+    F107_SFU,
+    HWM_AP,
+    IMF_BY_NT,
+    IMF_BZ_NT,
+    KP,
+    SOLAR_WIND_SPEED_KM_S,
+    STARLIGHT_CONDUCTANCE_S,
+)
 
 from pynamit import Simulation
 from pynamit.external_inputs import (
@@ -27,7 +39,6 @@ from pynamit.external_inputs import (
 )
 from pynamit.external_inputs.providers import FALLBACK_SCHEMA_VERSION, _read_fallback
 from pynamit.geomagnetism import decimal_year
-from pynamit.workflows.example_inputs import _EXAMPLE_EVENT_TIME
 
 OUTPUT = Path("src/pynamit/data/fallback_inputs.json")
 
@@ -42,7 +53,6 @@ class GridSpec:
     main_field_epoch: float
 
 
-EVENT_TIME = _EXAMPLE_EVENT_TIME
 EVENT_EPOCH = float(decimal_year(EVENT_TIME))
 
 GRID_SPECS = (
@@ -88,7 +98,10 @@ def _register_request_grids(grids: dict, request: ExternalInputRequest) -> None:
 def main() -> None:
     """Generate, validate, and atomically install fallback inputs."""
     if not native_inputs_available():
-        raise SystemExit("Install native inputs first with: pip install -e '.[inputs]'")
+        raise SystemExit(
+            "Install Lompe and PyAMPS from requirements/pip-input-models.txt, then "
+            "install pyHWM2014 with --no-deps as described in README.md."
+        )
 
     set_input_source("native")
     grids = {}
@@ -138,12 +151,19 @@ def main() -> None:
             _register_request_grids(grids, request)
 
             pedersen, hall, conductance_lat, conductance_lon = get_conductance_inputs(
-                EVENT_TIME, request=request
+                EVENT_TIME, request=request, kp=KP, starlight=STARLIGHT_CONDUCTANCE_S
             )
-            jr, jr_lat, jr_lon = get_boundary_jr_inputs(EVENT_TIME, request=request)
-            wind = get_wind_inputs(EVENT_TIME, request=request)
-            if wind is None:
-                raise RuntimeError("Native HWM14 returned no wind data.")
+            jr, jr_lat, jr_lon = get_boundary_jr_inputs(
+                EVENT_TIME,
+                request=request,
+                v=SOLAR_WIND_SPEED_KM_S,
+                By=IMF_BY_NT,
+                Bz=IMF_BZ_NT,
+                tilt=DIPOLE_TILT_DEG,
+                f107=F107_SFU,
+                minlat=AMPS_MIN_LATITUDE_DEG,
+            )
+            wind = get_wind_inputs(EVENT_TIME, request=request, ap=HWM_AP)
             u_theta, u_phi, wind_lat, wind_lon, weights = wind
             if weights is not None:
                 raise RuntimeError("Requested-position HWM should not supply source-grid weights.")
@@ -176,6 +196,18 @@ def main() -> None:
     collection = FallbackCollection(
         version=FALLBACK_SCHEMA_VERSION,
         event_time=EVENT_TIME.isoformat(),
+        conditions={
+            CONDUCTANCE_PROVIDER_SPEC.key: {"kp": KP, "starlight": STARLIGHT_CONDUCTANCE_S},
+            BOUNDARY_JR_PROVIDER_SPEC.key: {
+                "v": SOLAR_WIND_SPEED_KM_S,
+                "By": IMF_BY_NT,
+                "Bz": IMF_BZ_NT,
+                "tilt": DIPOLE_TILT_DEG,
+                "f107": F107_SFU,
+                "minlat": AMPS_MIN_LATITUDE_DEG,
+            },
+            NEUTRAL_WIND_PROVIDER_SPEC.key: {"ap": HWM_AP},
+        },
         time=np.array([0.0]),
         grids=grids,
         providers=PROVIDER_SPECS,

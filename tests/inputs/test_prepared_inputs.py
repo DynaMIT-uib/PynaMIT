@@ -6,6 +6,7 @@ import shutil
 import numpy as np
 import pytest
 from kompe.constants import EARTH_RADIUS_M
+from tests import example_scenario
 
 import pynamit
 from pynamit.external_inputs.contracts import (
@@ -32,18 +33,19 @@ from pynamit.simulation.input_manifest import (
 from pynamit.simulation.simulation import Simulation
 from pynamit.storage import ArtifactStore
 from pynamit.workflows import example_inputs as example_inputs_module
-from pynamit.workflows.example_inputs import prepare_example_inputs
 from pynamit.workflows.prepared_inputs import (
     SIMULATION_MANIFEST_FILENAME,
     load_prepared_inputs_into_simulation,
     run_from_inputs,
 )
 
+prepare_example_inputs = example_scenario.prepare_example_inputs
+
 
 def test_geographic_wind_is_rotated_into_model_coordinates():
     """Prepared dipole winds transform positions and components."""
     main_field = MainField(kind="dipole", epoch=2020)
-    event_time = example_inputs_module._EXAMPLE_EVENT_TIME
+    event_time = example_scenario.EVENT_TIME
     lat = np.array([20.0, 60.0])
     lon = np.array([-30.0, 80.0])
     u_theta = np.array([[10.0, 20.0], [30.0, 40.0]])
@@ -76,23 +78,30 @@ def test_default_inputs_share_one_provider_request_cache(tmp_path, monkeypatch):
     original_set_boundary_jr = example_inputs_module.InputPreparation.set_boundary_jr
     original_set_neutral_wind = example_inputs_module.InputPreparation.set_neutral_wind
 
-    def fake_conductance(_date, lat=None, lon=None, time=None, *, request):
-        assert lat is None and lon is None and time is None
+    def fake_conductance(_date, lat=None, lon=None, *, request, kp, starlight):
+        assert lat is None and lon is None
+        assert kp == example_scenario.KP
+        assert starlight == example_scenario.STARLIGHT_CONDUCTANCE_S
         captured["requests"].append(request)
         source = request.source_grid
         values = np.ones(source.size)
         return values, values, source.lat, source.lon
 
-    def fake_boundary_jr(_date, lat=None, lon=None, time=None, *, request):
-        assert lat is None and lon is None and time is None
+    def fake_boundary_jr(_date, lat=None, lon=None, *, request, v, By, Bz, tilt, f107, minlat):
+        assert lat is None and lon is None
+        assert v == example_scenario.SOLAR_WIND_SPEED_KM_S
+        assert By == example_scenario.IMF_BY_NT
+        assert Bz == example_scenario.IMF_BZ_NT
+        assert tilt == example_scenario.DIPOLE_TILT_DEG
+        assert f107 == example_scenario.F107_SFU
+        assert minlat == example_scenario.AMPS_MIN_LATITUDE_DEG
         captured["requests"].append(request)
         source = request.source_grid
         return np.zeros(source.size), source.lat, source.lon
 
-    def fake_wind(_date, use_wind, time, lat=None, lon=None, *, request):
-        assert use_wind
-        assert time is None
+    def fake_wind(_date, lat=None, lon=None, *, request, ap):
         assert lat is None and lon is None
+        assert ap == example_scenario.HWM_AP
         captured["requests"].append(request)
         source = request.source_grid
         return (np.zeros(source.size), np.ones(source.size), source.lat, source.lon, None)
@@ -124,7 +133,6 @@ def test_default_inputs_share_one_provider_request_cache(tmp_path, monkeypatch):
 
     prepared = prepare_example_inputs(
         tmp_path / "inputs",
-        final_time=0.0,
         Nmax=2,
         Mmax=1,
         Ncs=8,
@@ -147,7 +155,7 @@ def test_default_inputs_share_one_provider_request_cache(tmp_path, monkeypatch):
 
     model_grid = prepared.model_grid
     expected_geo = prepared.main_field.model_to_geo_coordinates(
-        model_grid.lat, model_grid.lon, event_time=example_inputs_module._EXAMPLE_EVENT_TIME
+        model_grid.lat, model_grid.lon, event_time=example_scenario.EVENT_TIME
     )
     np.testing.assert_allclose(request.source_grid.lat, expected_geo[0])
     np.testing.assert_allclose(request.source_grid.lon, expected_geo[1])
@@ -165,8 +173,10 @@ def test_default_inputs_share_one_provider_request_cache(tmp_path, monkeypatch):
 def test_adapter_cannot_return_another_source_grid(tmp_path, monkeypatch):
     """An adapter cannot silently remap the source grid."""
 
-    def wrong_conductance(_date, lat=None, lon=None, time=None, *, request):
-        assert lat is None and lon is None and time is None
+    def wrong_conductance(_date, lat=None, lon=None, *, request, kp, starlight):
+        assert lat is None and lon is None
+        assert kp == example_scenario.KP
+        assert starlight == example_scenario.STARLIGHT_CONDUCTANCE_S
         source = request.source_grid
         values = np.ones(source.size)
         return values, values, source.lat + 0.5, source.lon
@@ -176,7 +186,6 @@ def test_adapter_cannot_return_another_source_grid(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="shared geocentric_geographic source grid"):
         prepare_example_inputs(
             tmp_path / "inputs",
-            final_time=0.0,
             Nmax=2,
             Mmax=1,
             Ncs=8,
@@ -393,17 +402,29 @@ def test_prepare_and_run_from_inputs_smoke(tmp_path):
     selected_simulation_directory = tmp_path / "selected_simulation"
 
     prepared = prepare_example_inputs(
-        input_directory, final_time=0.0, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf"
+        input_directory, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf"
     )
     assert prepared.data.simulation_directory == str(input_directory.resolve())
     assert prepared.config.t0 == "2001-05-12 21:45:00"
     assert prepared.config.main_field_epoch == pytest.approx(
-        decimal_year(example_inputs_module._EXAMPLE_EVENT_TIME)
+        decimal_year(example_scenario.EVENT_TIME)
     )
     assert (input_directory / INPUT_MANIFEST_FILENAME).exists()
     manifest = read_input_manifest(input_directory)
     assert manifest["input_contract"]["coefficient_space"]["Nmax"] == 2
     assert manifest["metadata"]["external_input_source"] in {"auto", "fallback", "native"}
+    assert manifest["metadata"]["empirical_input_conditions"] == {
+        "event_time": "2001-05-12T21:45:00",
+        "kp": 5,
+        "starlight_conductance_S": 1.0,
+        "solar_wind_speed_km_s": 300.0,
+        "imf_By_nT": 0.0,
+        "imf_Bz_nT": -4.0,
+        "dipole_tilt_deg": 20.0,
+        "f107_sfu": 100.0,
+        "amps_min_latitude_deg": 50.0,
+        "hwm_ap": [-1, 35],
+    }
 
     simulation = run_from_inputs(
         input_directory,
@@ -471,9 +492,7 @@ def test_run_from_inputs_rejects_changed_input_identity(tmp_path):
     """A trajectory cannot silently change its input selection."""
     input_directory = tmp_path / "inputs"
     simulation_directory = tmp_path / "simulation"
-    prepare_example_inputs(
-        input_directory, final_time=0.0, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf"
-    )
+    prepare_example_inputs(input_directory, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf")
     run_from_inputs(
         input_directory,
         simulation_directory=simulation_directory,
@@ -500,9 +519,7 @@ def test_run_from_inputs_allows_prepared_package_relocation(tmp_path):
     input_directory = tmp_path / "inputs"
     relocated_directory = tmp_path / "relocated-inputs"
     simulation_directory = tmp_path / "simulation"
-    prepare_example_inputs(
-        input_directory, final_time=0.0, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf"
-    )
+    prepare_example_inputs(input_directory, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf")
     run_from_inputs(
         input_directory,
         simulation_directory=simulation_directory,
@@ -528,9 +545,7 @@ def test_run_from_inputs_skips_completed_simulation_before_geometry(monkeypatch,
     """Batch sweeps do not rebuild completed simulation geometry."""
     input_directory = tmp_path / "inputs"
     simulation_directory = tmp_path / "simulation"
-    prepare_example_inputs(
-        input_directory, final_time=0.0, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf"
-    )
+    prepare_example_inputs(input_directory, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf")
     run_from_inputs(
         input_directory,
         simulation_directory=simulation_directory,
@@ -567,9 +582,7 @@ def test_run_from_inputs_skips_completed_simulation_before_geometry(monkeypatch,
 def test_run_from_inputs_validates_batch_options_before_skipping(tmp_path, kwargs, match):
     """Completion preflight cannot bypass evolution validation."""
     input_directory = tmp_path / "inputs"
-    prepare_example_inputs(
-        input_directory, final_time=0.0, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf"
-    )
+    prepare_example_inputs(input_directory, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf")
 
     with pytest.raises(ValueError, match=match):
         run_from_inputs(
@@ -584,9 +597,7 @@ def test_run_from_inputs_validates_batch_options_before_skipping(tmp_path, kwarg
 def test_run_from_inputs_requires_a_separate_simulation_directory(tmp_path):
     """A simulation cannot overwrite its prepared-input package."""
     input_directory = tmp_path / "inputs"
-    prepare_example_inputs(
-        input_directory, final_time=0.0, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf"
-    )
+    prepare_example_inputs(input_directory, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf")
 
     with pytest.raises(ValueError, match="must differ from input_directory"):
         run_from_inputs(
@@ -602,13 +613,7 @@ def test_loading_prepared_inputs_transfers_simulation_ownership(tmp_path):
     input_directory = tmp_path / "inputs"
     simulation_directory = tmp_path / "simulation"
     prepared = prepare_example_inputs(
-        input_directory,
-        final_time=0.0,
-        Nmax=2,
-        Mmax=1,
-        Ncs=8,
-        artifact_storage="netcdf",
-        use_wind=False,
+        input_directory, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf", use_wind=False
     )
     simulation = Simulation(
         simulation_directory=simulation_directory,
@@ -641,13 +646,7 @@ def test_run_from_inputs_errors_on_requested_missing_dataset(tmp_path):
     simulation_directory = tmp_path / "simulation"
 
     prepare_example_inputs(
-        input_directory,
-        final_time=0.0,
-        Nmax=2,
-        Mmax=1,
-        Ncs=8,
-        artifact_storage="netcdf",
-        use_wind=False,
+        input_directory, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf", use_wind=False
     )
 
     with pytest.raises(ValueError, match="Requested prepared input"):

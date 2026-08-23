@@ -19,8 +19,8 @@ The dependency lists are kept in `requirements/`:
   testing, plotting, and documenting PynaMIT.
 - `requirements/pip-common.txt`: Python packages that are installed from PyPI
   or directly from GitHub.
-- `requirements/pip-data.txt`: optional data/model dependencies used by some
-  example and paper-preparation scripts.
+- `requirements/pip-input-models.txt`: optional Lompe and PyAMPS models used
+  to generate simulation inputs.
 
 From the repository root, one way to install PynaMIT in a new conda
 environment is:
@@ -30,10 +30,18 @@ conda create -n pynamit -c conda-forge --file requirements/conda-common.txt jax
 conda activate pynamit
 
 pip install -r requirements/pip-common.txt
-pip install -r requirements/pip-data.txt
-
+pip install "kompe @ git+https://github.com/DynaMIT-uib/kompe.git@main"
+pip install -r requirements/pip-input-models.txt
+pip install --no-deps \
+  "pyhwm2014 @ git+https://github.com/rilma/pyHWM14.git@main"
 pip install -e .
 ```
+
+The native input models are optional; omit the two commands immediately before
+`pip install -e .` when the bundled fallback inputs are sufficient. pyHWM2014
+currently declares a nonexistent `timeutil` dependency, so it must be installed
+without dependencies; NumPy is already part of PynaMIT's core environment.
+The current pyHWM2014 main branch requires Python 3.12 or newer.
 
 `pip install -e .` performs an editable install. The environment imports the
 package from this source tree, so local source-code changes are picked up
@@ -74,15 +82,15 @@ according to the
 The core dependencies declared in `pyproject.toml` are sufficient to import
 and run the simulation API. Install `pynamit[plot]` for plotting,
 `pynamit[gui]` for the interactive GUI and its storage backends,
-`pynamit[mage]` for MAGE HDF5 preparation, and `pynamit[inputs]` for the
-optional native input models. The requirements files above remain the
-reproducible development-environment definition.
+and `pynamit[mage]` for MAGE HDF5 preparation. The requirements files above
+remain the reproducible development-environment definition.
 
 PynaMIT's spherical and numerical machinery is provided by
 [`kompe`](https://github.com/DynaMIT-uib/kompe). Until the first Kompe release
-is available from PyPI, `requirements/pip-common.txt` installs it directly
-from that repository; install the requirements file before invoking
-`pip install .` on a fresh environment.
+is available from PyPI, install it directly from that repository before
+invoking `pip install .` on a fresh environment. Kompe is deliberately not
+baked into PynaMIT's test-container images; CI installs the source revision it
+is testing.
 
 ## Interactive use
 
@@ -143,9 +151,12 @@ corresponding convenience functions share one workflow namespace:
 from pynamit.workflows import prepare_example_inputs, run_example, run_from_inputs
 ```
 
-`prepare_example_inputs` creates the fixed 12 May 2001 empirical example,
-`run_example` prepares and runs that example in one call, and
-`run_from_inputs` runs any compatible prepared package.
+`prepare_example_inputs` prepares one explicitly specified event through the
+configured empirical input providers, `run_example` prepares and runs such an
+event in one call, and `run_from_inputs` runs any compatible prepared package.
+The event time, Kp, solar-wind and IMF values, tilt, F10.7, and Ap are ordinary
+function arguments rather than hidden PynaMIT defaults. The regression suite
+keeps its shared 12 May 2001 case in `tests/example_scenario.py`.
 
 Completed simulations can be inspected without rebuilding a live simulation:
 
@@ -182,16 +193,23 @@ After installation, run the test suite from the repository root:
 pytest
 ```
 
-Some tests are skipped automatically if optional dependencies or native input
-datasets are not available.
+With no selection flags, pytest runs the complete suite with fallback inputs on
+each available backend. Tests marked `native_input_validation` additionally run
+with live input models when they are installed. Explicit `--data-source` options
+apply the requested sources to the complete suite.
 
-The same explicit splits used in CI are useful for focused local checks:
+CI gives the two environments separate jobs: the ordinary environment proves
+that no native input models are installed, while the native-input environment
+checks model outputs against the fallback dataset through both NumPy and JAX
+projections. The corresponding local commands are:
 
 ```bash
-pytest --backend numpy --data-source fallback
-pytest --backend jax --data-source fallback
-pytest --backend numpy --data-source native
+pytest --backend numpy --backend jax --data-source fallback
+pytest -m native_input_validation \
+  --backend numpy --backend jax --data-source native
 ```
+
+For a focused check, pass only the backend and input source of interest.
 
 ## Examples and Paper Scripts
 

@@ -1,40 +1,29 @@
-"""Multi-data test module."""
+"""Dipole, PFAC and DOP853 test."""
 
 import numpy as np
-import pytest
-
-from pynamit.workflows.example import run_example
 from tests import magnetic_potential_coordinate_array
+from tests.example_scenario import run_example
 
 
-@pytest.mark.apexpy_precision
-@pytest.mark.native_hwm_precision
-def test_multi_data(regression_approx):
-    """Test simulation with multiple data points."""
+def test_2d_dipole_pfac_dop853(regression_approx):
+    """Test 2D simulation with dipole, PFAC and DOP853."""
     # Arrange.
-    expected_coeff_norm = 3.2859775703370715e-08
-    expected_coeff_max = 1.3334897880074204e-08
-    expected_coeff_min = -1.0749905655413092e-08
-    expected_n_coeffs = 228
+    expected_coeff_norm = 1.1342057514803807e-08
+    expected_coeff_max = 8.006258968168764e-10
+    expected_coeff_min = -5.064947292772487e-09
+    expected_n_coeffs = 240
 
     # Act.
     simulation = run_example(
-        final_time=15,
-        dt=5,
+        final_time=0.1,
+        dt=0.1,
         Nmax=10,
-        Mmax=8,
+        Mmax=10,
         Ncs=20,
-        main_field_kind="igrf",
+        main_field_kind="dipole",
         enable_pfac_coupling=True,
-        enable_interhemispheric_coupling=True,
-        interhemispheric_coupling_latitude=50,
-        use_wind=True,
-        initialize_from_equilibrium=True,
-        boundary_jr_projection_basis="SH",
-        conductance_projection_basis="SH",
-        u_projection_basis="SH",
-        integrator="exponential",
-        multi_data=True,
+        integrator="DOP853",
+        initialize_from_equilibrium=False,
     )
 
     # Assert.

@@ -12,6 +12,7 @@ import pytest
 
 pytestmark = [
     pytest.mark.performance,
+    pytest.mark.native_input_validation,
     pytest.mark.requires_native_inputs,
     pytest.mark.parametrize(
         "backend,data_source", [("numpy", "auto")], ids=["backend=numpy,data=auto"]

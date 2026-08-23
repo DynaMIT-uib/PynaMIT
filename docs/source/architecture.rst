@@ -340,6 +340,11 @@ convenience workflow. Scripts under
 settings, paths, and directory naming while delegating reusable validation and
 numerical work to package modules.
 
+Empirical event conditions are owned by the caller. The preparation workflow
+requires the event time, Kp, solar-wind and IMF values, dipole tilt, F10.7, and
+Ap explicitly; PynaMIT does not define a physically privileged default event.
+The regression tests keep their shared 12 May 2001 scenario under ``tests/``.
+
 External empirical inputs use immutable value objects with separate source,
 library-interface, and output semantics. ``InputProviderSpec`` describes one
 library adapter and independently declares its request contract, output
@@ -392,9 +397,14 @@ and grids are structurally shared after loading, while different contracts
 remain semantically distinct even when their numerical arrays happen to be
 equal.
 
-The optional multi-time expansion remains deliberately synthetic. It scales
-one empirical snapshot solely to exercise multi-step input storage,
-interpolation, and evolution; it is not provider time evolution.
+Empirical adapters return one snapshot for one physical event. They do not
+accept simulation-relative times or manufacture a time history. The bundled
+fallback file records its generating event and provider conditions alongside
+the cached arrays, while the regression scenario that requests those values
+lives under ``tests/``. Users provide genuine time-dependent samples or
+coefficients directly through ``InputPreparation``; the test suite uses an
+explicit coefficient history to exercise storage, interpolation, and
+evolution.
 
 MAGE remains on its native spherical coordinate path. Preparation aligns
 GAMERA and ReMIX through Kaiju/Geopack, projection requires

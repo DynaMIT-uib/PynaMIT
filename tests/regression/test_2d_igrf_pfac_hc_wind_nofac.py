@@ -1,27 +1,34 @@
-"""Dipole test."""
+"""IGRF, PFAC, HC, and wind test without radial-current driving."""
 
 import numpy as np
-
-from pynamit.workflows.example import run_example
+import pytest
 from tests import magnetic_potential_coordinate_array
+from tests.example_scenario import run_example
 
 
-def test_2d_dipole(regression_approx):
-    """Test 2D simulation with dipole."""
+@pytest.mark.apexpy_precision
+@pytest.mark.native_hwm_precision
+def test_2d_igrf_pfac_hc_wind_nofac(regression_approx):
+    """Test 2D IGRF/PFAC/HC/wind simulation without jr input."""
     # Arrange.
-    expected_coeff_norm = 1.1675212829673576e-08
-    expected_coeff_max = 8.055963863701749e-10
-    expected_coeff_min = -5.093330778257839e-09
-    expected_n_coeffs = 336
+    expected_coeff_norm = 4.697819564788567e-09
+    expected_coeff_max = 1.4877275957047607e-09
+    expected_coeff_min = -1.5713770148202498e-09
+    expected_n_coeffs = 228
 
     # Act.
     simulation = run_example(
         final_time=0.1,
         dt=1e-2,
-        Nmax=12,
-        Mmax=12,
-        Ncs=22,
-        main_field_kind="dipole",
+        Nmax=10,
+        Mmax=8,
+        Ncs=18,
+        main_field_kind="igrf",
+        enable_pfac_coupling=True,
+        enable_interhemispheric_coupling=True,
+        interhemispheric_coupling_latitude=50,
+        use_wind=True,
+        use_boundary_jr=False,
         initialize_from_equilibrium=False,
     )
 
@@ -38,6 +45,7 @@ def test_2d_dipole(regression_approx):
     print("actual_coeff_min: ", actual_coeff_min)
     print("actual_n_coeffs: ", actual_n_coeffs)
 
+    assert "jr" not in simulation.data.input_series.datasets
     assert actual_coeff_norm == regression_approx(expected_coeff_norm)
     assert actual_coeff_max == regression_approx(expected_coeff_max)
     assert actual_coeff_min == regression_approx(expected_coeff_min)

@@ -1,26 +1,22 @@
-"""Grid-based equilibrium initialization test."""
+"""Dipole, PFAC, HC and exponential test."""
 
 import numpy as np
-import pytest
-
-from pynamit.workflows.example import run_example
 from tests import magnetic_potential_coordinate_array
+from tests.example_scenario import run_example
 
 
-@pytest.mark.native_hwm_precision
-def test_equilibrium_init_grid(regression_approx):
-    """Test grid-based simulation with equilibrium initialization."""
+def test_2d_dipole_pfac_hc_exp(regression_approx):
+    """Test 2D simulation with dipole, PFAC, HC and exponential."""
     # Arrange.
-    # HWM winds are rotated from geographic into dipole coordinates.
-    expected_coeff_norm = 1.3445084598553368e-08
-    expected_coeff_max = 1.5164526056028662e-09
-    expected_coeff_min = -5.642220202358395e-09
+    expected_coeff_norm = 8.958928750315398e-09
+    expected_coeff_max = 1.6925448646901912e-09
+    expected_coeff_min = -3.784848641445992e-09
     expected_n_coeffs = 228
 
     # Act.
     simulation = run_example(
         final_time=0.1,
-        dt=1e-2,
+        dt=0.1,
         Nmax=10,
         Mmax=8,
         Ncs=18,
@@ -28,11 +24,8 @@ def test_equilibrium_init_grid(regression_approx):
         enable_pfac_coupling=True,
         enable_interhemispheric_coupling=True,
         interhemispheric_coupling_latitude=50,
-        use_wind=True,
-        initialize_from_equilibrium=True,
-        boundary_jr_projection_basis="CS",
-        conductance_projection_basis="CS",
-        u_projection_basis="CS",
+        integrator="exponential",
+        initialize_from_equilibrium=False,
     )
 
     # Assert.
@@ -42,7 +35,6 @@ def test_equilibrium_init_grid(regression_approx):
     actual_coeff_max = np.max(coeff_array)
     actual_coeff_min = np.min(coeff_array)
     actual_n_coeffs = coeff_array.shape[0]
-    resistance = simulation.data.input_series.datasets["conductance"]
 
     print("actual_coeff_norm: ", actual_coeff_norm)
     print("actual_coeff_max: ", actual_coeff_max)
@@ -53,5 +45,3 @@ def test_equilibrium_init_grid(regression_approx):
     assert actual_coeff_max == regression_approx(expected_coeff_max)
     assert actual_coeff_min == regression_approx(expected_coeff_min)
     assert actual_n_coeffs == expected_n_coeffs
-    assert "CS_log_conductance_magnitude" in resistance
-    assert "CS_log_hall_to_pedersen_ratio" in resistance

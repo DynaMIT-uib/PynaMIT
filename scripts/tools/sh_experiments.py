@@ -30,7 +30,7 @@ conductance_lon = cs_basis.arr_phi
 request = ExternalInputRequest.from_geocentric_geo(
     conductance_lat, conductance_lon, grid_id="sh-experiment-grid"
 )
-pedersen, hall, _, _ = get_conductance_inputs(date, request=request, kp=Kp)
+pedersen, hall, _, _ = get_conductance_inputs(date, request=request, kp=Kp, starlight=1.0)
 
 etaH, etaP = hall / (hall**2 + pedersen**2), pedersen / (hall**2 + pedersen**2)
 

@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 
 from pynamit.simulation.simulation import Simulation
-from pynamit.workflows.example import run_example
 from tests import DETERMINISTIC_REGRESSION_RTOL, magnetic_potential_coordinate_array
+from tests.example_scenario import run_example
 
 
 @pytest.mark.native_hwm_precision
@@ -249,7 +249,6 @@ def test_evolve_to_time_split_modes_match_combined_numerically(tmp_path):
         enable_pfac_coupling=False,
         use_wind=False,
         initialize_from_equilibrium=False,
-        multi_data=True,
         artifact_storage="netcdf",
     )
 

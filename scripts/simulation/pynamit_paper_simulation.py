@@ -117,7 +117,7 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
     source_lat = preparation.model_grid.lat
     source_lon = preparation.model_grid.lon
     pedersen, hall, _, _ = get_conductance_inputs(
-        settings.date, source_lat, source_lon, kp=settings.kp
+        settings.date, source_lat, source_lon, kp=settings.kp, starlight=1.0
     )
     preparation.set_conductance(
         pedersen=pedersen,
@@ -132,16 +132,18 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
         settings.date,
         source_lat,
         source_lon,
-        amps_parameters=(400.0, 5.0, -5.0, float(dipole_model.tilt(settings.date)), 100.0),
+        v=400.0,
+        By=5.0,
+        Bz=-5.0,
+        tilt=float(dipole_model.tilt(settings.date)),
+        f107=100.0,
         minlat=50.0,
     )
     preparation.set_boundary_jr(
         boundary_jr, lat=source_lat, lon=source_lon, reg_lambda=settings.boundary_jr_lambda
     )
 
-    wind = get_wind_inputs(settings.date, lat=source_lat, lon=source_lon)
-    if wind is None:
-        raise RuntimeError("HWM14 returned no wind data.")
+    wind = get_wind_inputs(settings.date, lat=source_lat, lon=source_lon, ap=(-1, 35))
     u_theta, u_phi, _, _, sqrt_weights = wind
     preparation.set_neutral_wind(
         u_theta=u_theta,

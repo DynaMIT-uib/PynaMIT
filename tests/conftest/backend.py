@@ -103,9 +103,10 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         dest="pynamit_data_sources",
         choices=("fallback", "native"),
         help=(
-            "Input-data sources to exercise. The default runs against the bundled "
-            "fallback dataset and, when available, against native lompe/pyamps/pyhwm2014 "
-            "inputs. Provide this option multiple times to limit the selection."
+            "Input-data sources to exercise. By default, the complete suite uses the "
+            "bundled fallback and tests marked native_input_validation also use the "
+            "native Lompe, PyAMPS, and HWM models when installed. Providing this option "
+            "applies the selected source to the complete suite."
         ),
     )
     parser.addoption(
@@ -130,15 +131,15 @@ def pytest_configure(config: pytest.Config) -> None:
     )
 
 
-def _build_combinations(backends: list[str], sources: list[str]) -> list[tuple[str, str]]:
-    combos: list[tuple[str, str]] = []
-    if "numpy" in backends:
-        combos.append(("numpy", "fallback"))
-        if "native" in sources:
-            combos.append(("numpy", "native"))
-    if "jax" in backends and "fallback" in sources:
-        combos.append(("jax", "fallback"))
-    return combos
+def _build_combinations(
+    backends: list[str], sources: list[str], *, include_native: bool
+) -> list[tuple[str, str]]:
+    return [
+        (backend, source)
+        for backend in backends
+        for source in sources
+        if source == "fallback" or include_native
+    ]
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
@@ -162,7 +163,17 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
 
     if {"backend", "data_source"}.issubset(metafunc.fixturenames):
         if not (_is_parametrized("backend") or _is_parametrized("data_source")):
-            combos = _build_combinations(backends, sources)
+            data_sources_were_requested = (
+                metafunc.config.getoption("pynamit_data_sources") is not None
+            )
+            validates_native_inputs = (
+                metafunc.definition.get_closest_marker("native_input_validation") is not None
+            )
+            combos = _build_combinations(
+                backends,
+                sources,
+                include_native=data_sources_were_requested or validates_native_inputs,
+            )
             ids = [f"backend={b},data={s}" for b, s in combos]
             metafunc.parametrize(("backend", "data_source"), combos, ids=ids)
     else:

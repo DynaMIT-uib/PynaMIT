@@ -30,13 +30,12 @@ from pynamit.geodesy import library_horizontal_to_spherical
 from pynamit.geomagnetism import decimal_year
 
 FALLBACK_RESOURCE = resources.files("pynamit.data") / "fallback_inputs.json"
-FALLBACK_SCHEMA_VERSION = 6
+FALLBACK_SCHEMA_VERSION = 7
 _INPUT_SOURCE = os.environ.get("PYNAMIT_INPUT_SOURCE", "native").lower()
 if _INPUT_SOURCE == "auto":
     _INPUT_SOURCE = "native"
 
-_HWM_ALTITUDE_KM = 110.0
-_HWM_AP = (-1, 35)
+_IONOSPHERE_ALTITUDE_KM = 110.0
 
 
 def _provider_utc_datetime(date: Any) -> Any:
@@ -146,19 +145,38 @@ def _load_fallback(path: os.PathLike[str] | str | None = None) -> FallbackCollec
     return _read_fallback(path) if path is not None else _bundled_fallback()
 
 
-def _expand_time_series(data: np.ndarray, time: np.ndarray | None) -> np.ndarray:
-    """Construct deliberately synthetic multi-time demonstration values.
+def _load_fallback_snapshot(date: Any) -> FallbackCollection:
+    """Return bundled inputs for their declared physical event."""
+    event_time = _provider_utc_datetime(date)
+    if not isinstance(event_time, dt.datetime):
+        raise TypeError("Bundled external inputs require a datetime event time.")
 
-    Native providers are evaluated once at the base event time. When the
-    test/example ``multi_data`` path requests several times, values are
-    scaled from one to two solely to exercise multi-step storage,
-    interpolation, and evolution logic. This is not a physical forecast.
-    """
-    base = np.array(data, copy=True).reshape(-1)
-    if time is None or np.asarray(time).size <= 1:
-        return base
-    scaling = np.linspace(1.0, 2.0, np.asarray(time).size)[:, None]
-    return scaling * base[None, :]
+    collection = _load_fallback()
+    if collection.event_time is None:
+        raise RuntimeError("Bundled external inputs do not declare their event time.")
+    bundled_event_time = dt.datetime.fromisoformat(collection.event_time)
+    if event_time != bundled_event_time:
+        raise ValueError(
+            "Bundled external inputs describe only "
+            f"{bundled_event_time.isoformat(sep=' ')} UTC; requested "
+            f"{event_time.isoformat(sep=' ')} UTC. Use native providers for another event."
+        )
+    return collection
+
+
+def _fallback_parameters(
+    collection: FallbackCollection, provider_key: str, names: tuple[str, ...]
+) -> tuple[Any, ...]:
+    """Return physical parameters declared by cached provider data."""
+    parameters = collection.conditions.get(provider_key)
+    if parameters is None:
+        raise RuntimeError(f"Fallback data do not declare {provider_key!r} input conditions.")
+    try:
+        return tuple(parameters[name] for name in names)
+    except KeyError as exc:
+        raise RuntimeError(
+            f"Fallback data do not declare {provider_key!r} parameter {exc.args[0]!r}."
+        ) from exc
 
 
 def _provider_values(
@@ -433,9 +451,9 @@ def _hardy_euv_from_coordinate_views(
     source_grid = request.source_grid
     if centered_dipole is None:
         provider_grid = request.grid_for(CONDUCTANCE_PROVIDER_SPEC)
-        apex = apexpy.Apex(date=provider_date, refh=_HWM_ALTITUDE_KM)
+        apex = apexpy.Apex(date=provider_date, refh=_IONOSPHERE_ALTITUDE_KM)
         auroral_lat, auroral_lon = apex.geo2apex(
-            provider_grid.lat, provider_grid.lon, _HWM_ALTITUDE_KM
+            provider_grid.lat, provider_grid.lon, _IONOSPHERE_ALTITUDE_KM
         )
         centered_dipole = dipole.Dipole(decimal_year(provider_date))
     else:
@@ -458,13 +476,15 @@ def get_conductance_inputs(
     date: Any,
     lat: np.ndarray | None = None,
     lon: np.ndarray | None = None,
-    time: np.ndarray | None = None,
     *,
     request: ExternalInputRequest | None = None,
-    kp: int = 5,
-    starlight: float = 1.0,
+    kp: int,
+    starlight: float,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Return Pedersen/Hall conductance on the source PynaMIT grid.
+
+    ``kp`` is the Hardy activity index and ``starlight`` is the
+    nightside background conductance in siemens.
 
     Returns
     -------
@@ -500,19 +520,25 @@ def get_conductance_inputs(
             pedersen, provider="Lompe Hardy/EUV", field="pedersen", expected_size=source_grid.size
         )
         return (
-            _expand_time_series(pedersen, time),
-            _expand_time_series(hall, time),
+            pedersen,
+            hall,
             np.array(source_grid.lat, copy=True),
             np.array(source_grid.lon, copy=True),
         )
 
     if get_input_source() == "fallback":
-        if not np.isclose(float(kp), 5.0) or not np.isclose(float(starlight), 1.0):
+        collection = _load_fallback_snapshot(date)
+        parameter_names = ("kp", "starlight")
+        bundled_parameters = _fallback_parameters(
+            collection, CONDUCTANCE_PROVIDER_SPEC.key, parameter_names
+        )
+        requested_parameters = (float(kp), float(starlight))
+        if not np.allclose(requested_parameters, bundled_parameters):
+            conditions = dict(zip(parameter_names, bundled_parameters, strict=True))
             raise ValueError(
-                "Bundled conductance fallback data use kp=5 and starlight=1; "
-                "custom provider parameters require native inputs."
+                f"Bundled conductance fallback data use {conditions}; "
+                "different provider parameters require native inputs."
             )
-        collection = _load_fallback()
         dataset = _select_fallback_entry(
             collection.datasets[CONDUCTANCE_PROVIDER_SPEC.key],
             request,
@@ -520,8 +546,8 @@ def get_conductance_inputs(
             spec=collection.providers[CONDUCTANCE_PROVIDER_SPEC.key],
         )
         return (
-            _expand_time_series(dataset.values["pedersen"], time),
-            _expand_time_series(dataset.values["hall"], time),
+            np.array(dataset.values["pedersen"], copy=True),
+            np.array(dataset.values["hall"], copy=True),
             np.array(dataset.source_grid.lat, copy=True),
             np.array(dataset.source_grid.lon, copy=True),
         )
@@ -533,13 +559,21 @@ def get_boundary_jr_inputs(
     date: Any,
     lat: np.ndarray | None = None,
     lon: np.ndarray | None = None,
-    time: np.ndarray | None = None,
     *,
     request: ExternalInputRequest | None = None,
-    amps_parameters: tuple[float, float, float, float, float] = (300.0, 0.0, -4.0, 20.0, 100.0),
-    minlat: float = 50.0,
+    v: float,
+    By: float,
+    Bz: float,
+    tilt: float,
+    f107: float,
+    minlat: float,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Return AMPS upward radial current on the source PynaMIT grid."""
+    """Return AMPS upward radial current on the source PynaMIT grid.
+
+    The AMPS drivers are solar-wind speed ``v`` in km/s, IMF ``By`` and
+    ``Bz`` in nT, dipole ``tilt`` in degrees, F10.7 flux ``f107`` in
+    sfu, and the model cutoff ``minlat`` in degrees.
+    """
     request = _coerce_request(lat, lon, request, grid_id="runtime-boundary-jr-source")
     source_grid = request.source_grid
     centered_dipole_convention = BOUNDARY_JR_PROVIDER_SPEC.request_coordinate_views["model"]
@@ -554,8 +588,10 @@ def get_boundary_jr_inputs(
         provider_date = _provider_utc_datetime(date)
         if centered_dipole is None:
             provider_grid = request.grid_for(BOUNDARY_JR_PROVIDER_SPEC)
-            apex = apexpy.Apex(date=provider_date, refh=_HWM_ALTITUDE_KM)
-            mlat, mlon = apex.geo2apex(provider_grid.lat, provider_grid.lon, _HWM_ALTITUDE_KM)
+            apex = apexpy.Apex(date=provider_date, refh=_IONOSPHERE_ALTITUDE_KM)
+            mlat, mlon = apex.geo2apex(
+                provider_grid.lat, provider_grid.lon, _IONOSPHERE_ALTITUDE_KM
+            )
             mlt = pyamps.mlon_to_mlt(mlon, provider_date, decimal_year(provider_date))
         else:
             mlat, mlon = request.model_grid.lat, request.model_grid.lon
@@ -565,10 +601,14 @@ def get_boundary_jr_inputs(
             "coefficients",
             "SW_OPER_MIO_SHA_2E_00000000T000000_99999999T999999_0104.txt",
         )
-        if len(amps_parameters) != 5:
-            raise ValueError("amps_parameters must contain five values.")
         amps = pyamps.AMPS(
-            *(float(value) for value in amps_parameters), minlat=float(minlat), coeff_fn=coeff_path
+            float(v),
+            float(By),
+            float(Bz),
+            float(tilt),
+            float(f107),
+            minlat=float(minlat),
+            coeff_fn=coeff_path,
         )
         jr = (
             _provider_values(
@@ -580,22 +620,21 @@ def get_boundary_jr_inputs(
             * 1e-6
         )
         jr[np.abs(mlat) < float(minlat)] = 0
-        return (
-            _expand_time_series(jr, time),
-            np.array(source_grid.lat, copy=True),
-            np.array(source_grid.lon, copy=True),
-        )
+        return (jr, np.array(source_grid.lat, copy=True), np.array(source_grid.lon, copy=True))
 
     if get_input_source() == "fallback":
-        default_parameters = (300.0, 0.0, -4.0, 20.0, 100.0)
-        if tuple(
-            float(value) for value in amps_parameters
-        ) != default_parameters or not np.isclose(float(minlat), 50.0):
+        collection = _load_fallback_snapshot(date)
+        parameter_names = ("v", "By", "Bz", "tilt", "f107", "minlat")
+        bundled_parameters = _fallback_parameters(
+            collection, BOUNDARY_JR_PROVIDER_SPEC.key, parameter_names
+        )
+        requested_parameters = tuple(float(value) for value in (v, By, Bz, tilt, f107, minlat))
+        if not np.allclose(requested_parameters, bundled_parameters):
+            conditions = dict(zip(parameter_names, bundled_parameters, strict=True))
             raise ValueError(
-                "Bundled AMPS fallback data use the default AMPS parameters and minlat=50; "
-                "custom provider parameters require native inputs."
+                f"Bundled AMPS fallback data use {conditions}; "
+                "different provider parameters require native inputs."
             )
-        collection = _load_fallback()
         dataset = _select_fallback_entry(
             collection.datasets[BOUNDARY_JR_PROVIDER_SPEC.key],
             request,
@@ -603,7 +642,7 @@ def get_boundary_jr_inputs(
             spec=collection.providers[BOUNDARY_JR_PROVIDER_SPEC.key],
         )
         return (
-            _expand_time_series(dataset.values["jr"], time),
+            np.array(dataset.values["jr"], copy=True),
             np.array(dataset.source_grid.lat, copy=True),
             np.array(dataset.source_grid.lon, copy=True),
         )
@@ -644,20 +683,23 @@ def _library_horizontal_wind_to_spherical(
 
 def get_wind_inputs(
     date: Any,
-    use_wind: bool = True,
-    time: np.ndarray | None = None,
     lat: np.ndarray | None = None,
     lon: np.ndarray | None = None,
     *,
     request: ExternalInputRequest | None = None,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray | None] | None:
-    """Return HWM wind on the shared empirical-input source grid."""
-    if not use_wind:
-        return None
+    ap: tuple[float, float],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray | None]:
+    """Return HWM wind on the shared empirical-input source grid.
 
+    ``ap`` is the two-value geomagnetic-activity input expected by the
+    vectorized pyHWM2014 interface.
+    """
     request = _coerce_request(lat, lon, request, grid_id="runtime-neutral-wind-source")
     source_grid = request.source_grid
     provider_grid = request.grid_for(NEUTRAL_WIND_PROVIDER_SPEC)
+    ap = tuple(float(value) for value in ap)
+    if len(ap) != 2:
+        raise ValueError("HWM ap must contain the two values expected by pyHWM2014.")
     pyhwm2014 = _load_optional_module("pyhwm2014", "pyhwm2014")
 
     if pyhwm2014 is not None:
@@ -669,19 +711,19 @@ def get_wind_inputs(
                 "pyHWM14 main-branch dependency."
             )
         zonal_east, meridional_north = evaluator(
-            alt_km=np.full(provider_grid.size, _HWM_ALTITUDE_KM),
+            alt_km=np.full(provider_grid.size, _IONOSPHERE_ALTITUDE_KM),
             glat_deg=provider_grid.lat,
             glon_deg=provider_grid.lon,
             utc_hours=np.full(provider_grid.size, _hwm_utc_hours(provider_date)),
             iyd=_hwm_iyd(provider_date),
-            ap=list(_HWM_AP),
+            ap=list(ap),
         )
         u_theta, u_phi = _library_horizontal_wind_to_spherical(
             request, zonal_east, meridional_north
         )
         return (
-            _expand_time_series(u_theta, time),
-            _expand_time_series(u_phi, time),
+            u_theta,
+            u_phi,
             np.array(source_grid.lat, copy=True),
             np.array(source_grid.lon, copy=True),
             None,
@@ -690,7 +732,14 @@ def get_wind_inputs(
     if get_input_source() != "fallback":
         raise RuntimeError("Native neutral-wind inputs are not available.")
 
-    collection = _load_fallback()
+    collection = _load_fallback_snapshot(date)
+    (bundled_ap,) = _fallback_parameters(collection, NEUTRAL_WIND_PROVIDER_SPEC.key, ("ap",))
+    if not np.allclose(ap, bundled_ap):
+        raise ValueError(
+            f"Bundled HWM fallback data use ap={tuple(bundled_ap)}; "
+            "different provider parameters require native inputs."
+        )
+
     dataset = _select_fallback_entry(
         collection.datasets[NEUTRAL_WIND_PROVIDER_SPEC.key],
         request,
@@ -698,8 +747,8 @@ def get_wind_inputs(
         spec=collection.providers[NEUTRAL_WIND_PROVIDER_SPEC.key],
     )
     return (
-        _expand_time_series(dataset.values["u_theta"], time),
-        _expand_time_series(dataset.values["u_phi"], time),
+        np.array(dataset.values["u_theta"], copy=True),
+        np.array(dataset.values["u_phi"], copy=True),
         np.array(dataset.source_grid.lat, copy=True),
         np.array(dataset.source_grid.lon, copy=True),
         None,

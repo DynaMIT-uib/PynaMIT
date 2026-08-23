@@ -1,40 +1,34 @@
-"""Multi-data DOP853 test module."""
+"""IGRF, PFAC, HC, and wind test."""
 
 import numpy as np
 import pytest
-
-from pynamit.workflows.example import run_example
 from tests import magnetic_potential_coordinate_array
+from tests.example_scenario import run_example
 
 
 @pytest.mark.apexpy_precision
 @pytest.mark.native_hwm_precision
-def test_multi_data_dop853(regression_approx):
-    """Test simulation with multiple data points and DOP853."""
+def test_2d_igrf_pfac_hc_wind(regression_approx):
+    """Test 2D simulation with IGRF, PFAC, HC, and wind."""
     # Arrange.
-    expected_coeff_norm = 3.285977797942148e-08
-    expected_coeff_max = 1.333489725683519e-08
-    expected_coeff_min = -1.0749905511304751e-08
+    expected_coeff_norm = 1.0496896083297977e-08
+    expected_coeff_max = 3.524782738723694e-09
+    expected_coeff_min = -1.9956990712000052e-09
     expected_n_coeffs = 228
 
     # Act.
     simulation = run_example(
-        final_time=15,
-        dt=5,
+        final_time=0.1,
+        dt=1e-2,
         Nmax=10,
         Mmax=8,
-        Ncs=20,
+        Ncs=18,
         main_field_kind="igrf",
         enable_pfac_coupling=True,
         enable_interhemispheric_coupling=True,
         interhemispheric_coupling_latitude=50,
         use_wind=True,
-        initialize_from_equilibrium=True,
-        boundary_jr_projection_basis="SH",
-        conductance_projection_basis="SH",
-        u_projection_basis="SH",
-        integrator="DOP853",
-        multi_data=True,
+        initialize_from_equilibrium=False,
     )
 
     # Assert.

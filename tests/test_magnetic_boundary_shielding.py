@@ -8,8 +8,8 @@ from pynamit.simulation.electrodynamics.magnetic_boundary import (
     boundary_Br_to_ionosphere_external_Br_scale,
     shielded_induced_poloidal_scale,
 )
-from pynamit.workflows.example import run_example
 from tests import magnetic_potential_coordinate_array
+from tests.example_scenario import run_example
 
 
 def test_boundary_br_continuation_reproduces_prescribed_outer_field():

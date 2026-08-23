@@ -6,13 +6,14 @@ from typing import Any
 
 import numpy as np
 import pytest
+from kompe.math import JAX_AVAILABLE
+from tests import SINGLE_PRECISION_REGRESSION_RTOL
+from tests.example_scenario import prepare_example_inputs
 
 from pynamit.external_inputs import get_input_source, native_inputs_available, set_input_source
 from pynamit.results.input_projection import evaluate_projected_input
 from pynamit.simulation.electrodynamics import ionospheric_closure
 from pynamit.workflows import example_inputs as example_inputs_module
-from pynamit.workflows.example_inputs import prepare_example_inputs
-from tests import SINGLE_PRECISION_REGRESSION_RTOL
 
 _INPUT_KEYS = ("conductance", "boundary_jr", "u")
 _RTOL = SINGLE_PRECISION_REGRESSION_RTOL
@@ -100,7 +101,6 @@ def _capture_preparation(monkeypatch, *, source: str, directory, main_field_kind
         set_input_source(source)
         simulation = prepare_example_inputs(
             directory,
-            final_time=0.0,
             Nmax=4,
             Mmax=4,
             Ncs=ncs,
@@ -154,8 +154,18 @@ def _assert_mappings_close(
 
 
 @pytest.mark.parametrize(
-    ("backend", "data_source"), [("numpy", "fallback")], ids=["numpy-native-vs-fallback"]
+    ("backend", "data_source"),
+    [
+        ("numpy", "fallback"),
+        pytest.param(
+            "jax",
+            "fallback",
+            marks=pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed."),
+        ),
+    ],
+    ids=["numpy-native-vs-fallback", "jax-native-vs-fallback"],
 )
+@pytest.mark.native_input_validation
 @pytest.mark.parametrize(
     ("main_field_kind", "ncs"),
     [("dipole", 8), ("igrf", 18)],

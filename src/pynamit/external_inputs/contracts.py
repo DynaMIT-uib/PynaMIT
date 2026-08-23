@@ -723,7 +723,7 @@ class CachedProviderData:
 
 @dataclass(frozen=True)
 class FallbackCollection:
-    """Immutable provider specs, shared grids, and cached datasets."""
+    """Immutable cached provider data and its physical conditions."""
 
     version: int
     event_time: str | None
@@ -731,6 +731,7 @@ class FallbackCollection:
     grids: Mapping[str, SampleGrid]
     providers: Mapping[str, InputProviderSpec]
     datasets: Mapping[str, Mapping[str, CachedProviderData]]
+    conditions: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """Validate and freeze the fallback collection."""
@@ -743,6 +744,15 @@ class FallbackCollection:
 
         grids = dict(self.grids)
         providers = dict(self.providers)
+        conditions = {
+            str(provider_key): MappingProxyType(
+                {
+                    str(name): tuple(value) if isinstance(value, list) else value
+                    for name, value in parameters.items()
+                }
+            )
+            for provider_key, parameters in self.conditions.items()
+        }
         if set(providers) != set(self.datasets):
             missing = set(providers).symmetric_difference(self.datasets)
             raise ValueError(
@@ -773,6 +783,7 @@ class FallbackCollection:
         object.__setattr__(self, "grids", MappingProxyType(grids))
         object.__setattr__(self, "providers", MappingProxyType(providers))
         object.__setattr__(self, "datasets", MappingProxyType(normalized))
+        object.__setattr__(self, "conditions", MappingProxyType(conditions))
 
     @classmethod
     def from_payload(
@@ -822,6 +833,7 @@ class FallbackCollection:
             grids=grids,
             providers=providers,
             datasets=datasets,
+            conditions=payload.get("conditions", {}),
         )
 
     def to_payload(self) -> dict[str, Any]:
@@ -829,6 +841,10 @@ class FallbackCollection:
         return {
             "version": self.version,
             "event_time": self.event_time,
+            "conditions": {
+                provider_key: dict(parameters)
+                for provider_key, parameters in self.conditions.items()
+            },
             "time": self.time.tolist(),
             "grids": {grid_id: grid.to_dict() for grid_id, grid in self.grids.items()},
             "providers": {

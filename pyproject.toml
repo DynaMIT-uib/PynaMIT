@@ -65,12 +65,6 @@ gui = [
 mage = [
     "h5py",
 ]
-inputs = [
-    "lompe @ git+https://github.com/klaundal/lompe.git@main",
-    "pyamps",
-    "pyhwm2014 @ git+https://github.com/rilma/pyHWM14.git@main",
-]
-
 [project.scripts]
 pynamit-gui = "pynamit.gui.cli:main"
 

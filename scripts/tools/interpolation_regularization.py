@@ -70,7 +70,7 @@ if CONDUCTANCE:
     request = ExternalInputRequest.from_geocentric_geo(
         input_grid.lat, input_grid.lon, grid_id="interpolation-input-grid"
     )
-    pedersen, hall, _, _ = get_conductance_inputs(date, request=request, kp=Kp)
+    pedersen, hall, _, _ = get_conductance_inputs(date, request=request, kp=Kp, starlight=1.0)
 
     input_grid_values = hall
     input_weights = None

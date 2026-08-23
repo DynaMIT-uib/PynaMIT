@@ -1,8 +1,7 @@
-"""Prepare inputs for PynaMIT's fixed empirical example."""
+"""Prepare one event from PynaMIT's empirical input providers."""
 
 from __future__ import annotations
 
-import datetime as _datetime
 from pathlib import Path
 
 import numpy as np
@@ -18,8 +17,6 @@ from pynamit.external_inputs.contracts import ExternalInputRequest
 from pynamit.simulation.input_manifest import clear_prepared_input_package
 from pynamit.simulation.simulation import InputPreparation
 from pynamit.storage import ArtifactStore
-
-_EXAMPLE_EVENT_TIME = _datetime.datetime(2001, 5, 12, 21, 45)
 
 
 def _wind_to_model_coordinates(main_field, u_theta, u_phi, lat, lon, *, event_time=None):
@@ -57,7 +54,16 @@ def _require_source_grid(provider_name, request, returned_lat, returned_lon):
 def prepare_example_inputs(
     input_directory=None,
     *,
-    final_time=100,
+    event_time,
+    kp,
+    starlight_conductance_S,
+    solar_wind_speed_km_s,
+    imf_By_nT,
+    imf_Bz_nT,
+    dipole_tilt_deg,
+    f107_sfu,
+    amps_min_latitude_deg,
+    hwm_ap,
     Nmax=20,
     Mmax=20,
     Ncs=30,
@@ -76,21 +82,21 @@ def prepare_example_inputs(
     conductance_lambda=None,
     u_lambda=None,
     Q_eff_lambda=None,
-    multi_data=False,
     artifact_storage="auto",
     horizontal_basis_kind="SH",
     area_weighted_least_squares=False,
 ):
-    """Prepare the package's fixed empirical example without running it.
+    """Prepare empirical inputs for one event.
 
-    The example uses the 12 May 2001 event and the configured external
-    input providers. It writes projected datasets and their manifest to
-    ``input_directory`` and returns their :class:`InputPreparation`.
+    The event time and physical driver values are explicit because they
+    define the empirical models' scientific inputs. Conductance is in
+    siemens, solar-wind speed in km/s, IMF components in nT, and angular
+    quantities in degrees. The projected datasets and their manifest are
+    written to ``input_directory``.
     """
     if use_Q_eff and not use_wind:
         raise ValueError("use_Q_eff=True requires use_wind=True in prepare_example_inputs.")
 
-    event_time = _EXAMPLE_EVENT_TIME
     input_directory = (
         ArtifactStore.create_temporary_directory("simulation/inputs")
         if input_directory is None
@@ -117,7 +123,6 @@ def prepare_example_inputs(
         artifact_storage=artifact_storage,
     )
 
-    time = np.linspace(0, final_time, 4) if multi_data else None
     model_lat = preparation.model_grid.lat
     model_lon = preparation.model_grid.lon
     geo_lat, geo_lon = preparation.main_field.model_to_geo_coordinates(
@@ -144,31 +149,31 @@ def prepare_example_inputs(
     )
 
     pedersen, hall, conductance_lat, conductance_lon = get_conductance_inputs(
-        event_time, time=time, request=external_request
+        event_time, request=external_request, kp=kp, starlight=starlight_conductance_S
     )
     _require_source_grid("Conductance adapter", external_request, conductance_lat, conductance_lon)
     preparation.set_conductance(
-        pedersen=pedersen,
-        hall=hall,
-        lat=model_lat,
-        lon=model_lon,
-        reg_lambda=conductance_lambda,
-        time=time,
+        pedersen=pedersen, hall=hall, lat=model_lat, lon=model_lon, reg_lambda=conductance_lambda
     )
 
     if use_boundary_jr:
         boundary_jr, jr_lat, jr_lon = get_boundary_jr_inputs(
-            event_time, time=time, request=external_request
+            event_time,
+            request=external_request,
+            v=solar_wind_speed_km_s,
+            By=imf_By_nT,
+            Bz=imf_Bz_nT,
+            tilt=dipole_tilt_deg,
+            f107=f107_sfu,
+            minlat=amps_min_latitude_deg,
         )
         _require_source_grid("AMPS boundary-jr adapter", external_request, jr_lat, jr_lon)
         preparation.set_boundary_jr(
-            boundary_jr, lat=model_lat, lon=model_lon, reg_lambda=boundary_jr_lambda, time=time
+            boundary_jr, lat=model_lat, lon=model_lon, reg_lambda=boundary_jr_lambda
         )
 
-    wind_inputs = get_wind_inputs(
-        event_time, use_wind=use_wind, time=time, request=external_request
-    )
-    if wind_inputs is not None:
+    if use_wind:
+        wind_inputs = get_wind_inputs(event_time, request=external_request, ap=hwm_ap)
         u_theta, u_phi, u_lat, u_lon, weights = wind_inputs
         _require_source_grid("HWM neutral-wind adapter", external_request, u_lat, u_lon)
         u_theta, u_phi, _, _ = _wind_to_model_coordinates(
@@ -183,7 +188,6 @@ def prepare_example_inputs(
                 sqrt_weights=weights,
                 wind_reg_lambda=u_lambda,
                 Q_eff_reg_lambda=Q_eff_lambda,
-                time=time,
             )
         else:
             preparation.set_neutral_wind(
@@ -193,7 +197,6 @@ def prepare_example_inputs(
                 lon=model_lon,
                 sqrt_weights=weights,
                 reg_lambda=u_lambda,
-                time=time,
             )
 
     notes = []
@@ -207,7 +210,18 @@ def prepare_example_inputs(
         notes=notes,
         metadata={
             "external_input_source": get_input_source(),
-            "multi_data": bool(multi_data),
+            "empirical_input_conditions": {
+                "event_time": event_time.isoformat(),
+                "kp": kp,
+                "starlight_conductance_S": starlight_conductance_S,
+                "solar_wind_speed_km_s": solar_wind_speed_km_s,
+                "imf_By_nT": imf_By_nT,
+                "imf_Bz_nT": imf_Bz_nT,
+                "dipole_tilt_deg": dipole_tilt_deg,
+                "f107_sfu": f107_sfu,
+                "amps_min_latitude_deg": amps_min_latitude_deg,
+                "hwm_ap": list(hwm_ap),
+            },
             "projection_regularization": {
                 "boundary_jr_lambda": boundary_jr_lambda,
                 "conductance_lambda": conductance_lambda,

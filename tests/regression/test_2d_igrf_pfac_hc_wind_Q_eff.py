@@ -1,44 +1,35 @@
-"""Regularization test module."""
+"""IGRF, PFAC, HC, and Q_eff wind-proxy test."""
 
 import numpy as np
 import pytest
-
-from pynamit.workflows.example import run_example
 from tests import magnetic_potential_coordinate_array
+from tests.example_scenario import run_example
 
 
+@pytest.mark.apexpy_precision
 @pytest.mark.native_hwm_precision
-def test_regularization(regression_approx):
-    """Test simulation with regularization."""
-    # Arrange.
-    # HWM winds are rotated from geographic into dipole coordinates.
-    expected_coeff_norm = 1.3854487806257512e-08
-    expected_coeff_max = 1.4790884377354876e-09
-    expected_coeff_min = -5.878522743901925e-09
+def test_2d_igrf_pfac_hc_wind_Q_eff(regression_approx):
+    """Test wind driving represented through the Q_eff input path."""
+    expected_coeff_norm = 1.0496896083297866e-08
+    expected_coeff_max = 3.5247827387229366e-09
+    expected_coeff_min = -1.9956990711998042e-09
     expected_n_coeffs = 228
 
-    # Act.
     simulation = run_example(
         final_time=0.1,
         dt=1e-2,
         Nmax=10,
         Mmax=8,
         Ncs=18,
-        main_field_kind="dipole",
+        main_field_kind="igrf",
         enable_pfac_coupling=True,
         enable_interhemispheric_coupling=True,
         interhemispheric_coupling_latitude=50,
         use_wind=True,
-        initialize_from_equilibrium=True,
-        boundary_jr_projection_basis="SH",
-        conductance_projection_basis="SH",
-        u_projection_basis="SH",
-        boundary_jr_lambda=1e-3,
-        conductance_lambda=1e-3,
-        u_lambda=1e-3,
+        use_Q_eff=True,
+        initialize_from_equilibrium=False,
     )
 
-    # Assert.
     coeff_array = magnetic_potential_coordinate_array(simulation)
 
     actual_coeff_norm = np.linalg.norm(coeff_array)

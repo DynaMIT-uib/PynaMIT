@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import traceback
 from io import StringIO
 from pathlib import Path
@@ -168,9 +169,6 @@ class PynamitGUI:
         self.prepare_Nmax = pn.widgets.IntInput(name="Nmax", value=20, start=1, width=90)
         self.prepare_Mmax = pn.widgets.IntInput(name="Mmax", value=20, start=0, width=90)
         self.prepare_Ncs = pn.widgets.IntInput(name="Ncs", value=30, start=4, width=90)
-        self.prepare_final_time = pn.widgets.FloatInput(
-            name="Input final time", value=100.0, start=0.0, width=140
-        )
         self.prepare_horizontal_basis = pn.widgets.Select(
             name="Basis",
             options={"Spherical harmonics": "SH", "Cubed sphere": "CS"},
@@ -182,7 +180,6 @@ class PynamitGUI:
         )
         self.prepare_use_wind = pn.widgets.Checkbox(name="u", value=False, width=70)
         self.prepare_use_q_eff = pn.widgets.Checkbox(name="Q_eff from u", value=False, width=120)
-        self.prepare_multi_data = pn.widgets.Checkbox(name="multi-time", value=False, width=120)
         self.prepare_button = pn.widgets.Button(
             name="Prepare 12 May 2001 example", button_type="primary", width=220
         )
@@ -645,14 +642,22 @@ class PynamitGUI:
             input_directory = Path(self.prepared_input_directory.value).expanduser()
             preparation = prepare_example_inputs(
                 input_directory=input_directory,
-                final_time=float(self.prepare_final_time.value),
+                event_time=datetime.datetime(2001, 5, 12, 21, 45),
+                kp=5,
+                starlight_conductance_S=1.0,
+                solar_wind_speed_km_s=300.0,
+                imf_By_nT=0.0,
+                imf_Bz_nT=-4.0,
+                dipole_tilt_deg=20.0,
+                f107_sfu=100.0,
+                amps_min_latitude_deg=50.0,
+                hwm_ap=(-1, 35),
                 Nmax=int(self.prepare_Nmax.value),
                 Mmax=int(self.prepare_Mmax.value),
                 Ncs=int(self.prepare_Ncs.value),
                 use_wind=bool(self.prepare_use_wind.value),
                 use_Q_eff=bool(self.prepare_use_q_eff.value),
                 use_boundary_jr=bool(self.prepare_use_boundary_jr.value),
-                multi_data=bool(self.prepare_multi_data.value),
                 horizontal_basis_kind=self.prepare_horizontal_basis.value,
             )
             prepared_path = Path(preparation.input_directory)
@@ -934,13 +939,9 @@ class PynamitGUI:
                 self.prepare_Mmax,
                 self.prepare_Ncs,
                 self.prepare_horizontal_basis,
-                self.prepare_final_time,
             ),
             self._control_row(
-                self.prepare_use_boundary_jr,
-                self.prepare_use_wind,
-                self.prepare_use_q_eff,
-                self.prepare_multi_data,
+                self.prepare_use_boundary_jr, self.prepare_use_wind, self.prepare_use_q_eff
             ),
             title="Input Preparation",
             collapsed=False,

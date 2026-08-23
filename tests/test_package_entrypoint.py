@@ -60,8 +60,11 @@ def test_main_module_import_is_inert(monkeypatch):
 def test_main_module_executes_as_script(monkeypatch):
     """Executing ``pynamit.__main__`` preserves script behavior."""
     calls = []
-    monkeypatch.setattr(example_workflow, "run_example", lambda: calls.append(None))
+    monkeypatch.setattr(example_workflow, "run_example", lambda **kwargs: calls.append(kwargs))
 
     runpy.run_module("pynamit.__main__", run_name="__main__")
 
-    assert calls == [None]
+    assert calls[0]["event_time"].isoformat() == "2001-05-12T21:45:00"
+    assert calls[0]["kp"] == 5
+    assert calls[0]["imf_Bz_nT"] == -4.0
+    assert calls[0]["hwm_ap"] == (-1, 35)

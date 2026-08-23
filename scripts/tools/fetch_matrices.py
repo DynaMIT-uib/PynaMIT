@@ -66,7 +66,7 @@ def build_simulation(
         model_epoch=simulation.geometry.main_field.epoch,
         grid_id="matrix-extraction-model-grid",
     )
-    pedersen, hall, _, _ = get_conductance_inputs(date, request=request)
+    pedersen, hall, _, _ = get_conductance_inputs(date, request=request, kp=5, starlight=1.0)
     simulation.set_conductance(pedersen=pedersen, hall=hall, lat=grid.lat, lon=grid.lon)
     simulation.response.activate_inputs_at_time(
         simulation.data.input_series, time=0.0, interpolation=False

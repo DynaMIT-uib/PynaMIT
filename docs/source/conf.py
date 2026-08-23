@@ -33,7 +33,7 @@ nitpick_ignore = [
     ("py:class", "optional"),
     ("py:class", "numpy.ndarray"),
     ("py:class", "kompe.SphericalGrid"),
-    ("py:class", "kompe.core.ScalarBasis"),
+    ("py:class", "kompe.basis.ScalarBasis"),
     ("py:class", "kompe.math.LeastSquaresProblem"),
     ("py:class", "kompe.SurfaceDifferentialBasis"),
     ("py:class", "kompe.spherical_transform.SphericalTransform"),

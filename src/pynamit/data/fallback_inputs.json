@@ -1,4 +1,24 @@
 {
+  "conditions": {
+    "boundary_jr": {
+      "By": 0.0,
+      "Bz": -4.0,
+      "f107": 100.0,
+      "minlat": 50.0,
+      "tilt": 20.0,
+      "v": 300.0
+    },
+    "conductance": {
+      "kp": 5,
+      "starlight": 1.0
+    },
+    "neutral_wind": {
+      "ap": [
+        -1,
+        35
+      ]
+    }
+  },
   "event_time": "2001-05-12T21:45:00",
   "grids": {
     "centered-dipole-event-ncs-08": {
@@ -116310,5 +116330,5 @@
   "time": [
     0.0
   ],
-  "version": 6
+  "version": 7
 }

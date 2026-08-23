@@ -1,2 +1,0 @@
-pyamps
-lompe      @ git+https://github.com/klaundal/lompe.git@main

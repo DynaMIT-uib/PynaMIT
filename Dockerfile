@@ -1,19 +1,14 @@
-# Variant 1: With JAX
-FROM condaforge/miniforge3 AS jax
+# Images contain third-party dependencies only. CI installs Kompe and PynaMIT
+# from the source revisions being tested.
+FROM condaforge/miniforge3 AS base
 WORKDIR /opt/app
 COPY requirements/conda-common.txt requirements/pip-common.txt ./
-RUN mamba install -y \
-      --file conda-common.txt \
-      jax \
+RUN mamba install -y --file conda-common.txt \
   && mamba clean -afy
-RUN pip install -r pip-common.txt
+RUN python -m pip install --no-cache-dir -r pip-common.txt
 
-# Variant 2: With data stack
-FROM condaforge/miniforge3 AS data
-WORKDIR /opt/app
-COPY requirements/conda-common.txt requirements/pip-common.txt requirements/pip-data.txt ./
-RUN mamba install -y \
-      --file conda-common.txt \
+# JAX is the only image-specific layer. CI installs native input providers
+# dynamically when a test run needs them.
+FROM base AS jax
+RUN mamba install -y jax \
   && mamba clean -afy
-RUN pip install -r pip-common.txt -r pip-data.txt
-RUN pip install --no-deps pyhwm2014@git+https://github.com/rilma/pyHWM14.git@main

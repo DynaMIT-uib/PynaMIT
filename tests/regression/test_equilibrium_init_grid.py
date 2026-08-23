@@ -1,20 +1,19 @@
-"""Grid-based IGRF, PFAC, HC, and wind test."""
+"""Grid-based equilibrium initialization test."""
 
 import numpy as np
 import pytest
-
-from pynamit.workflows.example import run_example
 from tests import magnetic_potential_coordinate_array
+from tests.example_scenario import run_example
 
 
-@pytest.mark.apexpy_precision
 @pytest.mark.native_hwm_precision
-def test_2d_igrf_pfac_hc_wind_grid(regression_approx):
-    """Test 2D grid-based simulation with IGRF, PFAC, HC, and wind."""
+def test_equilibrium_init_grid(regression_approx):
+    """Test grid-based simulation with equilibrium initialization."""
     # Arrange.
-    expected_coeff_norm = 1.0947317857468046e-08
-    expected_coeff_max = 3.928315897111191e-09
-    expected_coeff_min = -1.9110763122401733e-09
+    # HWM winds are rotated from geographic into dipole coordinates.
+    expected_coeff_norm = 1.3445084598553368e-08
+    expected_coeff_max = 1.5164526056028662e-09
+    expected_coeff_min = -5.642220202358395e-09
     expected_n_coeffs = 228
 
     # Act.
@@ -24,15 +23,15 @@ def test_2d_igrf_pfac_hc_wind_grid(regression_approx):
         Nmax=10,
         Mmax=8,
         Ncs=18,
-        main_field_kind="igrf",
+        main_field_kind="dipole",
         enable_pfac_coupling=True,
         enable_interhemispheric_coupling=True,
         interhemispheric_coupling_latitude=50,
         use_wind=True,
+        initialize_from_equilibrium=True,
         boundary_jr_projection_basis="CS",
         conductance_projection_basis="CS",
         u_projection_basis="CS",
-        initialize_from_equilibrium=False,
     )
 
     # Assert.

@@ -3,11 +3,11 @@
 import numpy as np
 import pytest
 from kompe import GlobalCSBasis, SHBasis, SphericalGrid, SphericalTransform
+from tests.example_scenario import run_example
 
 from pynamit.plotting.figure_settings import FigureSettings
 from pynamit.plotting.ground_figures import GroundFigureRenderer
 from pynamit.plotting.plot_data import PlotData
-from pynamit.workflows.example import run_example
 
 
 def test_2d_dipole_cs_surface_operators(tmp_path):
