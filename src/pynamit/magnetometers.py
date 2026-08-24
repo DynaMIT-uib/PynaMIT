@@ -106,9 +106,15 @@ def load_iaga2002_magnetometer_data(filepath, station_code, *, logger=None):
             na_values=[99999.0, 88888.0, 99999.9, 88888.8],
         )
 
-        if all(component in available_components for component in ["X", "Y", "Z"]):
-            pass
-        elif "D" in available_components and "H" in available_components:
+        if not all(component in available_components for component in ["X", "Y", "Z"]):
+            if "D" not in available_components or "H" not in available_components:
+                _log(
+                    logger,
+                    f"Format Error: Unsupported magnetic components {available_components} "
+                    f"in '{filepath}'. Need XYZ or DHI/DHZ.",
+                )
+                return None
+
             d_radians = np.radians(data[f"{station_prefix}D"] / 600.0)
             h_nt = data[f"{station_prefix}H"]
             data[f"{station_prefix}X"] = h_nt * np.cos(d_radians)
@@ -124,13 +130,6 @@ def load_iaga2002_magnetometer_data(filepath, station_code, *, logger=None):
                     return None
                 i_radians = np.radians(data[f"{station_prefix}I"] / 600.0)
                 data[f"{station_prefix}Z"] = h_nt * np.tan(i_radians)
-        else:
-            _log(
-                logger,
-                f"Format Error: Unsupported magnetic components {available_components} "
-                f"in '{filepath}'. Need XYZ or DHI/DHZ.",
-            )
-            return None
 
         final_cols = station_component_columns(station_prefix)
         if not all(column in data.columns for column in final_cols):

@@ -103,7 +103,9 @@ def evolve_induced_Br(
         return evolved_Br
 
     logger.debug("Using scipy.solve_ivp with method=%r.", integrator)
-    feedback = to_numpy(response.induced_poloidal_potential_feedback_matrix)
+    feedback = response.induced_poloidal_potential_feedback_operator.to_matrix(
+        backend="numpy"
+    )
     E_noninductive_df = to_numpy(
         geometry.helmholtz_divergence_free_potential_operator.matvec(backend_E_noninductive)
     )

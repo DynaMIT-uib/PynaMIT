@@ -86,11 +86,10 @@ and `pynamit[mage]` for MAGE HDF5 preparation. The requirements files above
 remain the reproducible development-environment definition.
 
 PynaMIT's spherical and numerical machinery is provided by
-[`kompe`](https://github.com/DynaMIT-uib/kompe). Until the first Kompe release
-is available from PyPI, install it directly from that repository before
-invoking `pip install .` on a fresh environment. Kompe is deliberately not
-baked into PynaMIT's test-container images; CI installs the source revision it
-is testing.
+[`kompe`](https://github.com/DynaMIT-uib/kompe), which is installed as an
+ordinary package dependency. Kompe is deliberately not baked into PynaMIT's
+test-container images; CI installs the source revision it is testing so that
+changes in the two repositories can be checked together.
 
 ## Interactive use
 

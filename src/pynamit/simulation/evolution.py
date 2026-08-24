@@ -36,21 +36,6 @@ def _boolean_option(value, *, name):
     return bool(value)
 
 
-def _maxrss_label():
-    """Return a compact max-RSS label when the platform exposes it."""
-    try:
-        import resource
-        import sys
-
-        maxrss = float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
-    except (ImportError, OSError):
-        return ""
-    if not np.isfinite(maxrss) or maxrss <= 0.0:
-        return ""
-    mib = maxrss / (1024.0 * 1024.0) if sys.platform == "darwin" else maxrss / 1024.0
-    return f", max RSS ~{mib:.0f} MiB"
-
-
 @dataclass(frozen=True)
 class _EvolutionOptions:
     """Validated options for one evolution request."""
@@ -358,8 +343,6 @@ class _TimeEvolution:
                     self._save_sample_outputs(options)
 
             if is_final_step:
-                if not options.quiet:
-                    print("\n\n")
                 break
 
             step_duration = min(
@@ -369,8 +352,6 @@ class _TimeEvolution:
             next_time = float(self.simulation.current_time) + step_duration
 
             if options.run_dynamic:
-                if not options.quiet and self.simulation.config.integrator == "exponential":
-                    print("  Applying dense exponential induction step.", flush=True)
                 dynamic_induced_Br = induction.evolve_induced_Br(
                     self.simulation.response,
                     dynamic_induced_Br,
@@ -404,7 +385,7 @@ class _TimeEvolution:
             return
         print(
             f"Evolution step {step}/{total_steps_estimate} "
-            f"at t = {float(self.simulation.current_time):.2f} s{_maxrss_label()}",
+            f"at t = {float(self.simulation.current_time):.2f} s",
             flush=True,
         )
 
@@ -419,8 +400,6 @@ class _TimeEvolution:
         if not needs_equilibrium:
             return None
 
-        if not options.quiet and self.simulation.config.integrator == "exponential":
-            print("  Solving equilibrium required by exponential integrator.", flush=True)
         return induction.equilibrium_induced_Br(self.simulation.response, E_coeffs_noninductive)
 
     def _exponential_propagator_for_step(self, dt):
@@ -506,10 +485,7 @@ class _TimeEvolution:
 
         if not options.quiet and saved_outputs:
             print(
-                "Saved {} at t = {:.2f} s{}".format(
-                    " and ".join(saved_outputs),
-                    float(self.simulation.current_time),
-                    _maxrss_label(),
-                ),
+                f"Saved {' and '.join(saved_outputs)} at "
+                f"t = {float(self.simulation.current_time):.2f} s",
                 flush=True,
             )

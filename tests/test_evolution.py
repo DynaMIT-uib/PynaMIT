@@ -221,6 +221,31 @@ def test_exponential_step_stays_on_explicit_jax_backend(backend, data_source, mo
     assert "jax" in type(evolved).__module__
 
 
+def test_scipy_step_uses_feedback_operator():
+    """Accept a structured feedback operator at the SciPy boundary."""
+    identity = as_linear_map(np.eye(1))
+    response = SimpleNamespace(
+        config=SimpleNamespace(integrator="RK45"),
+        induced_poloidal_potential_feedback_operator=as_linear_map(np.array([[-1.0]])),
+        geometry=SimpleNamespace(
+            induced_poloidal_potential_faraday_rate_scale=1.0,
+            induced_Br_to_poloidal_potential_operator=identity,
+            induced_poloidal_potential_to_Br_operator=identity,
+            helmholtz_divergence_free_potential_operator=identity,
+            surface_to_poloidal_operator=identity,
+        ),
+    )
+
+    evolved = induction.evolve_induced_Br(
+        response,
+        np.ones(1),
+        0.1,
+        np.zeros(1),
+    )
+
+    np.testing.assert_allclose(evolved, np.exp(-0.1), rtol=1e-6)
+
+
 @pytest.mark.requires_jax
 @pytest.mark.parametrize("backend", ["jax"], ids=["backend=jax"])
 @pytest.mark.parametrize("data_source", ["fallback"], ids=["data=fallback"])
