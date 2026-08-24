@@ -9,6 +9,16 @@ GEOCENTRIC_GEOGRAPHIC = "geocentric_geographic"
 CENTERED_DIPOLE = "centered_dipole"
 
 
+def parse_utc_datetime(value):
+    """Parse a datetime-like value and return naive UTC."""
+    if isinstance(value, bytes):
+        value = value.decode("ascii")
+    timestamp = value if isinstance(value, dt.datetime) else dt.datetime.fromisoformat(str(value))
+    if timestamp.tzinfo is not None:
+        timestamp = timestamp.astimezone(dt.timezone.utc).replace(tzinfo=None)
+    return timestamp
+
+
 def wrap_longitude_180(lon):
     """Wrap longitude values to the ``[-180, 180)`` interval."""
     lon_array = np.asarray(lon, dtype=float)
@@ -123,5 +133,6 @@ __all__ = [
     "local_time_longitude_to_geographic",
     "longitude_to_local_time_from_noon_longitude",
     "longitude_to_local_time_hours",
+    "parse_utc_datetime",
     "wrap_longitude_180",
 ]

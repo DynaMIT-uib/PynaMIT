@@ -13,6 +13,7 @@ import numpy as np
 from kompe import SphericalGrid
 from kompe.spherical_transform import SphericalTransform, grid_sqrt_area_weights
 
+from pynamit.coordinates import parse_utc_datetime
 from pynamit.plotting.map_coordinates import MapCoordinateContext
 from pynamit.plotting.plot_helpers import build_percentile_color_scale, style_global_input_axis
 from pynamit.results.input_evaluation import evaluate_projected_input
@@ -76,19 +77,9 @@ _FIELD_DETAILS = {
 }
 
 
-def _parse_timestamp(value) -> dt.datetime:
-    """Parse one prepared-forcing timestamp."""
-    if isinstance(value, bytes):
-        value = value.decode("ascii")
-    timestamp = dt.datetime.fromisoformat(str(value))
-    if timestamp.tzinfo is not None:
-        timestamp = timestamp.astimezone(dt.timezone.utc).replace(tzinfo=None)
-    return timestamp
-
-
 def _forcing_times(h5_file) -> tuple[list[dt.datetime], np.ndarray]:
     """Return nominal timestamps and relative simulation seconds."""
-    timestamps = [_parse_timestamp(value) for value in h5_file["time"][:]]
+    timestamps = [parse_utc_datetime(value) for value in h5_file["time"][:]]
     if not timestamps:
         raise ValueError("Prepared forcing contains no timestamps.")
     seconds = np.asarray(

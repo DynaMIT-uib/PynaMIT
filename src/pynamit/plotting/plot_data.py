@@ -75,10 +75,6 @@ def _time_datasets(datasets):
     ]
 
 
-def _nan_field(shape):
-    return np.full(shape, np.nan, dtype=float)
-
-
 def _build_input_transforms(
     schema, datasets, scalar_grid, vector_grid, transform_cache=None, *, keys=INPUT_ARTIFACT_KEYS
 ):
@@ -108,13 +104,6 @@ class _GeographicEvaluation:
     input_transforms: dict[str, SphericalTransform | None] = field(default_factory=dict)
     output_evaluation_context: dict[str, object] | None = None
     sheet_current_maps: dict[str, object] | None = None
-
-
-def _required_dataset_values(results, dataset_key, variable_name, index):
-    """Return stored coefficient values for one logical variable."""
-    dataset = results.datasets[dataset_key]
-    stored_name = results.data_var_name(dataset_key, variable_name)
-    return np.asarray(dataset[stored_name].isel(time=index).values)
 
 
 def _dataset_index_at_time(dataset, timestamp, *, start_time=None):
@@ -217,7 +206,9 @@ def compute_output_fields_at_index(
             else _dataset_index_at_time(dataset, target_time, start_time=start_time)
         )
         coefficients = {
-            name: _required_dataset_values(results, dataset_key, name, output_index)
+            name: np.asarray(
+                dataset[results.data_var_name(dataset_key, name)].isel(time=output_index).values
+            )
             for name in required_coefficients
         }
         evaluated = evaluate_output_coefficients(
@@ -271,7 +262,7 @@ def compute_input_fields_at_time(
 
     def field(values, name, shape):
         if name not in values:
-            return _nan_field(shape)
+            return np.full(shape, np.nan, dtype=float)
         return np.asarray(values[name]).reshape(shape)
 
     return {
@@ -465,12 +456,12 @@ class PlotData:
     @property
     def time_index(self):
         """Return saved times as datetimes."""
-        return time_index_from_dataset(self._time_dataset(), start_time=self._start_time())
+        return time_index_from_dataset(self._time_dataset(), start_time=self.results.config.t0)
 
     def timestamp_at_index(self, index):
         """Return one saved time as a timestamp."""
         return datetime_at_index(
-            self._time_dataset().time.values, index, start_time=self._start_time()
+            self._time_dataset().time.values, index, start_time=self.results.config.t0
         )
 
     @property
@@ -499,10 +490,6 @@ class PlotData:
         dataset = self.results.datasets[dataset_key]
         stored_name = self.results.data_var_name(dataset_key, variable_name)
         return dataset[stored_name].values
-
-    def _start_time(self):
-        """Return the configured start time for numeric saved times."""
-        return self.results.config.t0
 
     def output_fields(self, index, *, field_names=None, coordinate_system="model"):
         """Return flat output fields in the requested coordinates."""
@@ -562,7 +549,7 @@ class PlotData:
             output_evaluation_context,
             sheet_current_maps,
             target_time=timestamp,
-            start_time=self._start_time(),
+            start_time=self.results.config.t0,
             field_names=field_names,
         )
 
@@ -602,7 +589,7 @@ class PlotData:
             input_transforms,
             self.lat.shape,
             self.wind_lat.shape,
-            start_time=self._start_time(),
+            start_time=self.results.config.t0,
         )
         if evaluation is None:
             return fields

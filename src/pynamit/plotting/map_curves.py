@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from itertools import pairwise
+
 import numpy as np
 from cartopy import crs as ccrs
 from matplotlib.lines import Line2D
@@ -151,7 +153,7 @@ def split_wrapped_curve(lon_values, lat_values, central_longitude=0.0):
         if lon_slice.size >= 2:
             jump_indices = np.where(np.abs(np.diff(lon_slice)) > 180.0)[0] + 1
             split_points = np.r_[0, jump_indices, lon_slice.size]
-            for begin, end in zip(split_points[:-1], split_points[1:], strict=True):
+            for begin, end in pairwise(split_points):
                 if end - begin >= 2:
                     segments.append((lon_slice[begin:end], lat_slice[begin:end]))
         start_idx = end_idx

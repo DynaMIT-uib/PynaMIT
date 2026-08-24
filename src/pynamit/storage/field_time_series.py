@@ -227,7 +227,7 @@ class FieldTimeSeries:
 
     def load_all(self, store):
         """Load all persisted time-series datasets."""
-        for key in self.variables.keys():
+        for key in self.variables:
             self.load(key, store)
 
     def _validate_loaded_dataset(self, key, dataset):

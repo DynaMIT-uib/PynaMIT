@@ -20,7 +20,7 @@ from kompe.constants import EARTH_RADIUS_M
 from kompe.spherical_transform import grid_sqrt_area_weights
 
 import pynamit
-from pynamit.coordinates import wrap_longitude_180
+from pynamit.coordinates import parse_utc_datetime, wrap_longitude_180
 from pynamit.geomagnetism import MagneticFieldEvaluation, MainField, decimal_year
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     electric_field_from_weighted_winds,
@@ -303,19 +303,9 @@ def _validate_conductance_floor(h5_file: Any, n_steps: int) -> None:
             )
 
 
-def _parse_h5_time(value: Any) -> dt.datetime:
-    """Parse an ISO timestamp stored as HDF5 bytes or text."""
-    if isinstance(value, bytes):
-        value = value.decode("ascii")
-    timestamp = dt.datetime.fromisoformat(str(value))
-    if timestamp.tzinfo is not None:
-        timestamp = timestamp.astimezone(dt.timezone.utc).replace(tzinfo=None)
-    return timestamp
-
-
 def _h5_time_vector_seconds(raw_times: Any) -> tuple[list[dt.datetime], np.ndarray]:
     """Return forcing times and seconds relative to the first entry."""
-    parsed_times = [_parse_h5_time(value) for value in raw_times]
+    parsed_times = [parse_utc_datetime(value) for value in raw_times]
     if not parsed_times:
         raise ValueError("Forcing HDF5 time dataset is empty.")
     event_time = parsed_times[0]
@@ -754,9 +744,11 @@ def prepare_inputs(
             _validate_prepared_forcing(file)
             nominal_times, input_times = _h5_time_vector_seconds(file["time"][:])
             gamera_source_times = [
-                _parse_h5_time(value) for value in file["gamera_source_time"][:]
+                parse_utc_datetime(value) for value in file["gamera_source_time"][:]
             ]
-            remix_source_times = [_parse_h5_time(value) for value in file["remix_source_time"][:]]
+            remix_source_times = [
+                parse_utc_datetime(value) for value in file["remix_source_time"][:]
+            ]
             gamera_time_offsets = np.asarray(file["gamera_time_offset_seconds"][:], dtype=float)
             remix_time_offsets = np.asarray(file["remix_time_offset_seconds"][:], dtype=float)
             event_time = nominal_times[0]

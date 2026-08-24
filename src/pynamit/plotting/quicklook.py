@@ -21,11 +21,7 @@ from pynamit.plotting.hemisphere import (
 from pynamit.plotting.map_coordinates import MapCoordinateContext
 from pynamit.plotting.plot_helpers import style_global_axis
 from pynamit.results.evaluation import model_grid_for_geographic_display
-from pynamit.results.output_fields import (
-    evaluate_boundary_jr,
-    evaluate_equivalent_current_function,
-    evaluate_induced_Br,
-)
+from pynamit.results.output_fields import evaluate_output_coefficients, output_at_current_time
 
 
 def plot_global_polar_map(
@@ -213,11 +209,17 @@ def plot_output_quicklook(
         simulation.geometry.main_field, global_grid, simulation.config.RI
     )
 
-    global_br = evaluate_induced_Br(simulation, global_transform)
-    global_fac = (
-        evaluate_boundary_jr(simulation, global_transform) / global_field_evaluation.unit_br
+    output_coefficients = output_at_current_time(simulation)
+    requested_fields = {"induced_Br", "boundary_jr", "equivalent_current_function"}
+    global_fields = evaluate_output_coefficients(
+        output_coefficients,
+        global_transform,
+        geometry=simulation.geometry,
+        field_names=requested_fields,
     )
-    global_eq_current = evaluate_equivalent_current_function(simulation, global_transform)
+    global_br = global_fields["induced_Br"]
+    global_fac = global_fields["boundary_jr"] / global_field_evaluation.unit_br
+    global_eq_current = global_fields["equivalent_current_function"]
 
     # Evaluate hemisphere fields on the model grid, then express the
     # sample positions in magnetic coordinates for polar display.
@@ -227,9 +229,15 @@ def plot_output_quicklook(
     model_field_evaluation = MagneticFieldEvaluation(
         simulation.geometry.main_field, model_grid, simulation.config.RI
     )
-    model_br = evaluate_induced_Br(simulation, model_transform)
-    model_fac = evaluate_boundary_jr(simulation, model_transform) / model_field_evaluation.unit_br
-    model_eq_current = evaluate_equivalent_current_function(simulation, model_transform)
+    model_fields = evaluate_output_coefficients(
+        output_coefficients,
+        model_transform,
+        geometry=simulation.geometry,
+        field_names=requested_fields,
+    )
+    model_br = model_fields["induced_Br"]
+    model_fac = model_fields["boundary_jr"] / model_field_evaluation.unit_br
+    model_eq_current = model_fields["equivalent_current_function"]
     if magnetic_coordinates_available:
         geographic_model_lat, geographic_model_lon = main_field.model_to_geo_coordinates(
             model_lat, model_lon

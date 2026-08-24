@@ -31,6 +31,7 @@ import tempfile
 import warnings
 from contextlib import contextmanager
 from dataclasses import dataclass
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -541,7 +542,7 @@ def _validate_forcing_time_axis(
         intervals = np.array(
             [
                 (next_time - time).total_seconds()
-                for time, next_time in zip(times[:-1], times[1:], strict=True)
+                for time, next_time in pairwise(times)
             ],
             dtype=float,
         )

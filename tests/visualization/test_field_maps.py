@@ -12,7 +12,7 @@ from pynamit.results.evaluation import (
     evaluate_tangential_coefficients,
     evaluate_wind_coefficients,
 )
-from pynamit.results.output_fields import evaluate_JS_coefficients
+from pynamit.results.output_fields import evaluate_output_coefficients
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     conductance_from_log_coordinates,
     conductance_to_log_coordinates,
@@ -112,36 +112,18 @@ def test_JS_map_includes_optional_boundary_field():
 
 def test_live_JS_evaluation_includes_boundary_field():
     """Live output evaluation uses every physical JS source."""
-
-    class CompatibleBasis:
-        def coefficients_are_compatible_with(self, other):
-            return other is self
-
-    class Transform:
-        basis = CompatibleBasis()
-
-    class SimulationGeometry:
-        horizontal_basis = Transform.basis
-
-        @staticmethod
-        def boundary_jr_to_gridded_JS_operator(transform):
-            return as_linear_map(np.eye(4, 2), output_shape=(2, 2))
-
-        @staticmethod
-        def induced_Br_to_gridded_JS_operator(transform):
-            return as_linear_map(2.0 * np.eye(4, 2), output_shape=(2, 2))
-
-        @staticmethod
-        def boundary_Br_to_gridded_JS_operator(transform):
-            return as_linear_map(3.0 * np.eye(4, 2), output_shape=(2, 2))
-
-    current = evaluate_JS_coefficients(
-        SimulationGeometry(),
-        np.array([1.0, 2.0]),
-        np.array([3.0, 4.0]),
-        Transform(),
+    fields = evaluate_output_coefficients(
+        {"boundary_jr": np.array([1.0, 2.0]), "induced_Br": np.array([3.0, 4.0])},
+        transform=None,
+        field_names={"JS_theta", "JS_phi"},
+        current_operators={
+            "boundary_jr_to_JS": as_linear_map(np.eye(4, 2), output_shape=(2, 2)),
+            "induced_Br_to_JS": as_linear_map(2.0 * np.eye(4, 2), output_shape=(2, 2)),
+            "boundary_Br_to_JS": as_linear_map(3.0 * np.eye(4, 2), output_shape=(2, 2)),
+        },
         boundary_Br=np.array([5.0, 6.0]),
     )
+    current = np.stack((fields["JS_theta"], fields["JS_phi"]))
 
     np.testing.assert_allclose(current, np.array([[22.0, 28.0], [0.0, 0.0]]))
 

@@ -214,6 +214,7 @@ def test_saved_output_joule_uses_pedersen_dissipation(monkeypatch):
     zero_map = as_linear_map(np.zeros((2, 2)))
     output_evaluation_context = {
         "RI": 2.0,
+        "horizontal_transform": IdentityEvaluator(),
         "induced_Br_to_Br": zero_map,
         "boundary_jr_to_jr": zero_map,
         "induced_Br_to_Jeq": zero_map,
@@ -395,7 +396,7 @@ def test_plot_data_keeps_model_and_geographic_evaluation_grids_separate(tmp_path
     geographic = view._get_geographic_evaluation()
     geographic_output_transform = view._geographic_output_transform(geographic)
     expected_lat, expected_lon = view.results.main_field.geo_to_model_coordinates(
-        view.lat, view.lon, event_time=view._start_time()
+        view.lat, view.lon, event_time=view.results.config.t0
     )
 
     np.testing.assert_allclose(view.output_transform.grid.lat, view.lat.reshape(-1))
@@ -405,7 +406,7 @@ def test_plot_data_keeps_model_and_geographic_evaluation_grids_separate(tmp_path
     assert geographic_output_transform.grid != view.output_transform.grid
     assert view._get_geographic_evaluation() is geographic
     assert view.geographic_map_context() == plot_data.MapCoordinateContext.geographic(
-        pd.Timestamp(view._start_time()).to_pydatetime()
+        pd.Timestamp(view.results.config.t0).to_pydatetime()
     )
 
 

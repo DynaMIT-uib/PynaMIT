@@ -15,10 +15,10 @@ from pynamit.simulation.electrodynamics.ionospheric_closure import (
 )
 
 
-def _apply_linear_map(linear_map, coeffs):
-    """Apply any supported LinearMap input to coefficients."""
-    xp = get_array_module(coeffs)
-    return as_linear_map(linear_map).matvec(xp.asarray(coeffs).reshape(-1))
+def apply_coefficient_operator(operator, coefficients):
+    """Apply a linear operator to one flattened coefficient field."""
+    xp = get_array_module(coefficients)
+    return as_linear_map(operator).matvec(xp.asarray(coefficients).reshape(-1))
 
 
 def evaluate_conductance_values(log_magnitude, log_ratio):
@@ -81,13 +81,13 @@ def evaluate_sheet_current_from_operators(
     boundary_Br_to_JS=None,
 ):
     """Evaluate sheet current from physical magnetic quantities."""
-    current = _apply_linear_map(boundary_jr_to_JS, boundary_jr) + _apply_linear_map(
+    current = apply_coefficient_operator(boundary_jr_to_JS, boundary_jr) + apply_coefficient_operator(
         induced_Br_to_JS, induced_Br
     )
     if boundary_Br is not None:
         if boundary_Br_to_JS is None:
             raise ValueError("boundary_Br_to_JS is required when boundary_Br is provided.")
-        current += _apply_linear_map(boundary_Br_to_JS, boundary_Br)
+        current += apply_coefficient_operator(boundary_Br_to_JS, boundary_Br)
     return current.reshape(2, -1)
 
 
@@ -159,6 +159,7 @@ def build_sheet_current_matrices(settings, sh_basis, transform, boundary_jr_to_g
 
 
 __all__ = [
+    "apply_coefficient_operator",
     "build_plot_grid",
     "build_sheet_current_matrices",
     "evaluate_sheet_current_from_operators",
