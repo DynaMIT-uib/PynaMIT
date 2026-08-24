@@ -1,5 +1,7 @@
 """Tests for optional test-environment selection."""
 
+import pytest
+
 from tests.conftest import backend as test_backend
 
 
@@ -15,6 +17,18 @@ def test_missing_native_providers_selects_only_fallback(monkeypatch):
     monkeypatch.setattr(test_backend, "native_inputs_available", lambda: False)
 
     assert test_backend._available_sources(None) == ["fallback"]
+
+
+def test_explicit_native_source_requires_its_providers(monkeypatch):
+    """An explicit native run must fail rather than be skipped."""
+
+    def missing_provider():
+        raise ModuleNotFoundError("No module named 'pyhwm2014'", name="pyhwm2014")
+
+    monkeypatch.setattr(test_backend, "require_native_inputs", missing_provider)
+
+    with pytest.raises(pytest.UsageError, match="native data source was requested"):
+        test_backend._available_sources(["native"])
 
 
 def test_backend_and_input_selection_is_a_full_matrix():

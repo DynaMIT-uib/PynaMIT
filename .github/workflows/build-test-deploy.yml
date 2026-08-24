@@ -128,7 +128,7 @@ jobs:
 
       - name: Verify native inputs are available
         run: |
-          python -c "from pynamit.external_inputs import native_inputs_available; assert native_inputs_available()"
+          python -c "from pynamit.external_inputs import require_native_inputs; require_native_inputs()"
 
       - name: Run native-input tests
         run: |

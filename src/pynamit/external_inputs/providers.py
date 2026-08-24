@@ -74,20 +74,20 @@ def _load_optional_module(name: str, package: str) -> Any | None:
         ) from exc
 
 
+def require_native_inputs() -> None:
+    """Import native providers, raising when unusable."""
+    lompe = import_module("lompe")
+    _ = lompe.conductance
+    import_module("pyamps")
+    hwm = import_module("pyhwm2014")
+    if not callable(getattr(hwm, "hwm14_vectorized", None)):
+        raise ImportError("pyhwm2014 does not provide hwm14_vectorized.")
+
+
 def native_inputs_available() -> bool:
     """Return whether all native empirical providers are importable."""
     try:
-        try:
-            import_module("lompe.conductance")
-        except ModuleNotFoundError as exc:
-            if exc.name != "lompe.conductance":
-                return False
-            module = import_module("lompe")
-            _ = module.conductance
-        import_module("pyamps")
-        hwm = import_module("pyhwm2014")
-        if not callable(getattr(hwm, "hwm14_vectorized", None)):
-            return False
+        require_native_inputs()
     except Exception:
         return False
     return True

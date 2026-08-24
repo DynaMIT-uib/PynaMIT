@@ -15,7 +15,12 @@ from kompe.math import (
     use_jax,
 )
 
-from pynamit.external_inputs import get_input_source, native_inputs_available, set_input_source
+from pynamit.external_inputs import (
+    get_input_source,
+    native_inputs_available,
+    require_native_inputs,
+    set_input_source,
+)
 from pynamit.storage import ArtifactStore
 from tests import DETERMINISTIC_REGRESSION_RTOL, SINGLE_PRECISION_REGRESSION_RTOL
 
@@ -42,7 +47,16 @@ def _available_backends(requested: list[str] | None) -> list[str]:
 
 def _available_sources(requested: list[str] | None) -> list[str]:
     selectable = ["fallback"]
-    if requested is None or "native" in requested:
+    if requested is not None and "native" in requested:
+        try:
+            require_native_inputs()
+        except Exception as exc:
+            raise pytest.UsageError(
+                "The native data source was requested, but Lompe, PyAMPS, or "
+                "pyHWM2014 could not be imported."
+            ) from exc
+        native_available = True
+    elif requested is None:
         native_available = native_inputs_available()
     else:
         native_available = False

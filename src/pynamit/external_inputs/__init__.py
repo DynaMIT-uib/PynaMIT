@@ -22,6 +22,7 @@ from .providers import (
     get_input_source,
     get_wind_inputs,
     native_inputs_available,
+    require_native_inputs,
     save_fallback_dataset,
     set_input_source,
 )
@@ -46,6 +47,7 @@ __all__ = [
     "get_input_source",
     "get_wind_inputs",
     "native_inputs_available",
+    "require_native_inputs",
     "save_fallback_dataset",
     "set_input_source",
 ]
