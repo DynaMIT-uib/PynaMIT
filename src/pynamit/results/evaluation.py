@@ -81,9 +81,9 @@ def evaluate_sheet_current_from_operators(
     boundary_Br_to_JS=None,
 ):
     """Evaluate sheet current from physical magnetic quantities."""
-    current = apply_coefficient_operator(boundary_jr_to_JS, boundary_jr) + apply_coefficient_operator(
-        induced_Br_to_JS, induced_Br
-    )
+    current = apply_coefficient_operator(
+        boundary_jr_to_JS, boundary_jr
+    ) + apply_coefficient_operator(induced_Br_to_JS, induced_Br)
     if boundary_Br is not None:
         if boundary_Br_to_JS is None:
             raise ValueError("boundary_Br_to_JS is required when boundary_Br is provided.")

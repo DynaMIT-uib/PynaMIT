@@ -57,15 +57,11 @@ class KaijuGeopackMAG:
 
     def geo2mag(self, lat, lon, east=None, north=None):
         """Convert GEO coordinates and optional vectors to MAG."""
-        return rotate_spherical_by_matrix(
-            lat, lon, self.geo_to_mag_matrix, east=east, north=north
-        )
+        return rotate_spherical_by_matrix(lat, lon, self.geo_to_mag_matrix, east=east, north=north)
 
     def mag2geo(self, lat, lon, east=None, north=None):
         """Convert MAG coordinates and optional vectors to GEO."""
-        return rotate_spherical_by_matrix(
-            lat, lon, self.mag_to_geo_matrix, east=east, north=north
-        )
+        return rotate_spherical_by_matrix(lat, lon, self.mag_to_geo_matrix, east=east, north=north)
 
 
 @dataclass(frozen=True)
@@ -91,15 +87,11 @@ class KaijuGeopackSM:
 
     def geo2sm(self, lat, lon, east=None, north=None):
         """Convert GEO coordinates and optional vectors to SM."""
-        return rotate_spherical_by_matrix(
-            lat, lon, self.geo_to_sm_matrix, east=east, north=north
-        )
+        return rotate_spherical_by_matrix(lat, lon, self.geo_to_sm_matrix, east=east, north=north)
 
     def sm2geo(self, lat, lon, east=None, north=None):
         """Convert SM coordinates and optional vectors to GEO."""
-        return rotate_spherical_by_matrix(
-            lat, lon, self.sm_to_geo_matrix, east=east, north=north
-        )
+        return rotate_spherical_by_matrix(lat, lon, self.sm_to_geo_matrix, east=east, north=north)
 
 
 GEOPACK_DIPOLE_COEFFICIENTS: dict[int, tuple[float, float, float]] = {

@@ -177,14 +177,9 @@ def compute_output_fields_at_index(
         boundary_Br = datasets["boundary_Br"][boundary_Br_var].isel(time=boundary_Br_index).values
     etaP = None
     if "joule" in field_names and "conductance" in datasets:
-        simulation_time = (
-            pd.Timestamp(target_time) - pd.Timestamp(start_time)
-        ).total_seconds()
+        simulation_time = (pd.Timestamp(target_time) - pd.Timestamp(start_time)).total_seconds()
         conductance = evaluate_projected_input(
-            results,
-            "conductance",
-            simulation_time,
-            transform=conductance_transform,
+            results, "conductance", simulation_time, transform=conductance_transform
         )
         etaP = conductance["etaP"]
 

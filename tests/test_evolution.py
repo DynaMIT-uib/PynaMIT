@@ -236,12 +236,7 @@ def test_scipy_step_uses_feedback_operator():
         ),
     )
 
-    evolved = induction.evolve_induced_Br(
-        response,
-        np.ones(1),
-        0.1,
-        np.zeros(1),
-    )
+    evolved = induction.evolve_induced_Br(response, np.ones(1), 0.1, np.zeros(1))
 
     np.testing.assert_allclose(evolved, np.exp(-0.1), rtol=1e-6)
 

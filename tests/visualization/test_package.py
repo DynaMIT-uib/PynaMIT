@@ -232,9 +232,7 @@ def test_saved_output_joule_uses_pedersen_dissipation(monkeypatch):
         data_var_name=lambda _dataset_key, variable_name: f"SH_{variable_name}",
     )
     monkeypatch.setattr(
-        plot_data,
-        "evaluate_projected_input",
-        lambda *_args, **_kwargs: {"etaP": eta_p},
+        plot_data, "evaluate_projected_input", lambda *_args, **_kwargs: {"etaP": eta_p}
     )
 
     fields = plot_data.compute_output_fields_at_index(
