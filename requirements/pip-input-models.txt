@@ -1,4 +1,6 @@
 # pyHWM2014 is installed separately with --no-deps because its metadata
 # currently requires the nonexistent ``timeutil`` package.
 pyamps
+# Lompe's secsy dependency is only available from GitHub.
+secsy @ git+https://github.com/klaundal/secsy.git@main
 lompe @ git+https://github.com/klaundal/lompe.git@main
