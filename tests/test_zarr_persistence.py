@@ -263,12 +263,8 @@ def test_timeseries_rewrites_zarr_for_same_time_replacement(tmp_path):
     )
 
 
-@pytest.mark.parametrize(
-    ("backend", "data_source", "least_squares_solver"), [("numpy", "fallback", "normal_pinv")]
-)
-def test_run_example_default_simulation_directories_are_isolated(
-    backend, data_source, least_squares_solver
-):
+@pytest.mark.parametrize(("backend", "data_source"), [("numpy", "fallback")])
+def test_run_example_default_simulation_directories_are_isolated(backend, data_source):
     """Default simulations should not reuse fixed artifact paths."""
     first = run_example(
         final_time=0.0,
@@ -298,12 +294,10 @@ def test_run_example_default_simulation_directories_are_isolated(
     assert Path(second.data.simulation_directory, "settings.ncdf").is_file()
 
 
-@pytest.mark.parametrize(
-    ("backend", "data_source", "least_squares_solver"), [("numpy", "fallback", "normal_pinv")]
-)
+@pytest.mark.parametrize(("backend", "data_source"), [("numpy", "fallback")])
 @pytest.mark.parametrize("artifact_storage", ["netcdf", "zarr"])
 def test_simulation_restart_continues_to_match_direct_simulation(
-    tmp_path, backend, data_source, least_squares_solver, artifact_storage
+    tmp_path, backend, data_source, artifact_storage
 ):
     """Restarting should match the direct continuation."""
     if artifact_storage == "zarr":

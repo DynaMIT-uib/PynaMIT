@@ -74,30 +74,6 @@ def _available_sources(requested: list[str] | None) -> list[str]:
     return requested
 
 
-def _available_least_squares_solvers(requested: list[str] | None) -> list[str]:
-    selectable = list(LeastSquaresSolver.VALID_SOLVERS)
-    if not requested:
-        configured = os.environ.get(LEAST_SQUARES_SOLVER_ENV, "normal_pinv")
-        requested = [configured]
-
-    expanded: list[str] = []
-    for solver in requested:
-        expanded.extend(selectable if solver == "all" else [solver])
-
-    invalid = sorted(set(expanded) - set(selectable))
-    if invalid:
-        raise pytest.UsageError(
-            f"Unsupported least-squares solver(s): {', '.join(invalid)}. "
-            f"Available options: {', '.join(selectable)} or all."
-        )
-
-    unique: list[str] = []
-    for solver in expanded:
-        if solver not in unique:
-            unique.append(solver)
-    return unique
-
-
 def pytest_addoption(parser: pytest.Parser) -> None:
     """Add CLI options for selecting backends and data sources."""
     parser.addoption(
@@ -125,14 +101,10 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     )
     parser.addoption(
         SOLVER_OPTION_NAME,
-        action="append",
-        dest="pynamit_least_squares_solvers",
-        choices=tuple(LeastSquaresSolver.VALID_SOLVERS) + ("all",),
-        help=(
-            "Least-squares solver defaults to exercise. The default is normal_pinv "
-            "unless KOMPE_LEAST_SQUARES_SOLVER is set. Use 'all' or provide this "
-            "option multiple times to run the suite across multiple solvers."
-        ),
+        dest="pynamit_least_squares_solver",
+        choices=LeastSquaresSolver.VALID_SOLVERS,
+        default="normal_pinv",
+        help="Use one least-squares solver for the complete suite.",
     )
 
 
@@ -140,9 +112,6 @@ def pytest_configure(config: pytest.Config) -> None:
     """Store available backends and data sources in pytest config."""
     config._pynamit_backend_list = _available_backends(config.getoption("pynamit_backends"))  # type: ignore[attr-defined]
     config._pynamit_data_sources = _available_sources(config.getoption("pynamit_data_sources"))  # type: ignore[attr-defined]
-    config._pynamit_least_squares_solvers = _available_least_squares_solvers(  # type: ignore[attr-defined]
-        config.getoption("pynamit_least_squares_solvers")
-    )
 
 
 def _build_combinations(
@@ -160,9 +129,6 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     """Parametrise tests from available backends and data sources."""
     backends: list[str] = getattr(metafunc.config, "_pynamit_backend_list", ["numpy"])
     sources: list[str] = getattr(metafunc.config, "_pynamit_data_sources", ["fallback"])
-    solvers: list[str] = getattr(
-        metafunc.config, "_pynamit_least_squares_solvers", ["normal_pinv"]
-    )
 
     def _is_parametrized(arg: str) -> bool:
         for marker in metafunc.definition.iter_markers("parametrize"):
@@ -195,12 +161,6 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
             metafunc.parametrize("backend", backends, ids=[f"backend={name}" for name in backends])
         if "data_source" in metafunc.fixturenames and not _is_parametrized("data_source"):
             metafunc.parametrize("data_source", sources, ids=[f"data={name}" for name in sources])
-    if "least_squares_solver" in metafunc.fixturenames and not _is_parametrized(
-        "least_squares_solver"
-    ):
-        metafunc.parametrize(
-            "least_squares_solver", solvers, ids=[f"ls={name}" for name in solvers]
-        )
 
 
 @pytest.fixture
@@ -215,14 +175,8 @@ def data_source(request: pytest.FixtureRequest) -> str:
     return request.param  # type: ignore[attr-defined]
 
 
-@pytest.fixture
-def least_squares_solver(request: pytest.FixtureRequest) -> str:
-    """Fixture to provide the least-squares solver parameter."""
-    return request.param  # type: ignore[attr-defined]
-
-
 @pytest.fixture(autouse=True)
-def configure_runtime(backend: str, data_source: str, least_squares_solver: str):
+def configure_runtime(request: pytest.FixtureRequest, backend: str, data_source: str):
     """Fixture to configure backend and data source for each test."""
     previous_backend = use_jax()
     previous_backend_env = os.environ.get("KOMPE_USE_JAX")
@@ -247,7 +201,9 @@ def configure_runtime(backend: str, data_source: str, least_squares_solver: str)
             os.environ["XDG_CACHE_HOME"] = xdg_cache_dir
             set_backend(backend)
             set_input_source(data_source)
-            os.environ[LEAST_SQUARES_SOLVER_ENV] = least_squares_solver
+            os.environ[LEAST_SQUARES_SOLVER_ENV] = request.config.getoption(
+                "pynamit_least_squares_solver"
+            )
             yield
         finally:
             set_backend(previous_backend)

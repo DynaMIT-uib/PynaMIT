@@ -20,6 +20,13 @@ pytest -q --backend numpy --data-source fallback
 pytest -q -m native_input_validation --backend numpy --backend jax --data-source native
 ```
 
+The normal suite also exercises every supported least-squares algorithm on the
+same small electrodynamic reconstruction problem. This gives each algorithm a
+direct physical correctness check without rerunning the entire suite five times.
+The deterministic baseline for unrelated tests remains `normal_pinv`.
+For a broader diagnostic run with one alternative solver, use for example
+`pytest -q --least-squares-solver lsmr`.
+
 Keep numerical regression scenarios in separate files when that makes their
 physical configuration easier to read. Share helpers only when they represent
 a substantial reused setup, such as constructing a complete synthetic MAGE

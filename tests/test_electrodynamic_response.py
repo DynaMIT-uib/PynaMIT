@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from kompe.math import (
     JAX_AVAILABLE,
+    LeastSquaresSolver,
     LinearMap,
     as_linear_map,
     einsum_linear_map,
@@ -18,10 +19,53 @@ from pynamit.simulation.electrodynamics.ionospheric_closure import (
     resistance_from_log_conductance_coordinates,
 )
 from pynamit.simulation.response import ElectrodynamicResponse
+from pynamit.simulation.simulation import Simulation
 
 
 def _dummy_constraint_map():
     return as_linear_map(np.eye(1), input_shape=(1,), output_shape=(1,))
+
+
+@pytest.mark.parametrize("solver_name", LeastSquaresSolver.VALID_SOLVERS)
+def test_toroidal_potential_solvers_match_the_direct_physical_solution(
+    tmp_path, backend, solver_name
+):
+    """Every solver recovers the same constrained boundary current."""
+    simulation = Simulation(
+        simulation_directory=tmp_path / solver_name,
+        Nmax=2,
+        Mmax=1,
+        Ncs=4,
+        main_field_kind="radial",
+        horizontal_basis_kind="CS",
+        enable_pfac_coupling=False,
+        least_squares_solver=solver_name,
+        artifact_storage="netcdf",
+        backend=backend,
+    )
+    response = simulation.response
+    geometry = simulation.geometry
+    boundary_jr = geometry.horizontal_basis.project_scalar_mean_free(
+        np.linspace(-1.0, 1.0, geometry.horizontal_basis.index_length)
+    )
+
+    problem = response._toroidal_potential_problem
+    rhs_entries = [None] * problem.num_data_terms
+    rhs_entries[0] = geometry.radial_current_constraint_operator.matvec(boundary_jr)
+    rhs, _, _ = problem.assemble_rhs_block(rhs_entries)
+    system = problem.system_operator().to_matrix(backend="numpy")
+    expected_potential = np.linalg.lstsq(system, np.asarray(rhs), rcond=None)[0]
+
+    potential = response._solve_toroidal_potential_response(rhs_entries)
+    expected_boundary_jr = geometry.toroidal_potential_to_boundary_jr_operator.matvec(
+        expected_potential
+    )
+    solved_boundary_jr = geometry.toroidal_potential_to_boundary_jr_operator.matvec(potential)
+
+    assert response._toroidal_potential_solver.solver == solver_name
+    np.testing.assert_allclose(
+        np.asarray(solved_boundary_jr), np.asarray(expected_boundary_jr), rtol=1e-8, atol=1e-11
+    )
 
 
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")

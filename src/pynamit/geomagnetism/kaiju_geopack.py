@@ -253,10 +253,12 @@ def _geopack_sun_08(epoch: datetime):
     gst = np.mod(279.690983 + 0.9856473354 * dj + 360.0 * fday + 180.0, 360.0) / rad
     g = np.mod(358.475845 + 0.985600267 * dj, 360.0) / rad
     slong = (vl + (1.91946 - 0.004789 * t) * np.sin(g) + 0.020094 * np.sin(2.0 * g)) / rad
-    if slong > 2.0 * np.pi:
-        slong -= 2.0 * np.pi
+    # Preserve Geopack's decimal constants exactly: this routine is a
+    # compatibility calculation, rather than a new solar-position model.
+    if slong > 6.2831853:
+        slong -= 6.283185307
     if slong < 0.0:
-        slong += 2.0 * np.pi
+        slong += 6.283185307
     obliq = (23.45229 - 0.0130125 * t) / rad
     sob = np.sin(obliq)
     slp = slong - 9.924e-5
@@ -264,7 +266,7 @@ def _geopack_sun_08(epoch: datetime):
     cosd = np.sqrt(1.0 - sind**2)
     sc = sind / cosd
     sdec = np.arctan(sc)
-    srasn = np.pi - np.arctan2(np.cos(obliq) / sob * sc, -np.cos(slp) / cosd)
+    srasn = 3.141592654 - np.arctan2(np.cos(obliq) / sob * sc, -np.cos(slp) / cosd)
     return gst, slong, srasn, sdec
 
 

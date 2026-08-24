@@ -1,81 +1,57 @@
 """Reference checks against Kaiju's Fortran Geopack implementation."""
 
 import datetime as dt
-import os
-import shutil
-import subprocess
-from pathlib import Path
 
 import numpy as np
 import pytest
 
 from pynamit.geomagnetism.kaiju_geopack import kaiju_geopack_sm
 
-KAIJU_REPO = Path(os.environ.get("KAIJU_REPO", "~/Repos/kaiju")).expanduser()
-GEOPACK_SOURCES = (
-    KAIJU_REPO / "src/base/kdefs.F90",
-    KAIJU_REPO / "src/base/dates.F90",
-    KAIJU_REPO / "src/base/3rd-party/geopack.F90",
+# These matrices were generated from Kaiju's RECALC and GEO2SM
+# routines at JHUAPL/kaiju commit 9e19bfc by transforming the three
+# geographic Cartesian basis vectors. Stored values let the test run
+# without a Fortran compiler or a separate Kaiju checkout.
+KAIJU_GEO_TO_SM_REFERENCES = (
+    (
+        dt.datetime(2001, 5, 12, 21, 45),
+        np.array(
+            [
+                [-0.8736076578306136, -0.4854391124177372, -0.03403716079212693],
+                [0.4832943625663665, -0.8573163025553616, -0.1773000746880087],
+                [0.05688777804835682, -0.1713406709099841, 0.9835680734961040],
+            ]
+        ),
+    ),
+    (
+        dt.datetime(2011, 10, 24, 18, 0, 10),
+        np.array(
+            [
+                [-0.06578210795995332, -0.9849321525364415, -0.1599417680666216],
+                [0.9964782817230269, -0.05649060395080135, -0.06196648868216956],
+                [0.05199758000781188, -0.1634547844671596, 0.9851795699810900],
+            ]
+        ),
+    ),
+    (
+        dt.datetime(2020, 3, 20, 12),
+        np.array(
+            [
+                [0.9983060496712131, 0.03917558219661672, -0.04301517115406623],
+                [-0.03194277709618358, 0.9869930655116385, 0.1575574422974741],
+                [0.04862808017227304, -0.1559165237923630, 0.9865725251735245],
+            ]
+        ),
+    ),
 )
 
 
-def _require_fortran_geopack():
-    """Return gfortran and Kaiju paths, or skip the test."""
-    gfortran = shutil.which("gfortran")
-    if gfortran is None:
-        pytest.skip("gfortran is not available on PATH")
-    missing = [str(path) for path in GEOPACK_SOURCES if not path.exists()]
-    if missing:
-        pytest.skip(f"Kaiju Geopack source files are not available: {missing}")
-    return gfortran
+@pytest.mark.parametrize(
+    ("epoch", "expected"),
+    KAIJU_GEO_TO_SM_REFERENCES,
+    ids=("2001-05-12", "2011-10-24", "2020-03-20"),
+)
+def test_kaiju_geopack_sm_matches_fortran_reference(epoch, expected):
+    """Match Kaiju at distinct seasons and years."""
+    observed = kaiju_geopack_sm(epoch).geo_to_sm_matrix
 
-
-def test_kaiju_geopack_sm_matches_compiled_geo2sm(tmp_path):
-    """Python GEO->SM matches Kaiju's compiled GEO2SM basis."""
-    gfortran = _require_fortran_geopack()
-    program = tmp_path / "test_geo2sm.F90"
-    program.write_text(
-        """
-program test_geo2sm
-  use geopack
-  implicit none
-  real(kind=8) :: xsm, ysm, zsm
-
-  call RECALC(2011, 297, 18, 0, 10)
-  call GEO2SM(1.0d0, 0.0d0, 0.0d0, xsm, ysm, zsm)
-  write(*,'(3ES26.17)') xsm, ysm, zsm
-  call GEO2SM(0.0d0, 1.0d0, 0.0d0, xsm, ysm, zsm)
-  write(*,'(3ES26.17)') xsm, ysm, zsm
-  call GEO2SM(0.0d0, 0.0d0, 1.0d0, xsm, ysm, zsm)
-  write(*,'(3ES26.17)') xsm, ysm, zsm
-end program test_geo2sm
-""".strip()
-        + "\n",
-        encoding="ascii",
-    )
-    executable = tmp_path / "test_geo2sm"
-    subprocess.run(
-        [
-            gfortran,
-            "-J",
-            str(tmp_path),
-            "-I",
-            str(tmp_path),
-            *(str(source) for source in GEOPACK_SOURCES),
-            str(program),
-            "-o",
-            str(executable),
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    output = subprocess.run([str(executable)], check=True, capture_output=True, text=True)
-
-    geo_basis_in_sm = np.array(
-        [[float(value) for value in line.split()] for line in output.stdout.splitlines()]
-    )
-    observed_matrix = np.column_stack(geo_basis_in_sm)
-    expected_matrix = kaiju_geopack_sm(dt.datetime(2011, 10, 24, 18, 0, 10)).geo_to_sm_matrix
-
-    np.testing.assert_allclose(observed_matrix, expected_matrix, atol=5e-12)
+    np.testing.assert_allclose(observed, expected, rtol=0.0, atol=5e-12)

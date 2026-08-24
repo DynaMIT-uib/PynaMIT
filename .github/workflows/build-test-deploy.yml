@@ -133,7 +133,7 @@ jobs:
       - name: Run native-input tests
         run: |
           pytest -q \
-            -m native_input_validation \
+            -m "native_input_validation or performance" \
             --backend numpy \
             --backend jax \
             --data-source native

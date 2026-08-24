@@ -1,6 +1,7 @@
 """Tests for saved simulation visualization views."""
 
 import numpy as np
+import pytest
 
 import pynamit
 from pynamit.plotting.legacy import PynamEye
@@ -148,9 +149,10 @@ def test_pynameye_uses_simulation_results(tmp_path):
     simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
     simulation.impose_equilibrium(time=0.0, save=True, quiet=True)
 
-    eye = PynamEye(
-        simulation.data.simulation_directory, Nlat=6, Nlon=8, NCS_plot=4, equilibrium=False
-    )
+    with pytest.warns(DeprecationWarning, match="PynamEye is deprecated"):
+        eye = PynamEye(
+            simulation.data.simulation_directory, Nlat=6, Nlon=8, NCS_plot=4, equilibrium=False
+        )
 
     assert isinstance(eye.results, SimulationResults)
     assert not hasattr(eye, "run_view")
@@ -198,7 +200,8 @@ def test_pynameye_supports_equilibrium_only_output(tmp_path):
     simulation.impose_equilibrium(time=0.0, save=True, quiet=True)
     simulation.data.artifact_store.remove_artifact("dynamic")
 
-    eye = PynamEye(tmp_path, Nlat=6, Nlon=8, NCS_plot=4, equilibrium=True)
+    with pytest.warns(DeprecationWarning, match="PynamEye is deprecated"):
+        eye = PynamEye(tmp_path, Nlat=6, Nlon=8, NCS_plot=4, equilibrium=True)
 
     assert "dynamic" not in eye.datasets
     assert "equilibrium" in eye.datasets
@@ -231,7 +234,8 @@ def test_pynameye_reuses_earth_fixed_geographic_mapping(tmp_path):
     )
     simulation.impose_equilibrium(time=0.0, save=True, quiet=True)
     simulation.impose_equilibrium(time=3600.0, save=True, quiet=True)
-    eye = PynamEye(tmp_path, Nlat=6, Nlon=8, NCS_plot=4)
+    with pytest.warns(DeprecationWarning, match="PynamEye is deprecated"):
+        eye = PynamEye(tmp_path, Nlat=6, Nlon=8, NCS_plot=4)
     initial_lon = eye.global_grid.lon.copy()
     initial_vector_lon = np.asarray(eye.global_vector_lon).copy()
 
@@ -269,9 +273,10 @@ def test_pynameye_joule_uses_total_boundary_driven_current(tmp_path):
     simulation.set_boundary_Br(boundary_Br_coefficients=boundary_Br, time=0.0)
     simulation.impose_equilibrium(time=0.0, save=True, quiet=True)
 
-    eye = PynamEye(
-        simulation.data.simulation_directory, Nlat=6, Nlon=8, NCS_plot=4, equilibrium=False
-    )
+    with pytest.warns(DeprecationWarning, match="PynamEye is deprecated"):
+        eye = PynamEye(
+            simulation.data.simulation_directory, Nlat=6, Nlon=8, NCS_plot=4, equilibrium=False
+        )
     eye._plot_filled_contour = lambda values, _axis, _region, **_kwargs: values
 
     assert eye.sheet_current_maps == {}
@@ -319,9 +324,10 @@ def test_pynameye_wind_plot_uses_wind_projection_basis(tmp_path):
     simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
     simulation.impose_equilibrium(time=0.0, save=True, quiet=True)
 
-    eye = PynamEye(
-        simulation.data.simulation_directory, Nlat=6, Nlon=8, NCS_plot=4, equilibrium=False
-    )
+    with pytest.warns(DeprecationWarning, match="PynamEye is deprecated"):
+        eye = PynamEye(
+            simulation.data.simulation_directory, Nlat=6, Nlon=8, NCS_plot=4, equilibrium=False
+        )
     cs_wind_space = pynamit.FieldSpace(
         eye.schema.cs_basis, field_type="tangential", mean_free=True
     )

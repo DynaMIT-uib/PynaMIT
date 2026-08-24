@@ -2,7 +2,23 @@
 
 from types import SimpleNamespace
 
+import pytest
+
 from pynamit.gui.cli import build_arg_parser, default_websocket_origins
+
+# Panel 1.x requires these names while warning that Panel 2 will
+# rename them. Keep the exception local so other warnings remain
+# visible; remove it when Panel 2 is the minimum supported version.
+pytestmark = [
+    pytest.mark.filterwarnings(
+        "ignore:Widget\\.name is deprecated and will be removed in version "
+        "2\\.0\\..*:PendingDeprecationWarning"
+    ),
+    pytest.mark.filterwarnings(
+        "ignore:button_type is deprecated and will be removed in version "
+        "2\\.0\\..*:PendingDeprecationWarning"
+    ),
+]
 
 
 def _panel_app_without_loading(tmp_path, monkeypatch):

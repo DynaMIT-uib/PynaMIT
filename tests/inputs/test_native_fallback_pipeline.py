@@ -10,7 +10,7 @@ from kompe.math import JAX_AVAILABLE
 from tests import SINGLE_PRECISION_REGRESSION_RTOL
 from tests.example_scenario import prepare_example_inputs
 
-from pynamit.external_inputs import get_input_source, native_inputs_available, set_input_source
+from pynamit.external_inputs import get_input_source, set_input_source
 from pynamit.results.input_projection import evaluate_projected_input
 from pynamit.simulation.electrodynamics import ionospheric_closure
 from pynamit.workflows import example_inputs as example_inputs_module
@@ -166,6 +166,7 @@ def _assert_mappings_close(
     ids=["numpy-native-vs-fallback", "jax-native-vs-fallback"],
 )
 @pytest.mark.native_input_validation
+@pytest.mark.requires_native_inputs
 @pytest.mark.parametrize(
     ("main_field_kind", "ncs"),
     [("dipole", 8), ("igrf", 18)],
@@ -176,9 +177,6 @@ def test_native_and_fallback_inputs_match_through_projection(
 ):
     """Native and cached inputs remain equivalent through projection."""
     del backend, data_source
-    if not native_inputs_available():
-        pytest.skip("Native empirical-input providers are unavailable.")
-
     previous_source = get_input_source()
     try:
         native_simulation, native_raw = _capture_preparation(
