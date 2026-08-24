@@ -251,12 +251,6 @@ class FigureSettings:
         data.update(overrides)
         return cls.from_dict(data)
 
-    def with_simulation_directory(self, simulation_directory):
-        """Return a copy with a different simulation directory."""
-        data = self.to_dict()
-        data["simulation_directory"] = str(simulation_directory)
-        return self.from_dict(data)
-
 
 def publication_script(settings, *, output_path="figure.png"):
     """Return a Jupyter-friendly Python script for one figure."""

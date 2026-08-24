@@ -1,7 +1,5 @@
 """Small helpers shared by plotting workflows."""
 
-from contextlib import contextmanager
-
 import cartopy.crs as ccrs
 import matplotlib.colors as mcolors
 import numpy as np
@@ -255,18 +253,6 @@ def set_contour_edges_to_face(contour):
     return contour
 
 
-@contextmanager
-def suppress_empty_contour_warnings():
-    """Suppress Matplotlib's no-contour-levels warning."""
-    import warnings
-
-    with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore", message="No contour levels were found within the data range."
-        )
-        yield
-
-
 def style_global_axis(
     ax,
     *,
@@ -400,7 +386,6 @@ __all__ = [
     "style_global_axis",
     "style_global_comparison_axis",
     "style_global_input_axis",
-    "suppress_empty_contour_warnings",
     "symmetric_contour_levels",
     "symmetric_contour_levels_without_zero",
 ]

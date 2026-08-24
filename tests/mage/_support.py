@@ -5,7 +5,7 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from pynamit.workflows.mage.preparation import (
+from pynamit.workflows.mage.prepared_forcing import (
     CONDUCTANCE_FLOOR_MODEL,
     HALL_CONDUCTANCE_FLOOR_S,
     MAGE_FORCING_KIND,

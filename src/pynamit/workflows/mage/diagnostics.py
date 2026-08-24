@@ -13,7 +13,6 @@ import numpy as np
 from kompe import SphericalGrid
 from kompe.spherical_transform import SphericalTransform, grid_sqrt_area_weights
 
-from pynamit.coordinates import parse_utc_datetime
 from pynamit.plotting.map_coordinates import MapCoordinateContext
 from pynamit.plotting.plot_helpers import build_percentile_color_scale, style_global_input_axis
 from pynamit.results.input_evaluation import evaluate_projected_input
@@ -22,6 +21,7 @@ from pynamit.simulation.electrodynamics.ionospheric_closure import (
     CONDUCTANCE_REFERENCE_S,
     conductance_to_resistance,
 )
+from pynamit.workflows.mage.prepared_forcing import forcing_times, validate_prepared_forcing
 
 DEFAULT_PROJECTION_COMPARISON_FIELDS = ("etaP", "etaH", "SigmaP", "SigmaH", "jr", "Br")
 
@@ -75,17 +75,6 @@ _FIELD_DETAILS = {
         "positive": False,
     },
 }
-
-
-def _forcing_times(h5_file) -> tuple[list[dt.datetime], np.ndarray]:
-    """Return nominal timestamps and relative simulation seconds."""
-    timestamps = [parse_utc_datetime(value) for value in h5_file["time"][:]]
-    if not timestamps:
-        raise ValueError("Prepared forcing contains no timestamps.")
-    seconds = np.asarray(
-        [(timestamp - timestamps[0]).total_seconds() for timestamp in timestamps], dtype=float
-    )
-    return timestamps, seconds
 
 
 def _comparison_steps(requested_steps, n_steps: int) -> tuple[int, ...]:
@@ -573,7 +562,8 @@ def plot_input_projection_comparison(
     )
     input_series = results.load_input_series()
     with h5py.File(forcing_path, "r") as h5_file:
-        timestamps, time_seconds = _forcing_times(h5_file)
+        validate_prepared_forcing(h5_file)
+        timestamps, time_seconds = forcing_times(h5_file["time"][:])
         required_series = {_FIELD_DETAILS[field]["series"] for field in fields}
         missing_series = sorted(required_series - set(input_series.datasets))
         if missing_series:

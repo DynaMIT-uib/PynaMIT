@@ -9,26 +9,26 @@ import numpy as np
 import pytest
 from tests.mage._support import _FakeH5, _write_projection_forcing
 
+from pynamit.simulation.input_manifest import clear_prepared_input_package
 from pynamit.workflows.mage.diagnostics import write_input_projection_diagnostics
-from pynamit.workflows.mage.preparation import (
+from pynamit.workflows.mage.gamera import _centered_dipole_alignment_attrs
+from pynamit.workflows.mage.preparation import _create_output_datasets
+from pynamit.workflows.mage.prepared_forcing import (
     MAGE_FORCING_KIND,
     MAGE_FORCING_VERSION,
-    _centered_dipole_alignment_attrs,
-    _create_output_datasets,
-    _upward_fac_to_radial_current,
+    forcing_times,
+    validate_prepared_forcing,
 )
 from pynamit.workflows.mage.projection import (
     MAGE_MAIN_FIELD_KIND,
     _boundary_radius,
-    _clear_existing_input_package,
     _dipole_B0,
     _gamera_dipole_metadata,
-    _h5_time_vector_seconds,
     _load_weighted_winds,
     _source_file_metadata,
-    _validate_prepared_forcing,
     prepare_inputs,
 )
+from pynamit.workflows.mage.remix import _upward_fac_to_radial_current
 
 
 def test_prepared_forcing_schema_contains_only_projection_inputs(tmp_path):
@@ -63,16 +63,14 @@ def test_mage_projection_replaces_stale_pynamit_input_artifacts(tmp_path):
         path.write_text("stale", encoding="utf-8")
     (tmp_path / "u.zarr").mkdir()
     (tmp_path / "pynamit_input_manifest.json").write_text("{}", encoding="utf-8")
-    (tmp_path / "mage_input_metadata.json").write_text("{}", encoding="utf-8")
     unrelated_path = tmp_path / "notes.txt"
     unrelated_path.write_text("keep", encoding="utf-8")
 
-    _clear_existing_input_package(tmp_path, artifact_storage="netcdf")
+    clear_prepared_input_package(tmp_path, artifact_storage="netcdf")
 
     assert not any(path.exists() for path in stale_artifacts)
     assert not (tmp_path / "u.zarr").exists()
     assert not (tmp_path / "pynamit_input_manifest.json").exists()
-    assert not (tmp_path / "mage_input_metadata.json").exists()
     assert unrelated_path.read_text(encoding="utf-8") == "keep"
 
 
@@ -117,7 +115,7 @@ def test_prepared_forcing_rejects_incompatible_lower_dynamo_parameters(tmp_path)
 
     with h5py.File(forcing_path) as forcing:
         with pytest.raises(RuntimeError, match="lower-dynamo parameters.*hall"):
-            _validate_prepared_forcing(forcing)
+            validate_prepared_forcing(forcing)
 
 
 def test_prepared_forcing_rejects_incompatible_conductance_floor(tmp_path):
@@ -129,7 +127,7 @@ def test_prepared_forcing_rejects_incompatible_conductance_floor(tmp_path):
 
     with h5py.File(forcing_path) as forcing:
         with pytest.raises(RuntimeError, match="incompatible conductance floors"):
-            _validate_prepared_forcing(forcing)
+            validate_prepared_forcing(forcing)
 
 
 def test_prepared_forcing_rejects_unfloored_global_conductance(tmp_path):
@@ -141,7 +139,7 @@ def test_prepared_forcing_rejects_unfloored_global_conductance(tmp_path):
 
     with h5py.File(forcing_path) as forcing:
         with pytest.raises(RuntimeError, match="Hall conductance violates.*global hard floor"):
-            _validate_prepared_forcing(forcing)
+            validate_prepared_forcing(forcing)
 
 
 def test_prepared_forcing_rejects_incompatible_sm_time_convention(tmp_path):
@@ -153,7 +151,7 @@ def test_prepared_forcing_rejects_incompatible_sm_time_convention(tmp_path):
 
     with h5py.File(forcing_path) as forcing:
         with pytest.raises(RuntimeError, match="nearest-second SM transform"):
-            _validate_prepared_forcing(forcing)
+            validate_prepared_forcing(forcing)
 
 
 def test_prepared_forcing_rejects_inconsistent_source_time_offsets(tmp_path):
@@ -165,7 +163,7 @@ def test_prepared_forcing_rejects_inconsistent_source_time_offsets(tmp_path):
 
     with h5py.File(forcing_path) as forcing:
         with pytest.raises(RuntimeError, match="gamera_time_offset_seconds.*timestamps"):
-            _validate_prepared_forcing(forcing)
+            validate_prepared_forcing(forcing)
 
 
 def test_load_weighted_winds_requires_prepared_hall_products():
@@ -276,7 +274,7 @@ def test_projection_geometry_requires_prepared_dipole_axes():
 
 def test_mage_projection_times_are_relative_to_first_hdf5_time():
     """Projection should preserve the 18:00:10 event-time origin."""
-    times, seconds = _h5_time_vector_seconds(
+    times, seconds = forcing_times(
         [b"2011-10-24T18:00:10", b"2011-10-24T18:00:20", b"2011-10-24T18:00:40"]
     )
 
@@ -286,9 +284,7 @@ def test_mage_projection_times_are_relative_to_first_hdf5_time():
 
 def test_mage_projection_normalizes_timezone_offsets_to_utc():
     """Equivalent timestamp offsets should share one time axis."""
-    times, seconds = _h5_time_vector_seconds(
-        ["2011-10-24T20:00:10+02:00", "2011-10-24T18:00:20+00:00"]
-    )
+    times, seconds = forcing_times(["2011-10-24T20:00:10+02:00", "2011-10-24T18:00:20+00:00"])
 
     assert times == [dt.datetime(2011, 10, 24, 18, 0, 10), dt.datetime(2011, 10, 24, 18, 0, 20)]
     np.testing.assert_allclose(seconds, [0.0, 10.0])
@@ -416,7 +412,7 @@ def test_mage_projection_requires_pynamit_dipole_reference_radius(tmp_path):
 
     with h5py.File(forcing_path) as forcing:
         with pytest.raises(RuntimeError, match="dipole reference radius"):
-            _validate_prepared_forcing(forcing)
+            validate_prepared_forcing(forcing)
 
 
 def test_projection_failure_preserves_last_complete_package(tmp_path):

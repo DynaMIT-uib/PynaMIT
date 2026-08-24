@@ -48,20 +48,12 @@ _SIMULATION_SETTING_KEYS = (
 )
 
 
-def _plain_json_value(value: Any) -> Any:
-    """Return a JSON-serializable version of a setting value."""
-    if isinstance(value, np.ndarray):
-        return value.tolist()
-    if isinstance(value, np.generic):
-        return value.item()
-    return value
-
-
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     """Write a small JSON sidecar."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        json.dumps(payload, indent=2, sort_keys=True, default=_plain_json_value) + "\n",
+        json.dumps(payload, indent=2, sort_keys=True, default=_input_manifest._setting_json_value)
+        + "\n",
         encoding="utf-8",
     )
 
@@ -368,7 +360,8 @@ def run_from_inputs(
         name: value for name, value in time_evolution.items() if name != "final_time"
     }
     simulation_settings = {
-        name: _plain_json_value(getattr(config, name)) for name in _SIMULATION_SETTING_KEYS
+        name: _input_manifest._setting_json_value(getattr(config, name))
+        for name in _SIMULATION_SETTING_KEYS
     }
     simulation_directory = (
         ArtifactStore.create_temporary_directory("simulations")

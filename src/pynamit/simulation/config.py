@@ -221,7 +221,7 @@ def _zero_to_none(value):
     return value
 
 
-def _values_equal(left, right) -> bool:
+def _setting_values_equal(left, right) -> bool:
     """Return whether two normalized setting values are equal."""
     if isinstance(left, np.ndarray) or isinstance(right, np.ndarray):
         return np.array_equal(np.asarray(left), np.asarray(right))
@@ -524,7 +524,9 @@ class SimulationConfig:
             if _setting_is_present(settings, name):
                 stored_config = cls(**kwargs)
                 explicit_config = cls(**{**kwargs, name: explicit})
-                if not _values_equal(getattr(stored_config, name), getattr(explicit_config, name)):
+                if not _setting_values_equal(
+                    getattr(stored_config, name), getattr(explicit_config, name)
+                ):
                     raise ValueError(f"{name} argument does not match settings.")
             kwargs[name] = explicit
 

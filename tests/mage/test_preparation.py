@@ -8,40 +8,49 @@ import pytest
 from tests.mage._support import _FakeDataset, _FakeVariable
 
 from pynamit.geomagnetism.kaiju_geopack import kaiju_geopack_sm
-from pynamit.workflows.mage.preparation import (
-    CONDUCTANCE_FLOOR_MODEL,
-    HALL_CONDUCTANCE_FLOOR_S,
-    MAGE_FORCING_KIND,
-    MAGE_FORCING_VERSION,
-    PEDERSEN_CONDUCTANCE_FLOOR_S,
-    ForcingSettings,
-    _apply_conductance_floor,
-    _atomic_prepared_output,
+from pynamit.workflows.mage.gamera import (
     _centered_dipole_alignment_attrs,
-    _combine_remix_hemispheres,
     _datetime_from_mjd,
     _gamera_inner_boundary_geometry,
     _gamera_internal_dipole_axes,
     _gamera_native_angles,
     _GameraBoundaryInterpolator,
     _geographic_grid_in_sm,
-    _integrate_tiegcm_step,
     _kaiju_sm_transform_time,
     _pynamit_dipole_B0_T,
-    _read_tiegcm_step,
-    _remix_cell_center_coordinates,
-    _remix_upward_fac_source,
-    _RemixGridInterpolator,
-    _resolve_tiegcm_path,
-    _tiegcm_times,
     _trilinear_hexahedron_volume_centers,
+)
+from pynamit.workflows.mage.preparation import (
+    ForcingSettings,
+    _atomic_prepared_output,
     _validate_forcing_time_axis,
     _validate_settings,
-    _validate_tiegcm_variables,
     _write_static_datasets,
     _write_time_axis,
 )
-from pynamit.workflows.mage.projection import _h5_time_vector_seconds, prepare_inputs
+from pynamit.workflows.mage.prepared_forcing import (
+    CONDUCTANCE_FLOOR_MODEL,
+    HALL_CONDUCTANCE_FLOOR_S,
+    MAGE_FORCING_KIND,
+    MAGE_FORCING_VERSION,
+    PEDERSEN_CONDUCTANCE_FLOOR_S,
+    forcing_times,
+)
+from pynamit.workflows.mage.projection import prepare_inputs
+from pynamit.workflows.mage.remix import (
+    _combine_remix_hemispheres,
+    _remix_cell_center_coordinates,
+    _remix_upward_fac_source,
+    _RemixGridInterpolator,
+)
+from pynamit.workflows.mage.tiegcm import (
+    _apply_conductance_floor,
+    _integrate_tiegcm_step,
+    _read_tiegcm_step,
+    _resolve_tiegcm_path,
+    _tiegcm_times,
+    _validate_tiegcm_variables,
+)
 
 
 def test_gamera_signed_dipole_axes_follow_magnetic_poles():
@@ -252,7 +261,7 @@ def test_prepared_time_axis_is_written_as_utf8_with_source_provenance(tmp_path):
         assert output.attrs["hall_conductance_floor_S"] == HALL_CONDUCTANCE_FLOOR_S
         assert output.attrs["remix_grid_equatorward_sm_latitude_deg"] == 35.0
         assert not output.attrs["complete"]
-        _, relative_seconds = _h5_time_vector_seconds(output["time"][:])
+        _, relative_seconds = forcing_times(output["time"][:])
 
     np.testing.assert_array_equal(relative_seconds, [0.0, 10.0])
 
