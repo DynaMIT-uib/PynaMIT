@@ -1,14 +1,12 @@
 """Tests for visualization map coordinate contexts."""
 
 import datetime as dt
-from types import SimpleNamespace
 
 import cartopy.crs as ccrs
 import numpy as np
 import pytest
 
 from pynamit.coordinates import local_noon_longitude
-from pynamit.plotting.legacy import PynamEye
 from pynamit.plotting.map_coordinates import MapCoordinateContext
 
 
@@ -116,42 +114,3 @@ def test_context_converts_source_local_time_longitude_to_plot_coordinate():
         ),
         np.array([80.0, -100.0, -10.0]),
     )
-
-
-def test_pynameye_uses_distinct_global_and_magnetic_contexts():
-    """PynamEye keeps global map and polar MLT contexts explicit."""
-    eye = object.__new__(PynamEye)
-    eye.time = dt.datetime(2011, 10, 24, 18, 30)
-    eye.dp = FakeDipole()
-    eye.apx = FakeApex()
-    eye.main_field = SimpleNamespace(magnetic_noon_longitude=lambda event_time: 40.0)
-
-    eye.settings = SimpleNamespace(main_field_kind="dipole")
-    magnetic_context = eye.get_magnetic_coordinate_context()
-    global_context = eye.get_global_coordinate_context()
-    assert magnetic_context.longitude_kind == "magnetic"
-    assert global_context.longitude_kind == "geographic"
-    assert global_context.local_time_kind == "solar"
-    assert global_context.noon_longitude == local_noon_longitude(eye.time)
-
-    eye.settings = SimpleNamespace(main_field_kind="igrf")
-    global_context = eye.get_global_coordinate_context()
-    assert global_context.longitude_kind == "geographic"
-    assert global_context.local_time_kind == "solar"
-    assert global_context.noon_longitude == local_noon_longitude(eye.time)
-    assert magnetic_context.noon_longitude == 40.0
-
-
-def test_pynameye_centers_kaiju_magnetic_context_on_timestamped_noon():
-    """Magnetic polar plots follow timestamped magnetic noon."""
-    eye = object.__new__(PynamEye)
-    eye.time = dt.datetime(2011, 10, 24, 18, 30)
-    eye.dp = FakeDipole()
-    eye.main_field = SimpleNamespace(magnetic_noon_longitude=lambda event_time: -73.0)
-    eye.settings = SimpleNamespace(main_field_kind="kaiju_dipole")
-
-    context = eye.get_magnetic_coordinate_context()
-
-    assert context.longitude_kind == "magnetic"
-    assert context.local_time_kind == "magnetic"
-    assert context.noon_longitude == -73.0

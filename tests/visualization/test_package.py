@@ -179,7 +179,7 @@ def test_plot_data_loads_without_boundary_br(tmp_path):
     assert np.all(np.isnan(input_fields["Br"]))
 
 
-def test_saved_output_joule_uses_pedersen_dissipation():
+def test_saved_output_joule_uses_pedersen_dissipation(monkeypatch):
     """Saved-output Joule heating follows the Pedersen closure."""
     plot_data = importlib.import_module("pynamit.plotting.plot_data")
 
@@ -229,6 +229,11 @@ def test_saved_output_joule_uses_pedersen_dissipation():
     results = SimpleNamespace(
         datasets={"dynamic": output, "conductance": conductance},
         data_var_name=lambda _dataset_key, variable_name: f"SH_{variable_name}",
+    )
+    monkeypatch.setattr(
+        plot_data,
+        "evaluate_projected_input",
+        lambda *_args, **_kwargs: {"etaP": eta_p},
     )
 
     fields = plot_data.compute_output_fields_at_index(

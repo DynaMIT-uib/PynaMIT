@@ -10,29 +10,34 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from kompe import SphericalTransform
-from kompe.constants import MU0
 
 from pynamit.coordinates import GEOCENTRIC_GEOGRAPHIC
 from pynamit.geomagnetism import MagneticFieldEvaluation
 from pynamit.plotting.figure_settings import FigureSettings
 from pynamit.plotting.map_coordinates import MapCoordinateContext
-from pynamit.results.evaluation import (
-    build_plot_grid,
-    evaluate_conductance_values,
-    evaluate_sheet_current_from_operators,
-    model_grid_for_geographic_display,
+from pynamit.results.evaluation import build_plot_grid, model_grid_for_geographic_display
+from pynamit.results.input_evaluation import evaluate_projected_input
+from pynamit.results.output_fields import (
+    evaluate_output_coefficients,
+    output_evaluation_operators,
+    sheet_current_operators,
 )
 from pynamit.results.simulation_results import SimulationResults
-from pynamit.simulation.electrodynamics.ionospheric_closure import (
-    joule_heating_from_current,
-    pedersen_geometry_tensor,
-)
+from pynamit.simulation.electrodynamics.ionospheric_closure import pedersen_geometry_tensor
 from pynamit.simulation.schema import SIMULATION_ARTIFACT_NAMES
 from pynamit.storage import ArtifactStore
 
 INPUT_ARTIFACT_KEYS = ("boundary_Br", "boundary_jr", "conductance", "u", "Q_eff", "E_neutral_wind")
 TANGENTIAL_INPUT_KEYS = ("u", "Q_eff", "E_neutral_wind")
 OUTPUT_FIELD_NAMES = frozenset({"Br", "jr", "Jeq", "Phi", "W", "joule"})
+_DISPLAY_OUTPUT_TO_PHYSICAL = {
+    "Br": "induced_Br",
+    "jr": "boundary_jr",
+    "Jeq": "equivalent_current_function",
+    "Phi": "Phi",
+    "W": "W",
+    "joule": "joule_heating",
+}
 _DISPLAY_COORDINATE_SYSTEMS = frozenset({"model", "geographic"})
 _CACHE_ARTIFACTS = tuple(sorted(SIMULATION_ARTIFACT_NAMES))
 _PLOT_DATA_CACHE: dict[tuple[str, int, int], tuple[tuple, PlotData]] = {}
@@ -112,80 +117,6 @@ def _required_dataset_values(results, dataset_key, variable_name, index):
     return np.asarray(dataset[stored_name].isel(time=index).values)
 
 
-def _apply_flat_operator(operator, coeffs):
-    """Apply an operator and return a flat NumPy vector."""
-    return np.asarray(operator.matvec(np.asarray(coeffs))).reshape(-1)
-
-
-def _output_evaluation_context(config, geometry, transform):
-    """Return geometry and maps for evaluating saved output fields."""
-    ri = float(config.RI)
-    poloidal_transform = geometry.poloidal_transform_for(transform)
-    return {
-        "RI": ri,
-        "induced_Br_to_Br": poloidal_transform.scalar_synthesis_operator,
-        "boundary_jr_to_jr": transform.scalar_synthesis_operator,
-        "induced_Br_to_Jeq": (-ri / MU0)
-        * (
-            poloidal_transform.scalar_synthesis_operator
-            @ geometry.poloidal_to_boundary_potential_jump_factor_operator
-            @ geometry.induced_Br_to_poloidal_potential_operator
-        ),
-    }
-
-
-def _sheet_current_maps(geometry, transform):
-    """Return source-to-sheet-current maps on the plotting grid."""
-    poloidal_transform = geometry.poloidal_transform_for(transform)
-    boundary_Br_operator = geometry.boundary_Br_to_gridded_JS_operator(
-        transform, poloidal_transform=poloidal_transform
-    )
-    return {
-        "induced_Br_to_JS": geometry.induced_Br_to_gridded_JS_operator(
-            transform, poloidal_transform=poloidal_transform
-        ),
-        "boundary_jr_to_JS": geometry.boundary_jr_to_gridded_JS_operator(
-            transform, poloidal_transform=poloidal_transform
-        ),
-        "boundary_Br_to_JS": boundary_Br_operator,
-    }
-
-
-def _output_fields_from_coefficients(
-    induced_Br,
-    boundary_jr,
-    phi_coeffs,
-    w_coeffs,
-    transform,
-    output_evaluation_context,
-    field_names,
-):
-    """Evaluate flattened map fields from one output row."""
-    fields = {}
-    if "Br" in field_names:
-        fields["Br"] = _apply_flat_operator(
-            output_evaluation_context["induced_Br_to_Br"], induced_Br
-        )
-    if "jr" in field_names:
-        fields["jr"] = _apply_flat_operator(
-            output_evaluation_context["boundary_jr_to_jr"], boundary_jr
-        )
-    if "Jeq" in field_names:
-        fields["Jeq"] = _apply_flat_operator(
-            output_evaluation_context["induced_Br_to_Jeq"], induced_Br
-        )
-    radius_scale = float(output_evaluation_context["RI"]) * 1e-3
-    if "Phi" in field_names:
-        fields["Phi"] = _apply_flat_operator(
-            transform.scalar_synthesis_operator, radius_scale * phi_coeffs
-        )
-    if "W" in field_names:
-        fields["W"] = _apply_flat_operator(
-            transform.scalar_synthesis_operator, radius_scale * w_coeffs
-        )
-    return fields
-
-
 def _dataset_index_at_time(dataset, timestamp, *, start_time=None):
     """Return the latest dataset index at or before ``timestamp``."""
     times = time_index_from_dataset(dataset, start_time=start_time)
@@ -197,33 +128,6 @@ def _dataset_index_at_time(dataset, timestamp, *, start_time=None):
         target = target.tz_convert(None)
     position = int(times.searchsorted(target, side="right") - 1)
     return max(0, min(position, len(times) - 1))
-
-
-def _input_scalar_grid_at_time(
-    results, dataset_key, variable_name, timestamp, transform, shape, *, start_time=None
-):
-    dataset = results.datasets.get(dataset_key)
-    if dataset is None:
-        return _nan_field(shape)
-    stored_name = results.data_var_name(dataset_key, variable_name)
-    index = _dataset_index_at_time(dataset, timestamp, start_time=start_time)
-    return transform.scalar_synthesis_matrix.dot(
-        dataset[stored_name].isel(time=index).values
-    ).reshape(shape)
-
-
-def _input_tangential_grid_at_time(
-    results, dataset_key, variable_name, timestamp, transform, shape, *, start_time=None
-):
-    dataset = results.datasets.get(dataset_key)
-    if dataset is None:
-        return _nan_field(shape), _nan_field(shape)
-    stored_name = results.data_var_name(dataset_key, variable_name)
-    index = _dataset_index_at_time(dataset, timestamp, start_time=start_time)
-    theta_grid, phi_grid = transform.synthesize_helmholtz(
-        dataset[stored_name].isel(time=index).values
-    )
-    return theta_grid.reshape(shape), phi_grid.reshape(shape)
 
 
 def datetime_at_index(times, index, *, start_time=None):
@@ -284,18 +188,25 @@ def compute_output_fields_at_index(
         boundary_Br = datasets["boundary_Br"][boundary_Br_var].isel(time=boundary_Br_index).values
     etaP = None
     if "joule" in field_names and "conductance" in datasets:
-        log_magnitude_var = results.data_var_name("conductance", "log_conductance_magnitude")
-        log_ratio_var = results.data_var_name("conductance", "log_hall_to_pedersen_ratio")
-        conductance_index = _dataset_index_at_time(
-            datasets["conductance"], target_time, start_time=start_time
+        simulation_time = (
+            pd.Timestamp(target_time) - pd.Timestamp(start_time)
+        ).total_seconds()
+        conductance = evaluate_projected_input(
+            results,
+            "conductance",
+            simulation_time,
+            transform=conductance_transform,
         )
-        log_magnitude = conductance_transform.scalar_synthesis_matrix.dot(
-            datasets["conductance"][log_magnitude_var].isel(time=conductance_index).values
-        )
-        log_ratio = conductance_transform.scalar_synthesis_matrix.dot(
-            datasets["conductance"][log_ratio_var].isel(time=conductance_index).values
-        )
-        etaP = evaluate_conductance_values(log_magnitude, log_ratio)["etaP"]
+        etaP = conductance["etaP"]
+
+    physical_fields = {_DISPLAY_OUTPUT_TO_PHYSICAL[name] for name in field_names}
+    if etaP is None:
+        physical_fields.discard("joule_heating")
+    required_coefficients = set(physical_fields & {"Phi", "W"})
+    if physical_fields & {"induced_Br", "equivalent_current_function", "joule_heating"}:
+        required_coefficients.add("induced_Br")
+    if physical_fields & {"boundary_jr", "joule_heating"}:
+        required_coefficients.add("boundary_jr")
 
     result = {}
     for dataset_key in output_keys:
@@ -305,51 +216,29 @@ def compute_output_fields_at_index(
             if dataset_key == reference_key
             else _dataset_index_at_time(dataset, target_time, start_time=start_time)
         )
-        induced_Br = (
-            _required_dataset_values(results, dataset_key, "induced_Br", output_index)
-            if field_names & {"Br", "Jeq", "joule"}
-            else None
-        )
-        boundary_jr = (
-            _required_dataset_values(results, dataset_key, "boundary_jr", output_index)
-            if field_names & {"jr", "joule"}
-            else None
-        )
-        fields = _output_fields_from_coefficients(
-            induced_Br,
-            boundary_jr,
-            (
-                _required_dataset_values(results, dataset_key, "Phi", output_index)
-                if "Phi" in field_names
-                else None
-            ),
-            (
-                _required_dataset_values(results, dataset_key, "W", output_index)
-                if "W" in field_names
-                else None
-            ),
+        coefficients = {
+            name: _required_dataset_values(results, dataset_key, name, output_index)
+            for name in required_coefficients
+        }
+        evaluated = evaluate_output_coefficients(
+            coefficients,
             transform,
-            output_evaluation_context,
-            field_names,
+            field_names=physical_fields,
+            operators=output_evaluation_context,
+            current_operators=sheet_current_maps,
+            boundary_Br=boundary_Br,
+            etaP=etaP,
+            pedersen_geometry=output_evaluation_context.get("pedersen_geometry"),
         )
-        if "joule" in field_names:
-            if sheet_current_maps is None:
-                raise ValueError("sheet_current_maps are required for Joule heating.")
-            sheet_current = evaluate_sheet_current_from_operators(
-                boundary_jr,
-                induced_Br,
-                boundary_jr_to_JS=sheet_current_maps["boundary_jr_to_JS"],
-                induced_Br_to_JS=sheet_current_maps["induced_Br_to_JS"],
-                boundary_Br=boundary_Br,
-                boundary_Br_to_JS=sheet_current_maps["boundary_Br_to_JS"],
-            )
-            fields["joule"] = (
-                joule_heating_from_current(
-                    sheet_current, etaP, output_evaluation_context["pedersen_geometry"]
-                )
-                if etaP is not None
-                else np.full(transform.grid.size, np.nan)
-            )
+        fields = {
+            name: np.asarray(evaluated[physical_name]).reshape(-1)
+            for name, physical_name in _DISPLAY_OUTPUT_TO_PHYSICAL.items()
+            if name in field_names and physical_name in evaluated
+        }
+        for name in field_names & {"Phi", "W"}:
+            fields[name] = fields[name] * 1e-3
+        if "joule" in field_names and etaP is None:
+            fields["joule"] = np.full(transform.grid.size, np.nan)
         result[dataset_key] = fields
     return result
 
@@ -359,74 +248,47 @@ def compute_input_fields_at_time(
 ):
     """Evaluate projected input drivers at one physical time."""
     datasets = results.datasets
-    boundary_jr = _input_scalar_grid_at_time(
-        results,
-        "boundary_jr",
-        "boundary_jr",
-        timestamp,
-        input_transforms["boundary_jr"],
-        scalar_shape,
-        start_time=start_time,
-    )
-    boundary_Br = _input_scalar_grid_at_time(
-        results,
-        "boundary_Br",
-        "boundary_Br",
-        timestamp,
-        input_transforms["boundary_Br"],
-        scalar_shape,
-        start_time=start_time,
-    )
-    if "conductance" in datasets:
-        log_magnitude = _input_scalar_grid_at_time(
-            results,
-            "conductance",
-            "log_conductance_magnitude",
-            timestamp,
-            input_transforms["conductance"],
-            scalar_shape,
-            start_time=start_time,
-        ).reshape(-1)
-        log_ratio = _input_scalar_grid_at_time(
-            results,
-            "conductance",
-            "log_hall_to_pedersen_ratio",
-            timestamp,
-            input_transforms["conductance"],
-            scalar_shape,
-            start_time=start_time,
-        ).reshape(-1)
-        conductance = evaluate_conductance_values(log_magnitude, log_ratio)
-        sigma_p = conductance["SigmaP"].reshape(scalar_shape)
-        sigma_h = conductance["SigmaH"].reshape(scalar_shape)
-    else:
-        sigma_p = _nan_field(scalar_shape)
-        sigma_h = _nan_field(scalar_shape)
+    simulation_time = (pd.Timestamp(timestamp) - pd.Timestamp(start_time)).total_seconds()
 
-    tangential = {
-        key: _input_tangential_grid_at_time(
+    def evaluate(key):
+        if key not in datasets:
+            return {}
+        times = np.asarray(datasets[key].time.values, dtype=float)
+        if not np.any(times <= simulation_time):
+            return {}
+        return evaluate_projected_input(
             results,
             key,
-            key,
-            timestamp,
-            input_transforms[key],
-            vector_shape,
-            start_time=start_time,
+            simulation_time,
+            transform=input_transforms[key],
+            include_derived=key == "conductance",
         )
-        for key in TANGENTIAL_INPUT_KEYS
-    }
+
+    boundary_jr = evaluate("boundary_jr")
+    boundary_Br = evaluate("boundary_Br")
+    conductance = evaluate("conductance")
+    tangential = {key: evaluate(key) for key in TANGENTIAL_INPUT_KEYS}
+
+    def field(values, name, shape):
+        if name not in values:
+            return _nan_field(shape)
+        return np.asarray(values[name]).reshape(shape)
 
     return {
-        "jr": boundary_jr,
-        "Br": boundary_Br,
-        "sigmaP": sigma_p,
-        "sigmaH": sigma_h,
-        "wind_theta": tangential["u"][0],
-        "wind_phi": tangential["u"][1],
-        "Q_eff_theta": tangential["Q_eff"][0],
-        "Q_eff_phi": tangential["Q_eff"][1],
-        "E_neutral_wind_theta": tangential["E_neutral_wind"][0],
-        "E_neutral_wind_phi": tangential["E_neutral_wind"][1],
+        "jr": field(boundary_jr, "boundary_jr", scalar_shape),
+        "Br": field(boundary_Br, "boundary_Br", scalar_shape),
+        "sigmaP": field(conductance, "SigmaP", scalar_shape),
+        "sigmaH": field(conductance, "SigmaH", scalar_shape),
+        "wind_theta": field(tangential["u"], "u_theta", vector_shape),
+        "wind_phi": field(tangential["u"], "u_phi", vector_shape),
+        "Q_eff_theta": field(tangential["Q_eff"], "Q_eff_theta", vector_shape),
+        "Q_eff_phi": field(tangential["Q_eff"], "Q_eff_phi", vector_shape),
+        "E_neutral_wind_theta": field(
+            tangential["E_neutral_wind"], "E_neutral_wind_theta", vector_shape
+        ),
+        "E_neutral_wind_phi": field(
+            tangential["E_neutral_wind"], "E_neutral_wind_phi", vector_shape
+        ),
     }
 
 
@@ -668,12 +530,10 @@ class PlotData:
             raise RuntimeError("Saved output evaluation context is unavailable.")
         geometry = self.load_geometry()
         if output_evaluation_context is None:
-            output_evaluation_context = _output_evaluation_context(
-                self.results.config, geometry, transform
-            )
+            output_evaluation_context = output_evaluation_operators(geometry, transform)
         needs_joule = "joule" in field_names
         if needs_joule and sheet_current_maps is None:
-            sheet_current_maps = _sheet_current_maps(geometry, transform)
+            sheet_current_maps = sheet_current_operators(geometry, transform)
         if needs_joule and "pedersen_geometry" not in output_evaluation_context:
             field = MagneticFieldEvaluation(
                 geometry.main_field, transform.grid, self.results.config.RI

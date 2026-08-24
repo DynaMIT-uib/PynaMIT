@@ -181,9 +181,6 @@ convenient in IPython without introducing a separate projection/result object.
 For example, ``evaluate_simulation_output(results, 10.0)`` evaluates the saved
 physical fields at 10 seconds on the model grid.
 
-`PynamEye` is deprecated and lives explicitly at
-`pynamit.plotting.legacy.PynamEye`.
-
 ## Testing
 
 After installation, run the test suite from the repository root:

@@ -799,10 +799,9 @@ rebuilding main fields, schemas, and transforms from raw settings. An
 ``equilibrium`` artifact is valid output even when no ``dynamic`` artifact is
 present; only difference plots require both.
 
-``PynamEye`` remains an explicitly named legacy frontend for existing scripts.
-New saved simulation behavior should enter through ``SimulationResults`` or ``PlotData``
-and the ``FigureSettings`` renderer path, not create another loading or
-rendering stack.
+Saved simulation behavior enters through ``SimulationResults`` or ``PlotData``
+and the ``FigureSettings`` renderer path, rather than maintaining a second
+loading or rendering stack.
 
 Avoid adding simulation-specific calculations directly to GUI callbacks.  If a
 plot needs computed fields, expose them through saved-results, grid-field, or

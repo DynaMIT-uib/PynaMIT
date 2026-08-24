@@ -8,6 +8,7 @@ from typing import Any
 
 import dipole
 import numpy as np
+from kompe.spherical import rotate_spherical_by_matrix
 
 from pynamit.coordinates import decimal_year_to_datetime, wrap_longitude_180
 
@@ -56,11 +57,15 @@ class KaijuGeopackMAG:
 
     def geo2mag(self, lat, lon, east=None, north=None):
         """Convert GEO coordinates and optional vectors to MAG."""
-        return _rotate_spherical(self.geo_to_mag_matrix, lat, lon, east=east, north=north)
+        return rotate_spherical_by_matrix(
+            lat, lon, self.geo_to_mag_matrix, east=east, north=north
+        )
 
     def mag2geo(self, lat, lon, east=None, north=None):
         """Convert MAG coordinates and optional vectors to GEO."""
-        return _rotate_spherical(self.mag_to_geo_matrix, lat, lon, east=east, north=north)
+        return rotate_spherical_by_matrix(
+            lat, lon, self.mag_to_geo_matrix, east=east, north=north
+        )
 
 
 @dataclass(frozen=True)
@@ -86,11 +91,15 @@ class KaijuGeopackSM:
 
     def geo2sm(self, lat, lon, east=None, north=None):
         """Convert GEO coordinates and optional vectors to SM."""
-        return _rotate_spherical(self.geo_to_sm_matrix, lat, lon, east=east, north=north)
+        return rotate_spherical_by_matrix(
+            lat, lon, self.geo_to_sm_matrix, east=east, north=north
+        )
 
     def sm2geo(self, lat, lon, east=None, north=None):
         """Convert SM coordinates and optional vectors to GEO."""
-        return _rotate_spherical(self.sm_to_geo_matrix, lat, lon, east=east, north=north)
+        return rotate_spherical_by_matrix(
+            lat, lon, self.sm_to_geo_matrix, east=east, north=north
+        )
 
 
 GEOPACK_DIPOLE_COEFFICIENTS: dict[int, tuple[float, float, float]] = {
@@ -159,73 +168,6 @@ def axis_lat_lon(axis: np.ndarray) -> np.ndarray:
         lon = np.degrees(np.arctan2(unit[1], unit[0]))
     lon = wrap_longitude_180(lon)
     return np.array([lat, lon], dtype=float)
-
-
-def _spherical_to_cartesian(lat, lon):
-    """Return Cartesian unit vectors for lat/lon in degrees."""
-    lat_rad = np.deg2rad(lat)
-    lon_rad = np.deg2rad(lon)
-    cos_lat = np.cos(lat_rad)
-    return np.vstack((cos_lat * np.cos(lon_rad), cos_lat * np.sin(lon_rad), np.sin(lat_rad)))
-
-
-def _cartesian_to_spherical(cart):
-    """Return latitude/longitude from Cartesian unit vectors."""
-    x, y, z = cart
-    norm = np.linalg.norm(cart, axis=0)
-    x = x / norm
-    y = y / norm
-    z = z / norm
-    lat = np.rad2deg(np.arcsin(np.clip(z, -1.0, 1.0)))
-    lon = wrap_longitude_180(np.rad2deg(np.arctan2(y, x)))
-    return lat, lon
-
-
-def _east_north_unit_vectors(lat, lon):
-    """Return local east and north unit vectors in a spherical frame."""
-    lat_rad = np.deg2rad(lat)
-    lon_rad = np.deg2rad(lon)
-    east = np.vstack((-np.sin(lon_rad), np.cos(lon_rad), np.zeros_like(lon_rad)))
-    north = np.vstack(
-        (-np.sin(lat_rad) * np.cos(lon_rad), -np.sin(lat_rad) * np.sin(lon_rad), np.cos(lat_rad))
-    )
-    return east, north
-
-
-def _rotate_spherical(rotation, lat, lon, *, east=None, north=None):
-    """Rotate spherical coordinates and optional tangent vectors."""
-    if east is None or north is None:
-        lat, lon = np.broadcast_arrays(lat, lon)
-        shape = lat.shape
-        cart_in = _spherical_to_cartesian(lat.ravel(), lon.ravel())
-        cart_out = rotation @ cart_in
-        lat_out, lon_out = _cartesian_to_spherical(cart_out)
-        return lat_out.reshape(shape), lon_out.reshape(shape)
-
-    lat, lon, east, north = np.broadcast_arrays(lat, lon, east, north)
-    shape = lat.shape
-    flat_lat = lat.ravel()
-    flat_lon = lon.ravel()
-    flat_east = east.ravel()
-    flat_north = north.ravel()
-
-    cart_in = _spherical_to_cartesian(flat_lat, flat_lon)
-    cart_out = rotation @ cart_in
-    lat_out, lon_out = _cartesian_to_spherical(cart_out)
-
-    east_in, north_in = _east_north_unit_vectors(flat_lat, flat_lon)
-    vector_in = east_in * flat_east + north_in * flat_north
-    vector_out = rotation @ vector_in
-    east_out_basis, north_out_basis = _east_north_unit_vectors(lat_out, lon_out)
-    east_out = np.sum(vector_out * east_out_basis, axis=0)
-    north_out = np.sum(vector_out * north_out_basis, axis=0)
-
-    return (
-        lat_out.reshape(shape),
-        lon_out.reshape(shape),
-        east_out.reshape(shape),
-        north_out.reshape(shape),
-    )
 
 
 def _linear_coefficients(
