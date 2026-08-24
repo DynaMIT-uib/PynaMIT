@@ -144,7 +144,7 @@ def load_iaga2002_magnetometer_data(filepath, station_code, *, logger=None):
         data = data.set_index("datetime").drop(columns=["DATE", "TIME"])
         return data[final_cols]
 
-    except Exception as exc:
+    except (KeyError, OSError, TypeError, UnicodeError, ValueError) as exc:
         _log(logger, f"Error loading and processing magnetometer data from {filepath}: {exc}")
         return None
 

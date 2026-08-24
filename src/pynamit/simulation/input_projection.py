@@ -294,25 +294,25 @@ class _InputProjector:
         """Fit stored Q_eff coefficients to wind-driven E."""
         response = self.preparation._require_response()
         q_field_space = self.preparation.data.schema.input_field_spaces["Q_eff"]
-        q_synthesis = q_field_space.basis.helmholtz_synthesis_operator(
+        q_eff_synthesis_operator = q_field_space.basis.helmholtz_synthesis_operator(
             self.preparation.geometry.model_grid
         )
         q_coeff_rows = []
         cached_resistance_tensor = None
-        Q_eff_to_E = None
+        Q_eff_to_E_operator = None
         for time_value, wind_coeffs in zip(input_time, wind_coeff_rows, strict=True):
             response.activate_inputs_at_time(self.preparation.data.input_series, time_value)
             E_wind_coeffs = response.u_coeffs_to_E_coeffs.matvec(wind_coeffs)
             resistance_tensor = response.resistance_tensor_on_grid
             if resistance_tensor is not cached_resistance_tensor:
                 cached_resistance_tensor = resistance_tensor
-                Q_eff_to_E = ionospheric_closure.tangential_current_to_E_coeffs_operator(
+                Q_eff_to_E_operator = ionospheric_closure.tangential_current_to_E_coeffs_operator(
                     self.preparation.geometry.helmholtz_analysis_operator,
                     resistance_tensor,
-                    q_synthesis,
+                    q_eff_synthesis_operator,
                 )
             q_coeffs = ionospheric_closure.solve_Q_eff_coefficients(
-                Q_eff_to_E, E_wind_coeffs, reg_lambda=reg_lambda, pinv_rtol=pinv_rtol
+                Q_eff_to_E_operator, E_wind_coeffs, reg_lambda=reg_lambda, pinv_rtol=pinv_rtol
             )
             q_coeff_rows.append(
                 q_field_space.validate_coefficients(q_coeffs, name="Q_eff coefficients")

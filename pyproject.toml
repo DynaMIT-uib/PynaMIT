@@ -15,7 +15,6 @@ dependencies = [
     "apexpy",
     "dipole @ git+https://github.com/klaundal/dipole.git@main",
     "numpy>=2.0",
-    "packaging",
     "pandas",
     "ppigrf",
     "scipy",

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
-from kompe.math import as_linear_map, get_array_module, pointwise_matrix_linear_map
+from kompe.math import LinearMap, get_array_module, pointwise_matrix_linear_map
 
 CONDUCTANCE_REFERENCE_S = 1.0
 
@@ -297,44 +297,28 @@ def joule_heating_from_current(sheet_current, etaP, pedersen_geometry):
     )
 
 
-def wind_to_E_coeffs_operator(helmholtz_analysis, wind_to_E_grid, wind_synthesis):
+def wind_to_E_coeffs_operator(
+    helmholtz_analysis_operator: LinearMap, wind_to_E_grid, wind_synthesis_operator: LinearMap
+) -> LinearMap:
     """Return the operator mapping neutral-wind coefficients to E."""
-    n_grid = int(wind_to_E_grid.shape[-1])
-    n_coefficients = int(
-        helmholtz_analysis.output_shape[1]
-        if hasattr(helmholtz_analysis, "output_shape")
-        else helmholtz_analysis.shape[1]
+    return (
+        helmholtz_analysis_operator
+        @ pointwise_matrix_linear_map(wind_to_E_grid)
+        @ wind_synthesis_operator
     )
-    grid_to_coefficients = as_linear_map(
-        helmholtz_analysis, input_shape=(2, n_grid), output_shape=(2, n_coefficients)
-    )
-    n_wind_coefficients = int(
-        wind_synthesis.input_shape[1]
-        if hasattr(wind_synthesis, "input_shape")
-        else wind_synthesis.shape[-1]
-    )
-    wind_to_grid = as_linear_map(
-        wind_synthesis, input_shape=(2, n_wind_coefficients), output_shape=(2, n_grid)
-    )
-    return grid_to_coefficients @ pointwise_matrix_linear_map(wind_to_E_grid) @ wind_to_grid
 
 
 def tangential_current_to_E_coeffs_operator(
-    helmholtz_analysis, resistance_tensor, sheet_current_synthesis
-):
+    helmholtz_analysis_operator: LinearMap,
+    resistance_tensor,
+    sheet_current_synthesis_operator: LinearMap,
+) -> LinearMap:
     """Map sheet-current coefficients to E coefficients."""
-    n_coefficients = int(
-        helmholtz_analysis.output_shape[1]
-        if hasattr(helmholtz_analysis, "output_shape")
-        else helmholtz_analysis.shape[1]
+    return (
+        helmholtz_analysis_operator
+        @ pointwise_matrix_linear_map(resistance_tensor)
+        @ sheet_current_synthesis_operator
     )
-    grid_to_coefficients = as_linear_map(
-        helmholtz_analysis,
-        input_shape=(2, resistance_tensor.shape[-1]),
-        output_shape=(2, n_coefficients),
-    )
-    current_to_E_grid = pointwise_matrix_linear_map(resistance_tensor)
-    return grid_to_coefficients @ current_to_E_grid @ sheet_current_synthesis
 
 
 def Q_eff_on_grid_from_wind(wind_on_grid, wind_to_E_grid, resistance_tensor):
@@ -347,11 +331,13 @@ def Q_eff_on_grid_from_wind(wind_on_grid, wind_to_E_grid, resistance_tensor):
     return xp.linalg.solve(point_resistance, E_wind_on_grid.T[..., None])[..., 0].T
 
 
-def solve_Q_eff_coefficients(Q_eff_to_E, E_wind_coeffs, *, reg_lambda=None, pinv_rtol=1e-15):
+def solve_Q_eff_coefficients(
+    Q_eff_to_E_operator: LinearMap, E_wind_coeffs, *, reg_lambda=None, pinv_rtol=1e-15
+):
     """Fit Q_eff, adding ``reg_lambda * ||Q_eff||²`` when requested."""
-    xp = get_array_module(E_wind_coeffs, *Q_eff_to_E.backend_operands)
+    xp = get_array_module(E_wind_coeffs, *Q_eff_to_E_operator.backend_operands)
     backend = "numpy" if xp is np else "jax"
-    matrix = xp.asarray(Q_eff_to_E.to_matrix(backend=backend))
+    matrix = xp.asarray(Q_eff_to_E_operator.to_matrix(backend=backend))
     rhs = xp.asarray(E_wind_coeffs).reshape(-1)
     tolerance = float(pinv_rtol)
     if not np.isfinite(tolerance) or tolerance < 0.0:

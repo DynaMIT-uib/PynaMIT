@@ -173,7 +173,7 @@ def evaluate_simulation_output(
         SI-valued arrays in the evaluation grid's shape. ``theta``
         components point south and ``phi`` components point east.
     """
-    from pynamit.results.input_projection import evaluate_projected_input
+    from pynamit.results.input_evaluation import evaluate_projected_input
     from pynamit.results.simulation_results import SimulationResults
     from pynamit.simulation import Simulation
 

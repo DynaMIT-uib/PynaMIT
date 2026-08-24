@@ -14,9 +14,9 @@ r_dest = RE
 fig, axes = plt.subplots(ncols=3, figsize=(15, 5))
 paxes = [polplot.Polarplot(ax) for ax in axes]
 
-cs_basis = GlobalCSBasis(N=20)
+cs_basis = GlobalCSBasis(20)
 
-lat, lon = 90 - cs_basis.arr_theta, cs_basis.arr_phi
+lat, lon = cs_basis.native_grid.lat, cs_basis.native_grid.lon
 mask = lat > 50
 lat, lon = lat[mask], lon[mask]
 

@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 
+import numpy as np
 from kompe.math import get_array_module, to_numpy
 from scipy.integrate import solve_ivp
-from scipy.linalg import expm
+from scipy.linalg import expm as scipy_expm
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +49,12 @@ def poloidal_potential_exponential_propagator(response, dt, *, feedback_matrix=N
         feedback_matrix = response.induced_poloidal_potential_feedback_matrix
     rate_matrix = response.geometry.induced_poloidal_potential_faraday_rate_scale * feedback_matrix
     xp = get_array_module(rate_matrix)
-    propagator = expm(float(dt) * to_numpy(rate_matrix))
-    return xp.asarray(propagator)
+    if xp is np:
+        return scipy_expm(float(dt) * xp.asarray(rate_matrix))
+
+    from jax.scipy.linalg import expm as jax_expm
+
+    return jax_expm(float(dt) * xp.asarray(rate_matrix))
 
 
 def evolve_induced_Br(

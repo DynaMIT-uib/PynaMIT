@@ -21,7 +21,6 @@ from pynamit.plotting.hemisphere import (
     coerce_hemisphere_min_abs_latitude,
     hemisphere_masks_for_latitude,
 )
-from pynamit.plotting.local_time import local_time_grid_longitudes
 from pynamit.plotting.map_coordinates import MapCoordinateContext
 from pynamit.plotting.map_curves import (
     build_even_global_sites,
@@ -105,7 +104,8 @@ def test_local_time_grid_and_source_longitude_conversion():
     reference_time = dt.datetime(2011, 10, 24, 18, 30)
 
     np.testing.assert_allclose(
-        local_time_grid_longitudes(reference_time), np.array([127.5, -142.5, -52.5, 37.5])
+        MapCoordinateContext.geographic(reference_time).local_time_grid_longitudes(),
+        np.array([127.5, -142.5, -52.5, 37.5]),
     )
     np.testing.assert_allclose(
         local_time_longitude_to_geographic(

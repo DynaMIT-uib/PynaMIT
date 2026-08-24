@@ -1,11 +1,11 @@
-"""Tests for projected-input inspection helpers."""
+"""Tests for evaluating projected inputs."""
 
 import numpy as np
 import pytest
 from kompe import SphericalTransform
 
 import pynamit
-from pynamit.results.input_projection import evaluate_projected_input
+from pynamit.results.input_evaluation import evaluate_projected_input
 
 
 def test_evaluate_projected_scalar_input_on_model_grid(tmp_path):

@@ -1,4 +1,4 @@
-"""Inspect projected simulation inputs on evaluation grids."""
+"""Evaluate projected simulation inputs on spherical grids."""
 
 from kompe.spherical_transform import SphericalTransform
 

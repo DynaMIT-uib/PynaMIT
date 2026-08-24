@@ -43,7 +43,7 @@ noon_lon = d.mlt2mlon(12, date)  # noon longitude
 
 # Define cubed sphere basis and grid
 cs_basis = kompe.GlobalCSBasis(Ncs)
-output_grid = kompe.Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
+output_grid = cs_basis.native_grid
 output_weights = None
 
 # Use regular grid from PyHWM14.
@@ -62,7 +62,7 @@ hwm14Obj = pyhwm2014.HWM142D(
 
 u_theta, u_phi = (-hwm14Obj.Vwind.flatten(), hwm14Obj.Uwind.flatten())
 u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing="ij")
-input_grid = kompe.Grid(lat=u_lat.flatten(), lon=u_lon.flatten())
+input_grid = kompe.SphericalGrid(lat=u_lat.flatten(), lon=u_lon.flatten())
 
 if CONDUCTANCE:
     # Get and set conductance input.
@@ -117,16 +117,16 @@ if WIND:
     field_type = "tangential"
     nmin = 1
 
-    interpolated_east, interpolated_north, _ = cs_basis.interpolate_vector_components(
+    interpolated_theta, interpolated_phi, _ = cs_basis.interpolate_vector(
+        u_theta,
         u_phi,
-        -u_theta,
         np.zeros_like(u_phi),
         input_grid.theta,
         input_grid.phi,
         output_grid.theta,
         output_grid.phi,
     )
-    interpolated_data = np.array([-interpolated_north, interpolated_east])  # Convert to theta, phi
+    interpolated_data = np.array([interpolated_theta, interpolated_phi])
 
 if CURRENT:
     import pyamps
@@ -139,16 +139,16 @@ if CURRENT:
     field_type = "tangential"
     nmin = 1
 
-    interpolated_east, interpolated_north, _ = cs_basis.interpolate_vector_components(
+    interpolated_theta, interpolated_phi, _ = cs_basis.interpolate_vector(
+        -jn,
         je,
-        jn,
         np.zeros_like(je),
         input_grid.theta,
         input_grid.phi,
         output_grid.theta,
         output_grid.phi,
     )
-    interpolated_data = np.array([-interpolated_north, interpolated_east])  # convert to theta, phi
+    interpolated_data = np.array([interpolated_theta, interpolated_phi])
 
 
 lon = output_grid.lon.flatten()

@@ -11,7 +11,7 @@ from tests import SINGLE_PRECISION_REGRESSION_RTOL
 from tests.example_scenario import prepare_example_inputs
 
 from pynamit.external_inputs import get_input_source, set_input_source
-from pynamit.results.input_projection import evaluate_projected_input
+from pynamit.results.input_evaluation import evaluate_projected_input
 from pynamit.simulation.electrodynamics import ionospheric_closure
 from pynamit.workflows import example_inputs as example_inputs_module
 

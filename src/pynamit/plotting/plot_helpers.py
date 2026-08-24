@@ -6,7 +6,7 @@ import cartopy.crs as ccrs
 import matplotlib.colors as mcolors
 import numpy as np
 
-from pynamit.plotting.local_time import apply_local_time_grid_labels
+from pynamit.plotting.map_coordinates import MapCoordinateContext
 
 
 def symmetric_contour_levels(first_abs_level, interval, levels_per_sign):
@@ -308,7 +308,7 @@ def style_global_axis(
     if coordinate_context is not None:
         coordinate_context.apply_grid_labels(gridliner)
     elif local_time_reference is not None:
-        apply_local_time_grid_labels(gridliner, reference_time=local_time_reference)
+        MapCoordinateContext.geographic(local_time_reference).apply_grid_labels(gridliner)
     gridliner.xlabel_style = {"size": label_size}
     gridliner.ylabel_style = {"size": label_size}
     return gridliner

@@ -15,7 +15,7 @@ from kompe.spherical_transform import SphericalTransform, grid_sqrt_area_weights
 
 from pynamit.plotting.map_coordinates import MapCoordinateContext
 from pynamit.plotting.plot_helpers import build_percentile_color_scale, style_global_input_axis
-from pynamit.results.input_projection import evaluate_projected_input
+from pynamit.results.input_evaluation import evaluate_projected_input
 from pynamit.results.simulation_results import SimulationResults
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     CONDUCTANCE_REFERENCE_S,

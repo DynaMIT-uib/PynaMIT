@@ -116,16 +116,11 @@ class MapCoordinateContext:
             reference_time=reference_time,
         )
 
-    @property
-    def central_longitude(self):
-        """Longitude used as the central meridian in map projections."""
-        return self.noon_longitude
-
     def projection(self):
         """Return PlateCarree centered on this context's noon."""
         import cartopy.crs as ccrs
 
-        return ccrs.PlateCarree(central_longitude=self.central_longitude)
+        return ccrs.PlateCarree(central_longitude=self.noon_longitude)
 
     def longitude_to_local_time(self, lon, *, wrap=True):
         """Convert plotted longitude to local-time hours."""

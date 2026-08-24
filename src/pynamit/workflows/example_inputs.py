@@ -15,7 +15,7 @@ from pynamit.external_inputs import (
 )
 from pynamit.external_inputs.contracts import ExternalInputRequest
 from pynamit.simulation.input_manifest import clear_prepared_input_package
-from pynamit.simulation.simulation import InputPreparation
+from pynamit.simulation.input_preparation import InputPreparation
 from pynamit.storage import ArtifactStore
 
 

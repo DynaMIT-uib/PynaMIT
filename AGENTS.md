@@ -3,9 +3,23 @@
 Write simulation code for scientists who read, modify, and explore it interactively.
 
 - Put physical quantities, governing equations, units, and coordinate conventions before
-  software machinery. Organize numerical code so the derivation can be followed locally;
-  keep providers, storage, caching, compatibility, and backend handling at clearly named
-  boundaries.
+  software machinery. In physics-facing functions, make the governing sequence visible by
+  composing reusable numerical operations in an order scientists can compare with the
+  equations, inspect interactively, and modify locally. Keep physical assumptions, signs,
+  units, coordinate conventions, and coupling terms explicit at this level rather than hiding
+  them in generic orchestration machinery.
+- Build and reuse numerical primitives at the appropriate domain boundary. General spherical
+  bases, meshes, projections, transforms, differential operators, linear maps, solvers, and
+  backend-neutral array operations belong in Kompe when their meaning is complete without the
+  PynaMIT model. Reusable induction, ionospheric-closure, magnetic-boundary, input, evolution,
+  and result machinery whose contracts depend on MIT physics belongs in PynaMIT. Do not move
+  code to Kompe solely because it is reused.
+- Organize modules around cohesive scientific, mathematical, workflow, or infrastructure
+  roles, not around line count or one class per file. Split a module when it mixes independently
+  understandable calculations or state ownership, but prefer shallow directories and direct
+  navigation. Avoid forwarding-only modules, generic utility collections, and fragmented call
+  chains. Keep providers, storage, caching, compatibility, and backend handling at clearly
+  named boundaries.
 - Keep the ordinary IPython workflow short and inspectable: prepare inputs, construct and
   evolve a `Simulation`, and inspect live or saved results. `InputPreparation`, `Simulation`,
   and `SimulationResults` should retain distinct, useful roles; specialized machinery should
@@ -27,6 +41,10 @@ Write simulation code for scientists who read, modify, and explore it interactiv
   standard scientific symbols when they aid comparison with equations, and prefer plain,
   descriptive names for software-only concepts. Keep any necessary compatibility alias at a
   public boundary rather than propagating it through the numerical code.
+- Name transformations by their mathematical direction. Use projection or analysis for sampled
+  fields to coefficients, and evaluation or synthesis for coefficients to field values. Make
+  coordinate systems, component order, domains, and codomains explicit at transformation
+  boundaries.
 - Use the configured shared array backend for pure numerical operations supported by NumPy
   and JAX. Do not convert arrays to NumPy merely to call familiar helpers. Keep SciPy
   algorithms, provider libraries, file I/O, and plotting at explicit CPU boundaries, and make

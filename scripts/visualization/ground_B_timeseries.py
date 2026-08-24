@@ -47,7 +47,7 @@ mlon = d.mlt2mlon(mlt, t0)
 glat, glon, _ = a.apex2geo(mlat, mlon, 0)
 glat, glon = glat.flatten(), glon.flatten()
 
-ground_grid = kompe.Grid(lat=glat, lon=glon)
+ground_grid = kompe.SphericalGrid(lat=glat, lon=glon)
 ground_evaluator = kompe.SphericalTransform(sh_basis, ground_grid)
 
 induced_Br_to_Bh_ground = -((EARTH_RADIUS_M / RI) ** sh_basis.n) / sh_basis.n
@@ -60,14 +60,13 @@ for dynamic_data in dynamic_data_list:
     # Calculate the time series.
     induced_Br = dynamic_data.SH_induced_Br.values.T
 
-    Br = (ground_evaluator.scalar_coeffs_to_grid * induced_Br_to_Br_ground.reshape((1, -1))).dot(
+    Br = (ground_evaluator.scalar_synthesis_matrix * induced_Br_to_Br_ground.reshape((1, -1))).dot(
         induced_Br
     )
     Bh = (
-        -ground_evaluator.scalar_coeffs_to_gridded_gradient
-        * induced_Br_to_Bh_ground.reshape((1, -1))
+        -ground_evaluator.surface_gradient_matrix * induced_Br_to_Bh_ground.reshape((1, -1))
     ).dot(induced_Br)
-    Btheta, Bphi = np.split(Bh, 2, axis=0)
+    Btheta, Bphi = Bh
 
     ii, jj = np.unravel_index(np.arange(len(glat)), mlt.shape)
     for i in range(len(glat)):
@@ -122,7 +121,7 @@ for p, dynamic_data in zip(periods, dynamic_data_list, strict=True):
     ).T
 
     induced_Br = sd.SH_induced_Br.values.T
-    Br = (ground_evaluator.scalar_coeffs_to_grid * induced_Br_to_Br_ground.reshape((1, -1))).dot(
+    Br = (ground_evaluator.scalar_synthesis_matrix * induced_Br_to_Br_ground.reshape((1, -1))).dot(
         induced_Br
     )
 

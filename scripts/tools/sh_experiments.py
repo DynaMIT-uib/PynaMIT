@@ -22,11 +22,12 @@ ubasis = kompe.SHBasis(Nmax, Mmax)
 date = datetime.datetime(2000, 5, 12, 21, 45)
 
 ### CONDUCTANCE EXPERIMENT
-cbasis = kompe.SHBasis(Nmax, Mmax, Nmin=0)
+cbasis = kompe.SHBasis(Nmax, Mmax, min_degree=0)
 
 cs_basis = kompe.GlobalCSBasis(Ncs)
-conductance_lat = 90 - cs_basis.arr_theta
-conductance_lon = cs_basis.arr_phi
+conductance_grid = cs_basis.native_grid
+conductance_lat = conductance_grid.lat
+conductance_lon = conductance_grid.lon
 request = ExternalInputRequest.from_geocentric_geo(
     conductance_lat, conductance_lon, grid_id="sh-experiment-grid"
 )
@@ -34,7 +35,7 @@ pedersen, hall, _, _ = get_conductance_inputs(date, request=request, kp=Kp, star
 
 etaH, etaP = hall / (hall**2 + pedersen**2), pedersen / (hall**2 + pedersen**2)
 
-G = cbasis.evaluate_on_grid(kompe.Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi))
+G = cbasis.scalar_evaluation_matrix(conductance_grid)
 d = etaH
 
 m_plain = np.linalg.lstsq(G, d, rcond=0)[0]
@@ -71,11 +72,11 @@ if False:
     u_theta = -hwm14Obj.Vwind
     u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing="ij")
 
-    ugrid = kompe.Grid(lat=u_lat.flatten(), lon=u_lon.flatten())
+    ugrid = kompe.SphericalGrid(lat=u_lat.flatten(), lon=u_lon.flatten())
 
     Gphi, Gtheta = (
-        ubasis.evaluate_on_grid(ugrid, derivative="phi"),
-        ubasis.evaluate_on_grid(ugrid, derivative="theta"),
+        ubasis.scalar_evaluation_matrix(ugrid, derivative="phi"),
+        ubasis.scalar_evaluation_matrix(ugrid, derivative="theta"),
     )
     G_df = np.vstack((-Gphi, Gtheta))  # u_df = r x grad()
     G_cf = np.vstack((Gtheta, Gphi))  # u_cf = grad()

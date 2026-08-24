@@ -11,6 +11,7 @@ import importlib.util
 import os
 import shutil
 import tempfile
+import uuid
 from collections.abc import Callable
 from contextlib import nullcontext
 from datetime import datetime
@@ -172,14 +173,24 @@ class ArtifactStore:
 
     @classmethod
     def _write_zarr_atomically(cls, target: Path, write_fn: Callable[[Path], None]) -> None:
-        """Write a complete Zarr store via a temporary directory."""
+        """Replace a Zarr store while retaining the previous store."""
         target.parent.mkdir(parents=True, exist_ok=True)
         temp_store = Path(tempfile.mkdtemp(prefix=f".{target.name}.tmp-", dir=str(target.parent)))
+        backup_store = None
         try:
             write_fn(temp_store)
             if target.exists():
-                cls._remove_path(target)
-            os.replace(temp_store, target)
+                backup_store = target.parent / f".{target.name}.backup-{uuid.uuid4().hex}"
+                os.replace(target, backup_store)
+            try:
+                os.replace(temp_store, target)
+            except Exception:
+                if backup_store is not None:
+                    os.replace(backup_store, target)
+                    backup_store = None
+                raise
+            if backup_store is not None:
+                cls._remove_path(backup_store)
         except Exception:
             cls._remove_path(temp_store)
             raise

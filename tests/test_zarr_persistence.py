@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import numpy as np
@@ -92,6 +93,34 @@ def test_artifact_store_rejects_ambiguous_artifact_representations(tmp_path):
 
     with pytest.raises(ValueError, match="ambiguous storage representations"):
         store.get_dataset_storage_kind("sample")
+
+
+def test_failed_zarr_replacement_restores_previous_store(tmp_path, monkeypatch):
+    """A failed final rename leaves the previous Zarr store intact."""
+    target = tmp_path / "sample.zarr"
+    target.mkdir()
+    (target / "old").write_text("previous")
+    original_replace = os.replace
+    replace_calls = 0
+
+    def fail_second_replace(source, destination):
+        nonlocal replace_calls
+        replace_calls += 1
+        if replace_calls == 2:
+            raise OSError("simulated replacement failure")
+        return original_replace(source, destination)
+
+    monkeypatch.setattr(os, "replace", fail_second_replace)
+
+    def write_new_store(path):
+        (path / "new").write_text("replacement")
+
+    with pytest.raises(OSError, match="simulated replacement failure"):
+        ArtifactStore._write_zarr_atomically(target, write_new_store)
+
+    assert (target / "old").read_text() == "previous"
+    assert not (target / "new").exists()
+    assert sorted(tmp_path.iterdir()) == [target]
 
 
 def test_artifact_store_requires_only_explicitly_named_artifacts(tmp_path):

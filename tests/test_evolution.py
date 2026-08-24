@@ -183,8 +183,8 @@ def test_exponential_propagator_identity_tracks_active_resistance(monkeypatch):
 @pytest.mark.requires_jax
 @pytest.mark.parametrize("backend", ["numpy"], ids=["backend=numpy"])
 @pytest.mark.parametrize("data_source", ["fallback"], ids=["data=fallback"])
-def test_exponential_step_returns_to_explicit_jax_backend(backend, data_source):
-    """Return once to the input backend after the SciPy handoff."""
+def test_exponential_step_stays_on_explicit_jax_backend(backend, data_source, monkeypatch):
+    """Keep exponential integration on the input backend."""
     import jax.numpy as jnp
 
     identity = as_linear_map(jnp.eye(2))
@@ -198,9 +198,13 @@ def test_exponential_step_returns_to_explicit_jax_backend(backend, data_source):
         induced_poloidal_potential_feedback_matrix=jnp.asarray([[-1.0, 0.25], [0.0, -2.0]]),
     )
 
+    def fail_host_transfer(_array):
+        raise AssertionError("the JAX exponential path must not transfer to NumPy")
+
     previous_backend = use_jax()
     try:
         set_backend("numpy")
+        monkeypatch.setattr(induction, "to_numpy", fail_host_transfer)
         propagator = induction.poloidal_potential_exponential_propagator(response, 0.1)
         evolved = induction.evolve_induced_Br(
             response,

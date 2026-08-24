@@ -100,8 +100,9 @@ concepts from the PynaMIT simulation model::
 The simulation package is grouped by runtime role::
 
     simulation/
-      __init__.py            stable Simulation and SimulationConfig exports
-      simulation.py          public preparation and simulation objects
+      __init__.py            stable preparation, simulation, and config exports
+      input_preparation.py   public input projection and persistence workflow
+      simulation.py          coupled response and evolution workflow
       response.py            active inputs, response solves, and operator caches
       geometry.py            simulation-specific spatial and magnetic mappings
       evolution.py           time evolution, sampling, and persistence

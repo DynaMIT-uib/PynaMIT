@@ -31,9 +31,11 @@ from pynamit.geomagnetism import decimal_year
 
 FALLBACK_RESOURCE = resources.files("pynamit.data") / "fallback_inputs.json"
 FALLBACK_SCHEMA_VERSION = 7
-_INPUT_SOURCE = os.environ.get("PYNAMIT_INPUT_SOURCE", "native").lower()
+_INPUT_SOURCE = os.environ.get("PYNAMIT_INPUT_SOURCE", "native").strip().lower()
 if _INPUT_SOURCE == "auto":
     _INPUT_SOURCE = "native"
+if _INPUT_SOURCE not in {"fallback", "native"}:
+    raise ValueError("PYNAMIT_INPUT_SOURCE must be 'fallback' or 'native'.")
 
 _IONOSPHERE_ALTITUDE_KM = 110.0
 

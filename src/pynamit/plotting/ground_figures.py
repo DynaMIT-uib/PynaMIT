@@ -19,7 +19,7 @@ from pynamit.magnetometers import (
     normalize_station_metadata,
     shift_station_datetime_index,
 )
-from pynamit.plotting.local_time import apply_local_time_grid_labels
+from pynamit.plotting.map_coordinates import MapCoordinateContext
 from pynamit.plotting.map_curves import (
     build_even_global_sites,
     curve_site_group_zorders,
@@ -837,7 +837,7 @@ class GroundFigureRenderer:
         gridlines.ylabel_style = {"size": 10, "color": "0.25"}
         gridlines.xpadding = 8
         gridlines.ypadding = 8
-        apply_local_time_grid_labels(gridlines, reference_time=reference_time)
+        MapCoordinateContext.geographic(reference_time).apply_grid_labels(gridlines)
 
     def _draw_conductance_overlays(self, axis, data_projection, target_time):
         handles = []
