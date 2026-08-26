@@ -663,7 +663,9 @@ class InputPreparation:
         time : array-like, optional
             Time points for the wind data.
         sqrt_weights : array-like, optional
-            sqrt_weights for the wind data points.
+            Square-root weights for the wind data points. Each weight
+            applies to both components. For separate component weights,
+            use shape ``(2, N)``.
         reg_lambda : float, optional
             Regularization parameter.
         pinv_rtol : float, optional
@@ -727,7 +729,9 @@ class InputPreparation:
         time : array-like, optional
             Time points for the Q_eff data.
         sqrt_weights : array-like, optional
-            sqrt_weights for the Q_eff data points.
+            Square-root weights for the Q_eff data points. Each weight
+            applies to both components. For separate component weights,
+            use shape ``(2, N)``.
         reg_lambda : float, optional
             Regularization parameter.
         pinv_rtol : float, optional
@@ -795,7 +799,8 @@ class InputPreparation:
             Time points for the neutral-wind electric-field data.
         sqrt_weights : array-like, optional
             Square-root weights for the neutral-wind electric-field
-            samples.
+            samples. Each weight applies to both components. Use shape
+            ``(2, N)`` for separate component weights.
         reg_lambda : float, optional
             Regularization parameter.
         pinv_rtol : float, optional
