@@ -44,9 +44,9 @@ High-level flow
 
 ``Simulation`` remains the public orchestration object.  It normalizes user
 configuration with ``SimulationConfig``, builds a ``SimulationSchema``,
-creates persistence through ``SimulationData``, constructs sibling
-``SimulationGeometry`` and ``ElectrodynamicResponse`` collaborators, and keeps the user-facing
-simulation methods in one place.
+creates persistence through ``SimulationData``, exposes lazily constructed
+``SimulationGeometry`` and ``ElectrodynamicResponse`` collaborators, and keeps
+the user-facing simulation methods in one place.
 
 The main setup path is:
 
@@ -61,9 +61,11 @@ The main setup path is:
    validation, projection, and coefficient storage.
 4. ``Simulation`` attaches a ``_TimeEvolution`` for restart handling, sample
    scheduling, progress reporting, and output save decisions.
-5. ``SimulationGeometry`` is constructed once as the numerical spatial context.
-   ``ElectrodynamicResponse`` receives it and owns the instantaneous forcing
-   coefficients, constraint solve, and closure-dependent operator caches.
+5. ``SimulationGeometry`` is constructed once, on first use, as the numerical
+   spatial context. ``ElectrodynamicResponse`` is likewise constructed when a
+   response calculation first needs it; it receives the geometry and owns the
+   instantaneous forcing coefficients, constraint solve, and closure-dependent
+   operator caches.
 6. ``SimulationData`` owns persisted settings, input time series, and output
    time series.
 

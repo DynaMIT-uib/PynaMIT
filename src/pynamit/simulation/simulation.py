@@ -10,11 +10,11 @@ from pynamit.simulation.evolution import (
     DEFAULT_STEPS_PER_SAMPLE,
     _TimeEvolution,
 )
-from pynamit.simulation.input_preparation import InputPreparation as _InputPreparation
+from pynamit.simulation.input_preparation import InputPreparation
 from pynamit.storage import ArtifactStore
 
 
-class Simulation(_InputPreparation):
+class Simulation(InputPreparation):
     """Configure, drive, evolve, and persist one coupled MIT simulation.
 
     A simulation supports the same input setters as
@@ -153,10 +153,9 @@ class Simulation(_InputPreparation):
         self._open_simulation_runtime()
 
     def _open_simulation_runtime(self):
-        """Initialize the response and evolution state."""
+        """Initialize output and evolution state."""
         self.simulation_directory = self.data.simulation_directory
         self.outputs = self.data.output_series.datasets
-        self._require_response()
         current_output = self.outputs.get("dynamic", self.outputs.get("equilibrium"))
         self.current_time = (
             np.max(current_output.time.values) if current_output is not None else np.float64(0)

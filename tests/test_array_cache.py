@@ -157,6 +157,7 @@ def test_gap_Br_cache_excludes_transient_shell_evaluations(tmp_path, monkeypatch
         "backend": "numpy",
     }
     first = pynamit.Simulation(simulation_directory=tmp_path / "first", **simulation_kwargs)
+    _ = first.geometry
     evaluation_directory = first.operator_cache.directory / "sh_evaluation"
     evaluations_before_gap_response = len(tuple(evaluation_directory.glob("*.npy")))
     expected = first.geometry.boundary_jr_to_gap_Br_matrix

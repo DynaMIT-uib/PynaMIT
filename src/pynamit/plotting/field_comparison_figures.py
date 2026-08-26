@@ -27,20 +27,6 @@ from pynamit.plotting.plot_helpers import (
 )
 
 
-def _axes_from_group(group):
-    return group.get("axes", []) if isinstance(group, dict) else group
-
-
-def _hemisphere_from_group(group, index):
-    if isinstance(group, dict):
-        return group.get("hemisphere", "global")
-    return "north" if index == 0 else "south"
-
-
-def _is_polarplot_axis(axis):
-    return axis.__class__.__name__ == "Polarplot"
-
-
 def _polar_comparison_coordinates(lat, lon, coordinate_context, minimum_latitude):
     """Return polar coordinates and hemisphere masks."""
     polar_time = coordinate_context.longitude_to_local_time(lon)
@@ -105,10 +91,10 @@ def _draw_field_comparison_artists(
         for key in overlay_keys
     ]
 
-    for group_index, group in enumerate(axes_groups):
-        axes = _axes_from_group(group)
-        hemisphere = _hemisphere_from_group(group, group_index)
-        is_polar = bool(axes) and _is_polarplot_axis(axes[0])
+    for group in axes_groups:
+        axes = group["axes"]
+        hemisphere = group["hemisphere"]
+        is_polar = hemisphere != "global"
         if hemisphere == "north":
             mask = polar_north_mask
         elif hemisphere == "south":

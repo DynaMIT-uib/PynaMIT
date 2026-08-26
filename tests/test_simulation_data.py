@@ -133,6 +133,8 @@ def test_simulation_exposes_interactive_views_without_copying_data(tmp_path):
         artifact_storage="netcdf",
     )
 
+    assert simulation._geometry is None
+    assert simulation._response is None
     assert simulation.config is simulation.data.config
     assert simulation.geometry.horizontal_basis is simulation.data.schema.horizontal_basis
     assert simulation.response.geometry is simulation.geometry

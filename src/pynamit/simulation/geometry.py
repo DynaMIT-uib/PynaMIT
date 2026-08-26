@@ -568,7 +568,7 @@ class SimulationGeometry:
             "output_quantity": "unshielded_gap_Br_at_RI",
             "horizontal_basis": self.horizontal_basis.signature,
             "poloidal_basis": self.poloidal_basis.signature,
-            "model_grid_coordinates": self.model_grid.exact_coordinate_signature,
+            "model_grid_coordinates": self.model_grid.signature,
             "model_grid_area_weights": array_fingerprint(self.model_grid.area_weights),
             "main_field_kind": self.main_field.kind,
             "main_field_epoch": self.main_field.epoch,

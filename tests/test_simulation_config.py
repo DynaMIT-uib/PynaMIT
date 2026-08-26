@@ -47,6 +47,7 @@ def test_operator_cache_is_a_nonphysical_runtime_preference(tmp_path):
         backend="numpy",
     )
     assert original.operator_cache.directory == first_cache.resolve()
+    _ = original.response
     assert list(first_cache.rglob("*.npy"))
 
     reloaded = Simulation.from_directory(
