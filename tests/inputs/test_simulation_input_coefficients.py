@@ -344,12 +344,12 @@ def test_identical_conductance_history_retains_closure_caches(tmp_path):
     response = simulation.response
     response.activate_inputs_at_time(simulation.data.input_series, time=0.0)
     sentinel = object()
-    response._induced_poloidal_potential_feedback_matrix = sentinel
+    response._induced_poloidal_potential_feedback_operator = sentinel
     first_fingerprint = response.conductance_fingerprint
     response.activate_inputs_at_time(simulation.data.input_series, time=1.0)
 
     assert response.conductance_fingerprint == first_fingerprint
-    assert response._induced_poloidal_potential_feedback_matrix is sentinel
+    assert response._induced_poloidal_potential_feedback_operator is sentinel
 
 
 def test_conductance_activation_fingerprints_stored_coefficients(tmp_path, monkeypatch):

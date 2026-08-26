@@ -263,7 +263,7 @@ class _InputProjector:
             reg_lambda=reg_lambda,
             pinv_rtol=pinv_rtol,
         )
-        self._validate_projected_time_rows(key, key, coeff_rows, input_time)
+        self._validate_time_rows(key, key, coeff_rows, input_time)
         return input_time, coeff_rows
 
     def evaluate_Q_eff_from_neutral_wind(self, input_time, wind_coeff_rows):
@@ -366,7 +366,7 @@ class _InputProjector:
                     reg_lambda=reg_lambda,
                     pinv_rtol=pinv_rtol,
                 )
-                self._validate_projected_time_rows(key, var, projected_values, input_time)
+                self._validate_time_rows(key, var, projected_values, input_time)
                 projected_data[var] = projected_values
 
         self._store_input_rows(key, projected_data, input_time)
@@ -389,7 +389,7 @@ class _InputProjector:
             for var, values in input_data.items()
         }
         for var, values in normalized.items():
-            self._validate_projected_time_rows(key, var, values, input_time)
+            self._validate_time_rows(key, var, values, input_time)
 
         variables = tuple(normalized)
         xp = get_array_module(*(normalized[var] for var in variables))
@@ -464,12 +464,12 @@ class _InputProjector:
             )
 
     @staticmethod
-    def _validate_projected_time_rows(key: str, var: str, values, input_time) -> None:
-        """Require projected data rows to match supplied input times."""
+    def _validate_time_rows(key: str, var: str, values, input_time) -> None:
+        """Require one data batch to match its times."""
         if values.shape[0] != input_time.size:
             raise ValueError(
-                f"{key}.{var} has {values.shape[0]} projected time "
-                f"slices, but {input_time.size} time values were supplied."
+                f"{key}.{var} has {values.shape[0]} data rows, but "
+                f"{input_time.size} time values were supplied."
             )
 
     def _validate_projection_controls(self, key: str, *, sqrt_weights, reg_lambda) -> None:

@@ -135,14 +135,17 @@ def build_sheet_current_matrices(settings, sh_basis, transform, boundary_jr_to_g
     boundary_jr_to_toroidal_potential = (
         MU0 / radius * sh_basis.mean_free_surface_poisson_operator(radius)
     )
-    if boundary_jr_to_gap_Br_matrix is None:
-        boundary_jr_to_gap_Br_matrix = np.zeros((sh_basis.index_length, sh_basis.index_length))
+    boundary_jr_to_gap_Br = (
+        None
+        if boundary_jr_to_gap_Br_matrix is None
+        else as_linear_map(boundary_jr_to_gap_Br_matrix)
+    )
     boundary_jr_to_JS_matrix = magnetic_boundary.boundary_jr_to_gridded_JS_operator(
         solid_harmonics,
         transform,
         poloidal_transform=transform,
         boundary_jr_to_toroidal_potential=boundary_jr_to_toroidal_potential,
-        boundary_jr_to_gap_Br=as_linear_map(boundary_jr_to_gap_Br_matrix),
+        boundary_jr_to_gap_Br=boundary_jr_to_gap_Br,
     ).array
     boundary_Br_to_JS_matrix = (
         None

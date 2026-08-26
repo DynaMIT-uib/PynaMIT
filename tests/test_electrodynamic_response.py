@@ -225,29 +225,27 @@ def test_induction_matrix_assembly_stays_on_jax():
         input_shape=(n,),
     )
     response._runtime_toroidal_potential_to_E_coeffs_cache = None
-    response._driving_E_to_toroidal_potential_matrix = jnp.asarray(driving_E_to_toroidal_potential)
     response._boundary_jr_to_toroidal_potential_operator = None
-    response._driving_E_to_toroidal_potential_operator = None
+    response._driving_E_to_toroidal_potential_operator = as_linear_map(
+        jnp.asarray(driving_E_to_toroidal_potential), input_shape=(2, n), output_shape=(n,)
+    )
     response._driving_E_to_total_E_operator = None
     response._driving_E_to_E_df_operator = None
     response._induced_poloidal_potential_to_E_df_operator_cache = as_linear_map(
         jnp.asarray(expected)
     )
     response._induced_poloidal_potential_feedback_operator = None
-    response._induced_poloidal_potential_feedback_matrix = None
     response.config = SimpleNamespace(enable_interhemispheric_coupling=True)
     response._interhemispheric_electric_field_constraint_cache = _dummy_constraint_map()
 
     try:
         set_backend("jax")
-        _ = response.induced_poloidal_potential_feedback_matrix
+        feedback_matrix = response.induced_poloidal_potential_feedback_matrix
     finally:
         set_backend(previous_backend)
 
-    assert "jax" in type(response._induced_poloidal_potential_feedback_matrix).__module__
-    np.testing.assert_allclose(
-        np.asarray(response._induced_poloidal_potential_feedback_matrix), expected
-    )
+    assert "jax" in type(feedback_matrix).__module__
+    np.testing.assert_allclose(np.asarray(feedback_matrix), expected)
 
 
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
@@ -260,9 +258,11 @@ def test_equilibrium_operator_preserves_jax_matrix():
     coeffs = np.array([7.0, 11.0])
 
     response = object.__new__(ElectrodynamicResponse)
-    response._noninductive_E_df_to_equilibrium_induced_poloidal_potential_matrix = jnp.asarray(
-        matrix
+    response.geometry = SimpleNamespace(
+        poloidal_basis=SimpleNamespace(index_length=2),
+        surface_to_poloidal_operator=as_linear_map(jnp.eye(2)),
     )
+    response._induced_poloidal_potential_feedback_operator = as_linear_map(-jnp.linalg.inv(matrix))
     response._noninductive_E_df_to_equilibrium_induced_poloidal_potential_operator = None
 
     try:
@@ -307,8 +307,7 @@ def test_equilibrium_operator_keeps_cross_space_bridge_structured():
         poloidal_basis=SimpleNamespace(index_length=2),
         surface_to_poloidal_operator=surface_operator,
     )
-    response._induced_poloidal_potential_feedback_matrix = feedback_matrix
-    response._noninductive_E_df_to_equilibrium_induced_poloidal_potential_matrix = None
+    response._induced_poloidal_potential_feedback_operator = as_linear_map(feedback_matrix)
     response._noninductive_E_df_to_equilibrium_induced_poloidal_potential_operator = None
 
     probe = np.linspace(-1.0, 1.0, 5)
@@ -316,7 +315,6 @@ def test_equilibrium_operator_keeps_cross_space_bridge_structured():
     actual = operator.matvec(probe)
     expected = -np.linalg.pinv(feedback_matrix, rtol=1e-15) @ surface_matrix @ probe
 
-    assert response._noninductive_E_df_to_equilibrium_induced_poloidal_potential_matrix is None
     assert surface_operator._cached_dense(np) is None
     np.testing.assert_allclose(actual, expected, rtol=1e-13, atol=1e-13)
 
@@ -622,10 +620,12 @@ def test_model_operator_accessors_match_runtime_operator_chain():
     )
     response._runtime_toroidal_potential_to_E_coeffs_cache = None
     response._boundary_Br_to_E_coeffs_cache = None
-    response._boundary_jr_to_toroidal_potential_matrix = boundary_jr_to_toroidal_potential
-    response._driving_E_to_toroidal_potential_matrix = driving_E_to_toroidal_potential
-    response._boundary_jr_to_toroidal_potential_operator = None
-    response._driving_E_to_toroidal_potential_operator = None
+    response._boundary_jr_to_toroidal_potential_operator = as_linear_map(
+        boundary_jr_to_toroidal_potential, input_shape=(n,), output_shape=(n,)
+    )
+    response._driving_E_to_toroidal_potential_operator = as_linear_map(
+        driving_E_to_toroidal_potential, input_shape=(2, n), output_shape=(n,)
+    )
     response._induced_poloidal_potential_to_E_coeffs_cache = as_linear_map(
         induced_poloidal_potential_to_E, input_shape=(n,), output_shape=(2, n)
     )
@@ -725,9 +725,7 @@ def test_model_matrix_accessors_accept_explicit_jax_backend():
         input_shape=(n,),
     )
     response._boundary_Br_to_E_coeffs_cache = None
-    response._boundary_jr_to_toroidal_potential_matrix = np.eye(n)
-    response._driving_E_to_toroidal_potential_matrix = None
-    response._boundary_jr_to_toroidal_potential_operator = None
+    response._boundary_jr_to_toroidal_potential_operator = as_linear_map(np.eye(n))
     response._driving_E_to_toroidal_potential_operator = None
     response._induced_poloidal_potential_to_E_coeffs_cache = as_linear_map(
         np.ones((2, n, n)), input_shape=(n,), output_shape=(2, n)

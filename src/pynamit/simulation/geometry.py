@@ -438,9 +438,9 @@ class SimulationGeometry:
             @ transform.helmholtz_synthesis_operator
         )
 
-    @cached_property
+    @property
     def interhemispheric_electric_field_difference_matrix(self) -> np.ndarray | None:
-        """Return explicit low-latitude E-apex difference tensor."""
+        """Materialize the low-latitude E-apex difference operator."""
         operator = self.interhemispheric_electric_field_difference_operator
         if operator is None:
             return None

@@ -407,16 +407,16 @@ class _TimeEvolution:
         if self.simulation.config.integrator != "exponential":
             return None
 
-        operator = self.simulation.response.induced_poloidal_potential_feedback_matrix
         conductance_fingerprint = self.simulation.response.conductance_fingerprint
         dt = float(dt)
         same_closure = conductance_fingerprint == self._cached_exponential_conductance_fingerprint
         if not same_closure or dt != self._cached_exponential_dt:
             self._cached_exponential_conductance_fingerprint = conductance_fingerprint
             self._cached_exponential_dt = dt
+            feedback_matrix = self.simulation.response.induced_poloidal_potential_feedback_matrix
             self._cached_exponential_propagator = (
                 induction.poloidal_potential_exponential_propagator(
-                    self.simulation.response, dt, feedback_matrix=operator
+                    self.simulation.response, dt, feedback_matrix=feedback_matrix
                 )
             )
         return self._cached_exponential_propagator

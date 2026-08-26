@@ -168,19 +168,13 @@ class ElectrodynamicResponse:
         self._runtime_boundary_Br_to_E_coeffs_cache: LinearMap | None = None
         self._runtime_Q_eff_to_E_coeffs_cache: LinearMap | None = None
         self._interhemispheric_electric_field_constraint_cache: LinearMap | None = None
-        self._induced_poloidal_potential_feedback_matrix: np.ndarray | None = None
         self._induced_poloidal_potential_feedback_operator: LinearMap | None = None
         self._induced_poloidal_potential_to_E_df_operator_cache: LinearMap | None = None
         self._induced_Br_to_E_df_operator_cache: LinearMap | None = None
-        self._noninductive_E_df_to_equilibrium_induced_poloidal_potential_matrix: (
-            np.ndarray | None
-        ) = None
         self._noninductive_E_df_to_equilibrium_induced_poloidal_potential_operator: (
             LinearMap | None
         ) = None
         self._noninductive_E_df_to_equilibrium_induced_Br_operator: LinearMap | None = None
-        self._boundary_jr_to_toroidal_potential_matrix: np.ndarray | None = None
-        self._driving_E_to_toroidal_potential_matrix: np.ndarray | None = None
         self._boundary_jr_to_toroidal_potential_operator: LinearMap | None = None
         self._driving_E_to_toroidal_potential_operator: LinearMap | None = None
         self._driving_E_to_total_E_operator: LinearMap | None = None
@@ -444,45 +438,6 @@ class ElectrodynamicResponse:
             )
         return self._toroidal_potential_response_solver_cache(rhs_entries)
 
-    def _build_boundary_jr_to_toroidal_potential_matrix(self) -> None:
-        """Construct the current-to-private-potential response."""
-        logger.info("Building dense boundary-jr to toroidal-potential response matrix.")
-        problem = self._toroidal_potential_problem
-
-        radial_current_matrix = self.geometry.radial_current_constraint_operator.to_matrix()
-        xp = get_array_module(radial_current_matrix)
-        radial_current_rhs = xp.asarray(radial_current_matrix).reshape(
-            problem.A[0].output_shape + (-1,)
-        )
-        rhs_entries = [None] * problem.num_data_terms
-        rhs_entries[0] = radial_current_rhs
-        self._boundary_jr_to_toroidal_potential_matrix = self._solve_toroidal_potential_response(
-            rhs_entries
-        )
-
-    def _build_driving_E_to_toroidal_potential_matrix(self) -> None:
-        """Construct the explicit interhemispheric E-response matrix."""
-        if (
-            not self.config.enable_interhemispheric_coupling
-            or self._interhemispheric_electric_field_constraint is None
-        ):
-            self._driving_E_to_toroidal_potential_matrix = None
-            return
-
-        logger.info("Building dense driving-E-to-toroidal-potential response matrix.")
-        n = self.geometry.horizontal_basis.index_length
-        problem = self._toroidal_potential_problem
-        electric_field_rhs = (
-            -self.geometry.interhemispheric_electric_field_difference_matrix.reshape(
-                problem.A[1].output_shape + (2 * n,)
-            )
-        )
-        electric_field_rhs *= self.config.interhemispheric_electric_field_weight
-        rhs_entries = [None] * problem.num_data_terms
-        rhs_entries[1] = electric_field_rhs
-        toroidal_response = self._solve_toroidal_potential_response(rhs_entries)
-        self._driving_E_to_toroidal_potential_matrix = toroidal_response.reshape((n, 2, n))
-
     def _toroidal_potential_rhs_entries(
         self, boundary_jr_coeffs: np.ndarray | None, driving_E: np.ndarray
     ) -> list[np.ndarray | None] | None:
@@ -517,10 +472,18 @@ class ElectrodynamicResponse:
     def boundary_jr_to_toroidal_potential_operator(self) -> LinearMap:
         """Map boundary current to the private toroidal potential."""
         if self._boundary_jr_to_toroidal_potential_operator is None:
-            if self._boundary_jr_to_toroidal_potential_matrix is None:
-                self._build_boundary_jr_to_toroidal_potential_matrix()
+            logger.info("Building dense boundary-jr to toroidal-potential response matrix.")
+            problem = self._toroidal_potential_problem
+            radial_current_matrix = self.geometry.radial_current_constraint_operator.to_matrix()
+            xp = get_array_module(radial_current_matrix)
+            radial_current_rhs = xp.asarray(radial_current_matrix).reshape(
+                problem.A[0].output_shape + (-1,)
+            )
+            rhs_entries = [None] * problem.num_data_terms
+            rhs_entries[0] = radial_current_rhs
+            response = self._solve_toroidal_potential_response(rhs_entries)
             self._boundary_jr_to_toroidal_potential_operator = as_linear_map(
-                self._boundary_jr_to_toroidal_potential_matrix,
+                response,
                 input_shape=(self.geometry.horizontal_basis.index_length,),
                 output_shape=(self.geometry.horizontal_basis.index_length,),
             )
@@ -529,13 +492,26 @@ class ElectrodynamicResponse:
     @property
     def driving_E_to_toroidal_potential_operator(self) -> LinearMap | None:
         """Map driving E to the private toroidal potential."""
+        if (
+            not self.config.enable_interhemispheric_coupling
+            or self._interhemispheric_electric_field_constraint is None
+        ):
+            return None
         if self._driving_E_to_toroidal_potential_operator is None:
-            if self._driving_E_to_toroidal_potential_matrix is None:
-                self._build_driving_E_to_toroidal_potential_matrix()
-            if self._driving_E_to_toroidal_potential_matrix is None:
-                return None
+            logger.info("Building dense driving-E-to-toroidal-potential response matrix.")
+            n = self.geometry.horizontal_basis.index_length
+            problem = self._toroidal_potential_problem
+            electric_field_rhs = (
+                -self.geometry.interhemispheric_electric_field_difference_matrix.reshape(
+                    problem.A[1].output_shape + (2 * n,)
+                )
+            )
+            electric_field_rhs *= self.config.interhemispheric_electric_field_weight
+            rhs_entries = [None] * problem.num_data_terms
+            rhs_entries[1] = electric_field_rhs
+            response = self._solve_toroidal_potential_response(rhs_entries)
             self._driving_E_to_toroidal_potential_operator = as_linear_map(
-                self._driving_E_to_toroidal_potential_matrix,
+                response,
                 input_shape=(2, self.geometry.horizontal_basis.index_length),
                 output_shape=(self.geometry.horizontal_basis.index_length,),
             )
@@ -778,13 +754,7 @@ class ElectrodynamicResponse:
     @property
     def induced_poloidal_potential_feedback_matrix(self) -> np.ndarray:
         """Return private feedback before Faraday scaling."""
-        if self._induced_poloidal_potential_feedback_matrix is None:
-            logger.info("Building dense induction feedback matrix...")
-            self._induced_poloidal_potential_feedback_matrix = (
-                self.induced_poloidal_potential_feedback_operator.to_matrix()
-            )
-            logger.info("Dense induction operator built.")
-        return self._induced_poloidal_potential_feedback_matrix
+        return self.induced_poloidal_potential_feedback_operator.to_matrix()
 
     @property
     def induced_poloidal_potential_feedback_operator(self) -> LinearMap:
@@ -799,33 +769,18 @@ class ElectrodynamicResponse:
     @property
     def noninductive_E_df_to_equilibrium_induced_poloidal_potential_matrix(self) -> np.ndarray:
         """Return the private equilibrium potential response."""
-        if self._noninductive_E_df_to_equilibrium_induced_poloidal_potential_matrix is None:
-            operator = self.noninductive_E_df_to_equilibrium_induced_poloidal_potential_operator
-            self._noninductive_E_df_to_equilibrium_induced_poloidal_potential_matrix = (
-                operator.to_matrix()
-            )
-        return self._noninductive_E_df_to_equilibrium_induced_poloidal_potential_matrix
+        return (
+            self.noninductive_E_df_to_equilibrium_induced_poloidal_potential_operator.to_matrix()
+        )
 
     @property
     def noninductive_E_df_to_equilibrium_induced_poloidal_potential_operator(self) -> LinearMap:
         """Map non-inductive E_df to private equilibrium potential."""
         if self._noninductive_E_df_to_equilibrium_induced_poloidal_potential_operator is None:
-            if (
-                self._noninductive_E_df_to_equilibrium_induced_poloidal_potential_matrix
-                is not None
-            ):
-                self._noninductive_E_df_to_equilibrium_induced_poloidal_potential_operator = (
-                    as_linear_map(
-                        self._noninductive_E_df_to_equilibrium_induced_poloidal_potential_matrix
-                    )
-                )
-                return self._noninductive_E_df_to_equilibrium_induced_poloidal_potential_operator
-
-            array_module = get_array_module(self.induced_poloidal_potential_feedback_matrix)
+            feedback_matrix = self.induced_poloidal_potential_feedback_matrix
+            array_module = get_array_module(feedback_matrix)
             feedback_pinv = synchronize_linalg_result(
-                array_module.linalg.pinv(
-                    self.induced_poloidal_potential_feedback_matrix, rtol=1e-15
-                )
+                array_module.linalg.pinv(feedback_matrix, rtol=1e-15)
             )
             poloidal_size = self.geometry.poloidal_basis.index_length
             equilibrium_poloidal_response = as_linear_map(
