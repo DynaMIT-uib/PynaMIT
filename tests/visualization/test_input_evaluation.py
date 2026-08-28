@@ -48,7 +48,7 @@ def test_evaluate_projected_input_accepts_saved_results(tmp_path):
     values = evaluate_projected_input(results, "boundary_jr", 0.0)
 
     assert values["boundary_jr"].shape == (preparation.model_grid.size,)
-    assert results.geometry is None
+    assert results._geometry is None
 
 
 def test_input_preparation_builds_full_geometry_only_on_request(tmp_path):
@@ -147,7 +147,7 @@ def test_evaluate_projected_tangential_input_returns_components(tmp_path):
     df_coeffs = np.zeros(coeff_length)
     cf_coeffs[0] = 1.0
     df_coeffs[0] = 0.5
-    simulation.set_neutral_wind(u_cf=cf_coeffs, u_df=df_coeffs, time=0.0)
+    simulation.set_neutral_wind(u_coefficients=np.stack((cf_coeffs, df_coeffs)), time=0.0)
 
     values = evaluate_projected_input(simulation, "u", 0.0)
 

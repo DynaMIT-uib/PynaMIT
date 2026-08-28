@@ -18,9 +18,8 @@ from pynamit.plotting.hemisphere import (
     hemisphere_masks_for_latitude,
     make_hemisphere_polarplot,
 )
-from pynamit.plotting.map_coordinates import MapCoordinateContext
+from pynamit.plotting.map_coordinates import MapCoordinateContext, model_grid_from_geographic
 from pynamit.plotting.plot_helpers import style_global_axis
-from pynamit.results.evaluation import model_grid_for_geographic_display
 from pynamit.results.output_fields import evaluate_output_coefficients, output_at_current_time
 
 
@@ -201,7 +200,7 @@ def plot_output_quicklook(
     latitude = np.linspace(-89.9, 89.9, NLA)
     longitude = np.linspace(-180.0, 180.0, NLO)
     geographic_lat, geographic_lon = map(np.ravel, np.meshgrid(latitude, longitude))
-    global_grid = model_grid_for_geographic_display(
+    global_grid = model_grid_from_geographic(
         simulation.geometry.main_field, geographic_lat, geographic_lon, event_time=plot_time
     )
     global_transform = SphericalTransform(simulation.geometry.horizontal_basis, global_grid)

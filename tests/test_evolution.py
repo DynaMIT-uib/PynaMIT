@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 import xarray as xr
-from kompe.math import as_linear_map, set_backend, use_jax
+from kompe.math import as_linear_map, get_backend, set_backend
 
 from pynamit.simulation.electrodynamics import induction
 from pynamit.simulation.evolution import _TimeEvolution
@@ -22,7 +22,7 @@ class _FakeResponse:
         return None
 
     @staticmethod
-    def calculate_noninductive_response():
+    def solve_noninductive_response():
         return np.zeros((2, 1)), np.zeros(1)
 
 
@@ -201,7 +201,7 @@ def test_exponential_step_stays_on_explicit_jax_backend(backend, data_source, mo
     def fail_host_transfer(_array):
         raise AssertionError("the JAX exponential path must not transfer to NumPy")
 
-    previous_backend = use_jax()
+    previous_backend = get_backend()
     try:
         set_backend("numpy")
         monkeypatch.setattr(induction, "to_numpy", fail_host_transfer)
@@ -254,10 +254,10 @@ def test_output_snapshot_stays_on_jax_until_storage_boundary(backend, data_sourc
     geometry = SimpleNamespace(
         helmholtz_curl_free_potential_operator=curl_free,
         helmholtz_divergence_free_potential_operator=divergence_free,
+        horizontal_basis=SimpleNamespace(project_helmholtz_mean_free=lambda values: values),
     )
     response = SimpleNamespace(
-        calculate_induced_response=lambda _induced: (jnp.zeros((2, 1)), jnp.zeros(1)),
-        project_helmholtz_mean_free=lambda values: values,
+        solve_induced_response=lambda _induced: (jnp.zeros((2, 1)), jnp.zeros(1))
     )
     simulation = SimpleNamespace(
         response=response,

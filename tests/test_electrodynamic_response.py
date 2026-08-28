@@ -11,8 +11,8 @@ from kompe.math import (
     as_linear_map,
     einsum_linear_map,
     get_array_module,
+    get_backend,
     set_backend,
-    use_jax,
 )
 
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
@@ -53,7 +53,7 @@ def test_toroidal_potential_solvers_match_the_direct_physical_solution(
     rhs_entries = [None] * problem.num_data_terms
     rhs_entries[0] = geometry.radial_current_constraint_operator.matvec(boundary_jr)
     rhs, _, _ = problem.assemble_rhs_block(rhs_entries)
-    system = problem.system_operator().to_matrix(backend="numpy")
+    system = problem.system_operator.to_matrix(backend="numpy")
     expected_potential = np.linalg.lstsq(system, np.asarray(rhs), rcond=None)[0]
 
     potential = response._solve_toroidal_potential_response(rhs_entries)
@@ -73,7 +73,7 @@ def test_apply_operator_keeps_linear_map_on_jax():
     """Response application should use LinearMap directly."""
     import jax.numpy as jnp
 
-    previous_backend = use_jax()
+    previous_backend = get_backend()
     matrix = np.array([[1.0, 2.0], [3.0, 5.0]])
     coeffs = jnp.asarray([7.0, 11.0])
     operator = einsum_linear_map(
@@ -100,7 +100,7 @@ def test_u_coeffs_to_E_coeffs_is_linear_map_on_jax():
     """Wind-to-E is exposed as a shaped LinearMap."""
     import jax.numpy as jnp
 
-    previous_backend = use_jax()
+    previous_backend = get_backend()
     n = 3
     helmholtz_analysis = np.arange(2 * n * 2 * 4, dtype=float).reshape(2, n, 2, 4) / 10.0
     bu = np.arange(2 * 2 * 4, dtype=float).reshape(2, 2, 4) / 20.0
@@ -113,7 +113,9 @@ def test_u_coeffs_to_E_coeffs_is_linear_map_on_jax():
 
     response = object.__new__(ElectrodynamicResponse)
     response.geometry = SimpleNamespace(
-        horizontal_basis=SimpleNamespace(index_length=n),
+        horizontal_basis=SimpleNamespace(
+            index_length=n, project_scalar_mean_free=lambda coeffs: coeffs
+        ),
         helmholtz_analysis_operator=as_linear_map(
             jnp.asarray(helmholtz_analysis), input_shape=(2, 4), output_shape=(2, n)
         ),
@@ -124,11 +126,11 @@ def test_u_coeffs_to_E_coeffs_is_linear_map_on_jax():
             )
         ),
     )
-    response._u_coeffs_to_E_coeffs_cache = None
+    response._u_coeffs_to_E_coeffs_operator_cache = None
 
     try:
         set_backend("jax")
-        operator = response.u_coeffs_to_E_coeffs
+        operator = response.u_coeffs_to_E_coeffs_operator
         result = ElectrodynamicResponse._apply_operator(operator, jnp.asarray(coeffs), (2, n))
     finally:
         set_backend(previous_backend)
@@ -169,10 +171,10 @@ def test_Q_eff_coeffs_to_E_coeffs_uses_resistance_tensor_operator():
     )
     response.Q_eff = SimpleNamespace(field_space=SimpleNamespace(basis=q_representation))
     response._Q_eff_synthesis_operator_cache = None
-    response._Q_eff_to_E_coeffs_cache = None
+    response._Q_eff_to_E_coeffs_operator_cache = None
     response._resistance_tensor_on_grid = M_total
 
-    operator = response.Q_eff_to_E_coeffs
+    operator = response.Q_eff_to_E_coeffs_operator
     result = ElectrodynamicResponse._apply_operator(operator, coeffs, (2, n))
 
     assert isinstance(operator, LinearMap)
@@ -186,7 +188,7 @@ def test_induction_matrix_assembly_stays_on_jax():
     """Dense induction assembly should not bounce through NumPy."""
     import jax.numpy as jnp
 
-    previous_backend = use_jax()
+    previous_backend = get_backend()
     n = 3
     divergence_free_potential = np.arange(n * 2 * n, dtype=float).reshape(n, 2, n) / 10.0
     driving_E_matrix = np.arange(2 * n * n, dtype=float).reshape(2, n, n) / 20.0
@@ -208,7 +210,7 @@ def test_induction_matrix_assembly_stays_on_jax():
             jnp.asarray(divergence_free_potential), input_shape=(2, n), output_shape=(n,)
         ),
     )
-    response._induced_poloidal_potential_to_E_coeffs_cache = einsum_linear_map(
+    response._induced_poloidal_potential_to_E_coeffs_operator_cache = einsum_linear_map(
         component_tensors=[jnp.asarray(driving_E_matrix)],
         einsum_string_dense="cml->cml",
         einsum_string_matvec="cml,l->cm",
@@ -216,7 +218,7 @@ def test_induction_matrix_assembly_stays_on_jax():
         output_shape=(2, n),
         input_shape=(n,),
     )
-    response._toroidal_potential_to_E_coeffs_cache = einsum_linear_map(
+    response._toroidal_potential_to_E_coeffs_operator_cache = einsum_linear_map(
         component_tensors=[jnp.asarray(E_imp_matrix)],
         einsum_string_dense="cml->cml",
         einsum_string_matvec="cml,l->cm",
@@ -230,10 +232,8 @@ def test_induction_matrix_assembly_stays_on_jax():
         jnp.asarray(driving_E_to_toroidal_potential), input_shape=(2, n), output_shape=(n,)
     )
     response._driving_E_to_total_E_operator = None
-    response._driving_E_to_E_df_operator = None
-    response._induced_poloidal_potential_to_E_df_operator_cache = as_linear_map(
-        jnp.asarray(expected)
-    )
+    response._driving_E_to_W_operator = None
+    response._induced_poloidal_potential_to_W_operator_cache = as_linear_map(jnp.asarray(expected))
     response._induced_poloidal_potential_feedback_operator = None
     response.config = SimpleNamespace(enable_interhemispheric_coupling=True)
     response._interhemispheric_electric_field_constraint_cache = _dummy_constraint_map()
@@ -253,7 +253,7 @@ def test_equilibrium_operator_preserves_jax_matrix():
     """Equilibrium map should use LinearMap without forcing NumPy."""
     import jax.numpy as jnp
 
-    previous_backend = use_jax()
+    previous_backend = get_backend()
     matrix = np.array([[1.0, 2.0], [3.0, 5.0]])
     coeffs = np.array([7.0, 11.0])
 
@@ -263,14 +263,12 @@ def test_equilibrium_operator_preserves_jax_matrix():
         surface_to_poloidal_operator=as_linear_map(jnp.eye(2)),
     )
     response._induced_poloidal_potential_feedback_operator = as_linear_map(-jnp.linalg.inv(matrix))
-    response._noninductive_E_df_to_equilibrium_induced_poloidal_potential_operator = None
+    response._noninductive_W_to_equilibrium_induced_poloidal_potential_operator = None
 
     try:
         set_backend("jax")
-        result = (
-            response.noninductive_E_df_to_equilibrium_induced_poloidal_potential_operator.matvec(
-                jnp.asarray(coeffs)
-            )
+        result = response.noninductive_W_to_equilibrium_induced_poloidal_potential_operator.matvec(
+            jnp.asarray(coeffs)
         )
     finally:
         set_backend(previous_backend)
@@ -295,10 +293,10 @@ def test_equilibrium_operator_keeps_cross_space_bridge_structured():
     surface_operator = LinearMap(
         shape=surface_matrix.shape,
         dtype=surface_matrix.dtype,
-        _matvec=apply_surface,
-        _rmatvec=apply_surface_adjoint,
-        _matmat=apply_surface,
-        _rmatmat=apply_surface_adjoint,
+        matvec=apply_surface,
+        rmatvec=apply_surface_adjoint,
+        matmat=apply_surface,
+        rmatmat=apply_surface_adjoint,
         input_shape=(5,),
         output_shape=(2,),
     )
@@ -308,17 +306,17 @@ def test_equilibrium_operator_keeps_cross_space_bridge_structured():
         surface_to_poloidal_operator=surface_operator,
     )
     response._induced_poloidal_potential_feedback_operator = as_linear_map(feedback_matrix)
-    response._noninductive_E_df_to_equilibrium_induced_poloidal_potential_operator = None
+    response._noninductive_W_to_equilibrium_induced_poloidal_potential_operator = None
 
     probe = np.linspace(-1.0, 1.0, 5)
-    operator = response.noninductive_E_df_to_equilibrium_induced_poloidal_potential_operator
+    operator = response.noninductive_W_to_equilibrium_induced_poloidal_potential_operator
     actual = operator.matvec(probe)
     expected = -np.linalg.pinv(feedback_matrix, rtol=1e-15) @ surface_matrix @ probe
 
     assert surface_operator._cached_dense(np) is None
     np.testing.assert_allclose(actual, expected, rtol=1e-13, atol=1e-13)
 
-    explicit = response.noninductive_E_df_to_equilibrium_induced_poloidal_potential_matrix
+    explicit = response.noninductive_W_to_equilibrium_induced_poloidal_potential_matrix
     expected_matrix = -np.linalg.pinv(feedback_matrix, rtol=1e-15) @ surface_matrix
     np.testing.assert_allclose(explicit, expected_matrix, rtol=1e-13, atol=1e-13)
 
@@ -334,7 +332,9 @@ def test_toroidal_potential_runtime_solve_uses_one_physical_rhs():
 
     response = object.__new__(ElectrodynamicResponse)
     response.geometry = SimpleNamespace(
-        horizontal_basis=SimpleNamespace(index_length=n),
+        horizontal_basis=SimpleNamespace(
+            index_length=n, project_scalar_mean_free=lambda values: values
+        ),
         radial_current_constraint_operator=as_linear_map(radial_current_constraint),
         interhemispheric_electric_field_difference_operator=as_linear_map(
             electric_field_difference, input_shape=(2, n), output_shape=(n,)
@@ -342,7 +342,6 @@ def test_toroidal_potential_runtime_solve_uses_one_physical_rhs():
     )
     response._toroidal_potential_problem_cache = SimpleNamespace(num_data_terms=2)
     response._interhemispheric_electric_field_constraint_cache = _dummy_constraint_map()
-    response.project_surface_scalar_mean_free = lambda coeffs: coeffs
     response.config = SimpleNamespace(
         enable_interhemispheric_coupling=True, interhemispheric_electric_field_weight=weight
     )
@@ -407,7 +406,7 @@ def test_induced_poloidal_potential_E_response_solves_only_poloidal_source_colum
     response._toroidal_potential_problem_cache = SimpleNamespace(
         num_data_terms=2, A=[SimpleNamespace(), SimpleNamespace(output_shape=(n_constraint,))]
     )
-    response._toroidal_potential_to_E_coeffs_cache = as_linear_map(
+    response._toroidal_potential_to_E_coeffs_operator_cache = as_linear_map(
         toroidal_potential_to_E, input_shape=(n_surface,), output_shape=(2, n_surface)
     )
     response.config = SimpleNamespace(
@@ -422,7 +421,7 @@ def test_induced_poloidal_potential_E_response_solves_only_poloidal_source_colum
         return solved_toroidal_potential
 
     response._solve_toroidal_potential_response = solve_response
-    operator = response._create_driving_source_to_E_df_operator(
+    operator = response._create_driving_source_to_W_operator(
         as_linear_map(source, input_shape=(n_poloidal,), output_shape=(2, n_surface))
     )
 
@@ -464,7 +463,7 @@ def test_toroidal_potential_problem_uses_radial_current_constraint_operator_dire
     problem = response._toroidal_potential_problem
 
     np.testing.assert_allclose(
-        problem.system_operator().to_matrix(backend="numpy"),
+        problem.system_operator.to_matrix(backend="numpy"),
         radial_current_constraint @ toroidal_potential_to_boundary_jr,
     )
 
@@ -488,7 +487,7 @@ def test_interhemispheric_constraint_uses_geometry_operator_without_dense_proper
 
     response = object.__new__(ElectrodynamicResponse)
     response.geometry = GeometryStub()
-    response._toroidal_potential_to_E_coeffs_cache = as_linear_map(
+    response._toroidal_potential_to_E_coeffs_operator_cache = as_linear_map(
         toroidal_potential_to_E, input_shape=(n,), output_shape=(2, n)
     )
     response._interhemispheric_electric_field_constraint_cache = None
@@ -582,7 +581,7 @@ def test_resistance_tensor_rejects_incompatible_conductance_storage_bases():
 
 
 def test_model_operator_accessors_match_runtime_operator_chain():
-    """Dense accessors should expose the same E_df/rate operators."""
+    """Dense accessors should expose the same W/rate operators."""
     n = 3
     divergence_free_potential = np.arange(n * 2 * n, dtype=float).reshape(n, 2, n) / 10.0
     u_to_E = np.arange(2 * n * 2 * n, dtype=float).reshape(2, n, 2, n) / 20.0
@@ -602,7 +601,7 @@ def test_model_operator_accessors_match_runtime_operator_chain():
         induced_poloidal_potential_to_Br_operator=as_linear_map(np.eye(n)),
         induced_poloidal_potential_faraday_rate_scale=scale,
     )
-    response._u_coeffs_to_E_coeffs_cache = einsum_linear_map(
+    response._u_coeffs_to_E_coeffs_operator_cache = einsum_linear_map(
         component_tensors=[u_to_E],
         einsum_string_dense="cmrs->cmrs",
         einsum_string_matvec="cmrs,rs->cm",
@@ -610,7 +609,7 @@ def test_model_operator_accessors_match_runtime_operator_chain():
         output_shape=(2, n),
         input_shape=(2, n),
     )
-    response._toroidal_potential_to_E_coeffs_cache = einsum_linear_map(
+    response._toroidal_potential_to_E_coeffs_operator_cache = einsum_linear_map(
         component_tensors=[toroidal_potential_to_E],
         einsum_string_dense="cml->cml",
         einsum_string_matvec="cml,l->cm",
@@ -619,18 +618,18 @@ def test_model_operator_accessors_match_runtime_operator_chain():
         input_shape=(n,),
     )
     response._runtime_toroidal_potential_to_E_coeffs_cache = None
-    response._boundary_Br_to_E_coeffs_cache = None
+    response._boundary_Br_to_E_coeffs_operator_cache = None
     response._boundary_jr_to_toroidal_potential_operator = as_linear_map(
         boundary_jr_to_toroidal_potential, input_shape=(n,), output_shape=(n,)
     )
     response._driving_E_to_toroidal_potential_operator = as_linear_map(
         driving_E_to_toroidal_potential, input_shape=(2, n), output_shape=(n,)
     )
-    response._induced_poloidal_potential_to_E_coeffs_cache = as_linear_map(
+    response._induced_poloidal_potential_to_E_coeffs_operator_cache = as_linear_map(
         induced_poloidal_potential_to_E, input_shape=(n,), output_shape=(2, n)
     )
     response._driving_E_to_total_E_operator = None
-    response._driving_E_to_E_df_operator = None
+    response._driving_E_to_W_operator = None
     response.Q_eff = None
     response.E_neutral_wind = None
     response.config = SimpleNamespace(enable_interhemispheric_coupling=True)
@@ -643,22 +642,13 @@ def test_model_operator_accessors_match_runtime_operator_chain():
     driving_E_to_total_E = np.eye(2 * n) + toroidal_potential_to_E_matrix @ driving_E_feedback
     induced_poloidal_potential_to_E_matrix = induced_poloidal_potential_to_E.reshape(2 * n, n)
 
-    expected_edf = {
-        "E_df_from_u": D @ driving_E_to_total_E @ U,
-        "E_df_from_boundary_jr": (
-            D @ toroidal_potential_to_E_matrix @ boundary_jr_to_toroidal_potential
-        ),
-        "E_df_from_induced_Br": (
-            D @ driving_E_to_total_E @ induced_poloidal_potential_to_E_matrix
-        ),
+    expected_W = {
+        "u": D @ driving_E_to_total_E @ U,
+        "boundary_jr": (D @ toroidal_potential_to_E_matrix @ boundary_jr_to_toroidal_potential),
+        "induced_Br": (D @ driving_E_to_total_E @ induced_poloidal_potential_to_E_matrix),
     }
-    expected_rates = {
-        key.replace("E_df_from_", "d_induced_Br_dt_from_"): scale * value
-        for key, value in expected_edf.items()
-    }
-    response._induced_Br_to_E_df_operator_cache = as_linear_map(
-        expected_edf["E_df_from_induced_Br"]
-    )
+    expected_rates = {key: scale * value for key, value in expected_W.items()}
+    response._induced_Br_to_W_operator_cache = as_linear_map(expected_W["induced_Br"])
 
     response.geometry.poloidal_basis = response.geometry.horizontal_basis
     runtime_toroidal_potential_to_E = response._runtime_toroidal_potential_to_E_coeffs
@@ -669,31 +659,29 @@ def test_model_operator_accessors_match_runtime_operator_chain():
         toroidal_potential_to_E_matrix @ np.arange(n, dtype=float),
     )
 
-    edf_matrices = response.E_df_matrices(include_boundary_Br=False)
-    rate_matrices = response.induced_Br_rate_matrices(include_boundary_Br=False)
+    W_matrices = response.source_to_W_matrices(include_boundary_Br=False)
+    rate_matrices = response.source_to_induced_Br_rate_matrices(include_boundary_Br=False)
 
     assert isinstance(response._driving_E_to_total_E_operator, LinearMap)
-    assert set(edf_matrices) == set(expected_edf)
+    assert set(W_matrices) == set(expected_W)
     assert set(rate_matrices) == set(expected_rates)
-    for key, expected in expected_edf.items():
-        np.testing.assert_allclose(edf_matrices[key], expected)
+    for key, expected in expected_W.items():
+        np.testing.assert_allclose(W_matrices[key], expected)
     for key, expected in expected_rates.items():
         np.testing.assert_allclose(rate_matrices[key], expected)
 
     sample = np.arange(2 * n, dtype=float)
-    operators = response.E_df_operators(include_boundary_Br=False)
-    np.testing.assert_allclose(
-        operators["E_df_from_u"].matvec(sample), expected_edf["E_df_from_u"] @ sample
-    )
+    operators = response.source_to_W_operators(include_boundary_Br=False)
+    np.testing.assert_allclose(operators["u"].matvec(sample), expected_W["u"] @ sample)
 
-    scipy_operator = operators["E_df_from_u"].as_linear_operator()
-    np.testing.assert_allclose(scipy_operator.matvec(sample), expected_edf["E_df_from_u"] @ sample)
+    scipy_operator = operators["u"].as_linear_operator()
+    np.testing.assert_allclose(scipy_operator.matvec(sample), expected_W["u"] @ sample)
 
 
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
 def test_model_matrix_accessors_accept_explicit_jax_backend():
     """Dense model accessors should accept backend='jax'."""
-    previous_backend = use_jax()
+    previous_backend = get_backend()
     n = 2
     response = object.__new__(ElectrodynamicResponse)
     response.geometry = SimpleNamespace(
@@ -708,7 +696,7 @@ def test_model_matrix_accessors_accept_explicit_jax_backend():
         induced_Br_to_poloidal_potential_operator=as_linear_map(np.eye(n)),
         induced_poloidal_potential_faraday_rate_scale=1.0,
     )
-    response._u_coeffs_to_E_coeffs_cache = einsum_linear_map(
+    response._u_coeffs_to_E_coeffs_operator_cache = einsum_linear_map(
         component_tensors=[np.ones((2, n, 2, n))],
         einsum_string_dense="cmrs->cmrs",
         einsum_string_matvec="cmrs,rs->cm",
@@ -716,7 +704,7 @@ def test_model_matrix_accessors_accept_explicit_jax_backend():
         output_shape=(2, n),
         input_shape=(2, n),
     )
-    response._toroidal_potential_to_E_coeffs_cache = einsum_linear_map(
+    response._toroidal_potential_to_E_coeffs_operator_cache = einsum_linear_map(
         component_tensors=[np.ones((2, n, n))],
         einsum_string_dense="cml->cml",
         einsum_string_matvec="cml,l->cm",
@@ -724,16 +712,16 @@ def test_model_matrix_accessors_accept_explicit_jax_backend():
         output_shape=(2, n),
         input_shape=(n,),
     )
-    response._boundary_Br_to_E_coeffs_cache = None
+    response._boundary_Br_to_E_coeffs_operator_cache = None
     response._boundary_jr_to_toroidal_potential_operator = as_linear_map(np.eye(n))
     response._driving_E_to_toroidal_potential_operator = None
-    response._induced_poloidal_potential_to_E_coeffs_cache = as_linear_map(
+    response._induced_poloidal_potential_to_E_coeffs_operator_cache = as_linear_map(
         np.ones((2, n, n)), input_shape=(n,), output_shape=(2, n)
     )
     response._driving_E_to_total_E_operator = None
-    response._driving_E_to_E_df_operator = None
-    response._induced_poloidal_potential_to_E_df_operator_cache = None
-    response._induced_Br_to_E_df_operator_cache = None
+    response._driving_E_to_W_operator = None
+    response._induced_poloidal_potential_to_W_operator_cache = None
+    response._induced_Br_to_W_operator_cache = None
     response.Q_eff = None
     response.E_neutral_wind = None
     response.config = SimpleNamespace(enable_interhemispheric_coupling=False)
@@ -741,7 +729,7 @@ def test_model_matrix_accessors_accept_explicit_jax_backend():
 
     try:
         set_backend("numpy")
-        matrices = response.E_df_matrices(include_boundary_Br=False, backend="jax")
+        matrices = response.source_to_W_matrices(include_boundary_Br=False, backend="jax")
     finally:
         set_backend(previous_backend)
 

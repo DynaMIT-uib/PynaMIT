@@ -37,10 +37,10 @@ def induced_Br_time_derivative(response, induced_Br, E_coeffs_noninductive):
 
 def equilibrium_induced_Br(response, E_coeffs_noninductive):
     """Return induced Br for zero Faraday time derivative."""
-    E_noninductive_df = response.geometry.helmholtz_divergence_free_potential_operator.matvec(
+    W_noninductive = response.geometry.helmholtz_divergence_free_potential_operator.matvec(
         E_coeffs_noninductive
     )
-    return response.noninductive_E_df_to_equilibrium_induced_Br_operator.matvec(E_noninductive_df)
+    return response.noninductive_W_to_equilibrium_induced_Br_operator.matvec(W_noninductive)
 
 
 def poloidal_potential_exponential_propagator(response, dt, *, feedback_matrix=None):
@@ -104,11 +104,11 @@ def evolve_induced_Br(
 
     logger.debug("Using scipy.solve_ivp with method=%r.", integrator)
     feedback = response.induced_poloidal_potential_feedback_operator.to_matrix(backend="numpy")
-    E_noninductive_df = to_numpy(
+    W_noninductive = to_numpy(
         geometry.helmholtz_divergence_free_potential_operator.matvec(backend_E_noninductive)
     )
     poloidal_W_noninductive = to_numpy(
-        geometry.surface_to_poloidal_operator.matvec(E_noninductive_df)
+        geometry.surface_to_poloidal_operator.matvec(W_noninductive)
     )
     rate_scale = float(geometry.induced_poloidal_potential_faraday_rate_scale)
 

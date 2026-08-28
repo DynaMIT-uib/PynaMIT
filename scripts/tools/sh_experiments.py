@@ -78,14 +78,20 @@ if False:
         ubasis.scalar_evaluation_matrix(ugrid, derivative="phi"),
         ubasis.scalar_evaluation_matrix(ugrid, derivative="theta"),
     )
-    G_df = np.vstack((-Gphi, Gtheta))  # u_df = r x grad()
-    G_cf = np.vstack((Gtheta, Gphi))  # u_cf = grad()
+    divergence_free_potential_matrix = np.vstack((-Gphi, Gtheta))
+    curl_free_potential_matrix = np.vstack((Gtheta, Gphi))
 
     d = np.hstack((u_theta.flatten(), u_phi.flatten()))
-    u_coeffs = np.linalg.lstsq(np.hstack((G_df, G_cf)), d, rcond=0)[0]
-    u_coeff_df, u_coeff_cf = np.split(u_coeffs, 2)
+    potential_coefficients = np.linalg.lstsq(
+        np.hstack((curl_free_potential_matrix, divergence_free_potential_matrix)), d, rcond=0
+    )[0]
+    curl_free_coefficients, divergence_free_coefficients = np.split(potential_coefficients, 2)
 
-    misfit = G_df.dot(u_coeff_df) + G_cf.dot(u_coeff_cf) - d
+    misfit = (
+        divergence_free_potential_matrix.dot(divergence_free_coefficients)
+        + curl_free_potential_matrix.dot(curl_free_coefficients)
+        - d
+    )
     print(f"rms misfit for fitted wind field is {np.sqrt(np.mean(misfit**2)):.5f} m/s")
 
     # Get IGRF gauss coefficients.

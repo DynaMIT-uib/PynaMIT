@@ -75,14 +75,14 @@ def build_simulation(
 
 
 def fetch_model_dense_matrices(
-    simulation: Simulation, *, df_only: bool = False, include_boundary_Br: bool = True
+    simulation: Simulation, *, w_only: bool = False, include_boundary_Br: bool = True
 ) -> dict[str, np.ndarray]:
     """Return dense matrices from the active simulation response."""
     response = simulation.response
     matrices = (
-        response.E_df_matrices(include_boundary_Br=include_boundary_Br)
-        if df_only
-        else response.induced_Br_rate_matrices(include_boundary_Br=include_boundary_Br)
+        response.source_to_W_matrices(include_boundary_Br=include_boundary_Br)
+        if w_only
+        else response.source_to_induced_Br_rate_matrices(include_boundary_Br=include_boundary_Br)
     )
     return {
         key: np.asarray(to_numpy(block_until_ready(matrix))) for key, matrix in matrices.items()
@@ -90,16 +90,7 @@ def fetch_model_dense_matrices(
 
 
 def _print_summary(matrices: dict[str, np.ndarray]) -> None:
-    order = (
-        "d_induced_Br_dt_from_u",
-        "d_induced_Br_dt_from_boundary_jr",
-        "d_induced_Br_dt_from_boundary_Br",
-        "d_induced_Br_dt_from_induced_Br",
-        "E_df_from_u",
-        "E_df_from_boundary_jr",
-        "E_df_from_boundary_Br",
-        "E_df_from_induced_Br",
-    )
+    order = ("u", "Q_eff", "E_neutral_wind", "boundary_jr", "boundary_Br", "induced_Br")
     for key in [key for key in order if key in matrices]:
         matrix = np.asarray(matrices[key])
         print(
@@ -169,7 +160,9 @@ def main() -> None:
         help="Optional .npz path for saving the extracted dense matrices.",
     )
     parser.add_argument(
-        "--df-only", action="store_true", help="Return E_df maps instead of d(induced_Br)/dt maps."
+        "--w-only",
+        action="store_true",
+        help="Return source-to-W maps instead of source-to-d(induced_Br)/dt maps.",
     )
     parser.add_argument(
         "--exclude-br",
@@ -192,7 +185,7 @@ def main() -> None:
         least_squares_solver=args.least_squares_solver,
     )
     matrices = fetch_model_dense_matrices(
-        simulation, df_only=bool(args.df_only), include_boundary_Br=not bool(args.exclude_br)
+        simulation, w_only=bool(args.w_only), include_boundary_Br=not bool(args.exclude_br)
     )
     _print_summary(matrices)
 

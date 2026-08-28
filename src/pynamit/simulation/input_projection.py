@@ -11,12 +11,10 @@ from kompe.spherical_transform import SphericalTransform
 
 from pynamit.geomagnetism import MagneticFieldEvaluation
 from pynamit.simulation.electrodynamics import ionospheric_closure
-from pynamit.simulation.schema import INPUT_VARIABLES
+from pynamit.simulation.schema import INPUT_VARIABLES, WIND_FORCING_INPUTS
 
 if TYPE_CHECKING:
     from pynamit.simulation.input_preparation import InputPreparation
-
-_WIND_FORCING_KEYS = frozenset({"u", "Q_eff", "E_neutral_wind"})
 
 
 class _InputProjector:
@@ -26,14 +24,13 @@ class _InputProjector:
         self.preparation = preparation
         self._projection_transforms = {}
 
-    def projection_transform_for(self, key: str) -> SphericalTransform:
+    def projection_transform(self, key: str) -> SphericalTransform:
         """Return the shared projection transform for one input."""
         basis = self.preparation.data.schema.input_field_spaces[key].basis
         if basis not in self._projection_transforms:
             self._projection_transforms[basis] = SphericalTransform(
                 basis,
                 self.preparation.model_grid,
-                remapping_basis=self.preparation.data.schema.cs_basis,
                 area_weighted=self.preparation.config.area_weighted_least_squares,
             )
         return self._projection_transforms[basis]
@@ -97,11 +94,11 @@ class _InputProjector:
 
     def require_no_exclusive_conflict(self, key: str) -> None:
         """Reject mutually exclusive input streams."""
-        if key not in _WIND_FORCING_KEYS:
+        if key not in WIND_FORCING_INPUTS:
             return
         present = [
             other
-            for other in sorted(_WIND_FORCING_KEYS - {key})
+            for other in sorted(WIND_FORCING_INPUTS - {key})
             if other in self.preparation.data.input_series.datasets
         ]
         if present:
@@ -184,8 +181,7 @@ class _InputProjector:
         *,
         theta_component,
         phi_component,
-        cf_coefficients,
-        df_coefficients,
+        coefficients,
         sample_label: str,
         coefficient_label: str,
         lat=None,
@@ -199,7 +195,7 @@ class _InputProjector:
     ) -> None:
         """Validate, project, and store one tangential input stream."""
         self.require_no_exclusive_conflict(key)
-        if cf_coefficients is not None or df_coefficients is not None:
+        if coefficients is not None:
             self.validate_only_coefficients(
                 coefficient_label,
                 lat=lat,
@@ -209,14 +205,23 @@ class _InputProjector:
                 sqrt_weights=sqrt_weights,
                 reg_lambda=reg_lambda,
             )
-            self.require_complete_values(
-                coefficient_label, **{f"{key}_cf": cf_coefficients, f"{key}_df": df_coefficients}
-            )
             self.require_no_sample_values(
                 coefficient_label, **{f"{key}_theta": theta_component, f"{key}_phi": phi_component}
             )
-            input_data = self.tangential_input_data(key, cf_coefficients, df_coefficients)
-            self.add_input_coefficients(key, input_data, time)
+            field_space = self.preparation.data.schema.input_field_spaces[key]
+            xp = get_array_module(coefficients)
+            coefficient_rows = xp.asarray(coefficients)
+            if coefficient_rows.shape == field_space.coefficient_shape:
+                coefficient_rows = coefficient_rows.reshape((1, *field_space.coefficient_shape))
+            elif (
+                coefficient_rows.ndim != len(field_space.coefficient_shape) + 1
+                or coefficient_rows.shape[1:] != field_space.coefficient_shape
+            ):
+                raise ValueError(
+                    f"{coefficient_label} must have shape {field_space.coefficient_shape} "
+                    f"for one time or (time, {', '.join(map(str, field_space.coefficient_shape))})."
+                )
+            self.add_input_coefficients(key, {key: coefficient_rows}, time)
             return
 
         self.require_complete_values(
@@ -255,7 +260,7 @@ class _InputProjector:
         input_data = self.tangential_input_data(key, theta_component, phi_component)
         input_time = self.resolve_input_times(time, input_data)
         input_grid = SphericalGrid(lat=lat, lon=lon, theta=theta, phi=phi)
-        coeff_rows = self.projection_transform_for(key).analyze_helmholtz_samples(
+        coeff_rows = self.projection_transform(key).analyze_helmholtz_samples(
             input_data[key],
             input_grid=input_grid,
             analysis_basis=self.preparation.data.schema.input_projection_bases[key],
@@ -302,7 +307,7 @@ class _InputProjector:
         Q_eff_to_E_operator = None
         for time_value, wind_coeffs in zip(input_time, wind_coeff_rows, strict=True):
             response.activate_inputs_at_time(self.preparation.data.input_series, time_value)
-            E_wind_coeffs = response.u_coeffs_to_E_coeffs.matvec(wind_coeffs)
+            E_wind_coeffs = response.u_coeffs_to_E_coeffs_operator.matvec(wind_coeffs)
             resistance_tensor = response.resistance_tensor_on_grid
             if resistance_tensor is not cached_resistance_tensor:
                 cached_resistance_tensor = resistance_tensor
@@ -337,7 +342,7 @@ class _InputProjector:
         """Project gridded input data and store coefficient entries."""
         input_time = self.resolve_input_times(time, input_data)
         input_grid = SphericalGrid(lat=lat, lon=lon, theta=theta, phi=phi)
-        transform = self.projection_transform_for(key)
+        transform = self.projection_transform(key)
         field_space = self.preparation.data.schema.input_field_spaces[key]
         if field_space.field_type == "scalar" and len(input_data) > 1:
             projected_data = self.project_scalar_input_variables(
@@ -383,7 +388,7 @@ class _InputProjector:
         pinv_rtol=1e-15,
     ) -> dict[str, Any]:
         """Project scalar input variables in one batched transform."""
-        transform = self.projection_transform_for(key)
+        transform = self.projection_transform(key)
         normalized = {
             var: transform.as_scalar_sample_rows(values, input_grid)
             for var, values in input_data.items()

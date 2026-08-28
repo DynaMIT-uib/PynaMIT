@@ -14,8 +14,11 @@ from kompe import SphericalTransform
 from pynamit.coordinates import GEOCENTRIC_GEOGRAPHIC
 from pynamit.geomagnetism import MagneticFieldEvaluation
 from pynamit.plotting.figure_settings import FigureSettings
-from pynamit.plotting.map_coordinates import MapCoordinateContext
-from pynamit.results.evaluation import build_plot_grid, model_grid_for_geographic_display
+from pynamit.plotting.map_coordinates import (
+    MapCoordinateContext,
+    model_grid_from_geographic,
+    regular_geographic_grid,
+)
 from pynamit.results.input_evaluation import evaluate_projected_input
 from pynamit.results.output_fields import (
     evaluate_output_coefficients,
@@ -307,8 +310,8 @@ class PlotData:
         schema = results.schema
         has_model_output = any(key in results.datasets for key in ("dynamic", "equilibrium"))
         output_basis = schema.output_field_spaces["dynamic"]["boundary_jr"].basis
-        lat, lon, grid = build_plot_grid(nlat=nlat, nlon=nlon)
-        wind_lat, wind_lon, wind_grid = build_plot_grid(
+        lat, lon, grid = regular_geographic_grid(nlat=nlat, nlon=nlon)
+        wind_lat, wind_lon, wind_grid = regular_geographic_grid(
             nlat=wind_nlat, nlon=wind_nlon, lat_range=(-75.0, 75.0), lon_range=(-180.0, 180.0)
         )
         output_transform = SphericalTransform(output_basis, grid) if has_model_output else None
@@ -340,11 +343,12 @@ class PlotData:
             sheet_current_maps=None,
         )
 
-    def load_geometry(self):
-        """Load and return the saved simulation geometry."""
+    @property
+    def geometry(self):
+        """Return the saved simulation geometry."""
         if not self.has_model_output:
             raise ValueError("Saved simulation geometry requires dynamic or equilibrium output.")
-        return self.results.load_geometry()
+        return self.results.geometry
 
     def __repr__(self):
         """Summarize evaluated fields without printing their arrays."""
@@ -367,8 +371,8 @@ class PlotData:
             return self._geographic_evaluation
 
         main_field = self.results.main_field
-        scalar_grid = model_grid_for_geographic_display(main_field, self.lat, self.lon)
-        vector_grid = model_grid_for_geographic_display(main_field, self.wind_lat, self.wind_lon)
+        scalar_grid = model_grid_from_geographic(main_field, self.lat, self.lon)
+        vector_grid = model_grid_from_geographic(main_field, self.wind_lat, self.wind_lon)
 
         evaluation = _GeographicEvaluation(
             scalar_grid=scalar_grid, vector_grid=vector_grid, output_transform=None
@@ -510,7 +514,7 @@ class PlotData:
 
         if transform is None:
             raise RuntimeError("Saved output evaluation context is unavailable.")
-        geometry = self.load_geometry()
+        geometry = self.geometry
         if output_evaluation_context is None:
             output_evaluation_context = output_evaluation_operators(geometry, transform)
         needs_joule = "joule" in field_names

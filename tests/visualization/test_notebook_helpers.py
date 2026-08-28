@@ -21,7 +21,7 @@ from pynamit.plotting.hemisphere import (
     coerce_hemisphere_min_abs_latitude,
     hemisphere_masks_for_latitude,
 )
-from pynamit.plotting.map_coordinates import MapCoordinateContext
+from pynamit.plotting.map_coordinates import MapCoordinateContext, regular_geographic_grid
 from pynamit.plotting.map_curves import (
     build_even_global_sites,
     build_timeseries_curve_layers,
@@ -39,7 +39,7 @@ from pynamit.plotting.plot_helpers import (
     symmetric_contour_levels,
     symmetric_contour_levels_without_zero,
 )
-from pynamit.results.evaluation import build_plot_grid, build_sheet_current_matrices
+from pynamit.results.evaluation import build_sheet_current_matrices
 from pynamit.simulation.simulation import Simulation
 from pynamit.storage import ArtifactStore
 
@@ -417,7 +417,7 @@ def test_style_global_axis_keeps_coastlines_and_gridlines_geographic():
 
 def test_grid_helpers_are_importable_from_visualization():
     """Expose spherical-grid helpers through the package."""
-    lat, lon, grid = build_plot_grid(nlat=3, nlon=4)
+    lat, lon, grid = regular_geographic_grid(nlat=3, nlon=4)
     assert lat.shape == (3, 4)
     assert lon.shape == (3, 4)
     assert grid.size == 12
@@ -433,7 +433,7 @@ def test_build_sheet_current_matrices_matches_core_formulas():
 
     sh_basis = SHBasis(3, 2, mean_free=True)
     solid_harmonics = SolidHarmonicOperators(sh_basis)
-    _, _, grid = build_plot_grid(nlat=4, nlon=5)
+    _, _, grid = regular_geographic_grid(nlat=4, nlon=5)
     transform = SphericalTransform(sh_basis, grid)
     boundary_jr_to_gap_Br = np.eye(sh_basis.index_length)
 
@@ -443,7 +443,7 @@ def test_build_sheet_current_matrices_matches_core_formulas():
 
     poloidal_to_JS = (
         -transform.rhat_cross_gradient_matrix
-        * solid_harmonics.poloidal_to_boundary_potential_jump_factor.reshape(1, 1, -1)
+        * solid_harmonics.poloidal_to_normalized_potential_jump_factors.reshape(1, 1, -1)
         / MU0
     )
     toroidal_to_JS = -transform.surface_gradient_matrix / MU0
@@ -485,13 +485,13 @@ def test_build_sheet_current_matrices_defaults_to_unshielded_rm():
 
     sh_basis = SHBasis(3, 2, mean_free=True)
     solid_harmonics = SolidHarmonicOperators(sh_basis)
-    _, _, grid = build_plot_grid(nlat=4, nlon=5)
+    _, _, grid = regular_geographic_grid(nlat=4, nlon=5)
     transform = SphericalTransform(sh_basis, grid)
 
     matrices = build_sheet_current_matrices(Settings, sh_basis, transform)
     poloidal_to_JS = (
         -transform.rhat_cross_gradient_matrix
-        * solid_harmonics.poloidal_to_boundary_potential_jump_factor.reshape(1, 1, -1)
+        * solid_harmonics.poloidal_to_normalized_potential_jump_factors.reshape(1, 1, -1)
         / MU0
     )
 
@@ -507,7 +507,7 @@ def test_build_sheet_current_matrices_omits_boundary_map_without_rm():
         RM = None
 
     sh_basis = SHBasis(3, 2, mean_free=True)
-    _, _, grid = build_plot_grid(nlat=4, nlon=5)
+    _, _, grid = regular_geographic_grid(nlat=4, nlon=5)
     transform = SphericalTransform(sh_basis, grid)
 
     matrices = build_sheet_current_matrices(Settings, sh_basis, transform)
@@ -527,7 +527,7 @@ def test_build_sheet_current_matrices_matches_geometry(tmp_path):
         artifact_storage="netcdf",
     )
     geometry = simulation.geometry
-    _, _, grid = build_plot_grid(nlat=4, nlon=5)
+    _, _, grid = regular_geographic_grid(nlat=4, nlon=5)
     transform = SphericalTransform(simulation.geometry.horizontal_basis, grid)
     matrices = build_sheet_current_matrices(
         simulation.data.config,

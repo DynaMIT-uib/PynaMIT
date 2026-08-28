@@ -620,8 +620,8 @@ def test_loading_prepared_inputs_transfers_simulation_ownership(tmp_path):
         artifact_storage="netcdf",
         **prepared.config.to_kwargs(),
     )
-    wind_length = simulation.data.schema.input_field_spaces["u"].index_length
-    simulation.set_neutral_wind(u_cf=np.zeros(wind_length), u_df=np.zeros(wind_length), time=0.0)
+    wind_shape = simulation.data.schema.input_field_spaces["u"].coefficient_shape
+    simulation.set_neutral_wind(u_coefficients=np.zeros(wind_shape), time=0.0)
 
     loaded = load_prepared_inputs_into_simulation(
         simulation, input_directory, artifact_storage="netcdf", enabled_inputs=("conductance",)

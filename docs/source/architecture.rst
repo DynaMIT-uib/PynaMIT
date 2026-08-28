@@ -323,9 +323,15 @@ Public setters such as ``set_boundary_jr``, ``set_resistance``,
 thin API methods.  When a new input stream is added, prefer extending the
 schema and the shared projector over hand-writing a new projection path inside
 ``Simulation``.
+Tangential setters accept either sampled ``theta``/``phi`` components or one
+canonical coefficient array. The coefficient array has shape ``(2, N)`` (or
+``(T, 2, N)`` for multiple times), with scalar Helmholtz-potential coefficients
+ordered ``(curl-free, divergence-free)``. Keeping both potential blocks in one
+argument makes the stored representation explicit and prevents incomplete
+decompositions.
 ``set_Q_eff_from_neutral_wind`` follows one coefficient-space route: it fits
 the stored ``Q_eff`` so its resistance-weighted electric response matches the
-projected wind forcing. ``calculate_Q_eff_from_neutral_wind`` is the separate
+projected wind forcing. ``evaluate_Q_eff_from_neutral_wind`` is the separate
 non-persisting diagnostic for callers that need the equivalent model-grid
 field.
 

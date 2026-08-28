@@ -181,9 +181,13 @@ class FieldTimeSeries:
             component_name = layout["component_name"]
             if component_name is not None and component_name in dataset.coords:
                 component_attrs = dataset.coords[component_name].attrs
-                component_attrs.setdefault("long_name", "Helmholtz coefficient component")
+                component_attrs.setdefault(
+                    "long_name", "Helmholtz potential coefficient component"
+                )
                 component_attrs.setdefault("flag_values", [0, 1])
-                component_attrs.setdefault("flag_meanings", "curl_free divergence_free")
+                component_attrs.setdefault(
+                    "flag_meanings", "curl_free_potential divergence_free_potential"
+                )
             for coordinate_name in layout["index_names"]:
                 if coordinate_name not in dataset.coords:
                     continue

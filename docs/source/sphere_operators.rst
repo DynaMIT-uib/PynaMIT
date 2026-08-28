@@ -21,6 +21,10 @@ Tangential Helmholtz coefficients are ordered as two scalar potentials:
 
 ``(curl-free potential, divergence-free potential)``.
 
+PynaMIT's direct tangential-input setters therefore accept one coefficient
+array with shape ``(2, N)``, or ``(T, 2, N)`` for multiple times. Sampled
+physical vector components remain separate ``theta`` and ``phi`` arguments.
+
 The synthesized tangential field is
 
 ``F = -grad(phi) + rhat x grad(psi)``.

@@ -137,7 +137,10 @@ def test_tangential_timeseries_labels_components_and_physical_metadata():
         dataset.component.values,
         np.repeat(np.array([0, 1], dtype=np.int8), field_space.index_length),
     )
-    assert dataset.component.attrs["flag_meanings"] == "curl_free divergence_free"
+    assert dataset.component.attrs["long_name"] == "Helmholtz potential coefficient component"
+    assert (
+        dataset.component.attrs["flag_meanings"] == "curl_free_potential divergence_free_potential"
+    )
     assert dataset.time.attrs == {
         "units": "s",
         "long_name": "simulation time since t0",

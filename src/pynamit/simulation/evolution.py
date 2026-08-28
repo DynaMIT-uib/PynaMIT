@@ -191,9 +191,7 @@ class _TimeEvolution:
             self.simulation.current_time,
             interpolation=interpolation,
         )
-        E_coeffs_noninductive, boundary_jr_noninductive = (
-            response.calculate_noninductive_response()
-        )
+        E_coeffs_noninductive, boundary_jr_noninductive = response.solve_noninductive_response()
         equilibrium_induced_Br = induction.equilibrium_induced_Br(response, E_coeffs_noninductive)
 
         if (
@@ -271,7 +269,7 @@ class _TimeEvolution:
             self.simulation.response.activate_inputs_at_time(
                 self.simulation.data.input_series, self.simulation.current_time
             )
-            E_coeffs_noninductive, _ = self.simulation.response.calculate_noninductive_response()
+            E_coeffs_noninductive, _ = self.simulation.response.solve_noninductive_response()
             return induction.equilibrium_induced_Br(
                 self.simulation.response, E_coeffs_noninductive
             )
@@ -318,7 +316,7 @@ class _TimeEvolution:
             )
 
             E_coeffs_noninductive, boundary_jr_noninductive = (
-                self.simulation.response.calculate_noninductive_response()
+                self.simulation.response.solve_noninductive_response()
             )
             is_final_step = (
                 float(self.simulation.current_time) >= options.target_time - TIME_TOLERANCE_SECONDS
@@ -447,9 +445,11 @@ class _TimeEvolution:
     ):
         """Append a complete model response to one output stream."""
         response = self.simulation.response
-        E_coeffs_induced, boundary_jr_induced = response.calculate_induced_response(induced_Br)
+        E_coeffs_induced, boundary_jr_induced = response.solve_induced_response(induced_Br)
 
-        E_coeffs = response.project_helmholtz_mean_free(E_coeffs_noninductive + E_coeffs_induced)
+        E_coeffs = self.simulation.geometry.horizontal_basis.project_helmholtz_mean_free(
+            E_coeffs_noninductive + E_coeffs_induced
+        )
         # Each term is obtained from the same gauge-fixed toroidal
         # potential through the discrete surface Laplacian. Preserve
         # that exact range element so a saved physical current can

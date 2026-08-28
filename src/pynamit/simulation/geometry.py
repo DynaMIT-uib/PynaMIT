@@ -104,7 +104,6 @@ class SimulationGeometry:
 
         # Restore a persisted PFAC map or build it on first access.
         self._init_boundary_jr_to_gap_Br_matrix(boundary_jr_to_gap_Br_matrix)
-        self._poloidal_transform_cache = {}
 
     def __repr__(self):
         """Summarize the simulation's fixed spatial context."""
@@ -139,8 +138,8 @@ class SimulationGeometry:
         )
         self.induced_poloidal_potential_faraday_rate_scale = 1.0 / self.RI
         self.surface_to_poloidal_operator = self._build_surface_to_poloidal_operator()
-        self.poloidal_to_boundary_potential_jump_factor_operator = diagonal_linear_map(
-            self.solid_harmonics.poloidal_to_boundary_potential_jump_factor
+        self.poloidal_to_normalized_potential_jump_operator = diagonal_linear_map(
+            self.solid_harmonics.poloidal_to_normalized_potential_jump_factors
         )
 
     def _init_boundary_jr_to_gap_Br_matrix(self, matrix: ArrayLike | None) -> None:
@@ -246,25 +245,6 @@ class SimulationGeometry:
         )
         return grid_to_poloidal_operator @ self.horizontal_transform.scalar_synthesis_operator
 
-    def poloidal_transform_for(self, transform: SphericalTransform) -> SphericalTransform:
-        """Return a poloidal transform for ``transform.grid``."""
-        if self.poloidal_basis.coefficients_are_compatible_with(transform.basis):
-            return transform
-        cache_key = (
-            self.poloidal_basis.signature,
-            (
-                transform.grid.analysis_signature
-                if self.area_weighted_least_squares
-                else transform.grid.signature
-            ),
-            self.area_weighted_least_squares,
-        )
-        if cache_key not in self._poloidal_transform_cache:
-            self._poloidal_transform_cache[cache_key] = SphericalTransform(
-                self.poloidal_basis, transform.grid, area_weighted=self.area_weighted_least_squares
-            )
-        return self._poloidal_transform_cache[cache_key]
-
     def induced_Br_to_gridded_JS_operator(
         self,
         transform: SphericalTransform | None = None,
@@ -276,7 +256,7 @@ class SimulationGeometry:
             poloidal_transform = (
                 self.poloidal_transform
                 if transform is None
-                else self.poloidal_transform_for(transform)
+                else transform.with_basis(self.poloidal_basis)
             )
         return magnetic_boundary.induced_Br_to_gridded_JS_operator(
             self.solid_harmonics,
@@ -317,7 +297,7 @@ class SimulationGeometry:
         transform = self.horizontal_transform if transform is None else transform
         gap_response = self._active_boundary_jr_to_gap_Br_operator
         if gap_response is not None and poloidal_transform is None:
-            poloidal_transform = self.poloidal_transform_for(transform)
+            poloidal_transform = transform.with_basis(self.poloidal_basis)
         return magnetic_boundary.toroidal_potential_to_gridded_JS_operator(
             self.solid_harmonics,
             transform,
@@ -336,7 +316,7 @@ class SimulationGeometry:
         transform = self.horizontal_transform if transform is None else transform
         gap_response = self._active_boundary_jr_to_gap_Br_operator
         if gap_response is not None and poloidal_transform is None:
-            poloidal_transform = self.poloidal_transform_for(transform)
+            poloidal_transform = transform.with_basis(self.poloidal_basis)
         return magnetic_boundary.boundary_jr_to_gridded_JS_operator(
             self.solid_harmonics,
             transform,
@@ -480,22 +460,6 @@ class SimulationGeometry:
             self._build_boundary_jr_to_gap_Br_matrix()
         return self._boundary_jr_to_gap_Br_matrix
 
-    def _pfac_boundary_response(self):
-        """Return outer-boundary factors for the PFAC shell response."""
-        if self.RM is None:
-            return None, -1.0
-
-        outer_regular_to_ionosphere = np.asarray(
-            self.solid_harmonics.regular_reference_shift_factors(self.RM, self.RI)
-        )
-        ionosphere_irregular_to_outer = np.asarray(
-            self.solid_harmonics.irregular_reference_shift_factors(self.RI, self.RM)
-        )
-        response_factor = -1.0 / (
-            1.0 - outer_regular_to_ionosphere * ionosphere_irregular_to_outer
-        )
-        return outer_regular_to_ionosphere, response_factor
-
     def _gap_Br_integrand_at_radius(
         self,
         radius,
@@ -592,12 +556,26 @@ class SimulationGeometry:
         gridded_JS_to_poloidal_operator = (
             self.poloidal_transform.rhat_cross_gradient_analysis_operator(
                 coefficient_scale=(
-                    -np.asarray(self.solid_harmonics.poloidal_to_boundary_potential_jump_factor)
+                    -np.asarray(self.solid_harmonics.poloidal_to_normalized_potential_jump_factors)
                     / MU0
                 )
             )
         )
-        outer_regular_to_ionosphere, boundary_response_factor = self._pfac_boundary_response()
+        if self.RM is None:
+            outer_regular_to_ionosphere = None
+            boundary_response_factor = -1.0
+        else:
+            # Sum the regular/irregular image response that enforces
+            # Br(RM) = 0.
+            outer_regular_to_ionosphere = np.asarray(
+                self.solid_harmonics.regular_reference_shift_factors(self.RM, self.RI)
+            )
+            ionosphere_irregular_to_outer = np.asarray(
+                self.solid_harmonics.irregular_reference_shift_factors(self.RI, self.RM)
+            )
+            boundary_response_factor = -1.0 / (
+                1.0 - outer_regular_to_ionosphere * ionosphere_irregular_to_outer
+            )
 
         for i, radial_midpoint in enumerate(radial_midpoints):
             logger.debug(
@@ -606,14 +584,13 @@ class SimulationGeometry:
                 radial_midpoints.size,
                 radial_midpoint,
             )
-            shielding_potential_response += radial_step_widths[
-                i
-            ] * self._gap_Br_integrand_at_radius(
+            gap_Br_integrand = self._gap_Br_integrand_at_radius(
                 radial_midpoint,
                 gridded_JS_to_poloidal_operator,
                 outer_regular_to_ionosphere,
                 boundary_response_factor,
             )
+            shielding_potential_response += radial_step_widths[i] * gap_Br_integrand
 
         # The integrated response above is the poloidal coefficient of
         # the ionospheric shielding field. If b_gap is the unshielded
@@ -637,7 +614,7 @@ class SimulationGeometry:
             poloidal_transform = (
                 self.poloidal_transform
                 if transform is None
-                else self.poloidal_transform_for(transform)
+                else transform.with_basis(self.poloidal_basis)
             )
         return magnetic_boundary.boundary_Br_to_gridded_JS_operator(
             self.solid_harmonics, poloidal_transform, radius=self.RI, boundary_radius=self.RM

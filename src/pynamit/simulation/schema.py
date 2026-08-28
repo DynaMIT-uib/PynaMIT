@@ -36,6 +36,8 @@ INPUT_FIELD_TYPES = {
     "E_neutral_wind": "tangential",
 }
 
+WIND_FORCING_INPUTS = frozenset({"u", "Q_eff", "E_neutral_wind"})
+
 INPUT_VARIABLE_ATTRS = {
     "boundary_jr": {
         "boundary_jr": {
@@ -106,6 +108,7 @@ __all__ = [
     "OUTPUT_DATASET_KEYS",
     "OUTPUT_VARIABLE_ATTRS",
     "SIMULATION_ARTIFACT_NAMES",
+    "WIND_FORCING_INPUTS",
     "SimulationSchema",
     "build_simulation_schema",
     "field_spaces_from_bases",

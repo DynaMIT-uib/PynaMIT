@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from kompe.math import as_linear_map, set_backend, use_jax
+from kompe.math import as_linear_map, get_backend, set_backend
 
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     Q_eff_on_grid_from_wind,
@@ -277,7 +277,7 @@ def test_closure_math_preserves_explicit_jax_arrays(backend, data_source):
     """Keep explicit JAX data out of NumPy during closure algebra."""
     import jax.numpy as jnp
 
-    previous_backend = use_jax()
+    previous_backend = get_backend()
     try:
         set_backend("numpy")
         pedersen = jnp.asarray([2.0, 3.0])

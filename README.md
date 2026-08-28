@@ -105,14 +105,9 @@ grid = simulation.model_grid
 
 # Replace these uniform arrays with measured or modelled grid samples.
 simulation.set_conductance(
-    pedersen=2 * np.ones(grid.size),
-    hall=np.ones(grid.size),
-    lat=grid.lat,
-    lon=grid.lon,
+    pedersen=2 * np.ones(grid.size), hall=np.ones(grid.size), lat=grid.lat, lon=grid.lon
 )
-simulation.set_boundary_jr(
-    np.zeros(grid.size), lat=grid.lat, lon=grid.lon
-)
+simulation.set_boundary_jr(np.zeros(grid.size), lat=grid.lat, lon=grid.lon)
 simulation.evolve_to_time(0.01, quiet=True)
 ```
 
@@ -128,15 +123,10 @@ own directory. `InputPreparation` has the same `set_*` methods as
 state nor the full simulation response geometry:
 
 ```python
-preparation = pynamit.InputPreparation(
-    input_directory="prepared_inputs", Nmax=4, Mmax=4, Ncs=8
-)
+preparation = pynamit.InputPreparation(input_directory="prepared_inputs", Nmax=4, Mmax=4, Ncs=8)
 grid = preparation.model_grid
 preparation.set_conductance(
-    pedersen=2 * np.ones(grid.size),
-    hall=np.ones(grid.size),
-    lat=grid.lat,
-    lon=grid.lon,
+    pedersen=2 * np.ones(grid.size), hall=np.ones(grid.size), lat=grid.lat, lon=grid.lon
 )
 preparation.write_manifest(source="example")
 ```

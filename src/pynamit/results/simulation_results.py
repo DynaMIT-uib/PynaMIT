@@ -38,7 +38,7 @@ class SimulationResults:
     main_field: MainField
     operator_cache: ArrayCache | None = None
     boundary_jr_to_gap_Br_matrix: xr.DataArray | None = None
-    geometry: SimulationGeometry | None = None
+    _geometry: SimulationGeometry | None = field(default=None, init=False, repr=False)
     _input_series: FieldTimeSeries | None = field(default=None, init=False, repr=False)
     _output_series: FieldTimeSeries | None = field(default=None, init=False, repr=False)
 
@@ -99,7 +99,7 @@ class SimulationResults:
                     f"No saved 'gap_Br_response' data array exists at {simulation_directory!r}"
                 )
         if build_geometry:
-            results.load_geometry()
+            _ = results.geometry
         return results
 
     def _load_requested_dataset(self, key, *, required, print_info):
@@ -146,14 +146,15 @@ class SimulationResults:
         ]
         return np.unique(np.concatenate(arrays)) if arrays else np.array([])
 
-    def load_geometry(self) -> SimulationGeometry:
-        """Load and return the geometry for this saved simulation."""
-        if self.geometry is None:
+    @property
+    def geometry(self) -> SimulationGeometry:
+        """Return the lazily constructed saved-simulation geometry."""
+        if self._geometry is None:
             if self.boundary_jr_to_gap_Br_matrix is None:
                 self.boundary_jr_to_gap_Br_matrix = self.artifact_store.load_dataarray(
                     "gap_Br_response"
                 )
-            self.geometry = SimulationGeometry(
+            self._geometry = SimulationGeometry(
                 horizontal_basis=self.schema.horizontal_basis,
                 cs_basis=self.schema.cs_basis,
                 main_field=self.main_field,
@@ -162,7 +163,7 @@ class SimulationResults:
                 solid_harmonics=self.schema.solid_harmonics,
                 operator_cache=self.operator_cache,
             )
-        return self.geometry
+        return self._geometry
 
     def load_input_series(self) -> FieldTimeSeries:
         """Load all persisted input time series for this simulation."""

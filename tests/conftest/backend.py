@@ -11,8 +11,8 @@ from kompe.math import (
     JAX_AVAILABLE,
     LEAST_SQUARES_SOLVER_ENV,
     LeastSquaresSolver,
+    get_backend,
     set_backend,
-    use_jax,
 )
 
 from pynamit.external_inputs import (
@@ -178,7 +178,7 @@ def data_source(request: pytest.FixtureRequest) -> str:
 @pytest.fixture(autouse=True)
 def configure_runtime(request: pytest.FixtureRequest, backend: str, data_source: str):
     """Fixture to configure backend and data source for each test."""
-    previous_backend = use_jax()
+    previous_backend = get_backend()
     previous_backend_env = os.environ.get("KOMPE_USE_JAX")
     previous_source = get_input_source()
     previous_source_env = os.environ.get("PYNAMIT_INPUT_SOURCE")

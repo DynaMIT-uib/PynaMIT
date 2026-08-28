@@ -7,7 +7,6 @@ from kompe.math import get_array_module
 from pynamit.results.evaluation import (
     apply_coefficient_operator,
     evaluate_sheet_current_from_operators,
-    transform_for_basis,
 )
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     joule_heating_from_current,
@@ -58,8 +57,8 @@ def output_at_current_time(simulation, key=None):
 
 def output_evaluation_operators(geometry, transform):
     """Return reusable coefficient-to-field operators for one grid."""
-    horizontal_transform = transform_for_basis(geometry.horizontal_basis, transform)
-    poloidal_transform = geometry.poloidal_transform_for(horizontal_transform)
+    horizontal_transform = transform.with_basis(geometry.horizontal_basis)
+    poloidal_transform = transform.with_basis(geometry.poloidal_basis)
     return {
         "RI": float(geometry.RI),
         "horizontal_transform": horizontal_transform,
@@ -68,7 +67,7 @@ def output_evaluation_operators(geometry, transform):
         "induced_Br_to_Jeq": (-float(geometry.RI) / MU0)
         * (
             poloidal_transform.scalar_synthesis_operator
-            @ geometry.poloidal_to_boundary_potential_jump_factor_operator
+            @ geometry.poloidal_to_normalized_potential_jump_operator
             @ geometry.induced_Br_to_poloidal_potential_operator
         ),
     }
@@ -76,8 +75,8 @@ def output_evaluation_operators(geometry, transform):
 
 def sheet_current_operators(geometry, transform):
     """Return reusable sheet-current operators for one grid."""
-    horizontal_transform = transform_for_basis(geometry.horizontal_basis, transform)
-    poloidal_transform = geometry.poloidal_transform_for(horizontal_transform)
+    horizontal_transform = transform.with_basis(geometry.horizontal_basis)
+    poloidal_transform = transform.with_basis(geometry.poloidal_basis)
     return {
         "induced_Br_to_JS": geometry.induced_Br_to_gridded_JS_operator(
             horizontal_transform, poloidal_transform=poloidal_transform
@@ -249,7 +248,7 @@ def evaluate_simulation_output(
     elif isinstance(source, SimulationResults):
         output_series = source.load_output_series()
         input_series = None
-        geometry = source.load_geometry()
+        geometry = source.geometry
     else:
         raise TypeError("source must be a Simulation or SimulationResults.")
 

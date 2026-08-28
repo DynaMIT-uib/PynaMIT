@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import numpy as np
-from kompe import SolidHarmonicOperators, SphericalGrid, SphericalTransform
+from kompe import SolidHarmonicOperators
 from kompe.constants import MU0
 from kompe.math import as_linear_map, get_array_module
 
@@ -91,34 +90,6 @@ def evaluate_sheet_current_from_operators(
     return current.reshape(2, -1)
 
 
-def build_plot_grid(nlat=60, nlon=100, lat_range=(-89.9, 89.9), lon_range=(-180.0, 180.0)):
-    """Build a regular latitude/longitude plotting grid."""
-    lat_1d = np.linspace(lat_range[0], lat_range[1], int(nlat))
-    lon_1d = np.linspace(lon_range[0], lon_range[1], int(nlon))
-    lon_2d, lat_2d = np.meshgrid(lon_1d, lat_1d)
-    return lat_2d, lon_2d, SphericalGrid(lat=lat_2d, lon=lon_2d)
-
-
-def model_grid_for_geographic_display(main_field, lat, lon, *, event_time=None):
-    """Return the model-coordinate grid underlying a geographic map."""
-    model_lat, model_lon = main_field.geo_to_model_coordinates(lat, lon, event_time=event_time)
-    return SphericalGrid(lat=model_lat, lon=model_lon)
-
-
-def transform_for_basis(basis, transform):
-    """Return ``transform`` or an equivalent one for ``basis``."""
-    if transform.basis.coefficients_are_compatible_with(basis):
-        return transform
-    return SphericalTransform(
-        basis,
-        transform.grid,
-        sqrt_weights=(transform.sqrt_weights if transform.explicit_sqrt_weights else None),
-        reg_lambda=transform.reg_lambda,
-        pinv_rtol=transform.pinv_rtol,
-        area_weighted=transform.area_weighted,
-    )
-
-
 def build_sheet_current_matrices(settings, sh_basis, transform, boundary_jr_to_gap_Br_matrix=None):
     """Build coefficient-to-JS matrices for direct array workflows."""
     rm = setting_value(settings, "RM", None)
@@ -163,13 +134,10 @@ def build_sheet_current_matrices(settings, sh_basis, transform, boundary_jr_to_g
 
 __all__ = [
     "apply_coefficient_operator",
-    "build_plot_grid",
     "build_sheet_current_matrices",
     "evaluate_sheet_current_from_operators",
     "evaluate_conductance_coefficients",
     "evaluate_conductance_values",
     "evaluate_tangential_coefficients",
     "evaluate_wind_coefficients",
-    "model_grid_for_geographic_display",
-    "transform_for_basis",
 ]

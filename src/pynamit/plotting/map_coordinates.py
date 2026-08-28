@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 import numpy as np
+from kompe import SphericalGrid
 
 from pynamit.coordinates import (
     DEFAULT_LOCAL_TIME_GRID_HOURS,
@@ -14,6 +15,22 @@ from pynamit.geodesy import library_geographic_to_spherical_geo
 
 _VALID_LONGITUDE_KINDS = {"geographic", "magnetic"}
 _VALID_LOCAL_TIME_KINDS = {"solar", "magnetic"}
+
+
+def regular_geographic_grid(nlat=60, nlon=100, lat_range=(-89.9, 89.9), lon_range=(-180.0, 180.0)):
+    """Return latitude, longitude, and a regular geographic grid."""
+    latitude = np.linspace(lat_range[0], lat_range[1], int(nlat))
+    longitude = np.linspace(lon_range[0], lon_range[1], int(nlon))
+    longitude, latitude = np.meshgrid(longitude, latitude)
+    return latitude, longitude, SphericalGrid(lat=latitude, lon=longitude)
+
+
+def model_grid_from_geographic(main_field, latitude, longitude, *, event_time=None):
+    """Return model coordinates underlying a geographic grid."""
+    model_latitude, model_longitude = main_field.geo_to_model_coordinates(
+        latitude, longitude, event_time=event_time
+    )
+    return SphericalGrid(lat=model_latitude, lon=model_longitude)
 
 
 def _as_float_scalar(value, name):
@@ -163,4 +180,4 @@ class MapCoordinateContext:
         return gridliner
 
 
-__all__ = ["MapCoordinateContext"]
+__all__ = ["MapCoordinateContext", "model_grid_from_geographic", "regular_geographic_grid"]

@@ -6,7 +6,6 @@ from pynamit.fields import FieldCoefficients
 from pynamit.results.evaluation import (
     evaluate_conductance_values,
     evaluate_tangential_coefficients,
-    transform_for_basis,
 )
 from pynamit.storage import FieldTimeSeries
 
@@ -72,7 +71,7 @@ def evaluate_projected_input(
     field_space = series.get_field_space(key)
     target_grid = default_grid if grid is None else grid
     if transform is not None:
-        transform = transform_for_basis(field_space.basis, transform)
+        transform = transform.with_basis(field_space.basis)
     elif target_grid is not None:
         transform = SphericalTransform(field_space.basis, target_grid)
     else:

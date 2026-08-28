@@ -109,7 +109,7 @@ def test_cs_runtime_toroidal_solve_does_not_build_dense_response_matrix(tmp_path
     response = simulation.response
     response.activate_inputs_at_time(simulation.data.input_series, 0.0)
 
-    _, solved_boundary_jr = response.calculate_noninductive_response()
+    _, solved_boundary_jr = response.solve_noninductive_response()
 
     assert response._boundary_jr_to_toroidal_potential_operator is None
     assert response._runtime_toroidal_potential_to_E_coeffs._cached_dense(np) is None
@@ -149,8 +149,8 @@ def test_cs_reduced_induction_response_matches_full_E_response(tmp_path):
     response = simulation.response
     response.activate_inputs_at_time(simulation.data.input_series, 0.0)
 
-    reduced = response.induced_Br_to_E_df_operator.to_matrix(backend="numpy")
-    full = (response.driving_E_to_E_df_operator @ response.induced_Br_to_E_coeffs).to_matrix(
+    reduced = response.induced_Br_to_W_operator.to_matrix(backend="numpy")
+    full = (response.driving_E_to_W_operator @ response.induced_Br_to_E_coeffs_operator).to_matrix(
         backend="numpy"
     )
 

@@ -50,12 +50,12 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
         geometry.surface_laplacian_operator.to_matrix(backend="numpy"),
         simulation.geometry.horizontal_basis.surface_laplacian_matrix(geometry.RI),
     )
-    expected_boundary_potential_jump_factor = np.diag(
-        simulation.geometry.solid_harmonics.poloidal_to_boundary_potential_jump_factor
+    expected_normalized_potential_jump = np.diag(
+        simulation.geometry.solid_harmonics.poloidal_to_normalized_potential_jump_factors
     )
     np.testing.assert_allclose(
-        geometry.poloidal_to_boundary_potential_jump_factor_operator.to_matrix(backend="numpy"),
-        expected_boundary_potential_jump_factor,
+        geometry.poloidal_to_normalized_potential_jump_operator.to_matrix(backend="numpy"),
+        expected_normalized_potential_jump,
     )
     assert geometry.induced_Br_to_gridded_JS_operator().array.shape == (
         2,
@@ -72,8 +72,8 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
         theta=geometry.model_grid.theta[:10], phi=geometry.model_grid.phi[:10]
     )
     plot_transform = SphericalTransform(simulation.geometry.horizontal_basis, plot_grid)
-    assert geometry.poloidal_transform_for(plot_transform) is geometry.poloidal_transform_for(
-        plot_transform
+    assert plot_transform.with_basis(geometry.poloidal_basis) is plot_transform.with_basis(
+        geometry.poloidal_basis
     )
     assert geometry.induced_Br_to_gridded_JS_operator(plot_transform).array.shape == (
         2,

@@ -37,7 +37,7 @@ def _poloidal_degree_factor(solid_harmonics):
 
 def poloidal_potential_to_gridded_JS_operator(solid_harmonics, transform, *, poloidal_scale=None):
     """Map private poloidal-potential coefficients to sheet current."""
-    scale = _coefficient_scale(solid_harmonics.poloidal_to_boundary_potential_jump_factor)
+    scale = _coefficient_scale(solid_harmonics.poloidal_to_normalized_potential_jump_factors)
     if poloidal_scale is not None:
         xp = get_array_module(scale, poloidal_scale)
         scale = xp.asarray(scale) * xp.asarray(poloidal_scale)

@@ -33,7 +33,7 @@ def test_physical_magnetic_coordinates_roundtrip(tmp_path, horizontal_basis_kind
         reconstructed_poloidal_potential, induced_poloidal_potential, rtol=1e-14, atol=1e-14
     )
 
-    toroidal_potential = simulation.response.project_surface_scalar_mean_free(
+    toroidal_potential = geometry.horizontal_basis.project_scalar_mean_free(
         rng.standard_normal(geometry.horizontal_basis.index_length)
     )
     boundary_jr = geometry.toroidal_potential_to_boundary_jr_operator.matvec(toroidal_potential)

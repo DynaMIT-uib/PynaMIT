@@ -1,6 +1,6 @@
 """Core public API for PynaMIT simulations."""
 
-from kompe.math import get_backend, jax_enabled, set_backend, use_jax
+from kompe.math import get_backend, set_backend
 
 from .fields import FieldCoefficients, FieldSpace
 from .geomagnetism import MagneticFieldEvaluation, MainField
@@ -17,7 +17,5 @@ __all__ = [
     "Simulation",
     "SimulationConfig",
     "get_backend",
-    "jax_enabled",
     "set_backend",
-    "use_jax",
 ]

@@ -10,7 +10,7 @@ from pynamit.simulation.geometry import SimulationGeometry, build_main_field
 from pynamit.simulation.input_manifest import write_input_manifest
 from pynamit.simulation.input_projection import _InputProjector
 from pynamit.simulation.response import ElectrodynamicResponse
-from pynamit.simulation.schema import INPUT_DATASET_KEYS
+from pynamit.simulation.schema import INPUT_DATASET_KEYS, WIND_FORCING_INPUTS
 from pynamit.simulation.simulation_data import SimulationData
 from pynamit.storage import ArrayCache, ArtifactStore
 
@@ -80,7 +80,7 @@ class InputPreparation:
         Mmax : int, optional
             Maximum spherical harmonic order.
         Ncs : int, optional
-            Number of cubed sphere grid points per edge.
+            Number of cells along each cubed-sphere face edge.
         RI : float, optional
             Ionospheric radius in meters.
         RM : float, optional
@@ -185,6 +185,15 @@ class InputPreparation:
         self.config = self.data.config
         self.input_directory = self.data.simulation_directory
         self.inputs = self.data.input_series.datasets
+        active_wind_forcings = sorted(WIND_FORCING_INPUTS.intersection(self.inputs))
+        if len(active_wind_forcings) > 1:
+            representations = ", ".join(repr(name) for name in active_wind_forcings)
+            raise ValueError(
+                f"Wind-forcing representations {representations} are mutually "
+                "exclusive; use only one."
+            )
+        if "boundary_Br" in self.inputs and self.config.RM is None:
+            raise ValueError("Stored boundary_Br input requires magnetospheric radius RM.")
         schema = self.data.schema
         self.main_field = build_main_field(self.config)
         self.model_grid = schema.cs_basis.mesh.cell_centers
@@ -641,8 +650,7 @@ class InputPreparation:
         reg_lambda=None,
         pinv_rtol=1e-15,
         *,
-        u_cf=None,
-        u_df=None,
+        u_coefficients=None,
     ):
         """Set neutral wind velocities.
 
@@ -652,9 +660,10 @@ class InputPreparation:
             Meridional (south) wind velocity in m/s.
         u_phi : array-like
             Zonal (east) wind velocity in m/s.
-        u_cf, u_df : array-like, optional
-            Curl-free and divergence-free Helmholtz coefficients in the
-            input storage basis.
+        u_coefficients : array-like, optional
+            Scalar Helmholtz-potential coefficients in the input storage
+            basis, ordered ``(curl-free, divergence-free)``. Use shape
+            ``(2, N)`` for one time or ``(T, 2, N)`` for ``T`` times.
         lat, lon : array-like, optional
             Latitude/longitude in the simulation model frame, in
             degrees.
@@ -675,10 +684,9 @@ class InputPreparation:
             "u",
             theta_component=u_theta,
             phi_component=u_phi,
-            cf_coefficients=u_cf,
-            df_coefficients=u_df,
+            coefficients=u_coefficients,
             sample_label="wind samples",
-            coefficient_label="wind coefficients",
+            coefficient_label="wind Helmholtz-potential coefficients",
             lat=lat,
             lon=lon,
             theta=theta,
@@ -702,8 +710,7 @@ class InputPreparation:
         reg_lambda=None,
         pinv_rtol=1e-15,
         *,
-        Q_eff_cf=None,
-        Q_eff_df=None,
+        Q_eff_coefficients=None,
     ):
         """Set effective wind-current input.
 
@@ -718,9 +725,10 @@ class InputPreparation:
             Southward effective-current component in A/m.
         Q_eff_phi : array-like
             Eastward effective-current component in A/m.
-        Q_eff_cf, Q_eff_df : array-like, optional
-            Curl-free and divergence-free Helmholtz coefficients in the
-            input storage basis.
+        Q_eff_coefficients : array-like, optional
+            Scalar Helmholtz-potential coefficients in the input storage
+            basis, ordered ``(curl-free, divergence-free)``. Use shape
+            ``(2, N)`` for one time or ``(T, 2, N)`` for ``T`` times.
         lat, lon : array-like, optional
             Latitude/longitude in the simulation model frame, in
             degrees.
@@ -741,10 +749,9 @@ class InputPreparation:
             "Q_eff",
             theta_component=Q_eff_theta,
             phi_component=Q_eff_phi,
-            cf_coefficients=Q_eff_cf,
-            df_coefficients=Q_eff_df,
+            coefficients=Q_eff_coefficients,
             sample_label="Q_eff samples",
-            coefficient_label="Q_eff coefficients",
+            coefficient_label="Q_eff Helmholtz-potential coefficients",
             lat=lat,
             lon=lon,
             theta=theta,
@@ -768,8 +775,7 @@ class InputPreparation:
         reg_lambda=None,
         pinv_rtol=1e-15,
         *,
-        E_neutral_wind_cf=None,
-        E_neutral_wind_df=None,
+        E_neutral_wind_coefficients=None,
     ):
         """Set an equivalent neutral-wind electric-field input.
 
@@ -787,9 +793,10 @@ class InputPreparation:
             Southward neutral-wind electric-field component in V/m.
         E_neutral_wind_phi : array-like
             Eastward neutral-wind electric-field component in V/m.
-        E_neutral_wind_cf, E_neutral_wind_df : array-like, optional
-            Curl-free and divergence-free Helmholtz coefficients in the
-            input storage basis.
+        E_neutral_wind_coefficients : array-like, optional
+            Scalar Helmholtz-potential coefficients in the input storage
+            basis, ordered ``(curl-free, divergence-free)``. Use shape
+            ``(2, N)`` for one time or ``(T, 2, N)`` for ``T`` times.
         lat, lon : array-like, optional
             Latitude/longitude in the simulation model frame, in
             degrees.
@@ -810,10 +817,9 @@ class InputPreparation:
             "E_neutral_wind",
             theta_component=E_neutral_wind_theta,
             phi_component=E_neutral_wind_phi,
-            cf_coefficients=E_neutral_wind_cf,
-            df_coefficients=E_neutral_wind_df,
+            coefficients=E_neutral_wind_coefficients,
             sample_label="neutral-wind electric-field samples",
-            coefficient_label="neutral-wind electric-field coefficients",
+            coefficient_label="neutral-wind electric-field Helmholtz-potential coefficients",
             lat=lat,
             lon=lon,
             theta=theta,
@@ -843,7 +849,7 @@ class InputPreparation:
         The wind is projected once, then ``Q_eff`` is solved in its
         storage basis so that the resistance-weighted electric response
         matches the wind forcing. Use
-        ``calculate_Q_eff_from_neutral_wind`` to inspect the equivalent
+        ``evaluate_Q_eff_from_neutral_wind`` to inspect the equivalent
         model-grid field without storing it.
         """
         self._input_projector.require_no_exclusive_conflict("Q_eff")
@@ -865,7 +871,7 @@ class InputPreparation:
         )
         self._input_projector.add_input_coefficients("Q_eff", {"Q_eff": q_coeff_rows}, input_time)
 
-    def calculate_Q_eff_from_neutral_wind(
+    def evaluate_Q_eff_from_neutral_wind(
         self,
         u_theta,
         u_phi,
@@ -882,7 +888,7 @@ class InputPreparation:
         if "conductance" not in self.data.input_series.datasets:
             raise RuntimeError(
                 "Ionospheric resistance or conductance must be set before "
-                "calculating Q_eff from wind."
+                "evaluating Q_eff from wind."
             )
 
         input_time, wind_coeff_rows = self._input_projector.project_tangential_samples(

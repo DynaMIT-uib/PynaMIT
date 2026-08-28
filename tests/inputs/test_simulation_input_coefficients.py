@@ -23,14 +23,14 @@ def _small_simulation(tmp_path, **kwargs):
     )
 
 
-def test_simulation_reuses_input_transforms_for_shared_representations(tmp_path):
+def test_simulation_reuses_projection_transforms_for_shared_representations(tmp_path):
     """Input transforms are shared by representation and grid."""
     simulation = _small_simulation(tmp_path)
     projector = simulation._input_projector
 
     assert projector._projection_transforms == {}
     transforms = {
-        key: projector.projection_transform_for(key)
+        key: projector.projection_transform(key)
         for key in ("boundary_jr", "boundary_Br", "u", "Q_eff", "E_neutral_wind", "conductance")
     }
 
@@ -76,13 +76,29 @@ def test_set_neutral_wind_accepts_helmholtz_input_basis_coefficients(tmp_path):
     cf_coeffs = np.arange(n_coeffs, dtype=float)
     df_coeffs = -np.arange(n_coeffs, dtype=float) - 1.0
 
-    simulation.set_neutral_wind(u_cf=cf_coeffs, u_df=df_coeffs, time=3.0)
+    u_coefficients = np.stack((cf_coeffs, df_coeffs))
+    simulation.set_neutral_wind(u_coefficients=u_coefficients, time=3.0)
 
     dataset = simulation.data.input_series.datasets["u"]
     np.testing.assert_allclose(
         dataset["SH_u"].isel(time=0).values, np.concatenate([cf_coeffs, df_coeffs])
     )
     np.testing.assert_allclose(dataset.time.values, [3.0])
+
+
+def test_set_neutral_wind_accepts_time_dependent_coefficient_arrays(tmp_path):
+    """The leading coefficient-array axis corresponds to time."""
+    simulation = _small_simulation(tmp_path)
+    coefficient_shape = simulation.data.schema.input_field_spaces["u"].coefficient_shape
+    u_coefficients = np.arange(2 * np.prod(coefficient_shape), dtype=float).reshape(
+        (2, *coefficient_shape)
+    )
+
+    simulation.set_neutral_wind(u_coefficients=u_coefficients, time=[3.0, 4.0])
+
+    dataset = simulation.data.input_series.datasets["u"]
+    np.testing.assert_allclose(dataset["SH_u"].values, u_coefficients.reshape(2, -1))
+    np.testing.assert_allclose(dataset.time.values, [3.0, 4.0])
 
 
 def test_input_activation_uses_field_coefficients_for_wind(tmp_path):
@@ -92,7 +108,8 @@ def test_input_activation_uses_field_coefficients_for_wind(tmp_path):
     cf_coeffs = np.arange(n_coeffs, dtype=float)
     df_coeffs = -np.arange(n_coeffs, dtype=float) - 1.0
 
-    simulation.set_neutral_wind(u_cf=cf_coeffs, u_df=df_coeffs, time=3.0)
+    u_coefficients = np.stack((cf_coeffs, df_coeffs))
+    simulation.set_neutral_wind(u_coefficients=u_coefficients, time=3.0)
     simulation.response.activate_inputs_at_time(simulation.data.input_series, time=3.0)
 
     assert isinstance(simulation.response.u, FieldCoefficients)
@@ -112,9 +129,9 @@ def test_nonwind_response_keeps_wind_operator_lazy(tmp_path):
     simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(current_shape), time=0.0)
     simulation.response.activate_inputs_at_time(simulation.data.input_series, time=0.0)
 
-    assert simulation.response._u_coeffs_to_E_coeffs_cache is None
-    simulation.response.calculate_noninductive_response()
-    assert simulation.response._u_coeffs_to_E_coeffs_cache is None
+    assert simulation.response._u_coeffs_to_E_coeffs_operator_cache is None
+    simulation.response.solve_noninductive_response()
+    assert simulation.response._u_coeffs_to_E_coeffs_operator_cache is None
 
 
 def test_set_Q_eff_accepts_helmholtz_input_basis_coefficients(tmp_path):
@@ -124,7 +141,8 @@ def test_set_Q_eff_accepts_helmholtz_input_basis_coefficients(tmp_path):
     cf_coeffs = np.arange(n_coeffs, dtype=float) + 2.0
     df_coeffs = -np.arange(n_coeffs, dtype=float) - 3.0
 
-    simulation.set_Q_eff(Q_eff_cf=cf_coeffs, Q_eff_df=df_coeffs, time=3.0)
+    Q_eff_coefficients = np.stack((cf_coeffs, df_coeffs))
+    simulation.set_Q_eff(Q_eff_coefficients=Q_eff_coefficients, time=3.0)
 
     dataset = simulation.data.input_series.datasets["Q_eff"]
     np.testing.assert_allclose(
@@ -133,7 +151,7 @@ def test_set_Q_eff_accepts_helmholtz_input_basis_coefficients(tmp_path):
     np.testing.assert_allclose(dataset.time.values, [3.0])
 
 
-def test_calculate_Q_eff_uses_canonical_input_series_owner(tmp_path):
+def test_evaluate_Q_eff_uses_canonical_input_series_owner(tmp_path):
     """Q_eff reads conductance through SimulationData."""
     simulation = _small_simulation(tmp_path)
     conductance_shape = simulation.data.schema.input_field_spaces["conductance"].coefficient_shape
@@ -145,7 +163,7 @@ def test_calculate_Q_eff_uses_canonical_input_series_owner(tmp_path):
     grid = simulation.geometry.model_grid
     zeros = np.zeros(grid.size)
 
-    q_theta, q_phi, q_lat, q_lon = simulation.calculate_Q_eff_from_neutral_wind(
+    q_theta, q_phi, q_lat, q_lon = simulation.evaluate_Q_eff_from_neutral_wind(
         zeros, zeros, lat=grid.lat, lon=grid.lon, time=0.0
     )
 
@@ -162,10 +180,11 @@ def test_set_neutral_wind_rejects_existing_Q_eff_input(tmp_path):
     n_coeffs = simulation.data.schema.input_field_spaces["Q_eff"].index_length
     cf_coeffs = np.arange(n_coeffs, dtype=float)
     df_coeffs = -np.arange(n_coeffs, dtype=float)
-    simulation.set_Q_eff(Q_eff_cf=cf_coeffs, Q_eff_df=df_coeffs, time=0.0)
+    Q_eff_coefficients = np.stack((cf_coeffs, df_coeffs))
+    simulation.set_Q_eff(Q_eff_coefficients=Q_eff_coefficients, time=0.0)
 
     with np.testing.assert_raises_regex(ValueError, "mutually exclusive"):
-        simulation.set_neutral_wind(u_cf=cf_coeffs, u_df=df_coeffs, time=1.0)
+        simulation.set_neutral_wind(u_coefficients=np.stack((cf_coeffs, df_coeffs)), time=1.0)
 
 
 def test_set_Q_eff_rejects_existing_neutral_wind_input(tmp_path):
@@ -174,44 +193,38 @@ def test_set_Q_eff_rejects_existing_neutral_wind_input(tmp_path):
     n_coeffs = simulation.data.schema.input_field_spaces["u"].index_length
     cf_coeffs = np.arange(n_coeffs, dtype=float)
     df_coeffs = -np.arange(n_coeffs, dtype=float)
-    simulation.set_neutral_wind(u_cf=cf_coeffs, u_df=df_coeffs, time=0.0)
+    u_coefficients = np.stack((cf_coeffs, df_coeffs))
+    simulation.set_neutral_wind(u_coefficients=u_coefficients, time=0.0)
 
     with np.testing.assert_raises_regex(ValueError, "mutually exclusive"):
-        simulation.set_Q_eff(Q_eff_cf=cf_coeffs, Q_eff_df=df_coeffs, time=1.0)
+        simulation.set_Q_eff(Q_eff_coefficients=np.stack((cf_coeffs, df_coeffs)), time=1.0)
 
 
-def test_response_rejects_simultaneous_wind_and_Q_eff(tmp_path):
-    """Response calculation should not double-count wind forcing."""
+def test_reopening_rejects_conflicting_stored_wind_forcing(tmp_path):
+    """Stored input validation catches conflicts before evolution."""
     simulation = _small_simulation(tmp_path)
-    simulation.response.u = object()
-    simulation.response.Q_eff = object()
+    n_coeffs = simulation.data.schema.input_field_spaces["Q_eff"].index_length
+    zeros = np.zeros((2, n_coeffs))
+    simulation.set_Q_eff(Q_eff_coefficients=zeros, time=0.0)
+
+    simulation.data.input_series.add_entry("u", {"u": np.zeros((2, n_coeffs))}, time=0.0)
+    simulation.data.input_series.save("u", simulation.data.artifact_store)
 
     with np.testing.assert_raises_regex(ValueError, "mutually exclusive"):
-        simulation.response.calculate_noninductive_response()
+        _small_simulation(tmp_path)
 
 
 def test_E_neutral_wind_rejects_existing_neutral_wind_input(tmp_path):
     """Equivalent neutral-wind E cannot double-count direct wind."""
     simulation = _small_simulation(tmp_path)
     vector_length = simulation.data.schema.input_field_spaces["u"].index_length
-    wind_cf = np.linspace(0.0, 1.0, vector_length)
-    wind_df = np.linspace(1.0, 0.0, vector_length)
-    simulation.set_neutral_wind(u_cf=wind_cf, u_df=wind_df, time=0.0)
+    wind_coefficients = np.stack(
+        (np.linspace(0.0, 1.0, vector_length), np.linspace(1.0, 0.0, vector_length))
+    )
+    simulation.set_neutral_wind(u_coefficients=wind_coefficients, time=0.0)
 
     with np.testing.assert_raises_regex(ValueError, "mutually exclusive"):
-        simulation.set_E_neutral_wind(
-            E_neutral_wind_cf=-wind_cf, E_neutral_wind_df=-wind_df, time=1.0
-        )
-
-
-def test_response_rejects_simultaneous_wind_and_neutral_wind_E(tmp_path):
-    """Response should reject alternate wind representations."""
-    simulation = _small_simulation(tmp_path)
-    simulation.response.u = object()
-    simulation.response.E_neutral_wind = object()
-
-    with np.testing.assert_raises_regex(ValueError, "mutually exclusive"):
-        simulation.response.calculate_noninductive_response()
+        simulation.set_E_neutral_wind(E_neutral_wind_coefficients=-wind_coefficients, time=1.0)
 
 
 def test_input_activation_uses_field_coefficients_for_Q_eff(tmp_path):
@@ -221,7 +234,8 @@ def test_input_activation_uses_field_coefficients_for_Q_eff(tmp_path):
     cf_coeffs = np.arange(n_coeffs, dtype=float) + 2.0
     df_coeffs = -np.arange(n_coeffs, dtype=float) - 3.0
 
-    simulation.set_Q_eff(Q_eff_cf=cf_coeffs, Q_eff_df=df_coeffs, time=3.0)
+    Q_eff_coefficients = np.stack((cf_coeffs, df_coeffs))
+    simulation.set_Q_eff(Q_eff_coefficients=Q_eff_coefficients, time=3.0)
     simulation.response.activate_inputs_at_time(simulation.data.input_series, time=3.0)
 
     assert isinstance(simulation.response.Q_eff, FieldCoefficients)
@@ -263,14 +277,14 @@ def test_coefficient_inputs_reject_projection_coordinates(tmp_path):
         )
 
 
-def test_tangential_coefficient_inputs_must_be_complete(tmp_path):
-    """Helmholtz coefficients require both cf and df components."""
+def test_tangential_coefficient_inputs_require_canonical_component_shape(tmp_path):
+    """Helmholtz coefficients keep their component axis explicit."""
     simulation = _small_simulation(tmp_path)
     n_coeffs = simulation.data.schema.input_field_spaces["u"].index_length
-    cf_coeffs = np.arange(n_coeffs, dtype=float)
+    curl_free_coefficients = np.arange(n_coeffs, dtype=float)
 
-    with np.testing.assert_raises_regex(ValueError, "u_df"):
-        simulation.set_neutral_wind(u_cf=cf_coeffs, time=0.0)
+    with np.testing.assert_raises_regex(ValueError, "must have shape"):
+        simulation.set_neutral_wind(u_coefficients=curl_free_coefficients, time=0.0)
 
 
 def test_tangential_inputs_reject_mixed_samples_and_coefficients(tmp_path):
@@ -278,11 +292,11 @@ def test_tangential_inputs_reject_mixed_samples_and_coefficients(tmp_path):
     simulation = _small_simulation(tmp_path)
     n_coeffs = simulation.data.schema.input_field_spaces["Q_eff"].index_length
     values = np.zeros(simulation.geometry.model_grid.size)
-    coeffs = np.zeros(n_coeffs)
+    coefficients = np.zeros((2, n_coeffs))
 
     with np.testing.assert_raises_regex(ValueError, "sample values"):
         simulation.set_Q_eff(
-            Q_eff_theta=values, Q_eff_phi=values, Q_eff_cf=coeffs, Q_eff_df=coeffs, time=0.0
+            Q_eff_theta=values, Q_eff_phi=values, Q_eff_coefficients=coefficients, time=0.0
         )
 
 

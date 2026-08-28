@@ -334,7 +334,7 @@ class GroundFigureRenderer:
         if cached is not None:
             return cached
 
-        geometry = self.plot_data.load_geometry()
+        geometry = self.plot_data.geometry
         grid = SphericalGrid(lat=lat_arr, lon=lon_arr)
         ri = float(self.plot_data.results.config.RI)
         solid_harmonics = geometry.solid_harmonics
@@ -645,7 +645,7 @@ class GroundFigureRenderer:
         """Return magnetic latitude used for low-latitude selection."""
         lat_arr = np.asarray(lat, dtype=float)
         lon_arr = np.asarray(lon, dtype=float)
-        main_field = self.plot_data.load_geometry().main_field
+        main_field = self.plot_data.geometry.main_field
         if main_field.kind in {"igrf", "kaiju_dipole"}:
             mlat = main_field.magnetic_latitude(
                 self.plot_data.results.config.RI, 90.0 - lat_arr, lon_arr
@@ -907,7 +907,7 @@ class GroundFigureRenderer:
         return handles
 
     def _draw_low_latitude_curves(self, axis, data_projection, central_longitude):
-        main_field = self.plot_data.load_geometry().main_field
+        main_field = self.plot_data.geometry.main_field
         boundary = float(self.settings.min_abs_dip_latitude)
         dip_equator_style = {
             "color": "#0072B2",

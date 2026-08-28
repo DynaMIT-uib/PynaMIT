@@ -126,7 +126,7 @@ def test_plot_data_loads_projected_input_package_without_output(tmp_path):
     assert "dynamic" not in view.results.datasets
     assert {"boundary_Br", "boundary_jr", "conductance"}.issubset(view.results.datasets)
     assert view.output_transform is None
-    assert view.results.geometry is None
+    assert view.results._geometry is None
     assert view.output_evaluation_context is None
     assert view.sheet_current_maps is None
     assert view.input_transforms["boundary_jr"] is view.input_transforms["boundary_Br"]
@@ -158,18 +158,18 @@ def test_plot_data_loads_without_boundary_br(tmp_path):
     simulation.impose_equilibrium(time=0.0, save=True, quiet=True)
 
     view = plot_data.PlotData.from_directory(tmp_path)
-    assert view.results.geometry is None
+    assert view.results._geometry is None
     assert view.output_evaluation_context is None
     assert view.sheet_current_maps is None
     with pytest.raises(ValueError, match="Unknown output fields"):
         view.output_plot_data(0, field_names={"not-a-field"})
-    assert view.results.geometry is None
+    assert view.results._geometry is None
 
     fields = view.output_plot_data(0, field_names={"Br"})
     input_fields = view.input_plot_data(0)
 
     assert view.has_model_output
-    assert view.results.geometry is not None
+    assert view.results._geometry is not None
     assert view.output_evaluation_context is not None
     assert view.sheet_current_maps is None
     assert "boundary_Br" not in view.results.datasets
@@ -355,7 +355,7 @@ def test_plot_data_inspects_neutral_wind_electric_field_input(tmp_path):
     df_coeffs = np.zeros(coeff_length)
     cf_coeffs[0] = 1.0e-3
     simulation.set_E_neutral_wind(
-        E_neutral_wind_cf=cf_coeffs, E_neutral_wind_df=df_coeffs, time=0.0
+        E_neutral_wind_coefficients=np.stack((cf_coeffs, df_coeffs)), time=0.0
     )
 
     view = plot_data.PlotData.from_directory(tmp_path)
@@ -490,9 +490,10 @@ def test_geographic_input_vectors_are_rotated_to_geographic_components(tmp_path)
         artifact_storage="netcdf",
     )
     wind_shape = simulation.data.schema.input_field_spaces["u"].coefficient_shape
-    u_cf = np.linspace(0.0, 1.0, wind_shape[1])
-    u_df = np.linspace(1.0, 0.0, wind_shape[1])
-    simulation.set_neutral_wind(u_cf=u_cf, u_df=u_df, time=0.0)
+    u_coefficients = np.stack(
+        (np.linspace(0.0, 1.0, wind_shape[1]), np.linspace(1.0, 0.0, wind_shape[1]))
+    )
+    simulation.set_neutral_wind(u_coefficients=u_coefficients, time=0.0)
 
     view = plot_data.PlotData.from_directory(tmp_path, wind_nlat=5, wind_nlon=7)
     fields = view.input_plot_data(0, coordinate_system="geographic")

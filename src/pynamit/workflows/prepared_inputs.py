@@ -20,7 +20,7 @@ import numpy as np
 from pynamit.simulation import input_manifest as _input_manifest
 from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.evolution import DEFAULT_DT_SECONDS, _TimeEvolution
-from pynamit.simulation.schema import INPUT_DATASET_KEYS
+from pynamit.simulation.schema import INPUT_DATASET_KEYS, WIND_FORCING_INPUTS
 from pynamit.simulation.simulation import Simulation
 from pynamit.storage import ArtifactStore, FieldTimeSeries
 from pynamit.storage.field_time_series import TIME_TOLERANCE_SECONDS
@@ -103,7 +103,7 @@ def _validate_and_select_prepared_inputs(
     )
     if not selected_inputs:
         raise ValueError(f"No prepared input datasets found in {input_directory!r}.")
-    active_wind_forcings = sorted(set(selected_inputs) & {"u", "Q_eff", "E_neutral_wind"})
+    active_wind_forcings = sorted(set(selected_inputs) & WIND_FORCING_INPUTS)
     if len(active_wind_forcings) > 1:
         raise ValueError(
             "Prepared input selection contains mutually exclusive wind-forcing "
