@@ -852,14 +852,14 @@ class GroundFigureRenderer:
         overlay_specs = [
             (
                 self.settings.show_pedersen_conductance_overlay,
-                "sigmaP",
+                "SigmaP",
                 "Pedersen conductance",
                 "#6A3D9A",
                 "-",
             ),
             (
                 self.settings.show_hall_conductance_overlay,
-                "sigmaH",
+                "SigmaH",
                 "Hall conductance",
                 "#1F78B4",
                 (0, (4, 2)),

@@ -143,7 +143,8 @@ def run_example(
     Q_eff_lambda : float, optional
         Regularization parameter for the effective wind current.
     least_squares_solver : str, optional
-        Solver used for the toroidal-potential least-squares problem.
+        Toroidal-potential solver. SH defaults to ``normal_pinv`` and CS
+        defaults to matrix-free ``lsmr``.
     least_squares_preconditioner : {'jacobi', 'pinv', None}, optional
         Preconditioner used by iterative toroidal-potential solves.
     reuse_preconditioner : bool, optional

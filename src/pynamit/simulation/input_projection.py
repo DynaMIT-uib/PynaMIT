@@ -131,7 +131,7 @@ class _InputProjector:
         time=None,
         sqrt_weights=None,
         reg_lambda=None,
-        pinv_rtol=1e-15,
+        tolerance=1e-15,
     ) -> None:
         """Validate, project, and store one scalar input stream."""
         variables = INPUT_VARIABLES[key]
@@ -172,7 +172,7 @@ class _InputProjector:
             time=time,
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
-            pinv_rtol=pinv_rtol,
+            tolerance=tolerance,
         )
 
     def set_tangential_input(
@@ -191,7 +191,7 @@ class _InputProjector:
         time=None,
         sqrt_weights=None,
         reg_lambda=None,
-        pinv_rtol=1e-15,
+        tolerance=1e-15,
     ) -> None:
         """Validate, project, and store one tangential input stream."""
         self.require_no_exclusive_conflict(key)
@@ -238,7 +238,7 @@ class _InputProjector:
             time=time,
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
-            pinv_rtol=pinv_rtol,
+            tolerance=tolerance,
         )
 
     def project_tangential_samples(
@@ -254,7 +254,7 @@ class _InputProjector:
         time=None,
         sqrt_weights=None,
         reg_lambda=None,
-        pinv_rtol=1e-15,
+        tolerance=1e-15,
     ):
         """Project tangential samples."""
         input_data = self.tangential_input_data(key, theta_component, phi_component)
@@ -266,7 +266,7 @@ class _InputProjector:
             analysis_basis=self.preparation.data.schema.input_projection_bases[key],
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
-            pinv_rtol=pinv_rtol,
+            tolerance=tolerance,
         )
         self._validate_time_rows(key, key, coeff_rows, input_time)
         return input_time, coeff_rows
@@ -294,7 +294,7 @@ class _InputProjector:
         return values[:, 0, :], values[:, 1, :], grid.lat, grid.lon
 
     def fit_Q_eff_from_neutral_wind(
-        self, input_time, wind_coeff_rows, *, reg_lambda=None, pinv_rtol=1e-15
+        self, input_time, wind_coeff_rows, *, reg_lambda=None, tolerance=1e-15
     ):
         """Fit stored Q_eff coefficients to wind-driven E."""
         response = self.preparation._require_response()
@@ -304,7 +304,7 @@ class _InputProjector:
         )
         q_coeff_rows = []
         cached_resistance_tensor = None
-        Q_eff_to_E_operator = None
+        solve_Q_eff = None
         for time_value, wind_coeffs in zip(input_time, wind_coeff_rows, strict=True):
             response.activate_inputs_at_time(self.preparation.data.input_series, time_value)
             E_wind_coeffs = response.u_coeffs_to_E_coeffs_operator.matvec(wind_coeffs)
@@ -316,9 +316,10 @@ class _InputProjector:
                     resistance_tensor,
                     q_eff_synthesis_operator,
                 )
-            q_coeffs = ionospheric_closure.solve_Q_eff_coefficients(
-                Q_eff_to_E_operator, E_wind_coeffs, reg_lambda=reg_lambda, pinv_rtol=pinv_rtol
-            )
+                solve_Q_eff = ionospheric_closure.build_Q_eff_coefficient_solver(
+                    Q_eff_to_E_operator, reg_lambda=reg_lambda, tolerance=tolerance
+                )
+            q_coeffs = solve_Q_eff(E_wind_coeffs)
             q_coeff_rows.append(
                 q_field_space.validate_coefficients(q_coeffs, name="Q_eff coefficients")
             )
@@ -337,7 +338,7 @@ class _InputProjector:
         time=None,
         sqrt_weights=None,
         reg_lambda=None,
-        pinv_rtol=1e-15,
+        tolerance=1e-15,
     ) -> None:
         """Project gridded input data and store coefficient entries."""
         input_time = self.resolve_input_times(time, input_data)
@@ -352,7 +353,7 @@ class _InputProjector:
                 input_time=input_time,
                 sqrt_weights=sqrt_weights,
                 reg_lambda=reg_lambda,
-                pinv_rtol=pinv_rtol,
+                tolerance=tolerance,
             )
         else:
             projected_data = {}
@@ -369,7 +370,7 @@ class _InputProjector:
                     analysis_basis=self.preparation.data.schema.input_projection_bases[key],
                     sqrt_weights=sqrt_weights,
                     reg_lambda=reg_lambda,
-                    pinv_rtol=pinv_rtol,
+                    tolerance=tolerance,
                 )
                 self._validate_time_rows(key, var, projected_values, input_time)
                 projected_data[var] = projected_values
@@ -385,7 +386,7 @@ class _InputProjector:
         input_time,
         sqrt_weights=None,
         reg_lambda=None,
-        pinv_rtol=1e-15,
+        tolerance=1e-15,
     ) -> dict[str, Any]:
         """Project scalar input variables in one batched transform."""
         transform = self.projection_transform(key)
@@ -405,7 +406,7 @@ class _InputProjector:
             analysis_basis=self.preparation.data.schema.input_projection_bases[key],
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
-            pinv_rtol=pinv_rtol,
+            tolerance=tolerance,
         )
         return {
             var: projected[index * input_time.size : (index + 1) * input_time.size]

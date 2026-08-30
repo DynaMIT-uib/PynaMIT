@@ -28,6 +28,7 @@ INDEPENDENT_PROJECTION_BASIS_KEYS = (
 )
 PROJECTION_BASIS_KEYS = INDEPENDENT_PROJECTION_BASIS_KEYS + ("Q_eff",)
 PROJECTION_BASIS_SETTING_NAMES = tuple(f"{key}_projection_basis" for key in PROJECTION_BASIS_KEYS)
+HORIZONTAL_PROJECTION_BASIS_KEYS = ("boundary_jr", "u", "Q_eff", "E_neutral_wind")
 INTEGRATORS = {
     "euler": "euler",
     "exponential": "exponential",
@@ -203,7 +204,11 @@ def resolve_projection_basis_settings(settings: Any, horizontal_basis_kind: str)
     )
 
     if horizontal_basis_kind == "CS":
-        invalid = [name for name, value in projection_settings.items() if value != "CS"]
+        invalid = [
+            f"{key}_projection_basis"
+            for key in HORIZONTAL_PROJECTION_BASIS_KEYS
+            if projection_settings[f"{key}_projection_basis"] != "CS"
+        ]
         if invalid:
             raise ValueError(
                 ", ".join(invalid) + " must be 'CS' when horizontal_basis_kind is 'CS'."
@@ -418,7 +423,12 @@ class SimulationConfig:
         )
         object.__setattr__(self, "integrator", _normalize_integrator(self.integrator))
         if self.least_squares_solver is None:
-            object.__setattr__(self, "least_squares_solver", get_default_least_squares_solver())
+            default_solver = "lsmr" if self.horizontal_basis_kind == "CS" else "normal_pinv"
+            object.__setattr__(
+                self,
+                "least_squares_solver",
+                get_default_least_squares_solver(default=default_solver),
+            )
         object.__setattr__(
             self,
             "least_squares_solver",

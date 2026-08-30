@@ -200,12 +200,12 @@ def test_saved_output_joule_uses_pedersen_dissipation(monkeypatch):
         },
         coords={"time": [0.0]},
     )
-    eta_p = np.array([2.0, 3.0])
+    etaP = np.array([2.0, 3.0])
     conductance = xr.Dataset(
         {
             "SH_log_conductance_magnitude": (
                 ("time", "coefficient"),
-                [np.log(1.0 / (np.sqrt(2.0) * eta_p))],
+                [np.log(1.0 / (np.sqrt(2.0) * etaP))],
             ),
             "SH_log_hall_to_pedersen_ratio": (("time", "coefficient"), [np.zeros(2)]),
         },
@@ -232,7 +232,7 @@ def test_saved_output_joule_uses_pedersen_dissipation(monkeypatch):
         data_var_name=lambda _dataset_key, variable_name: f"SH_{variable_name}",
     )
     monkeypatch.setattr(
-        plot_data, "evaluate_projected_input", lambda *_args, **_kwargs: {"etaP": eta_p}
+        plot_data, "evaluate_projected_input", lambda *_args, **_kwargs: {"etaP": etaP}
     )
 
     fields = plot_data.compute_output_fields_at_index(
@@ -747,8 +747,8 @@ def test_input_summary_keeps_polar_jr_model_aligned(monkeypatch):
             return {
                 "jr": np.zeros(shape),
                 "Br": np.zeros(shape),
-                "sigmaP": np.ones(shape),
-                "sigmaH": np.ones(shape),
+                "SigmaP": np.ones(shape),
+                "SigmaH": np.ones(shape),
                 "wind_theta": np.zeros(shape),
                 "wind_phi": np.zeros(shape),
                 "Q_eff_theta": np.full(shape, np.nan),

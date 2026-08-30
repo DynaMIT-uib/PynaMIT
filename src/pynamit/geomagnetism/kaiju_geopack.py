@@ -8,7 +8,7 @@ from typing import Any
 
 import dipole
 import numpy as np
-from kompe.spherical import rotate_spherical_by_matrix
+from kompe.spherical_coordinates import rotate_spherical_by_matrix
 
 from pynamit.coordinates import decimal_year_to_datetime, wrap_longitude_180
 

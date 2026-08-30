@@ -23,17 +23,17 @@ def _dummy_field(br, btheta, bphi, B0=4.7e-5):
     )
 
 
-def _pynamit_resistance_tensor(sigma_p, sigma_h, br, btheta, bphi):
-    eta_p = sigma_p / (sigma_h**2 + sigma_p**2)
-    eta_h = sigma_h / (sigma_h**2 + sigma_p**2)
+def _pynamit_resistance_tensor(SigmaP, SigmaH, br, btheta, bphi):
+    etaP = SigmaP / (SigmaH**2 + SigmaP**2)
+    etaH = SigmaH / (SigmaH**2 + SigmaP**2)
     b_p = np.array([[bphi**2 + br**2, -btheta * bphi], [-btheta * bphi, btheta**2 + br**2]])
     b_h = np.array([[0.0, br], [-br, 0.0]])
-    return eta_p * b_p + eta_h * b_h
+    return etaP * b_p + etaH * b_h
 
 
-def _pynamit_resistance_values(sigma_p, sigma_h):
-    denominator = sigma_h**2 + sigma_p**2
-    return sigma_p / denominator, sigma_h / denominator
+def _pynamit_resistance_values(SigmaP, SigmaH):
+    denominator = SigmaH**2 + SigmaP**2
+    return SigmaP / denominator, SigmaH / denominator
 
 
 def _cross_spherical(a_r, a_theta, a_phi, b_r, b_theta, b_phi):
@@ -46,7 +46,7 @@ def _cross_spherical(a_r, a_theta, a_phi, b_r, b_theta, b_phi):
 
 
 def _weighted_wind_current_source(
-    *, sigma_p, sigma_h, u_p_theta, u_p_phi, u_h_theta, u_h_phi, field
+    *, SigmaP, SigmaH, u_p_theta, u_p_phi, u_h_theta, u_h_phi, field
 ):
     """Return an independent reference for the 3D current source."""
     zero = np.zeros_like(u_p_theta)
@@ -66,13 +66,13 @@ def _weighted_wind_current_source(
             hall_wind[2],
         )
     )
-    return tuple(sigma_p * pedersen[index] + sigma_h * hall[index] for index in range(3))
+    return tuple(SigmaP * pedersen[index] + SigmaH * hall[index] for index in range(3))
 
 
 def _q_eff_reference_for_pynamit(
     *,
-    sigma_p,
-    sigma_h,
+    SigmaP,
+    SigmaH,
     u_p_theta,
     u_p_phi,
     u_h_theta,
@@ -85,11 +85,11 @@ def _q_eff_reference_for_pynamit(
     b_r = np.asarray(field.unit_br, dtype=float).reshape(-1)
     b_theta = np.asarray(field.unit_btheta, dtype=float).reshape(-1)
     b_phi = np.asarray(field.unit_bphi, dtype=float).reshape(-1)
-    sigma_p = np.asarray(sigma_p, dtype=float).reshape(-1)
-    sigma_h = np.asarray(sigma_h, dtype=float).reshape(-1)
+    SigmaP = np.asarray(SigmaP, dtype=float).reshape(-1)
+    SigmaH = np.asarray(SigmaH, dtype=float).reshape(-1)
     q_r, q_theta, q_phi = _weighted_wind_current_source(
-        sigma_p=sigma_p,
-        sigma_h=sigma_h,
+        SigmaP=SigmaP,
+        SigmaH=SigmaH,
         u_p_theta=u_p_theta,
         u_p_phi=u_p_phi,
         u_h_theta=u_h_theta,
@@ -103,12 +103,12 @@ def _q_eff_reference_for_pynamit(
         correction_phi = np.divide(q_r * b_phi, b_r, out=np.zeros_like(q_r), where=valid)
     else:
         sigma_parallel = float(parallel_conductance)
-        denominator = sigma_p * (b_theta**2 + b_phi**2) + sigma_parallel * b_r**2
+        denominator = SigmaP * (b_theta**2 + b_phi**2) + sigma_parallel * b_r**2
         correction_theta = (
-            ((sigma_parallel - sigma_p) * b_r * b_theta + sigma_h * b_phi) * q_r / denominator
+            ((sigma_parallel - SigmaP) * b_r * b_theta + SigmaH * b_phi) * q_r / denominator
         )
         correction_phi = (
-            ((sigma_parallel - sigma_p) * b_r * b_phi - sigma_h * b_theta) * q_r / denominator
+            ((sigma_parallel - SigmaP) * b_r * b_phi - SigmaH * b_theta) * q_r / denominator
         )
 
     q_eff_theta_physical = q_theta - correction_theta
@@ -118,8 +118,8 @@ def _q_eff_reference_for_pynamit(
 
 def test_q_eff_reference_matches_appendix_a8_projection_with_pynamit_sign():
     """Test-side Q_eff reference uses Eq. A8 with PynaMIT's sign."""
-    sigma_p = np.array([7.0, 5.0])
-    sigma_h = np.array([2.5, 1.0])
+    SigmaP = np.array([7.0, 5.0])
+    SigmaH = np.array([2.5, 1.0])
     sigma_parallel = 80.0
     br = np.array([-0.82, 0.74])
     btheta = np.array([0.31, -0.42])
@@ -134,8 +134,8 @@ def test_q_eff_reference_matches_appendix_a8_projection_with_pynamit_sign():
     u_h_phi = np.array([100.0, -70.0])
 
     q_eff_theta, q_eff_phi = _q_eff_reference_for_pynamit(
-        sigma_p=sigma_p,
-        sigma_h=sigma_h,
+        SigmaP=SigmaP,
+        SigmaH=SigmaH,
         u_p_theta=u_p_theta,
         u_p_phi=u_p_phi,
         u_h_theta=u_h_theta,
@@ -152,15 +152,13 @@ def test_q_eff_reference_matches_appendix_a8_projection_with_pynamit_sign():
         _cross_spherical(zero, u_h_theta, u_h_phi, field.Br, field.Btheta, field.Bphi)
     )
     q_h = np.asarray(_cross_spherical(br, btheta, bphi, q_h_wind[0], q_h_wind[1], q_h_wind[2]))
-    q = sigma_p * q_p + sigma_h * q_h
+    q = SigmaP * q_p + SigmaH * q_h
 
-    denominator = sigma_p * (btheta**2 + bphi**2) + sigma_parallel * br**2
+    denominator = SigmaP * (btheta**2 + bphi**2) + sigma_parallel * br**2
     correction_theta = (
-        ((sigma_parallel - sigma_p) * br * btheta + sigma_h * bphi) * q[0] / denominator
+        ((sigma_parallel - SigmaP) * br * btheta + SigmaH * bphi) * q[0] / denominator
     )
-    correction_phi = (
-        ((sigma_parallel - sigma_p) * br * bphi - sigma_h * btheta) * q[0] / denominator
-    )
+    correction_phi = ((sigma_parallel - SigmaP) * br * bphi - SigmaH * btheta) * q[0] / denominator
     expected_physical_theta = q[1] - correction_theta
     expected_physical_phi = q[2] - correction_phi
 
@@ -170,8 +168,8 @@ def test_q_eff_reference_matches_appendix_a8_projection_with_pynamit_sign():
 
 def test_q_eff_matches_height_independent_wind_forcing():
     """Height-independent Q_eff equals wind forcing."""
-    sigma_p = np.array([8.0, 4.0, 6.0])
-    sigma_h = np.array([3.0, 1.5, 2.0])
+    SigmaP = np.array([8.0, 4.0, 6.0])
+    SigmaH = np.array([3.0, 1.5, 2.0])
     br = np.array([-0.91, -0.62, 0.73])
     btheta = np.array([0.22, -0.54, 0.12])
     bphi = np.array([0.35, 0.56, -0.67])
@@ -182,8 +180,8 @@ def test_q_eff_matches_height_independent_wind_forcing():
     u_theta = np.array([75.0, -120.0, 40.0])
     u_phi = np.array([-35.0, 20.0, 95.0])
     q_eff_theta, q_eff_phi = _q_eff_reference_for_pynamit(
-        sigma_p=sigma_p,
-        sigma_h=sigma_h,
+        SigmaP=SigmaP,
+        SigmaH=SigmaH,
         u_p_theta=u_theta,
         u_p_phi=u_phi,
         u_h_theta=u_theta,
@@ -199,15 +197,15 @@ def test_q_eff_matches_height_independent_wind_forcing():
     )
     q_eff_input = np.stack([q_eff_theta, q_eff_phi])
     for i in range(q_eff_input.shape[1]):
-        resistance = _pynamit_resistance_tensor(sigma_p[i], sigma_h[i], br[i], btheta[i], bphi[i])
+        resistance = _pynamit_resistance_tensor(SigmaP[i], SigmaH[i], br[i], btheta[i], bphi[i])
         E_from_q_eff = resistance @ q_eff_input[:, i]
         np.testing.assert_allclose(E_from_q_eff, -wind_cross_b[1:, i], rtol=1e-12, atol=1e-18)
 
 
 def test_weighted_wind_electric_field_reduces_to_set_u_for_height_independent_wind():
     """Weighted-wind E should reduce to ordinary u forcing."""
-    sigma_p = np.array([8.0, 4.0, 6.0])
-    sigma_h = np.array([3.0, 1.5, 2.0])
+    SigmaP = np.array([8.0, 4.0, 6.0])
+    SigmaH = np.array([3.0, 1.5, 2.0])
     br = np.array([-0.91, -0.62, 0.73])
     btheta = np.array([0.22, -0.54, 0.12])
     bphi = np.array([0.35, 0.56, -0.67])
@@ -217,18 +215,18 @@ def test_weighted_wind_electric_field_reduces_to_set_u_for_height_independent_wi
 
     u_theta = np.array([75.0, -120.0, 40.0])
     u_phi = np.array([-35.0, 20.0, 95.0])
-    eta_p, eta_h = _pynamit_resistance_values(sigma_p, sigma_h)
+    etaP, etaH = _pynamit_resistance_values(SigmaP, SigmaH)
 
     e_neutral_wind_theta, e_neutral_wind_phi = electric_field_from_weighted_winds(
-        sigma_p=sigma_p,
-        sigma_h=sigma_h,
+        SigmaP=SigmaP,
+        SigmaH=SigmaH,
         u_p_theta=u_theta,
         u_p_phi=u_phi,
         u_h_theta=u_theta,
         u_h_phi=u_phi,
         field=field,
-        eta_p=eta_p,
-        eta_h=eta_h,
+        etaP=etaP,
+        etaH=etaH,
     )
     wind_cross_b = np.asarray(
         _cross_spherical(
@@ -242,8 +240,8 @@ def test_weighted_wind_electric_field_reduces_to_set_u_for_height_independent_wi
 
 def test_weighted_wind_electric_field_matches_q_eff_away_from_equator():
     """Weighted-wind E and A8 Q_eff should agree off-equator."""
-    sigma_p = np.array([8.0, 4.0, 6.0])
-    sigma_h = np.array([3.0, 1.5, 2.0])
+    SigmaP = np.array([8.0, 4.0, 6.0])
+    SigmaH = np.array([3.0, 1.5, 2.0])
     br = np.array([-0.91, -0.62, 0.73])
     btheta = np.array([0.22, -0.54, 0.12])
     bphi = np.array([0.35, 0.56, -0.67])
@@ -255,22 +253,22 @@ def test_weighted_wind_electric_field_matches_q_eff_away_from_equator():
     u_p_phi = np.array([-35.0, 20.0, 95.0])
     u_h_theta = np.array([20.0, 50.0, -85.0])
     u_h_phi = np.array([100.0, -30.0, 15.0])
-    eta_p, eta_h = _pynamit_resistance_values(sigma_p, sigma_h)
+    etaP, etaH = _pynamit_resistance_values(SigmaP, SigmaH)
 
     e_neutral_wind_theta, e_neutral_wind_phi = electric_field_from_weighted_winds(
-        sigma_p=sigma_p,
-        sigma_h=sigma_h,
+        SigmaP=SigmaP,
+        SigmaH=SigmaH,
         u_p_theta=u_p_theta,
         u_p_phi=u_p_phi,
         u_h_theta=u_h_theta,
         u_h_phi=u_h_phi,
         field=field,
-        eta_p=eta_p,
-        eta_h=eta_h,
+        etaP=etaP,
+        etaH=etaH,
     )
     q_eff_theta, q_eff_phi = _q_eff_reference_for_pynamit(
-        sigma_p=sigma_p,
-        sigma_h=sigma_h,
+        SigmaP=SigmaP,
+        SigmaH=SigmaH,
         u_p_theta=u_p_theta,
         u_p_phi=u_p_phi,
         u_h_theta=u_h_theta,
@@ -282,7 +280,7 @@ def test_weighted_wind_electric_field_matches_q_eff_away_from_equator():
 
     q_eff_input = np.stack([q_eff_theta, q_eff_phi])
     for i in range(q_eff_input.shape[1]):
-        resistance = _pynamit_resistance_tensor(sigma_p[i], sigma_h[i], br[i], btheta[i], bphi[i])
+        resistance = _pynamit_resistance_tensor(SigmaP[i], SigmaH[i], br[i], btheta[i], bphi[i])
         E_from_q_eff = resistance @ q_eff_input[:, i]
         np.testing.assert_allclose(
             E_from_q_eff,
@@ -299,20 +297,20 @@ def test_weighted_wind_electric_field_is_regular_at_dip_equator():
     btheta = np.sqrt(1.0 - br**2)
     bphi = np.zeros_like(br)
     field = _dummy_field(br, btheta, bphi)
-    sigma_p = np.full(3, 7.0)
-    sigma_h = np.full(3, 2.5)
-    eta_p, eta_h = _pynamit_resistance_values(sigma_p, sigma_h)
+    SigmaP = np.full(3, 7.0)
+    SigmaH = np.full(3, 2.5)
+    etaP, etaH = _pynamit_resistance_values(SigmaP, SigmaH)
 
     e_theta, e_phi = electric_field_from_weighted_winds(
-        sigma_p=sigma_p,
-        sigma_h=sigma_h,
+        SigmaP=SigmaP,
+        SigmaH=SigmaH,
         u_p_theta=np.full(3, 80.0),
         u_p_phi=np.full(3, -35.0),
         u_h_theta=np.full(3, -20.0),
         u_h_phi=np.full(3, 110.0),
         field=field,
-        eta_p=eta_p,
-        eta_h=eta_h,
+        etaP=etaP,
+        etaH=etaH,
     )
 
     e_theta = np.asarray(e_theta)

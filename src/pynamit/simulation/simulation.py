@@ -86,8 +86,9 @@ class Simulation(InputPreparation):
         boundary_jr_projection_basis, boundary_Br_projection_basis,
         conductance_projection_basis, u_projection_basis,
         Q_eff_projection_basis, E_neutral_wind_projection_basis :
-            Input storage bases. Each defaults to the corresponding
-            choice derived by :class:`SimulationConfig`.
+            Bases used to project sampled inputs. The simulation schema
+            determines the coefficient spaces. Each projection route
+            has the default derived by :class:`SimulationConfig`.
         t0 : str, optional
             Physical start time.
         save_equilibria : bool, optional
@@ -95,7 +96,8 @@ class Simulation(InputPreparation):
         integrator : str, optional
             Integrator used for ``induced_Br`` evolution.
         least_squares_solver, least_squares_preconditioner : optional
-            Toroidal-potential solver and preconditioner.
+            Toroidal-potential solver and preconditioner. Defaults are a
+            direct SH solve and matrix-free CS LSMR.
         reuse_preconditioner : bool, optional
             Reuse a compatible iterative-solver preconditioner.
         toroidal_potential_regularization_lambda : float, optional

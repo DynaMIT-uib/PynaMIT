@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from functools import cached_property
+from typing import Any
 
 import numpy as np
 from kompe import (
@@ -395,7 +396,7 @@ class SimulationGeometry:
                 raise ValueError("output_mask must match the evaluator grid size.")
             indices = np.flatnonzero(mask)
 
-        apex_values = np.asarray(evaluator.horizontal_to_apex)[:, :, indices]
+        apex_values = evaluator.horizontal_to_apex[:, :, indices]
         xp = get_array_module(apex_values)
         apex = xp.asarray(apex_values)
         n_grid = int(grid.size)
@@ -419,15 +420,15 @@ class SimulationGeometry:
         )
 
     @property
-    def interhemispheric_electric_field_difference_matrix(self) -> np.ndarray | None:
+    def interhemispheric_electric_field_difference_matrix(self) -> Any | None:
         """Materialize the low-latitude E-apex difference operator."""
         operator = self.interhemispheric_electric_field_difference_operator
         if operator is None:
             return None
-        return operator.array
+        return operator.to_array()
 
     @cached_property
-    def pedersen_geometry_tensor(self) -> np.ndarray:
+    def pedersen_geometry_tensor(self) -> Any:
         """Return the Pedersen part of the resistance tensor."""
         b_th, b_ph, b_r = (
             self.main_field_evaluation.unit_btheta,
@@ -437,12 +438,12 @@ class SimulationGeometry:
         return ionospheric_closure.pedersen_geometry_tensor(b_th, b_ph, b_r)
 
     @cached_property
-    def hall_geometry_tensor(self) -> np.ndarray:
+    def hall_geometry_tensor(self) -> Any:
         """Return the Hall part of the resistance tensor."""
         return ionospheric_closure.hall_geometry_tensor(self.main_field_evaluation.unit_br)
 
     @cached_property
-    def wind_motional_E_tensor(self) -> np.ndarray:
+    def wind_motional_E_tensor(self) -> Any:
         """Map neutral wind to motional electric field pointwise."""
         return ionospheric_closure.wind_motional_E_tensor(self.main_field_evaluation.Br)
 

@@ -57,12 +57,12 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
         geometry.poloidal_to_normalized_potential_jump_operator.to_matrix(backend="numpy"),
         expected_normalized_potential_jump,
     )
-    assert geometry.induced_Br_to_gridded_JS_operator().array.shape == (
+    assert geometry.induced_Br_to_gridded_JS_operator().to_array().shape == (
         2,
         geometry.model_grid.size,
         simulation.geometry.poloidal_basis.index_length,
     )
-    assert geometry.boundary_jr_to_gridded_JS_operator().array.shape == (
+    assert geometry.boundary_jr_to_gridded_JS_operator().to_array().shape == (
         2,
         geometry.model_grid.size,
         simulation.geometry.horizontal_basis.index_length,
@@ -75,7 +75,7 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
     assert plot_transform.with_basis(geometry.poloidal_basis) is plot_transform.with_basis(
         geometry.poloidal_basis
     )
-    assert geometry.induced_Br_to_gridded_JS_operator(plot_transform).array.shape == (
+    assert geometry.induced_Br_to_gridded_JS_operator(plot_transform).to_array().shape == (
         2,
         plot_grid.size,
         simulation.geometry.poloidal_basis.index_length,

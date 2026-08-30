@@ -601,9 +601,10 @@ matrix exponential and equilibrium pseudoinverse require an explicit
 poloidal operator. The equilibrium response composes that compact
 pseudoinverse with the structured surface-to-poloidal bridge; its full
 cross-space matrix is materialized only when explicitly requested for
-diagnostics. The generic dense ``normal_pinv`` solver is retained for
-reproducibility; large CS toroidal-potential solves should select ``lsmr`` (or
-``cgls``) with the ``jacobi`` preconditioner.
+diagnostics. The generic dense ``normal_pinv`` solver remains the SH default
+and is retained for reproducibility. CS toroidal-potential solves default to
+matrix-free ``lsmr``; ``cgls`` and the ``jacobi`` preconditioner remain
+explicit alternatives when their cost is justified for a particular system.
 
 The toroidal-potential runtime follows the same rule. A single active
 ``boundary_jr`` or driving-E field is assembled as one physical least-squares

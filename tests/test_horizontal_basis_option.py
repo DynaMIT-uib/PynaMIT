@@ -245,7 +245,7 @@ def test_cs_horizontal_basis_runs_with_pfac(tmp_path):
     )
     assert np.linalg.norm(response_matrix) > 0.0
     assert np.all(np.isfinite(response_matrix))
-    assert np.all(np.isfinite(geometry.boundary_jr_to_gridded_JS_operator().array))
+    assert np.all(np.isfinite(geometry.boundary_jr_to_gridded_JS_operator().to_array()))
 
 
 def test_cs_horizontal_basis_supports_rm_solid_harmonics(tmp_path):
@@ -263,8 +263,8 @@ def test_cs_horizontal_basis_supports_rm_solid_harmonics(tmp_path):
 
     geometry = simulation.geometry
 
-    induced_Br_to_JS = geometry.induced_Br_to_gridded_JS_operator().array
-    boundary_Br_to_JS = geometry.boundary_Br_to_gridded_JS_operator().array
+    induced_Br_to_JS = geometry.induced_Br_to_gridded_JS_operator().to_array()
+    boundary_Br_to_JS = geometry.boundary_Br_to_gridded_JS_operator().to_array()
 
     assert induced_Br_to_JS.shape == (
         2,
@@ -367,8 +367,8 @@ def test_cs_horizontal_basis_combines_pfac_rm_and_connected_terms(tmp_path):
         simulation.geometry.poloidal_basis.index_length,
         simulation.geometry.horizontal_basis.index_length,
     )
-    assert geometry.boundary_Br_to_gridded_JS_operator().array.shape == (
-        geometry.induced_Br_to_gridded_JS_operator().array.shape
+    assert geometry.boundary_Br_to_gridded_JS_operator().to_array().shape == (
+        geometry.induced_Br_to_gridded_JS_operator().to_array().shape
     )
     assert geometry.interhemispheric_electric_field_difference_matrix.shape[-2:] == (
         2,
@@ -376,7 +376,7 @@ def test_cs_horizontal_basis_combines_pfac_rm_and_connected_terms(tmp_path):
     )
     assert np.linalg.norm(geometry.boundary_jr_to_gap_Br_matrix) > 0.0
     assert np.all(np.isfinite(geometry.boundary_jr_to_gap_Br_matrix))
-    assert np.all(np.isfinite(geometry.boundary_Br_to_gridded_JS_operator().array))
+    assert np.all(np.isfinite(geometry.boundary_Br_to_gridded_JS_operator().to_array()))
 
 
 def test_surface_to_poloidal_projection_matches_grid_least_squares(tmp_path):

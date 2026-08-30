@@ -57,13 +57,13 @@ def test_conductance_coefficients_use_transform_before_conversion():
     )
     expected_log_magnitude = 2.0 * log_magnitude_coeffs
     expected_log_ratio = 2.0 * log_ratio_coeffs
-    sigmaP, sigmaH = conductance_from_log_coordinates(expected_log_magnitude, expected_log_ratio)
-    etaP, etaH = conductance_to_resistance(sigmaP, sigmaH)
+    SigmaP, SigmaH = conductance_from_log_coordinates(expected_log_magnitude, expected_log_ratio)
+    etaP, etaH = conductance_to_resistance(SigmaP, SigmaH)
 
     np.testing.assert_allclose(values["etaP"], etaP)
     np.testing.assert_allclose(values["etaH"], etaH)
-    np.testing.assert_allclose(values["SigmaP"], sigmaP)
-    np.testing.assert_allclose(values["SigmaH"], sigmaH)
+    np.testing.assert_allclose(values["SigmaP"], SigmaP)
+    np.testing.assert_allclose(values["SigmaH"], SigmaH)
 
 
 def test_tangential_and_wind_coefficients_share_component_convention():

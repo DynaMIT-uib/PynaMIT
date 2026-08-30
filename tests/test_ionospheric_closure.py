@@ -2,10 +2,11 @@
 
 import numpy as np
 import pytest
-from kompe.math import as_linear_map, get_backend, set_backend
+from kompe.math import LinearMap, as_linear_map, get_backend, set_backend
 
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     Q_eff_on_grid_from_wind,
+    build_Q_eff_coefficient_solver,
     conductance_from_log_coordinates,
     conductance_to_log_coordinates,
     conductance_to_resistance,
@@ -28,10 +29,10 @@ def test_pedersen_hall_inversion_is_reversible():
     pedersen = np.array([4.0, 3.0])
 
     etaP, etaH = conductance_to_resistance(pedersen, hall)
-    sigmaP, sigmaH = resistance_to_conductance(etaP, etaH)
+    SigmaP, SigmaH = resistance_to_conductance(etaP, etaH)
 
-    np.testing.assert_allclose(sigmaP, pedersen)
-    np.testing.assert_allclose(sigmaH, hall)
+    np.testing.assert_allclose(SigmaP, pedersen)
+    np.testing.assert_allclose(SigmaH, hall)
 
 
 def test_log_conductance_coordinates_preserve_positive_tensor_and_reciprocal_pair():
@@ -89,17 +90,17 @@ def test_log_coordinate_maps_remain_finite_across_extreme_ratios():
 
 
 @pytest.mark.parametrize(
-    ("eta_p", "eta_h", "message"),
+    ("etaP", "etaH", "message"),
     [
         ([0.0, 1.0], [1.0, 1.0], "Pedersen"),
         ([1.0, 1.0], [0.0, 1.0], "Hall"),
         ([1.0, np.nan], [1.0, 1.0], "Pedersen"),
     ],
 )
-def test_log_conductance_coordinates_require_positive_resistance(eta_p, eta_h, message):
+def test_log_conductance_coordinates_require_positive_resistance(etaP, etaH, message):
     """Resistance log coordinates require positive finite components."""
     with pytest.raises(ValueError, match=message):
-        resistance_to_log_conductance_coordinates(eta_p, eta_h)
+        resistance_to_log_conductance_coordinates(etaP, etaH)
 
 
 def test_log_conductance_reference_only_shifts_magnitude():
@@ -270,6 +271,28 @@ def test_Q_eff_regularization_weights_the_squared_coefficient_norm():
     np.testing.assert_allclose(coefficients, expected)
 
 
+def test_Q_eff_solver_reuses_a_matrix_free_operator():
+    """Repeated wind fits do not materialize the operator."""
+    matrix = np.array([[2.0, 1.0], [-1.0, 3.0], [4.0, -2.0]])
+
+    def fail_dense(_xp):
+        raise AssertionError("Q_eff fitting must remain matrix-free")
+
+    operator = LinearMap(
+        shape=matrix.shape,
+        dtype=matrix.dtype,
+        matvec=lambda values: matrix @ values,
+        rmatvec=lambda values: matrix.T @ values,
+        matmat=lambda values: matrix @ values,
+        rmatmat=lambda values: matrix.T @ values,
+        dense_array=fail_dense,
+    )
+    solve = build_Q_eff_coefficient_solver(operator)
+
+    for expected in (np.array([1.5, -0.5]), np.array([-0.25, 2.0])):
+        np.testing.assert_allclose(solve(matrix @ expected), expected)
+
+
 @pytest.mark.requires_jax
 @pytest.mark.parametrize("backend", ["numpy"], ids=["backend=numpy"])
 @pytest.mark.parametrize("data_source", ["fallback"], ids=["data=fallback"])
@@ -283,7 +306,7 @@ def test_closure_math_preserves_explicit_jax_arrays(backend, data_source):
         pedersen = jnp.asarray([2.0, 3.0])
         hall = jnp.asarray([1.0, 4.0])
         log_magnitude, log_ratio = conductance_to_log_coordinates(pedersen, hall)
-        eta_p, eta_h = conductance_to_resistance(pedersen, hall)
+        etaP, etaH = conductance_to_resistance(pedersen, hall)
 
         wind = jnp.asarray([[2.0, -1.0], [3.0, 4.0]])
         wind_to_E = jnp.asarray([[[0.0, 0.0], [2.0, 3.0]], [[-2.0, -3.0], [0.0, 0.0]]])
@@ -298,14 +321,14 @@ def test_closure_math_preserves_explicit_jax_arrays(backend, data_source):
     finally:
         set_backend(previous_backend)
 
-    for values in (log_magnitude, log_ratio, eta_p, eta_h, Q_eff, coefficients):
+    for values in (log_magnitude, log_ratio, etaP, etaH, Q_eff, coefficients):
         assert "jax" in type(values).__module__
     np.testing.assert_allclose(np.asarray(coefficients), np.asarray(expected), rtol=1e-6)
 
 
 @pytest.mark.parametrize(
     ("kwargs", "message"),
-    [({"reg_lambda": -1.0}, "reg_lambda"), ({"pinv_rtol": np.nan}, "pinv_rtol")],
+    [({"reg_lambda": -1.0}, "reg_lambda"), ({"tolerance": np.nan}, "tolerance")],
 )
 def test_Q_eff_coefficient_solve_rejects_invalid_controls(kwargs, message):
     """Invalid solver controls must not silently change behavior."""

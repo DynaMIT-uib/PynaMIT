@@ -266,8 +266,8 @@ def compute_input_fields_at_time(
     return {
         "jr": field(boundary_jr, "boundary_jr", scalar_shape),
         "Br": field(boundary_Br, "boundary_Br", scalar_shape),
-        "sigmaP": field(conductance, "SigmaP", scalar_shape),
-        "sigmaH": field(conductance, "SigmaH", scalar_shape),
+        "SigmaP": field(conductance, "SigmaP", scalar_shape),
+        "SigmaH": field(conductance, "SigmaH", scalar_shape),
         "wind_theta": field(tangential["u"], "u_theta", vector_shape),
         "wind_phi": field(tangential["u"], "u_phi", vector_shape),
         "Q_eff_theta": field(tangential["Q_eff"], "Q_eff_theta", vector_shape),

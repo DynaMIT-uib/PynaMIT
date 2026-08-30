@@ -25,15 +25,15 @@ def evaluate_conductance_values(log_magnitude, log_ratio):
     xp = get_array_module(log_magnitude, log_ratio)
     log_magnitude = xp.asarray(log_magnitude, dtype=float)
     log_ratio = xp.asarray(log_ratio, dtype=float)
-    sigmaP, sigmaH = conductance_from_log_coordinates(log_magnitude, log_ratio)
-    etaP, etaH = conductance_to_resistance(sigmaP, sigmaH)
+    SigmaP, SigmaH = conductance_from_log_coordinates(log_magnitude, log_ratio)
+    etaP, etaH = conductance_to_resistance(SigmaP, SigmaH)
     return {
         "log_conductance_magnitude": log_magnitude,
         "log_hall_to_pedersen_ratio": log_ratio,
         "etaP": etaP,
         "etaH": etaH,
-        "SigmaP": sigmaP,
-        "SigmaH": sigmaH,
+        "SigmaP": SigmaP,
+        "SigmaH": SigmaH,
     }
 
 
@@ -102,7 +102,7 @@ def build_sheet_current_matrices(settings, sh_basis, transform, boundary_jr_to_g
         radius=radius,
         boundary_radius=rm,
         boundary_shielding=bool(setting_value(settings, "magnetic_boundary_shielding", False)),
-    ).array
+    ).to_array()
     boundary_jr_to_toroidal_potential = (
         MU0 / radius * sh_basis.mean_free_surface_poisson_operator(radius)
     )
@@ -117,13 +117,13 @@ def build_sheet_current_matrices(settings, sh_basis, transform, boundary_jr_to_g
         poloidal_transform=transform,
         boundary_jr_to_toroidal_potential=boundary_jr_to_toroidal_potential,
         boundary_jr_to_gap_Br=boundary_jr_to_gap_Br,
-    ).array
+    ).to_array()
     boundary_Br_to_JS_matrix = (
         None
         if rm is None
         else magnetic_boundary.boundary_Br_to_gridded_JS_operator(
             solid_harmonics, transform, radius=radius, boundary_radius=rm
-        ).array
+        ).to_array()
     )
     return {
         "induced_Br_to_JS": induced_Br_to_JS_matrix,

@@ -2,7 +2,7 @@
 
 from functools import cached_property
 
-import numpy as np
+from kompe.math import get_array_module
 
 
 class MagneticFieldEvaluation:
@@ -29,9 +29,9 @@ class MagneticFieldEvaluation:
     @cached_property
     def components(self):
         """Return ``(Br, Btheta, Bphi)`` with shape ``(3, N)``."""
-        return np.stack(
-            self.main_field.field_components(self.radius, self.grid.theta, self.grid.phi), axis=0
-        )
+        components = self.main_field.field_components(self.radius, self.grid.theta, self.grid.phi)
+        xp = get_array_module(*components)
+        return xp.stack([xp.asarray(component) for component in components], axis=0)
 
     @property
     def Br(self):
@@ -51,7 +51,8 @@ class MagneticFieldEvaluation:
     @cached_property
     def magnitude(self):
         """Return magnetic-field magnitude on the grid."""
-        return np.linalg.norm(self.components, axis=0)
+        xp = get_array_module(self.components)
+        return xp.linalg.norm(self.components, axis=0)
 
     @cached_property
     def unit_br(self):
@@ -71,31 +72,35 @@ class MagneticFieldEvaluation:
     @cached_property
     def basis_vectors(self):
         """Return the six magnetic apex basis vectors."""
-        return self.main_field.basis_vectors(self.radius, self.grid.theta, self.grid.phi)
+        vectors = self.main_field.basis_vectors(self.radius, self.grid.theta, self.grid.phi)
+        xp = get_array_module(*vectors)
+        return tuple(xp.asarray(vector) for vector in vectors)
 
     @cached_property
     def horizontal_to_field_orthogonal(self):
         """Map horizontal components to a field-orthogonal 3-vector."""
-        ones = np.ones(self.grid.size)
-        zeros = np.zeros(self.grid.size)
-        return np.array(
-            [
-                [-self.unit_btheta / self.unit_br, -self.unit_bphi / self.unit_br],
-                [ones, zeros],
-                [zeros, ones],
-            ]
+        xp = get_array_module(self.unit_br, self.unit_btheta, self.unit_bphi)
+        ones = xp.ones(self.grid.size)
+        zeros = xp.zeros(self.grid.size)
+        return xp.stack(
+            (
+                xp.stack((-self.unit_btheta / self.unit_br, -self.unit_bphi / self.unit_br)),
+                xp.stack((ones, zeros)),
+                xp.stack((zeros, ones)),
+            )
         )
 
     @cached_property
     def field_orthogonal_to_apex(self):
         """Map a field-orthogonal 3-vector to two apex components."""
         e1, e2 = self.basis_vectors[3:5]
-        return np.stack((e1, e2))
+        return get_array_module(e1, e2).stack((e1, e2))
 
     @cached_property
     def horizontal_to_apex(self):
         """Map horizontal components to orthogonal apex components."""
-        return np.einsum(
+        xp = get_array_module(self.field_orthogonal_to_apex, self.horizontal_to_field_orthogonal)
+        return xp.einsum(
             "ijk,jlk->ilk",
             self.field_orthogonal_to_apex,
             self.horizontal_to_field_orthogonal,
@@ -105,23 +110,27 @@ class MagneticFieldEvaluation:
     @cached_property
     def radial_to_field_parallel(self):
         """Map a radial component to a field-parallel 3-vector."""
-        return np.array(
-            [
-                [np.ones(self.grid.size)],
-                [self.unit_btheta / self.unit_br],
-                [self.unit_bphi / self.unit_br],
-            ]
-        )
+        xp = get_array_module(self.unit_br, self.unit_btheta, self.unit_bphi)
+        return xp.stack(
+            (
+                xp.ones(self.grid.size),
+                self.unit_btheta / self.unit_br,
+                self.unit_bphi / self.unit_br,
+            )
+        )[:, xp.newaxis, :]
 
     @cached_property
     def field_parallel_to_apex(self):
         """Map a field-parallel 3-vector to its apex component."""
-        return np.asarray(self.basis_vectors[2])[np.newaxis, ...]
+        d3 = self.basis_vectors[2]
+        xp = get_array_module(d3)
+        return xp.asarray(d3)[xp.newaxis, ...]
 
     @cached_property
     def radial_to_apex(self):
         """Map a radial component to its parallel apex component."""
-        return np.einsum(
+        xp = get_array_module(self.field_parallel_to_apex, self.radial_to_field_parallel)
+        return xp.einsum(
             "ijk,jlk->ilk",
             self.field_parallel_to_apex,
             self.radial_to_field_parallel,

@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 import xarray as xr
 from kompe.constants import EARTH_RADIUS_M
+from kompe.math import LEAST_SQUARES_SOLVER_ENV
 
 from pynamit.geomagnetism import decimal_year
 from pynamit.simulation import Simulation
@@ -74,8 +75,8 @@ def test_simulation_config_normalizes_projection_defaults():
     assert config.E_neutral_wind_projection_basis == "SH"
 
 
-def test_simulation_config_cs_mode_requires_cs_projection_routes():
-    """CS horizontal mode cannot mix in SH input routes."""
+def test_simulation_config_cs_mode_requires_cs_horizontal_projection_routes():
+    """Require CS projection only for CS horizontal fields."""
     config = SimulationConfig(horizontal_basis_kind="cs")
 
     assert config.horizontal_basis_kind == "CS"
@@ -88,6 +89,21 @@ def test_simulation_config_cs_mode_requires_cs_projection_routes():
 
     with pytest.raises(ValueError, match="boundary_jr_projection_basis"):
         SimulationConfig(horizontal_basis_kind="CS", boundary_jr_projection_basis="SH")
+
+    mixed = SimulationConfig(
+        horizontal_basis_kind="CS",
+        boundary_Br_projection_basis="SH",
+        conductance_projection_basis="SH",
+    )
+    assert mixed.boundary_Br_projection_basis == "SH"
+    assert mixed.conductance_projection_basis == "SH"
+
+
+def test_simulation_config_chooses_solver_default_for_horizontal_basis(monkeypatch):
+    """Choose defaults suited to dense SH and structured CS systems."""
+    monkeypatch.delenv(LEAST_SQUARES_SOLVER_ENV, raising=False)
+    assert SimulationConfig(horizontal_basis_kind="SH").least_squares_solver == "normal_pinv"
+    assert SimulationConfig(horizontal_basis_kind="CS").least_squares_solver == "lsmr"
 
 
 def test_simulation_config_dataset_roundtrip_preserves_stored_sentinels():

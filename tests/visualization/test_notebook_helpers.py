@@ -454,7 +454,7 @@ def test_build_sheet_current_matrices_matches_core_formulas():
         sh_basis.surface_laplacian_matrix(Settings.RI)
     )
     boundary_jr_to_toroidal = (
-        MU0 / Settings.RI * sh_basis.mean_free_surface_poisson_operator(Settings.RI).array
+        MU0 / Settings.RI * sh_basis.mean_free_surface_poisson_operator(Settings.RI).to_array()
     )
 
     np.testing.assert_allclose(
@@ -537,10 +537,12 @@ def test_build_sheet_current_matrices_matches_geometry(tmp_path):
     )
 
     np.testing.assert_allclose(
-        matrices["induced_Br_to_JS"], geometry.induced_Br_to_gridded_JS_operator(transform).array
+        matrices["induced_Br_to_JS"],
+        geometry.induced_Br_to_gridded_JS_operator(transform).to_array(),
     )
     np.testing.assert_allclose(
-        matrices["boundary_jr_to_JS"], geometry.boundary_jr_to_gridded_JS_operator(transform).array
+        matrices["boundary_jr_to_JS"],
+        geometry.boundary_jr_to_gridded_JS_operator(transform).to_array(),
     )
     boundary_Br_operator = geometry.boundary_Br_to_gridded_JS_operator(transform)
-    np.testing.assert_allclose(matrices["boundary_Br_to_JS"], boundary_Br_operator.array)
+    np.testing.assert_allclose(matrices["boundary_Br_to_JS"], boundary_Br_operator.to_array())

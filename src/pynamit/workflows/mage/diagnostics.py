@@ -154,19 +154,19 @@ def _raw_field(h5_file, field: str, step: int) -> np.ndarray:
     if field == "jr":
         return np.asarray(h5_file["jr"][step], dtype=float) * 1e-6
 
-    sigma_p = np.asarray(h5_file["SP"][step], dtype=float)
-    sigma_h = np.asarray(h5_file["SH"][step], dtype=float)
+    SigmaP = np.asarray(h5_file["SP"][step], dtype=float)
+    SigmaH = np.asarray(h5_file["SH"][step], dtype=float)
     if field == "SigmaP":
-        return sigma_p
+        return SigmaP
     if field == "SigmaH":
-        return sigma_h
-    if np.any((sigma_p == 0.0) & (sigma_h == 0.0)):
+        return SigmaH
+    if np.any((SigmaP == 0.0) & (SigmaH == 0.0)):
         raise ValueError("Prepared conductances cannot both be zero.")
-    eta_p, eta_h = conductance_to_resistance(sigma_p, sigma_h)
+    etaP, etaH = conductance_to_resistance(SigmaP, SigmaH)
     if field == "etaP":
-        return np.asarray(eta_p)
+        return np.asarray(etaP)
     if field == "etaH":
-        return np.asarray(eta_h)
+        return np.asarray(etaH)
     raise AssertionError(f"Unhandled projection-comparison field {field!r}.")
 
 
@@ -261,23 +261,23 @@ def _error_metrics(raw, projected, weights) -> dict[str, float | int]:
 
 def _physical_bounds(h5_file):
     """Return bounds implied by the global conductance floor."""
-    sigma_p_min = float(h5_file.attrs["pedersen_conductance_floor_S"])
-    sigma_h_min = float(h5_file.attrs["hall_conductance_floor_S"])
+    SigmaP_min = float(h5_file.attrs["pedersen_conductance_floor_S"])
+    SigmaH_min = float(h5_file.attrs["hall_conductance_floor_S"])
     return {
         "etaP": (
             0.0,
-            1.0 / (2.0 * sigma_h_min)
-            if sigma_p_min <= sigma_h_min
-            else sigma_p_min / (sigma_p_min**2 + sigma_h_min**2),
+            1.0 / (2.0 * SigmaH_min)
+            if SigmaP_min <= SigmaH_min
+            else SigmaP_min / (SigmaP_min**2 + SigmaH_min**2),
         ),
         "etaH": (
             0.0,
-            1.0 / (2.0 * sigma_p_min)
-            if sigma_h_min <= sigma_p_min
-            else sigma_h_min / (sigma_p_min**2 + sigma_h_min**2),
+            1.0 / (2.0 * SigmaP_min)
+            if SigmaH_min <= SigmaP_min
+            else SigmaH_min / (SigmaP_min**2 + SigmaH_min**2),
         ),
-        "SigmaP": (sigma_p_min, None),
-        "SigmaH": (sigma_h_min, None),
+        "SigmaP": (SigmaP_min, None),
+        "SigmaH": (SigmaH_min, None),
     }
 
 

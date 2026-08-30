@@ -440,7 +440,7 @@ def test_set_conductance_projects_dimensionless_log_coordinates(tmp_path, monkey
         time=7.0,
         sqrt_weights=np.ones(2),
         reg_lambda=1e-3,
-        pinv_rtol=1e-10,
+        tolerance=1e-10,
     )
 
     expected_magnitude, expected_ratio = conductance_to_log_coordinates(pedersen, hall)
@@ -453,14 +453,14 @@ def test_set_conductance_projects_dimensionless_log_coordinates(tmp_path, monkey
     )
     assert recorded["kwargs"]["time"] == 7.0
     assert recorded["kwargs"]["reg_lambda"] == 1e-3
-    assert recorded["kwargs"]["pinv_rtol"] == 1e-10
+    assert recorded["kwargs"]["tolerance"] == 1e-10
 
 
 def test_set_resistance_projects_direct_log_conductance_coordinates(tmp_path, monkeypatch):
     """Map resistance samples directly onto canonical coordinates."""
     simulation = _small_simulation(tmp_path)
-    eta_p = np.array([[0.4, 0.2]])
-    eta_h = np.array([[0.3, 0.1]])
+    etaP = np.array([[0.4, 0.2]])
+    etaH = np.array([[0.3, 0.1]])
     recorded = {}
 
     def record_set_scalar_input(key, **kwargs):
@@ -470,17 +470,17 @@ def test_set_resistance_projects_direct_log_conductance_coordinates(tmp_path, mo
     monkeypatch.setattr(simulation._input_projector, "set_scalar_input", record_set_scalar_input)
 
     simulation.set_resistance(
-        etaP=eta_p,
-        etaH=eta_h,
+        etaP=etaP,
+        etaH=etaH,
         lat=np.array([60.0, 61.0]),
         lon=np.array([10.0, 11.0]),
         time=7.0,
         sqrt_weights=np.ones(2),
         reg_lambda=1e-3,
-        pinv_rtol=1e-10,
+        tolerance=1e-10,
     )
 
-    expected_magnitude, expected_ratio = resistance_to_log_conductance_coordinates(eta_p, eta_h)
+    expected_magnitude, expected_ratio = resistance_to_log_conductance_coordinates(etaP, etaH)
     assert recorded["key"] == "conductance"
     np.testing.assert_allclose(
         recorded["kwargs"]["samples"]["log_conductance_magnitude"], expected_magnitude
@@ -491,4 +491,4 @@ def test_set_resistance_projects_direct_log_conductance_coordinates(tmp_path, mo
     assert recorded["kwargs"]["sample_label"] == "resistance samples"
     assert recorded["kwargs"]["time"] == 7.0
     assert recorded["kwargs"]["reg_lambda"] == 1e-3
-    assert recorded["kwargs"]["pinv_rtol"] == 1e-10
+    assert recorded["kwargs"]["tolerance"] == 1e-10

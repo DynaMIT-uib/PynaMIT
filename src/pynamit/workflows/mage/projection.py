@@ -251,8 +251,8 @@ class _MageInputProjector:
         """Project every forcing field for one source time step."""
         self._project_boundary_br(h5_file, step, input_time)
         self._project_radial_current(h5_file, step, input_time)
-        sigma_p, sigma_h = self._project_conductance(h5_file, step, input_time)
-        self._project_wind_source(h5_file, step, input_time, sigma_p, sigma_h)
+        SigmaP, SigmaH = self._project_conductance(h5_file, step, input_time)
+        self._project_wind_source(h5_file, step, input_time, SigmaP, SigmaH)
 
     def _project_boundary_br(self, h5_file: Any, step: int, input_time: float) -> None:
         """Project magnetospheric inner-boundary radial field."""
@@ -288,26 +288,26 @@ class _MageInputProjector:
         self, h5_file: Any, step: int, input_time: float
     ) -> tuple[np.ndarray, np.ndarray]:
         """Project and return sampled Pedersen/Hall conductance."""
-        sigma_h = np.asarray(h5_file["SH"][step], dtype=float).reshape(-1)
-        sigma_p = np.asarray(h5_file["SP"][step], dtype=float).reshape(-1)
-        if np.any(~np.isfinite(sigma_h)) or np.any(sigma_h < 0.0):
+        SigmaH = np.asarray(h5_file["SH"][step], dtype=float).reshape(-1)
+        SigmaP = np.asarray(h5_file["SP"][step], dtype=float).reshape(-1)
+        if np.any(~np.isfinite(SigmaH)) or np.any(SigmaH < 0.0):
             raise ValueError("Hall conductance contains non-finite or negative values.")
-        if np.any(~np.isfinite(sigma_p)) or np.any(sigma_p < 0.0):
+        if np.any(~np.isfinite(SigmaP)) or np.any(SigmaP < 0.0):
             raise ValueError("Pedersen conductance contains non-finite or negative values.")
-        if np.any((sigma_p == 0.0) & (sigma_h == 0.0)):
+        if np.any((SigmaP == 0.0) & (SigmaH == 0.0)):
             raise ValueError("Pedersen and Hall conductance cannot both be zero.")
-        _print_field_stats("  Hall conductance [S]", sigma_h)
-        _print_field_stats("  Pedersen conductance [S]", sigma_p)
+        _print_field_stats("  Pedersen conductance [S]", SigmaP)
+        _print_field_stats("  Hall conductance [S]", SigmaH)
         self._preparation.set_conductance(
-            pedersen=sigma_p,
-            hall=sigma_h,
+            pedersen=SigmaP,
+            hall=SigmaH,
             lat=self._ionosphere_grid.lat,
             lon=self._ionosphere_grid.lon,
             time=input_time,
             sqrt_weights=self._ionosphere_sqrt_weights,
             reg_lambda=self._conductance_lambda,
         )
-        return sigma_p, sigma_h
+        return SigmaP, SigmaH
 
     def _projected_resistance(self, input_time: float) -> tuple[np.ndarray, np.ndarray]:
         """Reconstruct fitted sheet resistance on the forcing grid."""
@@ -324,7 +324,7 @@ class _MageInputProjector:
         return resistance_from_log_conductance_coordinates(log_magnitude, log_ratio)
 
     def _project_wind_source(
-        self, h5_file: Any, step: int, input_time: float, sigma_p: np.ndarray, sigma_h: np.ndarray
+        self, h5_file: Any, step: int, input_time: float, SigmaP: np.ndarray, SigmaH: np.ndarray
     ) -> None:
         """Project equator-safe E from the integrated wind current."""
         u_p_theta, u_p_phi, u_h_theta, u_h_phi = _load_weighted_winds(h5_file, step)
@@ -335,17 +335,17 @@ class _MageInputProjector:
         u_h_phi = np.asarray(u_h_phi, dtype=float).reshape(-1)
         _print_field_stats("  Hall-weighted wind speed [m/s]", np.hypot(u_h_theta, u_h_phi))
 
-        eta_p, eta_h = self._projected_resistance(input_time)
+        etaP, etaH = self._projected_resistance(input_time)
         wind_driven_e_theta, wind_driven_e_phi = electric_field_from_weighted_winds(
-            sigma_p=sigma_p,
-            sigma_h=sigma_h,
+            SigmaP=SigmaP,
+            SigmaH=SigmaH,
             u_p_theta=u_p_theta,
             u_p_phi=u_p_phi,
             u_h_theta=u_h_theta,
             u_h_phi=u_h_phi,
             field=self._ionosphere_field,
-            eta_p=eta_p,
-            eta_h=eta_h,
+            etaP=etaP,
+            etaH=etaH,
         )
         _print_field_stats(
             "  Wind-driven E [V/m]", np.hypot(wind_driven_e_theta, wind_driven_e_phi)

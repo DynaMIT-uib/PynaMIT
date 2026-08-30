@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import numpy as np
 from kompe.math import (
     LeastSquaresProblem,
     LeastSquaresSolver,
@@ -145,7 +144,7 @@ class ElectrodynamicResponse:
     def _invalidate_closure_caches(self) -> None:
         """Invalidate resistance-dependent cached properties."""
         self._conductance_fingerprint_cache: str | None = None
-        self._resistance_tensor_on_grid: np.ndarray | None = None
+        self._resistance_tensor_on_grid: Any | None = None
         self._induced_poloidal_potential_to_E_coeffs_operator_cache: LinearMap | None = None
         self._induced_Br_to_E_coeffs_operator_cache: LinearMap | None = None
         self._toroidal_potential_to_E_coeffs_operator_cache: LinearMap | None = None
@@ -201,7 +200,7 @@ class ElectrodynamicResponse:
         return self._conductance_fingerprint_cache
 
     @property
-    def resistance_tensor_on_grid(self) -> np.ndarray:
+    def resistance_tensor_on_grid(self) -> Any:
         """Resistance tensor on the spatial grid."""
         if self._resistance_tensor_on_grid is None:
             if self.log_conductance_magnitude is None or self.log_hall_to_pedersen_ratio is None:
@@ -427,8 +426,8 @@ class ElectrodynamicResponse:
         return self._toroidal_potential_response_solver_cache(rhs_entries)
 
     def _toroidal_potential_rhs_entries(
-        self, boundary_jr_coeffs: np.ndarray | None, driving_E: np.ndarray
-    ) -> list[np.ndarray | None] | None:
+        self, boundary_jr_coeffs: Any | None, driving_E: Any
+    ) -> list[Any | None] | None:
         """Assemble the physical right-hand sides for one solve."""
         problem = self._toroidal_potential_problem
         rhs_entries = [None] * problem.num_data_terms
@@ -585,9 +584,7 @@ class ElectrodynamicResponse:
             )
         return self._induced_Br_to_W_operator_cache
 
-    def _solve_for_toroidal_potential(
-        self, boundary_jr_coeffs: np.ndarray | None, driving_E: np.ndarray
-    ) -> np.ndarray:
+    def _solve_for_toroidal_potential(self, boundary_jr_coeffs: Any | None, driving_E: Any) -> Any:
         """Solve the private toroidal-potential response."""
         xp = get_array_module(boundary_jr_coeffs, driving_E)
         boundary_jr_coeffs = None if boundary_jr_coeffs is None else xp.asarray(boundary_jr_coeffs)
@@ -656,8 +653,8 @@ class ElectrodynamicResponse:
         return op.matvec(coeffs_arr.reshape(-1)).reshape(output_shape)
 
     def _solve_electric_closure(
-        self, driving_E: np.ndarray, boundary_jr_coeffs: np.ndarray | None
-    ) -> tuple[np.ndarray, np.ndarray]:
+        self, driving_E: Any, boundary_jr_coeffs: Any | None
+    ) -> tuple[Any, Any]:
         """Complete E and return the resulting boundary current."""
         driving_E = self.geometry.horizontal_basis.project_helmholtz_mean_free(driving_E)
         toroidal_potential = self._solve_for_toroidal_potential(boundary_jr_coeffs, driving_E)
@@ -676,7 +673,7 @@ class ElectrodynamicResponse:
             solved_boundary_jr,
         )
 
-    def solve_noninductive_response(self) -> tuple[np.ndarray, np.ndarray]:
+    def solve_noninductive_response(self) -> tuple[Any, Any]:
         """Return E and boundary-jr responses without induced Br."""
         E_shape = (2, self.geometry.horizontal_basis.index_length)
         active_arrays = [
@@ -718,7 +715,7 @@ class ElectrodynamicResponse:
         )
         return self._solve_electric_closure(driving_E, boundary_jr_coeffs)
 
-    def solve_induced_response(self, induced_Br: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    def solve_induced_response(self, induced_Br: Any) -> tuple[Any, Any]:
         """Return E and boundary-jr responses caused by induced Br."""
         xp = get_array_module(induced_Br)
         E_shape = (2, self.geometry.horizontal_basis.index_length)
@@ -730,7 +727,7 @@ class ElectrodynamicResponse:
     # ----- Induction Operators -----
 
     @property
-    def induced_poloidal_potential_feedback_matrix(self) -> np.ndarray:
+    def induced_poloidal_potential_feedback_matrix(self) -> Any:
         """Return private feedback before Faraday scaling."""
         return self.induced_poloidal_potential_feedback_operator.to_matrix()
 
@@ -745,7 +742,7 @@ class ElectrodynamicResponse:
         return self._induced_poloidal_potential_feedback_operator
 
     @property
-    def noninductive_W_to_equilibrium_induced_poloidal_potential_matrix(self) -> np.ndarray:
+    def noninductive_W_to_equilibrium_induced_poloidal_potential_matrix(self) -> Any:
         """Return the private equilibrium potential response."""
         return self.noninductive_W_to_equilibrium_induced_poloidal_potential_operator.to_matrix()
 

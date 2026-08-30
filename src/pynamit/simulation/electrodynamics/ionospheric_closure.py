@@ -3,7 +3,14 @@
 from __future__ import annotations
 
 import numpy as np
-from kompe.math import LinearMap, get_array_module, pointwise_matrix_linear_map
+from kompe.math import (
+    LeastSquaresProblem,
+    LeastSquaresSolver,
+    LinearMap,
+    get_array_module,
+    identity_linear_map,
+    pointwise_matrix_linear_map,
+)
 
 CONDUCTANCE_REFERENCE_S = 1.0
 
@@ -34,9 +41,9 @@ def _invert_pedersen_hall_pair(pedersen, hall):
     return inverse_pedersen, inverse_hall
 
 
-def conductance_to_resistance(sigmaP, sigmaH):
+def conductance_to_resistance(SigmaP, SigmaH):
     """Convert Pedersen/Hall conductance to resistance values."""
-    return _invert_pedersen_hall_pair(sigmaP, sigmaH)
+    return _invert_pedersen_hall_pair(SigmaP, SigmaH)
 
 
 def resistance_to_conductance(etaP, etaH):
@@ -45,7 +52,7 @@ def resistance_to_conductance(etaP, etaH):
 
 
 def conductance_to_log_coordinates(
-    sigmaP, sigmaH, *, reference_conductance=CONDUCTANCE_REFERENCE_S
+    SigmaP, SigmaH, *, reference_conductance=CONDUCTANCE_REFERENCE_S
 ):
     """Return dimensionless log-magnitude and log Hall/Pedersen ratio.
 
@@ -54,18 +61,18 @@ def conductance_to_log_coordinates(
     the default one-siemens reference it does not alter numeric input
     values before taking the logarithm.
     """
-    xp = get_array_module(sigmaP, sigmaH)
-    sigmaP, sigmaH = xp.broadcast_arrays(
-        xp.asarray(sigmaP, dtype=float), xp.asarray(sigmaH, dtype=float)
+    xp = get_array_module(SigmaP, SigmaH)
+    SigmaP, SigmaH = xp.broadcast_arrays(
+        xp.asarray(SigmaP, dtype=float), xp.asarray(SigmaH, dtype=float)
     )
     reference_conductance = _validate_reference_conductance(reference_conductance)
-    if bool(xp.any(~xp.isfinite(sigmaP))) or bool(xp.any(sigmaP <= 0.0)):
+    if bool(xp.any(~xp.isfinite(SigmaP))) or bool(xp.any(SigmaP <= 0.0)):
         raise ValueError("Pedersen conductance must be finite and strictly positive.")
-    if bool(xp.any(~xp.isfinite(sigmaH))) or bool(xp.any(sigmaH <= 0.0)):
+    if bool(xp.any(~xp.isfinite(SigmaH))) or bool(xp.any(SigmaH <= 0.0)):
         raise ValueError("Hall conductance must be finite and strictly positive.")
 
-    magnitude = xp.hypot(sigmaP, sigmaH)
-    return (xp.log(magnitude) - xp.log(reference_conductance), xp.log(sigmaH) - xp.log(sigmaP))
+    magnitude = xp.hypot(SigmaP, SigmaH)
+    return (xp.log(magnitude) - xp.log(reference_conductance), xp.log(SigmaH) - xp.log(SigmaP))
 
 
 def resistance_to_log_conductance_coordinates(
@@ -100,9 +107,9 @@ def conductance_from_log_coordinates(
     log_pedersen = (
         xp.log(reference_conductance) + log_magnitude - 0.5 * xp.logaddexp(0.0, 2.0 * log_ratio)
     )
-    sigmaP = xp.exp(log_pedersen)
-    sigmaH = xp.exp(log_pedersen + log_ratio)
-    return sigmaP, sigmaH
+    SigmaP = xp.exp(log_pedersen)
+    SigmaH = xp.exp(log_pedersen + log_ratio)
+    return SigmaP, SigmaH
 
 
 def resistance_from_log_conductance_coordinates(
@@ -191,20 +198,18 @@ def _cross_spherical(a_r, a_theta, a_phi, b_r, b_theta, b_phi):
     )
 
 
-def _current_from_weighted_winds(
-    *, sigma_p, sigma_h, u_p_theta, u_p_phi, u_h_theta, u_h_phi, field
-):
+def _current_from_weighted_winds(*, SigmaP, SigmaH, u_p_theta, u_p_phi, u_h_theta, u_h_phi, field):
     """Return the height-integrated 3D wind-current source.
 
     ``u_p`` and ``u_h`` are the separate conductivity-weighted column
     means. With the thin-sheet approximation that the main field is
-    constant through the dynamo region, multiplying them by ``sigma_p``
-    and ``sigma_h`` reconstructs the wind moments in Appendix A,
+    constant through the dynamo region, multiplying them by ``SigmaP``
+    and ``SigmaH`` reconstructs the wind moments in Appendix A,
     Eqs. (A3)-(A4), of Laundal et al. (2025).
     """
     xp = get_array_module(
-        sigma_p,
-        sigma_h,
+        SigmaP,
+        SigmaH,
         u_p_theta,
         u_p_phi,
         u_h_theta,
@@ -216,8 +221,8 @@ def _current_from_weighted_winds(
         field.Btheta,
         field.Bphi,
     )
-    sigma_p = xp.asarray(sigma_p, dtype=float).reshape(-1)
-    sigma_h = xp.asarray(sigma_h, dtype=float).reshape(-1)
+    SigmaP = xp.asarray(SigmaP, dtype=float).reshape(-1)
+    SigmaH = xp.asarray(SigmaH, dtype=float).reshape(-1)
     u_p_theta = xp.asarray(u_p_theta, dtype=float).reshape(-1)
     u_p_phi = xp.asarray(u_p_phi, dtype=float).reshape(-1)
     u_h_theta = xp.asarray(u_h_theta, dtype=float).reshape(-1)
@@ -235,14 +240,14 @@ def _current_from_weighted_winds(
     u_h_cross_B = _cross_spherical(zero, u_h_theta, u_h_phi, B_r, B_theta, B_phi)
     hall_current = _cross_spherical(b_r, b_theta, b_phi, *u_h_cross_B)
     return (
-        sigma_p * u_p_cross_B[0] + sigma_h * hall_current[0],
-        sigma_p * u_p_cross_B[1] + sigma_h * hall_current[1],
-        sigma_p * u_p_cross_B[2] + sigma_h * hall_current[2],
+        SigmaP * u_p_cross_B[0] + SigmaH * hall_current[0],
+        SigmaP * u_p_cross_B[1] + SigmaH * hall_current[1],
+        SigmaP * u_p_cross_B[2] + SigmaH * hall_current[2],
     )
 
 
 def electric_field_from_weighted_winds(
-    *, sigma_p, sigma_h, u_p_theta, u_p_phi, u_h_theta, u_h_phi, field, eta_p, eta_h
+    *, SigmaP, SigmaH, u_p_theta, u_p_phi, u_h_theta, u_h_phi, field, etaP, etaH
 ):
     """Return equivalent E from height-integrated neutral-wind current.
 
@@ -261,17 +266,17 @@ def electric_field_from_weighted_winds(
     ``E_neutral_wind`` convention.
     """
     q_r, q_theta, q_phi = _current_from_weighted_winds(
-        sigma_p=sigma_p,
-        sigma_h=sigma_h,
+        SigmaP=SigmaP,
+        SigmaH=SigmaH,
         u_p_theta=u_p_theta,
         u_p_phi=u_p_phi,
         u_h_theta=u_h_theta,
         u_h_phi=u_h_phi,
         field=field,
     )
-    xp = get_array_module(q_r, q_theta, q_phi, eta_p, eta_h)
-    eta_p = xp.asarray(eta_p, dtype=float).reshape(-1)
-    eta_h = xp.asarray(eta_h, dtype=float).reshape(-1)
+    xp = get_array_module(q_r, q_theta, q_phi, etaP, etaH)
+    etaP = xp.asarray(etaP, dtype=float).reshape(-1)
+    etaH = xp.asarray(etaH, dtype=float).reshape(-1)
     b_r = xp.asarray(field.unit_br, dtype=float).reshape(-1)
     b_theta = xp.asarray(field.unit_btheta, dtype=float).reshape(-1)
     b_phi = xp.asarray(field.unit_bphi, dtype=float).reshape(-1)
@@ -281,8 +286,8 @@ def electric_field_from_weighted_winds(
     q_perp_phi = q_phi - q_dot_b * b_phi
     q_cross_b = _cross_spherical(q_r, q_theta, q_phi, b_r, b_theta, b_phi)
     return (
-        -(eta_p * q_perp_theta + eta_h * q_cross_b[1]),
-        -(eta_p * q_perp_phi + eta_h * q_cross_b[2]),
+        -(etaP * q_perp_theta + etaH * q_cross_b[1]),
+        -(etaP * q_perp_phi + etaH * q_cross_b[2]),
     )
 
 
@@ -331,31 +336,56 @@ def Q_eff_on_grid_from_wind(wind_on_grid, wind_to_E_grid, resistance_tensor):
     return xp.linalg.solve(point_resistance, E_wind_on_grid.T[..., None])[..., 0].T
 
 
-def solve_Q_eff_coefficients(
-    Q_eff_to_E_operator: LinearMap, E_wind_coeffs, *, reg_lambda=None, pinv_rtol=1e-15
+def build_Q_eff_coefficient_solver(
+    Q_eff_to_E_operator: LinearMap, *, reg_lambda=None, tolerance=1e-15
 ):
-    """Fit Q_eff, adding ``reg_lambda * ||Q_eff||²`` when requested."""
-    xp = get_array_module(E_wind_coeffs, *Q_eff_to_E_operator.backend_operands)
-    backend = "numpy" if xp is np else "jax"
-    matrix = xp.asarray(Q_eff_to_E_operator.to_matrix(backend=backend))
-    rhs = xp.asarray(E_wind_coeffs).reshape(-1)
-    tolerance = float(pinv_rtol)
+    """Build a matrix-free solver for wind-equivalent coefficients.
+
+    The fitted objective is ``||R Q_eff - E_wind||²`` plus
+    ``reg_lambda * ||Q_eff||²`` when regularization is requested.
+    """
+    tolerance = float(tolerance)
     if not np.isfinite(tolerance) or tolerance < 0.0:
-        raise ValueError("pinv_rtol must be finite and non-negative.")
+        raise ValueError("tolerance must be finite and non-negative.")
     weight = 0.0 if reg_lambda is None else float(reg_lambda)
     if not np.isfinite(weight) or weight < 0.0:
         raise ValueError("reg_lambda must be finite and non-negative.")
+
+    operators = [Q_eff_to_E_operator]
+    data_shapes = [Q_eff_to_E_operator.output_shape]
     if weight > 0.0:
-        regularization = weight**0.5 * xp.eye(matrix.shape[1], dtype=matrix.dtype)
-        matrix = xp.vstack([matrix, regularization])
-        rhs = xp.concatenate([rhs, xp.zeros(matrix.shape[1], dtype=rhs.dtype)])
-    coefficients, *_ = xp.linalg.lstsq(matrix, rhs, rcond=tolerance)
-    return coefficients
+        operators.append(weight**0.5 * identity_linear_map(Q_eff_to_E_operator.input_shape))
+        data_shapes.append(Q_eff_to_E_operator.input_shape)
+
+    problem = LeastSquaresProblem(
+        A=operators, solution_shape=Q_eff_to_E_operator.input_shape, data_shapes=data_shapes
+    )
+    solve = LeastSquaresSolver(solver="lsmr", tolerance=tolerance).build_response_solver(problem)
+
+    def solve_E_wind(E_wind_coeffs):
+        if weight == 0.0:
+            return solve(E_wind_coeffs)
+        xp = get_array_module(E_wind_coeffs, *Q_eff_to_E_operator.backend_operands)
+        regularization_rhs = xp.zeros(Q_eff_to_E_operator.input_shape)
+        return solve([E_wind_coeffs, regularization_rhs])
+
+    return solve_E_wind
+
+
+def solve_Q_eff_coefficients(
+    Q_eff_to_E_operator: LinearMap, E_wind_coeffs, *, reg_lambda=None, tolerance=1e-15
+):
+    """Fit wind-equivalent coefficients through the structured map."""
+    solve = build_Q_eff_coefficient_solver(
+        Q_eff_to_E_operator, reg_lambda=reg_lambda, tolerance=tolerance
+    )
+    return solve(E_wind_coeffs)
 
 
 __all__ = [
     "CONDUCTANCE_REFERENCE_S",
     "Q_eff_on_grid_from_wind",
+    "build_Q_eff_coefficient_solver",
     "conductance_from_log_coordinates",
     "conductance_to_log_coordinates",
     "conductance_to_resistance",

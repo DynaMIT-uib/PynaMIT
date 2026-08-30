@@ -1,4 +1,4 @@
-"""Investigate intepolation regularization and resolution."""
+"""Investigate interpolation regularization and resolution."""
 
 import datetime
 
@@ -34,7 +34,7 @@ MIN_REG_LAMBDA_LOG = -6
 MAX_REG_LAMBDA_LOG = -1
 REG_LAMBDA_LOG_STEPS = 21
 
-rtol = 1e-15
+tolerance = 1e-15
 Ncs = 70
 
 date = datetime.datetime(2001, 5, 12, 17, 0)
@@ -160,7 +160,7 @@ if SH_COMPARISON:
     relative_coeff_errors = []
 if L_CURVE:
     sh_norms = []
-    sh_resiudal_norms = []
+    sh_residual_norms = []
     reg_lambda_values = []
 
 Nmax_values = []
@@ -177,14 +177,18 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
         sh_basis = kompe.SHBasis(Nmax, Mmax, nmin)
         field_space = pynamit.FieldSpace(sh_basis, field_type=field_type)
         input_spherical_transform = kompe.SphericalTransform(
-            sh_basis, input_grid, sqrt_weights=input_weights, reg_lambda=reg_lambda, pinv_rtol=rtol
+            sh_basis,
+            input_grid,
+            sqrt_weights=input_weights,
+            reg_lambda=reg_lambda,
+            tolerance=tolerance,
         )
         output_spherical_transform = kompe.SphericalTransform(
             sh_basis,
             output_grid,
             sqrt_weights=output_weights,
             reg_lambda=reg_lambda,
-            pinv_rtol=rtol,
+            tolerance=tolerance,
         )
         analyze_input = (
             input_spherical_transform.analyze_helmholtz
@@ -221,7 +225,7 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
             # sh_norms.append(np.linalg.norm(input_sh.array))
             sh_norms.append(np.linalg.norm(apply_regularization(input_sh.array)))
             input_sh_on_input_grid = synthesize_input(input_sh)
-            sh_resiudal_norms.append(
+            sh_residual_norms.append(
                 np.linalg.norm(input_sh_on_input_grid - input_grid_values)
                 / np.linalg.norm(input_grid_values)
             )
@@ -346,7 +350,7 @@ if GRID_COMPARISON or SH_COMPARISON:
     plt.show()
 
 if L_CURVE:
-    scatter = plt.plot(sh_resiudal_norms, sh_norms)
+    scatter = plt.plot(sh_residual_norms, sh_norms)
 
     plt.xscale("log")
     plt.yscale("log")
@@ -356,7 +360,7 @@ if L_CURVE:
     for i, reg_lambda_val in enumerate(reg_lambda_values):
         plt.annotate(
             f"{reg_lambda_val:.1e}",
-            (sh_resiudal_norms[i], sh_norms[i]),
+            (sh_residual_norms[i], sh_norms[i]),
             textcoords="offset points",
             xytext=(5, 5),
             ha="center",

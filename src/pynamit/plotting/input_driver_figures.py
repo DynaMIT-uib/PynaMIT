@@ -53,8 +53,8 @@ class InputDriverRenderer:
         global_projection = coordinate_context.projection()
         ax_br = fig.add_axes(layout["Br"], projection=global_projection)
         ax_source = fig.add_axes(layout["source"], projection=global_projection)
-        ax_sigma_p = fig.add_axes(layout["sigmaP"], projection=global_projection)
-        ax_sigma_h = fig.add_axes(layout["sigmaH"], projection=global_projection)
+        ax_pedersen = fig.add_axes(layout["SigmaP"], projection=global_projection)
+        ax_hall = fig.add_axes(layout["SigmaH"], projection=global_projection)
 
         jr_n = self._draw_jr_hemispheres(
             model_fields,
@@ -66,13 +66,13 @@ class InputDriverRenderer:
             magnetic_coordinate_context,
         )
         br_mappable, conductance_mappable = self._draw_global_scalars(
-            geographic_fields, input_kwargs, ax_br, ax_sigma_p, ax_sigma_h, coordinate_context
+            geographic_fields, input_kwargs, ax_br, ax_pedersen, ax_hall, coordinate_context
         )
         self._draw_tangential_source(geographic_fields, ax_source, coordinate_context)
 
         for label, axis in zip(
             ["a", "b", "c", "d", "e", "f"],
-            [pax_jr_n.ax, pax_jr_s.ax, ax_br, ax_source, ax_sigma_p, ax_sigma_h],
+            [pax_jr_n.ax, pax_jr_s.ax, ax_br, ax_source, ax_pedersen, ax_hall],
             strict=True,
         ):
             add_panel_label(axis, label)
@@ -99,8 +99,8 @@ class InputDriverRenderer:
         )
         kwargs["conductance"]["levels"] = percentile_contour_levels(
             [
-                fields["sigmaP"] * kwargs["conductance"].get("scale", 1.0),
-                fields["sigmaH"] * kwargs["conductance"].get("scale", 1.0),
+                fields["SigmaP"] * kwargs["conductance"].get("scale", 1.0),
+                fields["SigmaH"] * kwargs["conductance"].get("scale", 1.0),
             ],
             INPUT_SUMMARY_KWARGS["conductance"]["levels"],
             percentile=self.settings.color_scale_percentile,
@@ -136,10 +136,10 @@ class InputDriverRenderer:
         polar_height = figure_aspect * polar_width
         br_map_height = polar_height
         br_map_width = 2.0 * br_map_height / figure_aspect
-        bottom_x = {"source": 0.035, "sigmaP": 0.350, "sigmaH": 0.665}
+        bottom_x = {"source": 0.035, "SigmaP": 0.350, "SigmaH": 0.665}
         top_x = {
             "jr_n": bottom_x["source"] + 0.5 * (bottom_map_width - polar_width),
-            "jr_s": bottom_x["sigmaP"] + 0.5 * (bottom_map_width - polar_width),
+            "jr_s": bottom_x["SigmaP"] + 0.5 * (bottom_map_width - polar_width),
             "Br": 0.985 - br_map_width,
         }
         layout = {
@@ -152,14 +152,14 @@ class InputDriverRenderer:
                 bottom_map_width,
                 bottom_map_height,
             ],
-            "sigmaP": [
-                bottom_x["sigmaP"],
+            "SigmaP": [
+                bottom_x["SigmaP"],
                 bottom_center_y - 0.5 * bottom_map_height,
                 bottom_map_width,
                 bottom_map_height,
             ],
-            "sigmaH": [
-                bottom_x["sigmaH"],
+            "SigmaH": [
+                bottom_x["SigmaH"],
                 bottom_center_y - 0.5 * bottom_map_height,
                 bottom_map_width,
                 bottom_map_height,
@@ -173,10 +173,10 @@ class InputDriverRenderer:
         ]
         layout["Br_cbar"] = [layout["Br"][0], layout["Br"][1] - 0.050, layout["Br"][2], 0.026]
         layout["conductance_cbar"] = [
-            layout["sigmaH"][0] + layout["sigmaH"][2] + 0.014,
-            layout["sigmaH"][1],
+            layout["SigmaH"][0] + layout["SigmaH"][2] + 0.014,
+            layout["SigmaH"][1],
             0.015,
-            layout["sigmaH"][3],
+            layout["SigmaH"][3],
         ]
         return layout
 
@@ -225,26 +225,26 @@ class InputDriverRenderer:
         return jr_n
 
     def _draw_global_scalars(
-        self, fields, input_kwargs, ax_br, ax_sigma_p, ax_sigma_h, coordinate_context
+        self, fields, input_kwargs, ax_br, ax_pedersen, ax_hall, coordinate_context
     ):
         br_mappable = None
         conductance_mappable = None
         for axis, title, missing_message, field_key, kwargs_key, left_labels, bottom_labels in [
             (ax_br, r"Input $B_r$ at $R_M$", r"Input $B_r$ not stored", "Br", "Br", False, True),
             (
-                ax_sigma_p,
+                ax_pedersen,
                 "Pedersen conductance",
                 "Conductance not stored",
-                "sigmaP",
+                "SigmaP",
                 "conductance",
                 False,
                 True,
             ),
             (
-                ax_sigma_h,
+                ax_hall,
                 "Hall conductance",
                 "Conductance not stored",
-                "sigmaH",
+                "SigmaH",
                 "conductance",
                 False,
                 True,

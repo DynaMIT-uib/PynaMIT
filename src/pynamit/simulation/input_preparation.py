@@ -310,7 +310,7 @@ class InputPreparation:
         time=None,
         sqrt_weights=None,
         reg_lambda=None,
-        pinv_rtol=1e-15,
+        tolerance=1e-15,
     ):
         """Set field-aligned current (FAC) input.
 
@@ -335,8 +335,8 @@ class InputPreparation:
             sqrt_weights for the FAC data points.
         reg_lambda : float, optional
             Regularization parameter for the least squares solver.
-        pinv_rtol : float, optional
-            Relative tolerance for the pseudo-inverse.
+        tolerance : float, optional
+            Numerical tolerance for the projection solve.
         """
         radial_current = self._input_projector.radial_current_from_FAC(
             FAC, lat=lat, lon=lon, theta=theta, phi=phi
@@ -351,7 +351,7 @@ class InputPreparation:
             time=time,
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
-            pinv_rtol=pinv_rtol,
+            tolerance=tolerance,
         )
 
     def set_boundary_jr(
@@ -364,7 +364,7 @@ class InputPreparation:
         time=None,
         sqrt_weights=None,
         reg_lambda=None,
-        pinv_rtol=1e-15,
+        tolerance=1e-15,
         *,
         boundary_jr_coefficients=None,
     ):
@@ -387,8 +387,8 @@ class InputPreparation:
             sqrt_weights for the current data points.
         reg_lambda : float, optional
             Regularization parameter.
-        pinv_rtol : float, optional
-            Relative tolerance for the pseudo-inverse.
+        tolerance : float, optional
+            Numerical tolerance for the projection solve.
         """
         self._input_projector.set_scalar_input(
             "boundary_jr",
@@ -403,7 +403,7 @@ class InputPreparation:
             time=time,
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
-            pinv_rtol=pinv_rtol,
+            tolerance=tolerance,
         )
 
     def set_boundary_Br(
@@ -416,7 +416,7 @@ class InputPreparation:
         time=None,
         sqrt_weights=None,
         reg_lambda=None,
-        pinv_rtol=1e-15,
+        tolerance=1e-15,
         *,
         boundary_Br_coefficients=None,
     ):
@@ -440,8 +440,8 @@ class InputPreparation:
             sqrt_weights for the magnetic-field data points.
         reg_lambda : float, optional
             Regularization parameter.
-        pinv_rtol : float, optional
-            Relative tolerance for the pseudo-inverse.
+        tolerance : float, optional
+            Numerical tolerance for the projection solve.
         """
         if self.config.RM is None:
             raise ValueError("boundary_Br can only be set if magnetospheric radius (RM) is set.")
@@ -459,7 +459,7 @@ class InputPreparation:
             time=time,
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
-            pinv_rtol=pinv_rtol,
+            tolerance=tolerance,
         )
 
     def set_resistance(
@@ -474,7 +474,7 @@ class InputPreparation:
         time=None,
         sqrt_weights=None,
         reg_lambda=None,
-        pinv_rtol=1e-15,
+        tolerance=1e-15,
     ):
         """Set positive resistance through canonical coordinates.
 
@@ -495,8 +495,8 @@ class InputPreparation:
             sqrt_weights for the resistance data points.
         reg_lambda : float, optional
             Regularization parameter.
-        pinv_rtol : float, optional
-            Relative tolerance for the pseudo-inverse.
+        tolerance : float, optional
+            Numerical tolerance for the projection solve.
         """
         self._input_projector.require_complete_values("resistance samples", etaP=etaP, etaH=etaH)
         log_magnitude, log_ratio = ionospheric_closure.resistance_to_log_conductance_coordinates(
@@ -513,7 +513,7 @@ class InputPreparation:
             time=time,
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
-            pinv_rtol=pinv_rtol,
+            tolerance=tolerance,
         )
 
     def set_conductance(
@@ -528,7 +528,7 @@ class InputPreparation:
         time=None,
         sqrt_weights=None,
         reg_lambda=None,
-        pinv_rtol=1e-15,
+        tolerance=1e-15,
         log_magnitude_coefficients=None,
         log_ratio_coefficients=None,
     ):
@@ -561,8 +561,8 @@ class InputPreparation:
             sqrt_weights for the conductance data points.
         reg_lambda : float, optional
             Regularization parameter.
-        pinv_rtol : float, optional
-            Relative tolerance for the pseudo-inverse.
+        tolerance : float, optional
+            Numerical tolerance for the projection solve.
         """
         coefficients_supplied = (
             log_magnitude_coefficients is not None or log_ratio_coefficients is not None
@@ -594,7 +594,7 @@ class InputPreparation:
             time=time,
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
-            pinv_rtol=pinv_rtol,
+            tolerance=tolerance,
         )
 
     def _store_conductance_coordinates(
@@ -612,7 +612,7 @@ class InputPreparation:
         time=None,
         sqrt_weights=None,
         reg_lambda=None,
-        pinv_rtol=1e-15,
+        tolerance=1e-15,
     ):
         """Store canonical conductance samples or coefficients."""
         self._input_projector.set_scalar_input(
@@ -634,7 +634,7 @@ class InputPreparation:
             time=time,
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
-            pinv_rtol=pinv_rtol,
+            tolerance=tolerance,
         )
 
     def set_neutral_wind(
@@ -648,7 +648,7 @@ class InputPreparation:
         time=None,
         sqrt_weights=None,
         reg_lambda=None,
-        pinv_rtol=1e-15,
+        tolerance=1e-15,
         *,
         u_coefficients=None,
     ):
@@ -677,8 +677,8 @@ class InputPreparation:
             use shape ``(2, N)``.
         reg_lambda : float, optional
             Regularization parameter.
-        pinv_rtol : float, optional
-            Relative tolerance for the pseudo-inverse.
+        tolerance : float, optional
+            Numerical tolerance for the projection solve.
         """
         self._input_projector.set_tangential_input(
             "u",
@@ -694,7 +694,7 @@ class InputPreparation:
             time=time,
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
-            pinv_rtol=pinv_rtol,
+            tolerance=tolerance,
         )
 
     def set_Q_eff(
@@ -708,7 +708,7 @@ class InputPreparation:
         time=None,
         sqrt_weights=None,
         reg_lambda=None,
-        pinv_rtol=1e-15,
+        tolerance=1e-15,
         *,
         Q_eff_coefficients=None,
     ):
@@ -742,8 +742,8 @@ class InputPreparation:
             use shape ``(2, N)``.
         reg_lambda : float, optional
             Regularization parameter.
-        pinv_rtol : float, optional
-            Relative tolerance for the pseudo-inverse.
+        tolerance : float, optional
+            Numerical tolerance for the projection solve.
         """
         self._input_projector.set_tangential_input(
             "Q_eff",
@@ -759,7 +759,7 @@ class InputPreparation:
             time=time,
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
-            pinv_rtol=pinv_rtol,
+            tolerance=tolerance,
         )
 
     def set_E_neutral_wind(
@@ -773,7 +773,7 @@ class InputPreparation:
         time=None,
         sqrt_weights=None,
         reg_lambda=None,
-        pinv_rtol=1e-15,
+        tolerance=1e-15,
         *,
         E_neutral_wind_coefficients=None,
     ):
@@ -810,8 +810,8 @@ class InputPreparation:
             ``(2, N)`` for separate component weights.
         reg_lambda : float, optional
             Regularization parameter.
-        pinv_rtol : float, optional
-            Relative tolerance for the pseudo-inverse.
+        tolerance : float, optional
+            Numerical tolerance for the projection solve.
         """
         self._input_projector.set_tangential_input(
             "E_neutral_wind",
@@ -827,7 +827,7 @@ class InputPreparation:
             time=time,
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
-            pinv_rtol=pinv_rtol,
+            tolerance=tolerance,
         )
 
     def set_Q_eff_from_neutral_wind(
@@ -842,7 +842,7 @@ class InputPreparation:
         sqrt_weights=None,
         wind_reg_lambda=None,
         Q_eff_reg_lambda=None,
-        pinv_rtol=1e-15,
+        tolerance=1e-15,
     ):
         """Fit and store Q_eff coefficients from wind and conductance.
 
@@ -864,10 +864,10 @@ class InputPreparation:
             time=time,
             sqrt_weights=sqrt_weights,
             reg_lambda=wind_reg_lambda,
-            pinv_rtol=pinv_rtol,
+            tolerance=tolerance,
         )
         q_coeff_rows = self._input_projector.fit_Q_eff_from_neutral_wind(
-            input_time, wind_coeff_rows, reg_lambda=Q_eff_reg_lambda, pinv_rtol=pinv_rtol
+            input_time, wind_coeff_rows, reg_lambda=Q_eff_reg_lambda, tolerance=tolerance
         )
         self._input_projector.add_input_coefficients("Q_eff", {"Q_eff": q_coeff_rows}, input_time)
 
@@ -882,7 +882,7 @@ class InputPreparation:
         time=None,
         sqrt_weights=None,
         reg_lambda=None,
-        pinv_rtol=1e-15,
+        tolerance=1e-15,
     ):
         """Return model-grid Q_eff equivalent to wind forcing."""
         if "conductance" not in self.data.input_series.datasets:
@@ -902,7 +902,7 @@ class InputPreparation:
             time=time,
             sqrt_weights=sqrt_weights,
             reg_lambda=reg_lambda,
-            pinv_rtol=pinv_rtol,
+            tolerance=tolerance,
         )
         return self._input_projector.evaluate_Q_eff_from_neutral_wind(input_time, wind_coeff_rows)
 
