@@ -11,7 +11,7 @@ from tests import SINGLE_PRECISION_REGRESSION_RTOL
 from tests.example_scenario import prepare_example_inputs
 
 from pynamit.external_inputs import get_input_source, set_input_source
-from pynamit.results.input_evaluation import evaluate_projected_input
+from pynamit.results.input_fields import evaluate_projected_input
 from pynamit.simulation.electrodynamics import ionospheric_closure
 from pynamit.workflows import example_inputs as example_inputs_module
 
@@ -65,7 +65,7 @@ def _capture_preparation(monkeypatch, *, source: str, directory, main_field_kind
             "pedersen": np.array(pedersen, copy=True),
             "lat": np.array(lat, copy=True),
             "lon": np.array(lon, copy=True),
-            "request": kwargs["request"],
+            "coordinates": kwargs["coordinates"],
         }
         return pedersen, hall, lat, lon
 
@@ -75,7 +75,7 @@ def _capture_preparation(monkeypatch, *, source: str, directory, main_field_kind
             "jr": np.array(jr, copy=True),
             "lat": np.array(lat, copy=True),
             "lon": np.array(lon, copy=True),
-            "request": kwargs["request"],
+            "coordinates": kwargs["coordinates"],
         }
         return jr, lat, lon
 
@@ -90,7 +90,7 @@ def _capture_preparation(monkeypatch, *, source: str, directory, main_field_kind
             "lat": np.array(lat, copy=True),
             "lon": np.array(lon, copy=True),
             "weights": None if weights is None else np.array(weights, copy=True),
-            "request": kwargs["request"],
+            "coordinates": kwargs["coordinates"],
         }
         return result
 
@@ -196,28 +196,31 @@ def test_native_and_fallback_inputs_match_through_projection(
     finally:
         set_input_source(previous_source)
 
-    native_request = native_raw["conductance"]["request"]
-    fallback_request = fallback_raw["conductance"]["request"]
-    assert native_request.source_grid.coordinate_convention == (
-        fallback_request.source_grid.coordinate_convention
+    native_coordinates = native_raw["conductance"]["coordinates"]
+    fallback_coordinates = fallback_raw["conductance"]["coordinates"]
+    assert native_coordinates.geographic_grid.coordinate_convention == (
+        fallback_coordinates.geographic_grid.coordinate_convention
     )
-    assert native_request.model_grid.coordinate_convention == (
-        fallback_request.model_grid.coordinate_convention
+    assert native_coordinates.model_grid.coordinate_convention == (
+        fallback_coordinates.model_grid.coordinate_convention
     )
-    assert native_request.model_epoch == pytest.approx(fallback_request.model_epoch)
-    for view in ("source_grid", "model_grid"):
-        native_grid = getattr(native_request, view)
-        fallback_grid = getattr(fallback_request, view)
+    assert native_coordinates.model_epoch == pytest.approx(fallback_coordinates.model_epoch)
+    for view in ("geographic_grid", "model_grid"):
+        native_grid = getattr(native_coordinates, view)
+        fallback_grid = getattr(fallback_coordinates, view)
         assert native_grid.coordinate_identity == fallback_grid.coordinate_identity
 
-    for request, raw_inputs in ((native_request, native_raw), (fallback_request, fallback_raw)):
-        source_grid = request.source_grid
+    for coordinates, raw_inputs in (
+        (native_coordinates, native_raw),
+        (fallback_coordinates, fallback_raw),
+    ):
+        geographic_grid = coordinates.geographic_grid
         for key in _INPUT_KEYS:
-            assert raw_inputs[key]["request"] is request
-            returned_identity = source_grid.coordinate_convention.coordinate_identity(
+            assert raw_inputs[key]["coordinates"] is coordinates
+            returned_identity = geographic_grid.coordinate_convention.coordinate_identity(
                 raw_inputs[key]["lat"], raw_inputs[key]["lon"]
             )
-            assert returned_identity == source_grid.coordinate_identity
+            assert returned_identity == geographic_grid.coordinate_identity
 
     _assert_mappings_close(
         "provider:conductance",

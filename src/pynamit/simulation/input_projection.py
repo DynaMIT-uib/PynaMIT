@@ -9,7 +9,6 @@ from kompe import SphericalGrid
 from kompe.math import get_array_module
 from kompe.spherical_transform import SphericalTransform
 
-from pynamit.geomagnetism import MagneticFieldEvaluation
 from pynamit.simulation.electrodynamics import ionospheric_closure
 from pynamit.simulation.schema import INPUT_VARIABLES, WIND_FORCING_INPUTS
 
@@ -43,10 +42,10 @@ class _InputProjector:
         that signed field-parallel convention.
         """
         input_grid = SphericalGrid(lat=lat, lon=lon, theta=theta, phi=phi)
-        field = MagneticFieldEvaluation(
-            self.preparation.main_field, input_grid, self.preparation.config.RI
-        )
-        return FAC * field.unit_br
+        unit_br = self.preparation.main_field.unit_vector(input_grid, self.preparation.config.RI)[
+            0
+        ]
+        return FAC * unit_br
 
     @staticmethod
     def require_complete_values(label: str, **values) -> None:

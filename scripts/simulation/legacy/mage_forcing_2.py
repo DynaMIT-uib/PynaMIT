@@ -108,9 +108,8 @@ simulation = pynamit.Simulation(
     integrator="exponential",
 )
 
-fac_field_evaluation = pynamit.MagneticFieldEvaluation(
-    simulation.geometry.main_field, kompe.Grid(lat=ionosphere_lat, lon=ionosphere_lon), RI
-)
+fac_grid = kompe.Grid(lat=ionosphere_lat, lon=ionosphere_lon)
+fac_unit_br = simulation.geometry.main_field.unit_vector(fac_grid, RI)[0]
 
 plt_lat, plt_lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)
 plt_lat, plt_lon = np.meshgrid(plt_lat, plt_lon)
@@ -154,7 +153,7 @@ for step in range(0, nstep):
         print("FAC input contains NaN values. Setting to 0.")
         FAC[np.isnan(FAC)] = 0
 
-    jr = FAC.flatten() * fac_field_evaluation.unit_br
+    jr = FAC.flatten() * fac_unit_br
 
     print("Setting jr with (abs. min, RMS, abs. max):")
     print(f"\t({np.min(np.abs(jr))}, {np.sqrt(np.mean(jr**2))}, {np.max(np.abs(jr))})")

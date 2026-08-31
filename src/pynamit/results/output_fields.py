@@ -4,7 +4,7 @@ from kompe import SphericalTransform
 from kompe.constants import MU0
 from kompe.math import get_array_module
 
-from pynamit.results.evaluation import (
+from pynamit.results.field_evaluation import (
     apply_coefficient_operator,
     evaluate_sheet_current_from_operators,
 )
@@ -234,7 +234,7 @@ def evaluate_simulation_output(
         SI-valued arrays in the evaluation grid's shape. ``theta``
         components point south and ``phi`` components point east.
     """
-    from pynamit.results.input_evaluation import evaluate_projected_input
+    from pynamit.results.input_fields import evaluate_projected_input
     from pynamit.results.simulation_results import SimulationResults
     from pynamit.simulation import Simulation
 
@@ -289,13 +289,11 @@ def evaluate_simulation_output(
         conductance = evaluate_projected_input(
             source, "conductance", time, transform=transform, interpolation=interpolation
         )
-        from pynamit.geomagnetism import MagneticFieldEvaluation
-
-        main_field = MagneticFieldEvaluation(geometry.main_field, transform.grid, geometry.RI)
-        etaP = conductance["etaP"]
-        geometry_tensor = pedersen_geometry_tensor(
-            main_field.unit_btheta, main_field.unit_bphi, main_field.unit_br
+        unit_br, unit_btheta, unit_bphi = geometry.main_field.unit_vector(
+            transform.grid, geometry.RI
         )
+        etaP = conductance["etaP"]
+        geometry_tensor = pedersen_geometry_tensor(unit_btheta, unit_bphi, unit_br)
         field_names.add("joule_heating")
     return evaluate_output_coefficients(
         entry,

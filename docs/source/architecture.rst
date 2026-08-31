@@ -90,6 +90,13 @@ concepts from the PynaMIT simulation model::
       fields.py              coefficient-space metadata and owned values
       coordinates.py         generic longitude and local-time conversions
       geomagnetism/          background fields and magnetic coordinates
+        main_field.py        background-field models and magnetic mapping
+      external_inputs/       empirical input adapters and coordinate semantics
+        coordinates.py       geographic, model, and library coordinate views
+        provider_definitions.py
+                             provider fields and interface conventions
+        fallback_data.py     provider snapshots and bundled data
+        providers.py         native and fallback evaluation
       storage/               named artifacts and coefficient time series
       simulation/            the coupled PynaMIT model
       results/               read-only saved simulations and field evaluation
@@ -124,8 +131,8 @@ implementation modules.  In particular:
   orchestration and persistence modules.
 
 The reusable packages must not import the simulation layer. In particular,
-``geomagnetism`` owns ``MainField``, magnetic-coordinate conversion, and
-``MagneticFieldEvaluation`` without knowing about ``SimulationConfig``;
+``geomagnetism`` owns ``MainField`` and magnetic-coordinate conversion without
+knowing about ``SimulationConfig``;
 ``geometry.build_main_field`` is the small adapter from simulation configuration to
 that reusable API. ``storage`` knows how to persist named datasets and field
 series but does not know the simulation artifact vocabulary.
@@ -184,14 +191,16 @@ Numerical operators and value identity
 ``LinearMap`` is the common operator abstraction for dense, sparse,
 matrix-free, and structured-einsum calculations. Least-squares problems and
 physical compositions should retain ``LinearMap`` objects until an explicit
-matrix is genuinely required. The tensor helper module contains only
+representation is genuinely required. ``to_matrix()`` returns a flat 2-D
+matrix, while ``to_array()`` retains the shaped domain and codomain axes. The
+tensor helper module contains only
 contractions and pseudoinverses that still operate on multidimensional arrays;
 do not add parallel wrappers for operations already expressed by
 ``LinearMap``.
-Materializing a map is also an execution decision: once its dense matrix is in
-memory, later applications reuse it. The response layer requests this only for
-runtime maps where dense multiplication is advantageous; plotting and export
-code should otherwise retain structured maps until a matrix is actually needed.
+Creating an explicit map is also an execution decision. The response layer does
+this only for runtime maps where dense multiplication is advantageous; plotting
+and export code should otherwise retain structured maps until explicit values
+are actually needed.
 When a rectangular map must become explicit, materialization probes the
 smaller side: input columns for tall maps and adjoint output rows for wide
 maps. This is important for rectangular surface-to-poloidal and
@@ -250,10 +259,11 @@ needs, but they should present the same public basis contract wherever
 possible. ``GlobalCSBasis`` is Kompe's public cubed-sphere basis. Its private
 implementation is split into:
 
-* ``cs_coordinates`` for panel and coordinate transforms.
-* ``GlobalCSMesh`` and ``CSGridRemapper`` for mesh shape, indexing, and
-  remapping, including scattered scalar and vector interpolation.
-* ``CSFiniteDifferences`` for derivative stencils and sparse operators.
+* ``cs_coordinates`` for panel and coordinate transforms;
+* ``global_mesh`` for mesh shape and indexing;
+* ``global_remapping`` for scattered scalar and vector remapping;
+* ``global_differencing`` and ``finite_differences`` for derivative
+  stencils and sparse operators; and
 * ``cs_vectors`` for vector-basis conversions.
 
 Prefer adding focused CS behavior to one of these collaborators instead of
@@ -269,12 +279,14 @@ numerical domain that can be used without a PynaMIT simulation.
 
 ``geomagnetism`` is the corresponding standalone physical domain. ``MainField``
 owns background-field models, field-line and conjugate mapping, magnetic
-coordinates, and apex basis vectors. ``MagneticFieldEvaluation`` binds one
-main field to one spherical grid and radius, caching field components and local
-maps used by ``SimulationGeometry``. Full field components use ``Br``, ``Btheta``, and
-``Bphi``; normalized components are explicitly named ``unit_br``,
-``unit_btheta``, and ``unit_bphi`` so a case-only spelling difference cannot
-change the physics.
+coordinates, and apex basis vectors. ``MainField.evaluate(grid, radius)``
+returns ``(Br, Btheta, Bphi)`` directly on the active array backend. Its
+bounded cache reuses values for equal coordinate signatures, radii, and
+backends. ``unit_vector``, ``horizontal_to_apex_array``, and
+``radial_to_apex_scale`` expose the related local geometry without another
+bound evaluation object. The ``(2, 2, N)`` array contains one pointwise
+component transform per sample; sampled fields use component or value names
+instead.
 
 The simulation frame is explicit and follows the main-field kind.
 ``kaiju_dipole``, ``igrf``, and ``radial`` use
@@ -354,13 +366,13 @@ requires the event time, Kp, solar-wind and IMF values, dipole tilt, F10.7, and
 Ap explicitly; PynaMIT does not define a physically privileged default event.
 The regression tests keep their shared 12 May 2001 scenario under ``tests/``.
 
-External empirical inputs use immutable value objects with separate source,
-library-interface, and output semantics. ``InputProviderSpec`` describes one
+External empirical inputs use immutable value objects with separate geographic,
+model-frame, library-interface, and output semantics. ``InputProviderSpec`` describes one
 library adapter and independently declares its request contract, output
 contract, fields, and vector basis. Hardy, AMPS, and HWM remain independently
 configurable even though their current request contracts are equal.
 
-PynaMIT's source grid is a geocentric spherical GEO grid at the ionospheric
+PynaMIT's geographic grid is a geocentric spherical GEO grid at the ionospheric
 radius. The external libraries describe their interfaces as geographic or
 geodetic. PynaMIT deliberately applies a simple spherical-Earth approximation
 at this boundary: numerical latitude and longitude are passed through
@@ -368,9 +380,9 @@ unchanged, and the same nominal 110-km altitude is supplied to the library.
 The approximation is centralized in ``pynamit.geodesy`` rather than being
 repeated implicitly in each adapter.
 
-``ExternalInputRequest`` owns the physical GEO source grid and the model-frame
-view of the same ordered samples, then caches library-facing views by
-coordinate-contract signature. In a GEO simulation the source and model grids
+``ExternalInputCoordinates`` owns the physical geocentric-GEO grid and the
+model-frame view of the same ordered samples, then caches library-facing views
+by coordinate-convention signature. In a GEO simulation the geographic and model grids
 are the same object. A generic dipole simulation retains an additional
 ``centered_dipole`` model grid. Hardy, AMPS, and HWM reference one interned
 ``LIBRARY_GEOGRAPHIC_110KM`` contract for their shared physical sampling grid.
@@ -392,14 +404,15 @@ spherical approximation, library east/north wind components map directly to
 PynaMIT ``u_phi`` and ``-u_theta``. HWM therefore introduces no separate
 regular grid, seam handling, or second spatial fit.
 
-All adapters return values associated with the original source-grid ordering.
+All adapters return values associated with the original geographic-grid
+ordering.
 Prepared-input construction stores those values at the corresponding
 simulation model-grid nodes. Existing PynaMIT and Kompe caches consequently
 reuse compatible projection operators according to mathematical signatures
 rather than provider names.
 
-Fallback files contain a shared registry of source and library-request grids.
-Each ``CachedProviderData`` references both grid objects and its independent
+Fallback files contain a shared registry of geographic and library-request grids.
+Each ``ProviderSnapshot`` references both grid objects and its independent
 provider specification. Coordinate identities hash the full coordinate
 contract together with normalized ordered coordinate pairs. Equal contracts
 and grids are structurally shared after loading, while different contracts

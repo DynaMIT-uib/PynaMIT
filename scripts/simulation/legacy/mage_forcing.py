@@ -299,8 +299,8 @@ for step in range(0, nstep):
     grid = kompe.Grid(
         theta=full_theta_padded_centered.flatten(), phi=full_phi_padded_centered.flatten()
     )
-    field_evaluation = pynamit.MagneticFieldEvaluation(simulation.geometry.main_field, grid, RI)
-    jr_input = full_current_padded.flatten() * field_evaluation.unit_br
+    unit_br = simulation.geometry.main_field.unit_vector(grid, RI)[0]
+    jr_input = full_current_padded.flatten() * unit_br
     simulation.set_boundary_jr(
         jr_input,
         theta=full_theta_padded_centered.flatten(),

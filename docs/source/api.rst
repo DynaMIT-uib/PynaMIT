@@ -51,9 +51,6 @@ Fields and background geometry
 .. autoclass:: pynamit.MainField
    :members:
 
-.. autoclass:: pynamit.MagneticFieldEvaluation
-   :members:
-
 Array backend
 -------------
 

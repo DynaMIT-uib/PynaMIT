@@ -1,20 +1,21 @@
 """External empirical inputs and their coordinate conventions."""
 
-from .contracts import (
-    BOUNDARY_JR_PROVIDER_SPEC,
-    CONDUCTANCE_PROVIDER_SPEC,
+from .coordinates import (
     LIBRARY_GEOGRAPHIC_110KM,
-    NEUTRAL_WIND_PROVIDER_SPEC,
-    PROVIDER_SPECS,
     PYNAMIT_CENTERED_DIPOLE_110KM,
     PYNAMIT_SPHERICAL_GEO_110KM,
-    CachedProviderData,
     CoordinateConvention,
-    ExternalInputRequest,
-    FallbackCollection,
-    InputProviderSpec,
+    ExternalInputCoordinates,
     ReferenceSurface,
     SampleGrid,
+)
+from .fallback_data import FallbackCollection, ProviderSnapshot
+from .provider_definitions import (
+    BOUNDARY_JR_PROVIDER_SPEC,
+    CONDUCTANCE_PROVIDER_SPEC,
+    NEUTRAL_WIND_PROVIDER_SPEC,
+    PROVIDER_SPECS,
+    InputProviderSpec,
 )
 from .providers import (
     get_boundary_jr_inputs,
@@ -35,9 +36,9 @@ __all__ = [
     "PROVIDER_SPECS",
     "PYNAMIT_CENTERED_DIPOLE_110KM",
     "PYNAMIT_SPHERICAL_GEO_110KM",
-    "CachedProviderData",
+    "ProviderSnapshot",
     "CoordinateConvention",
-    "ExternalInputRequest",
+    "ExternalInputCoordinates",
     "FallbackCollection",
     "InputProviderSpec",
     "ReferenceSurface",

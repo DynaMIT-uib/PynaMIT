@@ -120,7 +120,7 @@ class InputPreparation:
         operator_cache_directory : path-like, optional
             Shared content-addressed cache for expensive deterministic
             numerical arrays, including spherical-harmonic evaluation
-            matrices. This runtime optimization is not part of the
+            arrays. This runtime optimization is not part of the
             persisted physical configuration.
         backend : {'auto', 'numpy', 'jax', bool}, optional
             Array backend to use. ``"auto"`` respects the current global

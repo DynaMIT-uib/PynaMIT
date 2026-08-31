@@ -161,14 +161,10 @@ if COMPARE_TO_SECS:
     lat, lon = plt_grid.lat.flatten(), plt_grid.lon.flatten()
     r = np.full(lat.size, RI - 1)
     lat_secs, lon_secs = simulation.geometry.model_grid.lat, simulation.geometry.model_grid.lon
-    field_evaluation = pynamit.MagneticFieldEvaluation(
-        simulation.geometry.main_field, kompe.Grid(lat=lat_secs, lon=lon_secs), RI
+    unit_br, unit_btheta, unit_bphi = simulation.geometry.main_field.unit_vector(
+        kompe.Grid(lat=lat_secs, lon=lon_secs), RI
     )
-    Be, Bn, Br = (
-        field_evaluation.unit_bphi,
-        -field_evaluation.unit_btheta,
-        field_evaluation.unit_br,
-    )
+    Be, Bn, Br = unit_bphi, -unit_btheta, unit_br
     Ge, Gn, Gu = secsy.get_CF_SECS_B_G_matrices_for_inclined_field(
         lat, lon, r, lat_secs, lon_secs, Be, Bn, Br, RI=RI
     )

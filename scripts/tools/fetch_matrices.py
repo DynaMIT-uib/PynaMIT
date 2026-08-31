@@ -17,7 +17,7 @@ from kompe.math import block_until_ready, to_numpy
 
 from pynamit import Simulation
 from pynamit.external_inputs import get_conductance_inputs
-from pynamit.external_inputs.contracts import ExternalInputRequest
+from pynamit.external_inputs.coordinates import ExternalInputCoordinates
 
 
 def build_simulation(
@@ -57,7 +57,7 @@ def build_simulation(
     geo_lat, geo_lon = simulation.geometry.main_field.model_to_geo_coordinates(
         grid.lat, grid.lon, event_time=date
     )
-    request = ExternalInputRequest.from_model_coordinates(
+    coordinates = ExternalInputCoordinates.from_model_coordinates(
         grid.lat,
         grid.lon,
         geographic_lat=geo_lat,
@@ -66,7 +66,9 @@ def build_simulation(
         model_epoch=simulation.geometry.main_field.epoch,
         grid_id="matrix-extraction-model-grid",
     )
-    pedersen, hall, _, _ = get_conductance_inputs(date, request=request, kp=5, starlight=1.0)
+    pedersen, hall, _, _ = get_conductance_inputs(
+        date, coordinates=coordinates, kp=5, starlight=1.0
+    )
     simulation.set_conductance(pedersen=pedersen, hall=hall, lat=grid.lat, lon=grid.lon)
     simulation.response.activate_inputs_at_time(
         simulation.data.input_series, time=0.0, interpolation=False

@@ -8,7 +8,7 @@ import ppigrf
 import pyhwm2014  # https://github.com/rilma/pyHWM14
 
 from pynamit.external_inputs import get_conductance_inputs
-from pynamit.external_inputs.contracts import ExternalInputRequest
+from pynamit.external_inputs.coordinates import ExternalInputCoordinates
 
 Nmax, Mmax = 20, 20
 Ncs = 30
@@ -28,14 +28,14 @@ cs_basis = kompe.GlobalCSBasis(Ncs)
 conductance_grid = cs_basis.native_grid
 conductance_lat = conductance_grid.lat
 conductance_lon = conductance_grid.lon
-request = ExternalInputRequest.from_geocentric_geo(
+coordinates = ExternalInputCoordinates.from_geocentric_geo(
     conductance_lat, conductance_lon, grid_id="sh-experiment-grid"
 )
-pedersen, hall, _, _ = get_conductance_inputs(date, request=request, kp=Kp, starlight=1.0)
+pedersen, hall, _, _ = get_conductance_inputs(date, coordinates=coordinates, kp=Kp, starlight=1.0)
 
 etaH, etaP = hall / (hall**2 + pedersen**2), pedersen / (hall**2 + pedersen**2)
 
-G = cbasis.scalar_evaluation_matrix(conductance_grid)
+G = cbasis.scalar_evaluation_array(conductance_grid)
 d = etaH
 
 m_plain = np.linalg.lstsq(G, d, rcond=0)[0]
@@ -75,8 +75,8 @@ if False:
     ugrid = kompe.SphericalGrid(lat=u_lat.flatten(), lon=u_lon.flatten())
 
     Gphi, Gtheta = (
-        ubasis.scalar_evaluation_matrix(ugrid, derivative="phi"),
-        ubasis.scalar_evaluation_matrix(ugrid, derivative="theta"),
+        ubasis.scalar_evaluation_array(ugrid, derivative="phi"),
+        ubasis.scalar_evaluation_array(ugrid, derivative="theta"),
     )
     divergence_free_potential_matrix = np.vstack((-Gphi, Gtheta))
     curl_free_potential_matrix = np.vstack((Gtheta, Gphi))

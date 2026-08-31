@@ -12,14 +12,13 @@ import pandas as pd
 from kompe import SphericalTransform
 
 from pynamit.coordinates import GEOCENTRIC_GEOGRAPHIC
-from pynamit.geomagnetism import MagneticFieldEvaluation
 from pynamit.plotting.figure_settings import FigureSettings
 from pynamit.plotting.map_coordinates import (
     MapCoordinateContext,
     model_grid_from_geographic,
     regular_geographic_grid,
 )
-from pynamit.results.input_evaluation import evaluate_projected_input
+from pynamit.results.input_fields import evaluate_projected_input
 from pynamit.results.output_fields import (
     evaluate_output_coefficients,
     output_evaluation_operators,
@@ -521,11 +520,11 @@ class PlotData:
         if needs_joule and sheet_current_maps is None:
             sheet_current_maps = sheet_current_operators(geometry, transform)
         if needs_joule and "pedersen_geometry" not in output_evaluation_context:
-            field = MagneticFieldEvaluation(
-                geometry.main_field, transform.grid, self.results.config.RI
+            unit_br, unit_btheta, unit_bphi = geometry.main_field.unit_vector(
+                transform.grid, self.results.config.RI
             )
             output_evaluation_context["pedersen_geometry"] = pedersen_geometry_tensor(
-                field.unit_btheta, field.unit_bphi, field.unit_br
+                unit_btheta, unit_bphi, unit_br
             )
         if evaluation is None:
             self.output_evaluation_context = output_evaluation_context

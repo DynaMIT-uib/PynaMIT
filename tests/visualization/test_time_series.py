@@ -8,16 +8,16 @@ import pytest
 import xarray as xr
 
 from pynamit.results.time_series import (
-    compute_centered_difference_matrix_at_times,
     compute_centered_difference_series_at_times,
-    compute_time_derivative_matrix,
+    compute_centered_difference_values_at_times,
+    compute_time_derivative_values,
     datetime_index_to_epoch_ns,
     first_event_peak_abs_value_and_time,
     get_time_index_median_cadence_seconds,
     local_peak_abs_value_and_time,
     prominent_peak_candidates,
-    resample_matrix_to_times,
     resample_series_to_times,
+    resample_values_to_times,
     vector_magnitude_from_component_series,
     vector_magnitude_preserve_shape,
 )
@@ -106,15 +106,16 @@ def test_resample_series_to_times_validates_length():
         resample_series_to_times(pd.date_range("2020-01-01", periods=2), [1.0], [])
 
 
-def test_resample_matrix_to_times_interpolates_rows():
-    """Matrix resampling applies the scalar operation row-wise."""
+def test_resample_values_to_times_preserves_leading_dimensions():
+    """Value resampling preserves dimensions before the time axis."""
     index = pd.date_range("2020-01-01", periods=3, freq="10s")
-    values = np.array([[0.0, 10.0, 20.0], [0.0, 20.0, 40.0]])
+    values = np.array([[[0.0, 10.0, 20.0], [0.0, 20.0, 40.0]]])
     target = pd.to_datetime(["2020-01-01T00:00:05", "2020-01-01T00:00:15"])
 
-    resampled = resample_matrix_to_times(index, values, target)
+    resampled = resample_values_to_times(index, values, target)
 
-    np.testing.assert_allclose(resampled, np.array([[5.0, 15.0], [10.0, 30.0]]))
+    assert resampled.shape == (1, 2, 2)
+    np.testing.assert_allclose(resampled[0], np.array([[5.0, 15.0], [10.0, 30.0]]))
 
 
 def test_time_index_median_cadence_uses_positive_steps():
@@ -158,19 +159,21 @@ def test_centered_difference_series_rejects_invalid_numerical_settings():
         )
 
 
-def test_centered_difference_matrix_applies_rows():
-    """Matrix centered differences keep one row per source row."""
+def test_centered_difference_values_preserve_leading_dimensions():
+    """Centered differences preserve dimensions before the time axis."""
     index = pd.date_range("2020-01-01", periods=5, freq="10s")
     source_seconds = np.arange(5, dtype=float) * 10.0
-    source_values = np.vstack([2.0 * source_seconds, -3.0 * source_seconds])
+    two_series = np.vstack([2.0 * source_seconds, -3.0 * source_seconds])
+    source_values = two_series[np.newaxis, np.newaxis]
     target = pd.to_datetime(["2020-01-01T00:00:20"])
 
-    derivative = compute_centered_difference_matrix_at_times(index, source_values, target)
+    derivative = compute_centered_difference_values_at_times(index, source_values, target)
 
-    np.testing.assert_allclose(derivative, np.array([[2.0], [-3.0]]))
+    assert derivative.shape == (1, 1, 2, 1)
+    np.testing.assert_allclose(derivative[0, 0], np.array([[2.0], [-3.0]]))
 
 
-def test_compute_time_derivative_matrix_preserves_shape():
+def test_compute_time_derivative_values_preserves_shape():
     """Same-grid derivatives should keep edge samples undefined."""
     index = pd.date_range("2020-01-01", periods=5, freq="10s")
     source_seconds = np.arange(5, dtype=float) * 10.0
@@ -181,7 +184,7 @@ def test_compute_time_derivative_matrix_preserves_shape():
         ]
     )
 
-    derivative = compute_time_derivative_matrix(values, index, half_window_points=1)
+    derivative = compute_time_derivative_values(values, index, half_window_points=1)
 
     assert derivative.shape == values.shape
     np.testing.assert_allclose(
@@ -191,16 +194,16 @@ def test_compute_time_derivative_matrix_preserves_shape():
     assert np.all(np.isnan(derivative[..., [0, -1]]))
 
 
-def test_compute_time_derivative_matrix_rejects_invalid_time_axis():
+def test_compute_time_derivative_values_rejects_invalid_time_axis():
     """Invalid time axes fail at the data boundary."""
     invalid_index = pd.to_datetime(
         ["2020-01-01T00:00:00", "2020-01-01T00:00:10", "2020-01-01T00:00:05"]
     )
 
     with pytest.raises(ValueError, match="strictly increasing"):
-        compute_time_derivative_matrix(np.ones((2, 3)), invalid_index)
+        compute_time_derivative_values(np.ones((2, 3)), invalid_index)
     with pytest.raises(ValueError, match="must match"):
-        compute_time_derivative_matrix(np.ones((2, 4)), invalid_index)
+        compute_time_derivative_values(np.ones((2, 4)), invalid_index)
 
 
 def test_prominent_peak_candidates_separate_events():
@@ -294,7 +297,7 @@ def test_ground_dbdt_magnitude_differentiates_components_first():
     br_values = -down * 1e-9
     bh_values = np.stack([-north * 1e-9, east * 1e-9])
 
-    magnitude = renderer._ground_matrix_at_times(
+    magnitude = renderer._ground_values_at_times(
         "Magnitude", br_values, bh_values, source_times, target_times, quantity="dbdt"
     )
 

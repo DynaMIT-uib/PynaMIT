@@ -33,11 +33,11 @@ from pynamit.plotting.map_curves import (
 )
 from pynamit.plotting.plot_data import _coerce_figure_settings, get_plot_data
 from pynamit.results.time_series import (
-    compute_centered_difference_matrix_at_times,
     compute_centered_difference_series_at_times,
+    compute_centered_difference_values_at_times,
     get_time_index_median_cadence_seconds,
-    resample_matrix_to_times,
     resample_series_to_times,
+    resample_values_to_times,
     vector_magnitude_preserve_shape,
 )
 
@@ -76,7 +76,7 @@ class GroundFigureRenderer:
                 "and local-time filtering."
             )
 
-        br_dynamic, bh_dynamic, br_equilibrium, bh_equilibrium = self._ground_field_matrices(
+        br_dynamic, bh_dynamic, br_equilibrium, bh_equilibrium = self._ground_field_values(
             lat, lon
         )
         layers = self._curve_layers(
@@ -225,7 +225,7 @@ class GroundFigureRenderer:
         if rows.empty:
             raise ValueError(f"Unknown station {station_code!r}.")
         station = rows.iloc[0]
-        br_dynamic, bh_dynamic, br_equilibrium, bh_equilibrium = self._ground_field_matrices(
+        br_dynamic, bh_dynamic, br_equilibrium, bh_equilibrium = self._ground_field_values(
             [station["GEOLAT"]], [station["GEOLON"]]
         )
         source_times = self._time_index + pd.to_timedelta(
@@ -272,7 +272,7 @@ class GroundFigureRenderer:
                         "This simulation has no equilibrium output. Disable Equilibrium "
                         "ground curves, or rerun with save_equilibria=True."
                     )
-                values = self._ground_matrix_at_times(
+                values = self._ground_values_at_times(
                     component,
                     br_values,
                     bh_values,
@@ -317,8 +317,8 @@ class GroundFigureRenderer:
             return selected
         return pd.date_range(start, end, freq="1s")
 
-    def _ground_field_matrices(self, site_lat, site_lon):
-        """Return ground field matrices for sites."""
+    def _ground_field_values(self, site_lat, site_lon):
+        """Return ground field values at sites and saved times."""
         lat_arr = np.asarray(site_lat, dtype=float).reshape(-1)
         lon_arr = np.asarray(site_lon, dtype=float).reshape(-1)
         if lat_arr.size != lon_arr.size:
@@ -341,8 +341,8 @@ class GroundFigureRenderer:
         solid_basis = solid_harmonics.basis
         transform = SphericalTransform(solid_basis, grid)
         ve_to_ground = solid_harmonics.regular_reference_shift_factors(ri, EARTH_RADIUS_M)
-        induced_Br_to_br_ground = ve_to_ground * transform.scalar_synthesis_matrix
-        induced_Br_to_bh_ground = ve_to_ground / solid_basis.n * transform.surface_gradient_matrix
+        induced_Br_to_br_ground = ve_to_ground * transform.scalar_synthesis_array
+        induced_Br_to_bh_ground = ve_to_ground / solid_basis.n * transform.surface_gradient_array
 
         induced_Br = self.plot_data.dataset_values("dynamic", "induced_Br").T
         equilibrium_dataset = self.plot_data.results.datasets.get("equilibrium")
@@ -444,7 +444,7 @@ class GroundFigureRenderer:
                 {
                     "series_key": "dynamic",
                     "label": "Dynamic",
-                    "values": self._ground_matrix_at_times(
+                    "values": self._ground_values_at_times(
                         self.settings.ground_component,
                         br_dynamic,
                         bh_dynamic,
@@ -469,7 +469,7 @@ class GroundFigureRenderer:
                 {
                     "series_key": "equilibrium",
                     "label": "Equilibrium",
-                    "values": self._ground_matrix_at_times(
+                    "values": self._ground_values_at_times(
                         self.settings.ground_component,
                         br_equilibrium,
                         bh_equilibrium,
@@ -670,8 +670,8 @@ class GroundFigureRenderer:
         component = str(component)
         return component.startswith("Abs") and component[3:] in {"North", "East", "Down"}
 
-    def _ground_component_matrix(self, component, br_values, bh_values):
-        """Return component matrix in nT."""
+    def _ground_component_values(self, component, br_values, bh_values):
+        """Return one ground magnetic component in nT."""
         base = self._ground_component_base(component)
         if base == "North":
             values = -np.asarray(bh_values[0], dtype=float) * 1e9
@@ -682,16 +682,16 @@ class GroundFigureRenderer:
         elif base == "Magnitude":
             values = vector_magnitude_preserve_shape(
                 [
-                    self._ground_component_matrix("North", br_values, bh_values),
-                    self._ground_component_matrix("East", br_values, bh_values),
-                    self._ground_component_matrix("Down", br_values, bh_values),
+                    self._ground_component_values("North", br_values, bh_values),
+                    self._ground_component_values("East", br_values, bh_values),
+                    self._ground_component_values("Down", br_values, bh_values),
                 ]
             )
         else:
             raise ValueError(f"Unsupported ground component: {component!r}")
         return np.abs(values) if self._ground_component_uses_abs(component) else values
 
-    def _ground_matrix_at_times(
+    def _ground_values_at_times(
         self,
         component,
         br_values,
@@ -706,9 +706,9 @@ class GroundFigureRenderer:
         source_index = pd.DatetimeIndex(source_times)
         target_index = pd.DatetimeIndex(target_times)
         if str(quantity) != "dbdt":
-            return resample_matrix_to_times(
+            return resample_values_to_times(
                 source_index,
-                self._ground_component_matrix(component, br_values, bh_values),
+                self._ground_component_values(component, br_values, bh_values),
                 target_index,
             )
         base = self._ground_component_base(component)
@@ -716,7 +716,7 @@ class GroundFigureRenderer:
         if base == "Magnitude":
             return vector_magnitude_preserve_shape(
                 [
-                    self._ground_matrix_at_times(
+                    self._ground_values_at_times(
                         sub_component,
                         br_values,
                         bh_values,
@@ -728,9 +728,9 @@ class GroundFigureRenderer:
                     for sub_component in ("North", "East", "Down")
                 ]
             )
-        values = compute_centered_difference_matrix_at_times(
+        values = compute_centered_difference_values_at_times(
             source_index,
-            self._ground_component_matrix(base, br_values, bh_values),
+            self._ground_component_values(base, br_values, bh_values),
             target_index,
             half_window_points=self.settings.dbdt_window_points,
             cadence_seconds=(cadence if dbdt_cadence_seconds is None else dbdt_cadence_seconds),

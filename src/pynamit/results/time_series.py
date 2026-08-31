@@ -39,10 +39,23 @@ def resample_series_to_times(index, values, target_times):
     return out.astype(float)
 
 
-def resample_matrix_to_times(index, values, target_times):
-    """Linearly interpolate each matrix row onto target datetimes."""
+def resample_values_to_times(index, values, target_times):
+    """Interpolate values onto times along their last axis."""
     values_arr = np.asarray(values, dtype=float)
-    return np.vstack([resample_series_to_times(index, row, target_times) for row in values_arr])
+    time_index = pd.DatetimeIndex(pd.to_datetime(index))
+    target_index = pd.DatetimeIndex(pd.to_datetime(target_times))
+    if values_arr.ndim == 0 or values_arr.shape[-1] != time_index.size:
+        raise ValueError("The last values axis must match index.")
+    if values_arr.ndim == 1:
+        return resample_series_to_times(time_index, values_arr, target_index)
+
+    resampled = np.stack(
+        [
+            resample_series_to_times(time_index, series, target_index)
+            for series in values_arr.reshape(-1, time_index.size)
+        ]
+    )
+    return resampled.reshape(values_arr.shape[:-1] + (target_index.size,))
 
 
 def get_time_index_median_cadence_seconds(time_index):
@@ -84,28 +97,42 @@ def compute_centered_difference_series_at_times(
     return (right_values - left_values) / (2.0 * half_window_seconds)
 
 
-def compute_centered_difference_matrix_at_times(
+def compute_centered_difference_values_at_times(
     source_index, source_values, target_times, half_window_points=1, cadence_seconds=None
 ):
-    """Evaluate centered finite differences for each row of a matrix."""
+    """Evaluate centered differences along the last values axis."""
     values_arr = np.asarray(source_values, dtype=float)
-    return np.vstack(
+    time_index = pd.DatetimeIndex(pd.to_datetime(source_index))
+    target_index = pd.DatetimeIndex(pd.to_datetime(target_times))
+    if values_arr.ndim == 0 or values_arr.shape[-1] != time_index.size:
+        raise ValueError("The last values axis must match source_index.")
+    if values_arr.ndim == 1:
+        return compute_centered_difference_series_at_times(
+            time_index,
+            values_arr,
+            target_index,
+            half_window_points=half_window_points,
+            cadence_seconds=cadence_seconds,
+        )
+
+    differentiated = np.stack(
         [
             compute_centered_difference_series_at_times(
-                source_index,
-                row,
-                target_times,
+                time_index,
+                series,
+                target_index,
                 half_window_points=half_window_points,
                 cadence_seconds=cadence_seconds,
             )
-            for row in values_arr
+            for series in values_arr.reshape(-1, time_index.size)
         ]
     )
+    return differentiated.reshape(values_arr.shape[:-1] + (target_index.size,))
 
 
-def compute_time_derivative_matrix(values_matrix, time_index, half_window_points=1):
+def compute_time_derivative_values(values, time_index, half_window_points=1):
     """Return same-grid centered derivatives along the last axis."""
-    values_arr = np.asarray(values_matrix, dtype=float)
+    values_arr = np.asarray(values, dtype=float)
     time_ns = datetime_index_to_epoch_ns(time_index)
     if values_arr.ndim == 0 or values_arr.shape[-1] != time_ns.size:
         raise ValueError("The last values axis must match time_index.")
@@ -449,17 +476,17 @@ def vector_magnitude_preserve_shape(component_values):
 
 
 __all__ = [
-    "compute_centered_difference_matrix_at_times",
     "compute_centered_difference_series_at_times",
-    "compute_time_derivative_matrix",
+    "compute_centered_difference_values_at_times",
+    "compute_time_derivative_values",
     "datetime_index_to_epoch_ns",
     "first_event_peak_abs_value_and_time",
     "get_time_index_median_cadence_seconds",
     "local_peak_abs_value_and_time",
     "most_prominent_peak_abs_value_and_time",
     "prominent_peak_candidates",
-    "resample_matrix_to_times",
     "resample_series_to_times",
+    "resample_values_to_times",
     "vector_magnitude_from_component_series",
     "vector_magnitude_preserve_shape",
 ]

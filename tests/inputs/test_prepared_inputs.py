@@ -9,11 +9,11 @@ from kompe.constants import EARTH_RADIUS_M
 from tests import example_scenario
 
 import pynamit
-from pynamit.external_inputs.contracts import (
+from pynamit.external_inputs.coordinates import PYNAMIT_CENTERED_DIPOLE_110KM
+from pynamit.external_inputs.provider_definitions import (
     BOUNDARY_JR_PROVIDER_SPEC,
     CONDUCTANCE_PROVIDER_SPEC,
     NEUTRAL_WIND_PROVIDER_SPEC,
-    PYNAMIT_CENTERED_DIPOLE_110KM,
 )
 from pynamit.geomagnetism import MainField, decimal_year
 from pynamit.simulation.config import SimulationConfig
@@ -71,23 +71,23 @@ def test_geographic_wind_is_rotated_into_model_coordinates():
     np.testing.assert_allclose(phi_model, expected_east)
 
 
-def test_default_inputs_share_one_provider_request_cache(tmp_path, monkeypatch):
-    """Hardy, AMPS, and HWM receive one shared request object."""
-    captured = {"requests": []}
+def test_default_inputs_share_one_provider_coordinate_cache(tmp_path, monkeypatch):
+    """Hardy, AMPS, and HWM receive one shared coordinate set."""
+    captured = {"coordinate_sets": []}
     original_set_conductance = example_inputs_module.InputPreparation.set_conductance
     original_set_boundary_jr = example_inputs_module.InputPreparation.set_boundary_jr
     original_set_neutral_wind = example_inputs_module.InputPreparation.set_neutral_wind
 
-    def fake_conductance(_date, lat=None, lon=None, *, request, kp, starlight):
+    def fake_conductance(_date, lat=None, lon=None, *, coordinates, kp, starlight):
         assert lat is None and lon is None
         assert kp == example_scenario.KP
         assert starlight == example_scenario.STARLIGHT_CONDUCTANCE_S
-        captured["requests"].append(request)
-        source = request.source_grid
-        values = np.ones(source.size)
-        return values, values, source.lat, source.lon
+        captured["coordinate_sets"].append(coordinates)
+        geographic_grid = coordinates.geographic_grid
+        values = np.ones(geographic_grid.size)
+        return values, values, geographic_grid.lat, geographic_grid.lon
 
-    def fake_boundary_jr(_date, lat=None, lon=None, *, request, v, By, Bz, tilt, f107, minlat):
+    def fake_boundary_jr(_date, lat=None, lon=None, *, coordinates, v, By, Bz, tilt, f107, minlat):
         assert lat is None and lon is None
         assert v == example_scenario.SOLAR_WIND_SPEED_KM_S
         assert By == example_scenario.IMF_BY_NT
@@ -95,16 +95,22 @@ def test_default_inputs_share_one_provider_request_cache(tmp_path, monkeypatch):
         assert tilt == example_scenario.DIPOLE_TILT_DEG
         assert f107 == example_scenario.F107_SFU
         assert minlat == example_scenario.AMPS_MIN_LATITUDE_DEG
-        captured["requests"].append(request)
-        source = request.source_grid
-        return np.zeros(source.size), source.lat, source.lon
+        captured["coordinate_sets"].append(coordinates)
+        geographic_grid = coordinates.geographic_grid
+        return np.zeros(geographic_grid.size), geographic_grid.lat, geographic_grid.lon
 
-    def fake_wind(_date, lat=None, lon=None, *, request, ap):
+    def fake_wind(_date, lat=None, lon=None, *, coordinates, ap):
         assert lat is None and lon is None
         assert ap == example_scenario.HWM_AP
-        captured["requests"].append(request)
-        source = request.source_grid
-        return (np.zeros(source.size), np.ones(source.size), source.lat, source.lon, None)
+        captured["coordinate_sets"].append(coordinates)
+        geographic_grid = coordinates.geographic_grid
+        return (
+            np.zeros(geographic_grid.size),
+            np.ones(geographic_grid.size),
+            geographic_grid.lat,
+            geographic_grid.lon,
+            None,
+        )
 
     def capture_set_conductance(self, *, lat, lon, **kwargs):
         captured["conductance_storage"] = (np.asarray(lat).copy(), np.asarray(lon).copy())
@@ -144,25 +150,29 @@ def test_default_inputs_share_one_provider_request_cache(tmp_path, monkeypatch):
     assert not hasattr(prepared, "_time_evolution")
     assert not hasattr(prepared, "outputs")
     assert not hasattr(prepared, "response")
-    assert len(captured["requests"]) == 3
-    assert captured["requests"][0] is captured["requests"][1] is captured["requests"][2]
-    request = captured["requests"][0]
+    assert len(captured["coordinate_sets"]) == 3
     assert (
-        request.grid_for(CONDUCTANCE_PROVIDER_SPEC)
-        is request.grid_for(BOUNDARY_JR_PROVIDER_SPEC)
-        is request.grid_for(NEUTRAL_WIND_PROVIDER_SPEC)
+        captured["coordinate_sets"][0]
+        is captured["coordinate_sets"][1]
+        is captured["coordinate_sets"][2]
+    )
+    coordinates = captured["coordinate_sets"][0]
+    assert (
+        coordinates.sample_grid(CONDUCTANCE_PROVIDER_SPEC.request_coordinate_convention)
+        is coordinates.sample_grid(BOUNDARY_JR_PROVIDER_SPEC.request_coordinate_convention)
+        is coordinates.sample_grid(NEUTRAL_WIND_PROVIDER_SPEC.request_coordinate_convention)
     )
 
     model_grid = prepared.model_grid
     expected_geo = prepared.main_field.model_to_geo_coordinates(
         model_grid.lat, model_grid.lon, event_time=example_scenario.EVENT_TIME
     )
-    np.testing.assert_allclose(request.source_grid.lat, expected_geo[0])
-    np.testing.assert_allclose(request.source_grid.lon, expected_geo[1])
-    assert request.model_grid.coordinate_convention is PYNAMIT_CENTERED_DIPOLE_110KM
-    assert request.model_epoch == pytest.approx(prepared.main_field.epoch)
-    np.testing.assert_allclose(request.model_grid.lat, model_grid.lat)
-    np.testing.assert_allclose(request.model_grid.lon, model_grid.lon)
+    np.testing.assert_allclose(coordinates.geographic_grid.lat, expected_geo[0])
+    np.testing.assert_allclose(coordinates.geographic_grid.lon, expected_geo[1])
+    assert coordinates.model_grid.coordinate_convention is PYNAMIT_CENTERED_DIPOLE_110KM
+    assert coordinates.model_epoch == pytest.approx(prepared.main_field.epoch)
+    np.testing.assert_allclose(coordinates.model_grid.lat, model_grid.lat)
+    np.testing.assert_allclose(coordinates.model_grid.lon, model_grid.lon)
 
     for name in ("conductance_storage", "boundary_jr_storage", "wind_storage"):
         np.testing.assert_allclose(captured[name][0], model_grid.lat)
@@ -170,20 +180,20 @@ def test_default_inputs_share_one_provider_request_cache(tmp_path, monkeypatch):
     assert prepared._geometry is None
 
 
-def test_adapter_cannot_return_another_source_grid(tmp_path, monkeypatch):
-    """An adapter cannot silently remap the source grid."""
+def test_adapter_cannot_return_another_geographic_grid(tmp_path, monkeypatch):
+    """An adapter cannot silently remap the geographic grid."""
 
-    def wrong_conductance(_date, lat=None, lon=None, *, request, kp, starlight):
+    def wrong_conductance(_date, lat=None, lon=None, *, coordinates, kp, starlight):
         assert lat is None and lon is None
         assert kp == example_scenario.KP
         assert starlight == example_scenario.STARLIGHT_CONDUCTANCE_S
-        source = request.source_grid
-        values = np.ones(source.size)
-        return values, values, source.lat + 0.5, source.lon
+        geographic_grid = coordinates.geographic_grid
+        values = np.ones(geographic_grid.size)
+        return values, values, geographic_grid.lat + 0.5, geographic_grid.lon
 
     monkeypatch.setattr(example_inputs_module, "get_conductance_inputs", wrong_conductance)
 
-    with pytest.raises(ValueError, match="shared geocentric_geographic source grid"):
+    with pytest.raises(ValueError, match="shared geocentric_geographic grid"):
         prepare_example_inputs(
             tmp_path / "inputs",
             Nmax=2,

@@ -298,18 +298,18 @@ def test_cs_horizontal_basis_supports_connected_hemispheres(tmp_path):
 
     geometry = simulation.geometry
 
-    assert geometry.conjugate_horizontal_transform.helmholtz_synthesis_matrix.shape == (
+    assert geometry.conjugate_horizontal_transform.helmholtz_synthesis_array.shape == (
         2,
         geometry.conjugate_grid.size,
         2,
         simulation.geometry.horizontal_basis.index_length,
     )
-    assert geometry.interhemispheric_electric_field_difference_matrix.shape[-2:] == (
+    assert geometry.interhemispheric_electric_field_difference_array.shape[-2:] == (
         2,
         simulation.geometry.horizontal_basis.index_length,
     )
-    assert np.all(np.isfinite(geometry.conjugate_horizontal_transform.helmholtz_synthesis_matrix))
-    assert np.all(np.isfinite(geometry.interhemispheric_electric_field_difference_matrix))
+    assert np.all(np.isfinite(geometry.conjugate_horizontal_transform.helmholtz_synthesis_array))
+    assert np.all(np.isfinite(geometry.interhemispheric_electric_field_difference_array))
 
 
 def test_connected_E_apex_constraint_operator_is_lazy(tmp_path):
@@ -327,13 +327,13 @@ def test_connected_E_apex_constraint_operator_is_lazy(tmp_path):
     geometry = simulation.geometry
     operator = geometry.interhemispheric_electric_field_difference_operator
     assert operator is not None
-    assert "interhemispheric_electric_field_difference_matrix" not in geometry.__dict__
+    assert "interhemispheric_electric_field_difference_array" not in geometry.__dict__
 
     rng = np.random.default_rng(20260612)
     coeffs = rng.standard_normal(operator.input_shape)
 
     actual = operator.matvec(coeffs).reshape(operator.output_shape)
-    explicit = geometry.interhemispheric_electric_field_difference_matrix
+    explicit = geometry.interhemispheric_electric_field_difference_array
     expected = np.tensordot(explicit, coeffs, axes=([2, 3], [0, 1]))
 
     np.testing.assert_allclose(actual, expected)
@@ -370,7 +370,7 @@ def test_cs_horizontal_basis_combines_pfac_rm_and_connected_terms(tmp_path):
     assert geometry.boundary_Br_to_gridded_JS_operator().to_array().shape == (
         geometry.induced_Br_to_gridded_JS_operator().to_array().shape
     )
-    assert geometry.interhemispheric_electric_field_difference_matrix.shape[-2:] == (
+    assert geometry.interhemispheric_electric_field_difference_array.shape[-2:] == (
         2,
         simulation.geometry.horizontal_basis.index_length,
     )
@@ -394,7 +394,7 @@ def test_surface_to_poloidal_projection_matches_grid_least_squares(tmp_path):
     geometry = simulation.geometry
     assert not hasattr(geometry.horizontal_transform, "_scalar_coeffs_to_grid")
     expected = tensor_pinv(
-        geometry.poloidal_transform.scalar_synthesis_matrix, n_leading_flattened=1
+        geometry.poloidal_transform.scalar_synthesis_array, n_leading_flattened=1
     )
 
     surface_to_poloidal = geometry.surface_to_poloidal_operator.to_matrix(backend="numpy")
@@ -402,7 +402,7 @@ def test_surface_to_poloidal_projection_matches_grid_least_squares(tmp_path):
 
     rng = np.random.default_rng(20260520)
     radial_coeffs = rng.standard_normal(simulation.geometry.solid_harmonics.basis.index_length)
-    cs_coeffs = geometry.poloidal_transform.scalar_synthesis_matrix @ radial_coeffs
+    cs_coeffs = geometry.poloidal_transform.scalar_synthesis_array @ radial_coeffs
 
     np.testing.assert_allclose(surface_to_poloidal @ cs_coeffs, radial_coeffs, atol=1e-10)
 
@@ -423,7 +423,7 @@ def test_surface_to_poloidal_supports_area_weighted_projection(tmp_path):
     geometry = simulation.geometry
     assert not hasattr(geometry.horizontal_transform, "_scalar_coeffs_to_grid")
     expected = weighted_tensor_pinv(
-        geometry.poloidal_transform.scalar_synthesis_matrix,
+        geometry.poloidal_transform.scalar_synthesis_array,
         sqrt_weights=np.sqrt(simulation.data.schema.cs_basis.mesh.cell_areas.reshape(-1)),
         n_leading_flattened=1,
     )

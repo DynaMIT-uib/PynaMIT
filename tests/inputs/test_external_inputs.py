@@ -8,12 +8,12 @@ import pytest
 from tests.example_scenario import EVENT_TIME
 
 from pynamit.external_inputs import providers as external_inputs_module
-from pynamit.external_inputs.contracts import (
+from pynamit.external_inputs.coordinates import LIBRARY_GEOGRAPHIC_110KM, ExternalInputCoordinates
+from pynamit.external_inputs.fallback_data import FALLBACK_SCHEMA_VERSION
+from pynamit.external_inputs.provider_definitions import (
     BOUNDARY_JR_PROVIDER_SPEC,
     CONDUCTANCE_PROVIDER_SPEC,
-    LIBRARY_GEOGRAPHIC_110KM,
     NEUTRAL_WIND_PROVIDER_SPEC,
-    ExternalInputRequest,
 )
 from pynamit.external_inputs.providers import (
     _library_horizontal_wind_to_spherical,
@@ -33,20 +33,20 @@ def _utc_now():
     return datetime.datetime.now(datetime.timezone.utc)
 
 
-def _request(grid_id="test-source"):
-    return ExternalInputRequest.from_geocentric_geo(
+def _coordinates(grid_id="test-geographic"):
+    return ExternalInputCoordinates.from_geocentric_geo(
         np.array([-70.0, 0.0, 45.0]), np.array([-30.0, 10.0, 80.0]), grid_id=grid_id
     )
 
 
-def _centered_dipole_request(grid_id="test-dipole-source"):
+def _centered_dipole_coordinates(grid_id="test-dipole-geographic"):
     model_epoch = 2001.3613869863013
     model_lat = np.array([-75.0, 10.0, 65.0])
     model_lon = np.array([-90.0, 20.0, 130.0])
     geographic_lat, geographic_lon = external_inputs_module.dipole.Dipole(model_epoch).mag2geo(
         model_lat, model_lon
     )
-    return ExternalInputRequest.from_model_coordinates(
+    return ExternalInputCoordinates.from_model_coordinates(
         model_lat,
         model_lon,
         geographic_lat=geographic_lat,
@@ -58,7 +58,7 @@ def _centered_dipole_request(grid_id="test-dipole-source"):
 
 
 def test_native_geographic_conductance_uses_shared_library_request_grid(monkeypatch):
-    """Let Hardy derive modified-Apex coordinates for a GEO request."""
+    """Let Hardy derive modified-Apex coordinates for a GEO grid."""
     captured = {}
 
     class FakeSunlight:
@@ -103,15 +103,17 @@ def test_native_geographic_conductance_uses_shared_library_request_grid(monkeypa
     )
     monkeypatch.setattr(external_inputs_module.apexpy, "Apex", FakeApex)
     monkeypatch.setattr(external_inputs_module.dipole, "Dipole", FakeDipole)
-    request = _request()
-    provider_grid = request.grid_for(CONDUCTANCE_PROVIDER_SPEC)
-    source = request.source_grid
+    coordinates = _coordinates()
+    provider_grid = coordinates.sample_grid(
+        CONDUCTANCE_PROVIDER_SPEC.request_coordinate_convention
+    )
+    geographic_grid = coordinates.geographic_grid
     date = datetime.datetime(
         2001, 5, 13, 0, 45, tzinfo=datetime.timezone(datetime.timedelta(hours=3))
     )
 
     pedersen, hall, out_lat, out_lon = get_conductance_inputs(
-        date, request=request, kp=5, starlight=1.0
+        date, coordinates=coordinates, kp=5, starlight=1.0
     )
 
     provider_date = datetime.datetime(2001, 5, 12, 21, 45)
@@ -123,17 +125,17 @@ def test_native_geographic_conductance_uses_shared_library_request_grid(monkeypa
     np.testing.assert_allclose(captured["hardy"][0], provider_grid.lat + 5.0)
     np.testing.assert_allclose(captured["hardy"][1], (provider_grid.lon + 10.0) / 15.0)
     assert captured["hardy"][2:] == (5, "hp")
-    np.testing.assert_allclose(captured["sza"][0], source.lat)
-    np.testing.assert_allclose(captured["sza"][1], source.lon)
+    np.testing.assert_allclose(captured["sza"][0], geographic_grid.lat)
+    np.testing.assert_allclose(captured["sza"][1], geographic_grid.lon)
     assert captured["sza"][2] == provider_date
     assert captured["euv"][1:] == (100, "hp", "MoenBrekke1993")
     assert provider_grid.coordinate_convention is LIBRARY_GEOGRAPHIC_110KM
     np.testing.assert_allclose(hall, np.sqrt(11.0))
     np.testing.assert_allclose(pedersen, np.sqrt(21.0))
-    np.testing.assert_allclose(out_lat, source.lat)
-    np.testing.assert_allclose(out_lon, source.lon)
-    np.testing.assert_array_equal(provider_grid.lat, source.lat)
-    np.testing.assert_array_equal(provider_grid.lon, source.lon)
+    np.testing.assert_allclose(out_lat, geographic_grid.lat)
+    np.testing.assert_allclose(out_lon, geographic_grid.lon)
+    np.testing.assert_array_equal(provider_grid.lat, geographic_grid.lat)
+    np.testing.assert_array_equal(provider_grid.lon, geographic_grid.lon)
 
 
 def test_native_dipole_conductance_uses_explicit_model_and_geo_views(monkeypatch):
@@ -164,8 +166,8 @@ def test_native_dipole_conductance_uses_explicit_model_and_geo_views(monkeypatch
     monkeypatch.setattr(
         external_inputs_module, "_load_optional_module", lambda _name, _package: FakeConductance
     )
-    request = _centered_dipole_request()
-    real_dipole = external_inputs_module.dipole.Dipole(request.model_epoch)
+    coordinates = _centered_dipole_coordinates()
+    real_dipole = external_inputs_module.dipole.Dipole(coordinates.model_epoch)
 
     class FakeDipole:
         def __init__(self, epoch):
@@ -182,20 +184,20 @@ def test_native_dipole_conductance_uses_explicit_model_and_geo_views(monkeypatch
 
     date = _utc_now()
     pedersen, hall, out_lat, out_lon = get_conductance_inputs(
-        date, request=request, kp=5, starlight=1.0
+        date, coordinates=coordinates, kp=5, starlight=1.0
     )
 
-    assert captured["epoch"] == pytest.approx(request.model_epoch)
-    np.testing.assert_allclose(captured["hardy"][0], request.model_grid.lat)
-    np.testing.assert_allclose(captured["hardy"][1], request.model_grid.lon / 15.0)
+    assert captured["epoch"] == pytest.approx(coordinates.model_epoch)
+    np.testing.assert_allclose(captured["hardy"][0], coordinates.model_grid.lat)
+    np.testing.assert_allclose(captured["hardy"][1], coordinates.model_grid.lon / 15.0)
     assert captured["hardy"][2:] == (5, "hp")
-    np.testing.assert_allclose(captured["sza"][0], request.source_grid.lat)
-    np.testing.assert_allclose(captured["sza"][1], request.source_grid.lon)
+    np.testing.assert_allclose(captured["sza"][0], coordinates.geographic_grid.lat)
+    np.testing.assert_allclose(captured["sza"][1], coordinates.geographic_grid.lon)
     assert captured["euv"][1:] == (100, "hp", "MoenBrekke1993")
     np.testing.assert_allclose(hall, np.sqrt(11.0))
     np.testing.assert_allclose(pedersen, np.sqrt(21.0))
-    np.testing.assert_allclose(out_lat, request.source_grid.lat)
-    np.testing.assert_allclose(out_lon, request.source_grid.lon)
+    np.testing.assert_allclose(out_lat, coordinates.geographic_grid.lat)
+    np.testing.assert_allclose(out_lon, coordinates.geographic_grid.lon)
 
 
 def test_native_geographic_jr_uses_shared_library_request_grid(monkeypatch):
@@ -231,13 +233,15 @@ def test_native_geographic_jr_uses_shared_library_request_grid(monkeypatch):
     )
     monkeypatch.setattr(external_inputs_module.apexpy, "Apex", FakeApex)
 
-    request = _request()
-    provider_grid = request.grid_for(BOUNDARY_JR_PROVIDER_SPEC)
+    coordinates = _coordinates()
+    provider_grid = coordinates.sample_grid(
+        BOUNDARY_JR_PROVIDER_SPEC.request_coordinate_convention
+    )
     date = datetime.datetime(
         2001, 5, 13, 0, 45, tzinfo=datetime.timezone(datetime.timedelta(hours=3))
     )
     jr, out_lat, out_lon = get_boundary_jr_inputs(
-        date, request=request, v=300.0, By=0.0, Bz=-4.0, tilt=20.0, f107=100.0, minlat=50.0
+        date, coordinates=coordinates, v=300.0, By=0.0, Bz=-4.0, tilt=20.0, f107=100.0, minlat=50.0
     )
 
     expected_mlat = provider_grid.lat + 5.0
@@ -252,18 +256,18 @@ def test_native_geographic_jr_uses_shared_library_request_grid(monkeypatch):
     assert captured["mlt_conversion"][2] == external_inputs_module.decimal_year(expected_date)
     np.testing.assert_allclose(captured["amps_query"][0], expected_mlat)
     np.testing.assert_allclose(captured["amps_query"][1], expected_mlon / 15.0)
-    expected_jr = np.full(request.source_grid.size, 1e-6)
+    expected_jr = np.full(coordinates.geographic_grid.size, 1e-6)
     expected_jr[np.abs(expected_mlat) < 50.0] = 0.0
     np.testing.assert_allclose(jr, expected_jr)
-    np.testing.assert_allclose(out_lat, request.source_grid.lat)
-    np.testing.assert_allclose(out_lon, request.source_grid.lon)
+    np.testing.assert_allclose(out_lat, coordinates.geographic_grid.lat)
+    np.testing.assert_allclose(out_lon, coordinates.geographic_grid.lon)
 
 
 def test_native_dipole_jr_uses_explicit_model_view_and_epoch(monkeypatch):
     """Evaluate AMPS directly in the simulation's ideal-dipole frame."""
     captured = {}
-    request = _centered_dipole_request()
-    real_dipole = external_inputs_module.dipole.Dipole(request.model_epoch)
+    coordinates = _centered_dipole_coordinates()
+    real_dipole = external_inputs_module.dipole.Dipole(coordinates.model_epoch)
 
     class FakeDipole:
         def __init__(self, epoch):
@@ -306,23 +310,23 @@ def test_native_dipole_jr_uses_explicit_model_view_and_epoch(monkeypatch):
     )
 
     jr, out_lat, out_lon = get_boundary_jr_inputs(
-        date, request=request, v=300.0, By=0.0, Bz=-4.0, tilt=20.0, f107=100.0, minlat=50.0
+        date, coordinates=coordinates, v=300.0, By=0.0, Bz=-4.0, tilt=20.0, f107=100.0, minlat=50.0
     )
 
     expected_date = datetime.datetime(2001, 5, 12, 21, 45)
-    assert captured["epoch"] == pytest.approx(request.model_epoch)
-    np.testing.assert_array_equal(captured["mlt_conversion"][0], request.model_grid.lon)
+    assert captured["epoch"] == pytest.approx(coordinates.model_epoch)
+    np.testing.assert_array_equal(captured["mlt_conversion"][0], coordinates.model_grid.lon)
     assert captured["mlt_conversion"][1] == expected_date
-    np.testing.assert_array_equal(captured["amps_query"][0], request.model_grid.lat)
-    np.testing.assert_allclose(captured["amps_query"][1], request.model_grid.lon / 15.0)
-    expected_jr = np.full(request.source_grid.size, 1e-6)
-    expected_jr[np.abs(request.model_grid.lat) < 50.0] = 0.0
+    np.testing.assert_array_equal(captured["amps_query"][0], coordinates.model_grid.lat)
+    np.testing.assert_allclose(captured["amps_query"][1], coordinates.model_grid.lon / 15.0)
+    expected_jr = np.full(coordinates.geographic_grid.size, 1e-6)
+    expected_jr[np.abs(coordinates.model_grid.lat) < 50.0] = 0.0
     np.testing.assert_allclose(jr, expected_jr)
-    np.testing.assert_array_equal(out_lat, request.source_grid.lat)
-    np.testing.assert_array_equal(out_lon, request.source_grid.lon)
+    np.testing.assert_array_equal(out_lat, coordinates.geographic_grid.lat)
+    np.testing.assert_array_equal(out_lon, coordinates.geographic_grid.lon)
 
 
-def test_native_wind_uses_requested_positions_and_correct_date(monkeypatch):
+def test_native_wind_uses_coordinatesed_positions_and_correct_date(monkeypatch):
     """HWM receives the shared grid and full date/time."""
     captured = {}
 
@@ -337,12 +341,14 @@ def test_native_wind_uses_requested_positions_and_correct_date(monkeypatch):
         external_inputs_module, "_load_optional_module", lambda _name, _package: FakePyHWM
     )
 
-    request = _request()
-    provider_grid = request.grid_for(NEUTRAL_WIND_PROVIDER_SPEC)
+    coordinates = _coordinates()
+    provider_grid = coordinates.sample_grid(
+        NEUTRAL_WIND_PROVIDER_SPEC.request_coordinate_convention
+    )
     date = datetime.datetime(
         2001, 5, 13, 0, 45, 30, 500000, tzinfo=datetime.timezone(datetime.timedelta(hours=3))
     )
-    u_theta, u_phi, lat, lon, weights = get_wind_inputs(date, request=request, ap=(-1, 35))
+    u_theta, u_phi, lat, lon, weights = get_wind_inputs(date, coordinates=coordinates, ap=(-1, 35))
 
     np.testing.assert_allclose(captured["glat_deg"], provider_grid.lat)
     np.testing.assert_allclose(captured["glon_deg"], provider_grid.lon)
@@ -351,12 +357,12 @@ def test_native_wind_uses_requested_positions_and_correct_date(monkeypatch):
     assert captured["iyd"] == 1132
     assert captured["ap"] == [-1, 35]
 
-    np.testing.assert_array_equal(provider_grid.lat, request.source_grid.lat)
-    np.testing.assert_array_equal(provider_grid.lon, request.source_grid.lon)
+    np.testing.assert_array_equal(provider_grid.lat, coordinates.geographic_grid.lat)
+    np.testing.assert_array_equal(provider_grid.lon, coordinates.geographic_grid.lon)
     np.testing.assert_allclose(u_phi, 12.0)
     np.testing.assert_allclose(u_theta, -30.0)
-    np.testing.assert_allclose(lat, request.source_grid.lat)
-    np.testing.assert_allclose(lon, request.source_grid.lon)
+    np.testing.assert_allclose(lat, coordinates.geographic_grid.lat)
+    np.testing.assert_allclose(lon, coordinates.geographic_grid.lon)
     assert weights is None
 
 
@@ -389,14 +395,16 @@ def test_native_conductance_rejects_wrong_sample_count(monkeypatch):
     )
 
     with pytest.raises(ValueError, match="2 'hall' values for a 3-point"):
-        get_conductance_inputs(_utc_now(), request=_request(), kp=5, starlight=1.0)
+        get_conductance_inputs(_utc_now(), coordinates=_coordinates(), kp=5, starlight=1.0)
 
 
 def test_library_wind_mapping_is_spherical_component_identity():
     """Library east/north map directly to spherical phi/minus-theta."""
-    request = _request()
+    coordinates = _coordinates()
     u_theta, u_phi = _library_horizontal_wind_to_spherical(
-        request, np.full(request.source_grid.size, 5.0), np.full(request.source_grid.size, 20.0)
+        coordinates,
+        np.full(coordinates.geographic_grid.size, 5.0),
+        np.full(coordinates.geographic_grid.size, 20.0),
     )
     np.testing.assert_allclose(u_phi, 5.0)
     np.testing.assert_allclose(u_theta, -20.0)
@@ -413,24 +421,24 @@ def force_fallback():
 
 def test_fallback_rejects_inconsistent_dipole_and_geo_views(force_fallback):
     """Fallback enforces the native paired-frame contract."""
-    valid = _centered_dipole_request()
-    inconsistent = ExternalInputRequest.from_model_coordinates(
+    valid = _centered_dipole_coordinates()
+    inconsistent = ExternalInputCoordinates.from_model_coordinates(
         valid.model_grid.lat,
         valid.model_grid.lon,
-        geographic_lat=valid.source_grid.lat + 0.1,
-        geographic_lon=valid.source_grid.lon,
+        geographic_lat=valid.geographic_grid.lat + 0.1,
+        geographic_lon=valid.geographic_grid.lon,
         coordinate_system="centered_dipole",
         model_epoch=valid.model_epoch,
     )
 
     with pytest.raises(ValueError, match="physical GEO samples disagree"):
-        get_conductance_inputs(_utc_now(), request=inconsistent, kp=5, starlight=1.0)
+        get_conductance_inputs(_utc_now(), coordinates=inconsistent, kp=5, starlight=1.0)
 
 
 def test_loaded_collection_shares_both_grid_views():
-    """Providers share source and request-grid objects."""
+    """Providers share geographic and request-grid objects."""
     fallback = _load_fallback()
-    assert fallback.version == 7
+    assert fallback.version == FALLBACK_SCHEMA_VERSION
     assert fallback.event_time == EVENT_TIME.isoformat()
     assert fallback.conditions == {
         "conductance": {"kp": 5, "starlight": 1.0},
@@ -444,11 +452,11 @@ def test_loaded_collection_shares_both_grid_views():
         },
         "neutral_wind": {"ap": (-1, 35)},
     }
-    for source_grid_id in fallback.datasets["conductance"]:
-        hardy = fallback.datasets["conductance"][source_grid_id]
-        amps = fallback.datasets["boundary_jr"][source_grid_id]
-        hwm = fallback.datasets["neutral_wind"][source_grid_id]
-        assert hardy.source_grid is amps.source_grid is hwm.source_grid
+    for geographic_grid_id in fallback.datasets["conductance"]:
+        hardy = fallback.datasets["conductance"][geographic_grid_id]
+        amps = fallback.datasets["boundary_jr"][geographic_grid_id]
+        hwm = fallback.datasets["neutral_wind"][geographic_grid_id]
+        assert hardy.geographic_grid is amps.geographic_grid is hwm.geographic_grid
         assert hardy.request_grid is amps.request_grid is hwm.request_grid
         assert (
             hardy.spec.request_coordinate_convention
@@ -458,43 +466,50 @@ def test_loaded_collection_shares_both_grid_views():
         )
 
 
-def test_fallback_all_providers_match_exact_source_grid(force_fallback):
-    """All fallback providers select the same exact source grid."""
+def test_fallback_all_providers_match_exact_geographic_grid(force_fallback):
+    """All fallback providers select the same exact geographic grid."""
     fallback = _load_fallback()
-    source_grid_id = next(iter(fallback.datasets["conductance"]))
-    source = fallback.datasets["conductance"][source_grid_id].source_grid
-    request = ExternalInputRequest(source)
+    geographic_grid_id = next(iter(fallback.datasets["conductance"]))
+    geographic_grid = fallback.datasets["conductance"][geographic_grid_id].geographic_grid
+    coordinates = ExternalInputCoordinates(geographic_grid)
 
     pedersen, hall, conductance_lat, conductance_lon = get_conductance_inputs(
-        EVENT_TIME, request=request, kp=5, starlight=1.0
+        EVENT_TIME, coordinates=coordinates, kp=5, starlight=1.0
     )
     jr, jr_lat, jr_lon = get_boundary_jr_inputs(
-        EVENT_TIME, request=request, v=300.0, By=0.0, Bz=-4.0, tilt=20.0, f107=100.0, minlat=50.0
+        EVENT_TIME,
+        coordinates=coordinates,
+        v=300.0,
+        By=0.0,
+        Bz=-4.0,
+        tilt=20.0,
+        f107=100.0,
+        minlat=50.0,
     )
     u_theta, u_phi, wind_lat, wind_lon, weights = get_wind_inputs(
-        EVENT_TIME, request=request, ap=(-1, 35)
+        EVENT_TIME, coordinates=coordinates, ap=(-1, 35)
     )
 
     assert hall.shape == pedersen.shape == jr.shape == u_theta.shape == u_phi.shape
-    np.testing.assert_allclose(conductance_lat, source.lat)
-    np.testing.assert_allclose(conductance_lon, source.lon)
-    np.testing.assert_allclose(jr_lat, source.lat)
-    np.testing.assert_allclose(jr_lon, source.lon)
-    np.testing.assert_allclose(wind_lat, source.lat)
-    np.testing.assert_allclose(wind_lon, source.lon)
+    np.testing.assert_allclose(conductance_lat, geographic_grid.lat)
+    np.testing.assert_allclose(conductance_lon, geographic_grid.lon)
+    np.testing.assert_allclose(jr_lat, geographic_grid.lat)
+    np.testing.assert_allclose(jr_lon, geographic_grid.lon)
+    np.testing.assert_allclose(wind_lat, geographic_grid.lat)
+    np.testing.assert_allclose(wind_lon, geographic_grid.lon)
     assert weights is None
 
 
 def test_fallback_rejects_another_event_time(force_fallback):
     """A bundled snapshot cannot silently stand in for another event."""
     fallback = _load_fallback()
-    source_grid_id = next(iter(fallback.datasets["conductance"]))
-    source = fallback.datasets["conductance"][source_grid_id].source_grid
+    geographic_grid_id = next(iter(fallback.datasets["conductance"]))
+    geographic_grid = fallback.datasets["conductance"][geographic_grid_id].geographic_grid
 
     with pytest.raises(ValueError, match="describe only 2001-05-12 21:45:00 UTC"):
         get_conductance_inputs(
             datetime.datetime(2001, 5, 12, 21, 46),
-            request=ExternalInputRequest(source),
+            coordinates=ExternalInputCoordinates(geographic_grid),
             kp=5,
             starlight=1.0,
         )
@@ -503,17 +518,20 @@ def test_fallback_rejects_another_event_time(force_fallback):
 def test_fallback_selection_is_provider_specific():
     """A dataset cannot use another provider specification."""
     fallback = _load_fallback()
-    source_grid_id = next(iter(fallback.datasets["conductance"]))
-    dataset = fallback.datasets["conductance"][source_grid_id]
-    request = ExternalInputRequest(dataset.source_grid)
+    geographic_grid_id = next(iter(fallback.datasets["conductance"]))
+    dataset = fallback.datasets["conductance"][geographic_grid_id]
+    coordinates = ExternalInputCoordinates(dataset.geographic_grid)
     selected = _select_fallback_entry(
-        fallback.datasets["conductance"], request, "conductance", spec=CONDUCTANCE_PROVIDER_SPEC
+        fallback.datasets["conductance"],
+        coordinates,
+        "conductance",
+        spec=CONDUCTANCE_PROVIDER_SPEC,
     )
     assert selected is dataset
     with pytest.raises(ValueError, match="provider specification"):
         _select_fallback_entry(
             fallback.datasets["conductance"],
-            request,
+            coordinates,
             "boundary_jr",
             spec=BOUNDARY_JR_PROVIDER_SPEC,
         )
@@ -522,15 +540,17 @@ def test_fallback_selection_is_provider_specific():
 def test_fallback_rejects_conditions_other_than_its_cached_event(force_fallback):
     """Cached fields cannot represent different physical drivers."""
     fallback = _load_fallback()
-    source_grid_id = next(iter(fallback.datasets["conductance"]))
-    request = ExternalInputRequest(fallback.datasets["conductance"][source_grid_id].source_grid)
+    geographic_grid_id = next(iter(fallback.datasets["conductance"]))
+    coordinates = ExternalInputCoordinates(
+        fallback.datasets["conductance"][geographic_grid_id].geographic_grid
+    )
 
     with pytest.raises(ValueError, match="conductance fallback data use"):
-        get_conductance_inputs(EVENT_TIME, request=request, kp=4, starlight=1.0)
+        get_conductance_inputs(EVENT_TIME, coordinates=coordinates, kp=4, starlight=1.0)
     with pytest.raises(ValueError, match="AMPS fallback data use"):
         get_boundary_jr_inputs(
             EVENT_TIME,
-            request=request,
+            coordinates=coordinates,
             v=301.0,
             By=0.0,
             Bz=-4.0,
@@ -539,19 +559,19 @@ def test_fallback_rejects_conditions_other_than_its_cached_event(force_fallback)
             minlat=50.0,
         )
     with pytest.raises(ValueError, match="HWM fallback data use"):
-        get_wind_inputs(EVENT_TIME, request=request, ap=(-1, 34))
+        get_wind_inputs(EVENT_TIME, coordinates=coordinates, ap=(-1, 34))
 
 
 def test_fallback_error_lists_compatible_grid_geometry():
-    """Missing-grid diagnostics describe available source grids."""
+    """Missing-grid diagnostics describe available geographic grids."""
     fallback = _load_fallback()
-    request = ExternalInputRequest.from_geocentric_geo(
+    coordinates = ExternalInputCoordinates.from_geocentric_geo(
         np.array([0.0]), np.array([0.0]), grid_id="missing"
     )
     with pytest.raises(ValueError) as error:
         _select_fallback_entry(
             fallback.datasets["conductance"],
-            request,
+            coordinates,
             "conductance",
             spec=fallback.providers["conductance"],
         )
@@ -560,7 +580,7 @@ def test_fallback_error_lists_compatible_grid_geometry():
     assert "geographic-ncs-18 (geocentric_geographic, Ncs=18" in message
 
 
-def test_fallback_roundtrip_defaults_to_one_shared_source_grid(tmp_path):
+def test_fallback_roundtrip_defaults_to_one_shared_geographic_grid(tmp_path):
     """The convenience writer shares equivalent grids."""
     lat_axis = np.array([-60.0, 0.0, 60.0])
     lon_axis = np.array([0.0, 90.0])
@@ -585,7 +605,7 @@ def test_fallback_roundtrip_defaults_to_one_shared_source_grid(tmp_path):
     hardy = collection.datasets["conductance"]["default"]
     amps = collection.datasets["boundary_jr"]["default"]
     hwm = collection.datasets["neutral_wind"]["default"]
-    assert hardy.source_grid is amps.source_grid is hwm.source_grid
+    assert hardy.geographic_grid is amps.geographic_grid is hwm.geographic_grid
     assert hardy.request_grid is amps.request_grid is hwm.request_grid
     np.testing.assert_allclose(hardy.values["hall"], base.reshape(-1))
     np.testing.assert_allclose(amps.values["jr"], (base - 0.25).reshape(-1))
@@ -617,15 +637,15 @@ def test_native_conductance_accepts_explicit_kp(monkeypatch):
 
         sunlight = FakeSunlight
 
-    request = ExternalInputRequest.from_geocentric_geo(np.array([60.0]), np.array([10.0]))
+    coordinates = ExternalInputCoordinates.from_geocentric_geo(np.array([60.0]), np.array([10.0]))
     monkeypatch.setattr(
         external_inputs_module, "_load_optional_module", lambda _name, _package: FakeConductance
     )
     get_conductance_inputs(
         _utc_now(),
-        request.source_grid.lat,
-        request.source_grid.lon,
-        request=request,
+        coordinates.geographic_grid.lat,
+        coordinates.geographic_grid.lon,
+        coordinates=coordinates,
         kp=4.0,
         starlight=1.0,
     )

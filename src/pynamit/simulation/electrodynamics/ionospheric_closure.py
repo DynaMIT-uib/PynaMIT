@@ -198,7 +198,9 @@ def _cross_spherical(a_r, a_theta, a_phi, b_r, b_theta, b_phi):
     )
 
 
-def _current_from_weighted_winds(*, SigmaP, SigmaH, u_p_theta, u_p_phi, u_h_theta, u_h_phi, field):
+def _current_from_weighted_winds(
+    *, SigmaP, SigmaH, u_p_theta, u_p_phi, u_h_theta, u_h_phi, magnetic_field, magnetic_unit_vector
+):
     """Return the height-integrated 3D wind-current source.
 
     ``u_p`` and ``u_h`` are the separate conductivity-weighted column
@@ -214,12 +216,8 @@ def _current_from_weighted_winds(*, SigmaP, SigmaH, u_p_theta, u_p_phi, u_h_thet
         u_p_phi,
         u_h_theta,
         u_h_phi,
-        field.unit_br,
-        field.unit_btheta,
-        field.unit_bphi,
-        field.Br,
-        field.Btheta,
-        field.Bphi,
+        magnetic_field,
+        magnetic_unit_vector,
     )
     SigmaP = xp.asarray(SigmaP, dtype=float).reshape(-1)
     SigmaH = xp.asarray(SigmaH, dtype=float).reshape(-1)
@@ -228,12 +226,12 @@ def _current_from_weighted_winds(*, SigmaP, SigmaH, u_p_theta, u_p_phi, u_h_thet
     u_h_theta = xp.asarray(u_h_theta, dtype=float).reshape(-1)
     u_h_phi = xp.asarray(u_h_phi, dtype=float).reshape(-1)
 
-    b_r = xp.asarray(field.unit_br, dtype=float).reshape(-1)
-    b_theta = xp.asarray(field.unit_btheta, dtype=float).reshape(-1)
-    b_phi = xp.asarray(field.unit_bphi, dtype=float).reshape(-1)
-    B_r = xp.asarray(field.Br, dtype=float).reshape(-1)
-    B_theta = xp.asarray(field.Btheta, dtype=float).reshape(-1)
-    B_phi = xp.asarray(field.Bphi, dtype=float).reshape(-1)
+    b_r, b_theta, b_phi = (
+        xp.asarray(component, dtype=float).reshape(-1) for component in magnetic_unit_vector
+    )
+    B_r, B_theta, B_phi = (
+        xp.asarray(component, dtype=float).reshape(-1) for component in magnetic_field
+    )
 
     zero = xp.zeros_like(u_p_theta)
     u_p_cross_B = _cross_spherical(zero, u_p_theta, u_p_phi, B_r, B_theta, B_phi)
@@ -247,7 +245,17 @@ def _current_from_weighted_winds(*, SigmaP, SigmaH, u_p_theta, u_p_phi, u_h_thet
 
 
 def electric_field_from_weighted_winds(
-    *, SigmaP, SigmaH, u_p_theta, u_p_phi, u_h_theta, u_h_phi, field, etaP, etaH
+    *,
+    SigmaP,
+    SigmaH,
+    u_p_theta,
+    u_p_phi,
+    u_h_theta,
+    u_h_phi,
+    magnetic_field,
+    magnetic_unit_vector,
+    etaP,
+    etaH,
 ):
     """Return equivalent E from height-integrated neutral-wind current.
 
@@ -272,14 +280,15 @@ def electric_field_from_weighted_winds(
         u_p_phi=u_p_phi,
         u_h_theta=u_h_theta,
         u_h_phi=u_h_phi,
-        field=field,
+        magnetic_field=magnetic_field,
+        magnetic_unit_vector=magnetic_unit_vector,
     )
     xp = get_array_module(q_r, q_theta, q_phi, etaP, etaH)
     etaP = xp.asarray(etaP, dtype=float).reshape(-1)
     etaH = xp.asarray(etaH, dtype=float).reshape(-1)
-    b_r = xp.asarray(field.unit_br, dtype=float).reshape(-1)
-    b_theta = xp.asarray(field.unit_btheta, dtype=float).reshape(-1)
-    b_phi = xp.asarray(field.unit_bphi, dtype=float).reshape(-1)
+    b_r, b_theta, b_phi = (
+        xp.asarray(component, dtype=float).reshape(-1) for component in magnetic_unit_vector
+    )
 
     q_dot_b = q_r * b_r + q_theta * b_theta + q_phi * b_phi
     q_perp_theta = q_theta - q_dot_b * b_theta

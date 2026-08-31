@@ -1605,10 +1605,10 @@
       ],
       "provenance": {
         "mapping": "numerical_lat_lon_identity_at_equal_nominal_altitude",
-        "source_coordinate_identity": "aff73554dc894c904f779c821d878dcf0c9999fbc23f77e4fe89f4fe6cf9dc80"
+        "geographic_coordinate_identity": "aff73554dc894c904f779c821d878dcf0c9999fbc23f77e4fe89f4fe6cf9dc80"
       },
       "sampling_geometry": {
-        "source_grid_id": "centered-dipole-event-ncs-08",
+        "geographic_grid_id": "centered-dipole-event-ncs-08",
         "type": "mapped_ordered_points"
       }
     },
@@ -5116,10 +5116,10 @@
       ],
       "provenance": {
         "mapping": "numerical_lat_lon_identity_at_equal_nominal_altitude",
-        "source_coordinate_identity": "f4a6125fb1554d8ff08de42d23c7cb09d80d8d6b4fedcba623347ecfba8734c2"
+        "geographic_coordinate_identity": "f4a6125fb1554d8ff08de42d23c7cb09d80d8d6b4fedcba623347ecfba8734c2"
       },
       "sampling_geometry": {
-        "source_grid_id": "centered-dipole-event-ncs-12",
+        "geographic_grid_id": "centered-dipole-event-ncs-12",
         "type": "mapped_ordered_points"
       }
     },
@@ -12947,10 +12947,10 @@
       ],
       "provenance": {
         "mapping": "numerical_lat_lon_identity_at_equal_nominal_altitude",
-        "source_coordinate_identity": "5af149c97ea708a82a6a649dc15f6658aa9cd3d56ad3d4e8016db732a999a219"
+        "geographic_coordinate_identity": "5af149c97ea708a82a6a649dc15f6658aa9cd3d56ad3d4e8016db732a999a219"
       },
       "sampling_geometry": {
-        "source_grid_id": "centered-dipole-event-ncs-18",
+        "geographic_grid_id": "centered-dipole-event-ncs-18",
         "type": "mapped_ordered_points"
       }
     },
@@ -22602,10 +22602,10 @@
       ],
       "provenance": {
         "mapping": "numerical_lat_lon_identity_at_equal_nominal_altitude",
-        "source_coordinate_identity": "7d6e0cef6452ad92ee11db3f7e018748930f2507c9b1127127f0a15b47bc32c4"
+        "geographic_coordinate_identity": "7d6e0cef6452ad92ee11db3f7e018748930f2507c9b1127127f0a15b47bc32c4"
       },
       "sampling_geometry": {
-        "source_grid_id": "centered-dipole-event-ncs-20",
+        "geographic_grid_id": "centered-dipole-event-ncs-20",
         "type": "mapped_ordered_points"
       }
     },
@@ -34273,10 +34273,10 @@
       ],
       "provenance": {
         "mapping": "numerical_lat_lon_identity_at_equal_nominal_altitude",
-        "source_coordinate_identity": "abcc21e0a2b7f1a1a81e6c6326df3ffd7e82ecd2e8ec84c338e4b7cbffe37077"
+        "geographic_coordinate_identity": "abcc21e0a2b7f1a1a81e6c6326df3ffd7e82ecd2e8ec84c338e4b7cbffe37077"
       },
       "sampling_geometry": {
-        "source_grid_id": "centered-dipole-event-ncs-22",
+        "geographic_grid_id": "centered-dipole-event-ncs-22",
         "type": "mapped_ordered_points"
       }
     },
@@ -42104,10 +42104,10 @@
       ],
       "provenance": {
         "mapping": "numerical_lat_lon_identity_at_equal_nominal_altitude",
-        "source_coordinate_identity": "15346b03517d01ae4acc4a6cc32732ef1b0d50f48bb50105e2220ef4ba13e5f5"
+        "geographic_coordinate_identity": "15346b03517d01ae4acc4a6cc32732ef1b0d50f48bb50105e2220ef4ba13e5f5"
       },
       "sampling_geometry": {
-        "source_grid_id": "geographic-ncs-18",
+        "geographic_grid_id": "geographic-ncs-18",
         "type": "mapped_ordered_points"
       }
     },
@@ -51759,10 +51759,10 @@
       ],
       "provenance": {
         "mapping": "numerical_lat_lon_identity_at_equal_nominal_altitude",
-        "source_coordinate_identity": "3ee22e25fb4f83f25f33308d60566eecdf7eef00b234abfac8a9024ca95aa9ea"
+        "geographic_coordinate_identity": "3ee22e25fb4f83f25f33308d60566eecdf7eef00b234abfac8a9024ca95aa9ea"
       },
       "sampling_geometry": {
-        "source_grid_id": "geographic-ncs-20",
+        "geographic_grid_id": "geographic-ncs-20",
         "type": "mapped_ordered_points"
       }
     }
@@ -51772,7 +51772,7 @@
       "datasets": [
         {
           "request_grid_id": "centered-dipole-event-ncs-08--request-de7c0362f372",
-          "source_grid_id": "centered-dipole-event-ncs-08",
+          "geographic_grid_id": "centered-dipole-event-ncs-08",
           "values": {
             "jr": [
               0.0,
@@ -52164,7 +52164,7 @@
         },
         {
           "request_grid_id": "centered-dipole-event-ncs-12--request-de7c0362f372",
-          "source_grid_id": "centered-dipole-event-ncs-12",
+          "geographic_grid_id": "centered-dipole-event-ncs-12",
           "values": {
             "jr": [
               0.0,
@@ -53036,7 +53036,7 @@
         },
         {
           "request_grid_id": "centered-dipole-event-ncs-18--request-de7c0362f372",
-          "source_grid_id": "centered-dipole-event-ncs-18",
+          "geographic_grid_id": "centered-dipole-event-ncs-18",
           "values": {
             "jr": [
               0.0,
@@ -54988,7 +54988,7 @@
         },
         {
           "request_grid_id": "centered-dipole-event-ncs-20--request-de7c0362f372",
-          "source_grid_id": "centered-dipole-event-ncs-20",
+          "geographic_grid_id": "centered-dipole-event-ncs-20",
           "values": {
             "jr": [
               0.0,
@@ -57396,7 +57396,7 @@
         },
         {
           "request_grid_id": "centered-dipole-event-ncs-22--request-de7c0362f372",
-          "source_grid_id": "centered-dipole-event-ncs-22",
+          "geographic_grid_id": "centered-dipole-event-ncs-22",
           "values": {
             "jr": [
               0.0,
@@ -60308,7 +60308,7 @@
         },
         {
           "request_grid_id": "geographic-ncs-18--request-de7c0362f372",
-          "source_grid_id": "geographic-ncs-18",
+          "geographic_grid_id": "geographic-ncs-18",
           "values": {
             "jr": [
               0.0,
@@ -62260,7 +62260,7 @@
         },
         {
           "request_grid_id": "geographic-ncs-20--request-de7c0362f372",
-          "source_grid_id": "geographic-ncs-20",
+          "geographic_grid_id": "geographic-ncs-20",
           "values": {
             "jr": [
               0.0,
@@ -64729,7 +64729,7 @@
       "datasets": [
         {
           "request_grid_id": "centered-dipole-event-ncs-08--request-de7c0362f372",
-          "source_grid_id": "centered-dipole-event-ncs-08",
+          "geographic_grid_id": "centered-dipole-event-ncs-08",
           "values": {
             "hall": [
               8.163725379361033,
@@ -65507,7 +65507,7 @@
         },
         {
           "request_grid_id": "centered-dipole-event-ncs-12--request-de7c0362f372",
-          "source_grid_id": "centered-dipole-event-ncs-12",
+          "geographic_grid_id": "centered-dipole-event-ncs-12",
           "values": {
             "hall": [
               8.216407097593914,
@@ -67245,7 +67245,7 @@
         },
         {
           "request_grid_id": "centered-dipole-event-ncs-18--request-de7c0362f372",
-          "source_grid_id": "centered-dipole-event-ncs-18",
+          "geographic_grid_id": "centered-dipole-event-ncs-18",
           "values": {
             "hall": [
               8.24761605877746,
@@ -71143,7 +71143,7 @@
         },
         {
           "request_grid_id": "centered-dipole-event-ncs-20--request-de7c0362f372",
-          "source_grid_id": "centered-dipole-event-ncs-20",
+          "geographic_grid_id": "centered-dipole-event-ncs-20",
           "values": {
             "hall": [
               8.25349669400303,
@@ -75953,7 +75953,7 @@
         },
         {
           "request_grid_id": "centered-dipole-event-ncs-22--request-de7c0362f372",
-          "source_grid_id": "centered-dipole-event-ncs-22",
+          "geographic_grid_id": "centered-dipole-event-ncs-22",
           "values": {
             "hall": [
               8.258215274406458,
@@ -81771,7 +81771,7 @@
         },
         {
           "request_grid_id": "geographic-ncs-18--request-de7c0362f372",
-          "source_grid_id": "geographic-ncs-18",
+          "geographic_grid_id": "geographic-ncs-18",
           "values": {
             "hall": [
               1.0000152585629878,
@@ -85669,7 +85669,7 @@
         },
         {
           "request_grid_id": "geographic-ncs-20--request-de7c0362f372",
-          "source_grid_id": "geographic-ncs-20",
+          "geographic_grid_id": "geographic-ncs-20",
           "values": {
             "hall": [
               1.0000185090698992,
@@ -90538,7 +90538,7 @@
       "datasets": [
         {
           "request_grid_id": "centered-dipole-event-ncs-08--request-de7c0362f372",
-          "source_grid_id": "centered-dipole-event-ncs-08",
+          "geographic_grid_id": "centered-dipole-event-ncs-08",
           "values": {
             "u_phi": [
               -11.848791122436523,
@@ -91316,7 +91316,7 @@
         },
         {
           "request_grid_id": "centered-dipole-event-ncs-12--request-de7c0362f372",
-          "source_grid_id": "centered-dipole-event-ncs-12",
+          "geographic_grid_id": "centered-dipole-event-ncs-12",
           "values": {
             "u_phi": [
               -12.738936424255371,
@@ -93054,7 +93054,7 @@
         },
         {
           "request_grid_id": "centered-dipole-event-ncs-18--request-de7c0362f372",
-          "source_grid_id": "centered-dipole-event-ncs-18",
+          "geographic_grid_id": "centered-dipole-event-ncs-18",
           "values": {
             "u_phi": [
               -13.397061347961426,
@@ -96952,7 +96952,7 @@
         },
         {
           "request_grid_id": "centered-dipole-event-ncs-20--request-de7c0362f372",
-          "source_grid_id": "centered-dipole-event-ncs-20",
+          "geographic_grid_id": "centered-dipole-event-ncs-20",
           "values": {
             "u_phi": [
               -13.534602165222168,
@@ -101762,7 +101762,7 @@
         },
         {
           "request_grid_id": "centered-dipole-event-ncs-22--request-de7c0362f372",
-          "source_grid_id": "centered-dipole-event-ncs-22",
+          "geographic_grid_id": "centered-dipole-event-ncs-22",
           "values": {
             "u_phi": [
               -13.648551940917969,
@@ -107580,7 +107580,7 @@
         },
         {
           "request_grid_id": "geographic-ncs-18--request-de7c0362f372",
-          "source_grid_id": "geographic-ncs-18",
+          "geographic_grid_id": "geographic-ncs-18",
           "values": {
             "u_phi": [
               15.992252349853516,
@@ -111478,7 +111478,7 @@
         },
         {
           "request_grid_id": "geographic-ncs-20--request-de7c0362f372",
-          "source_grid_id": "geographic-ncs-20",
+          "geographic_grid_id": "geographic-ncs-20",
           "values": {
             "u_phi": [
               15.973255157470703,
@@ -116330,5 +116330,5 @@
   "time": [
     0.0
   ],
-  "version": 7
+  "version": 8
 }

@@ -23,6 +23,14 @@ def _dummy_field(br, btheta, bphi, B0=4.7e-5):
     )
 
 
+def _field_arrays(field):
+    """Return full and normalized spherical field components."""
+    return (
+        np.stack((field.Br, field.Btheta, field.Bphi)),
+        np.stack((field.unit_br, field.unit_btheta, field.unit_bphi)),
+    )
+
+
 def _pynamit_resistance_tensor(SigmaP, SigmaH, br, btheta, bphi):
     etaP = SigmaP / (SigmaH**2 + SigmaP**2)
     etaH = SigmaH / (SigmaH**2 + SigmaP**2)
@@ -216,6 +224,7 @@ def test_weighted_wind_electric_field_reduces_to_set_u_for_height_independent_wi
     u_theta = np.array([75.0, -120.0, 40.0])
     u_phi = np.array([-35.0, 20.0, 95.0])
     etaP, etaH = _pynamit_resistance_values(SigmaP, SigmaH)
+    magnetic_field, magnetic_unit_vector = _field_arrays(field)
 
     e_neutral_wind_theta, e_neutral_wind_phi = electric_field_from_weighted_winds(
         SigmaP=SigmaP,
@@ -224,7 +233,8 @@ def test_weighted_wind_electric_field_reduces_to_set_u_for_height_independent_wi
         u_p_phi=u_phi,
         u_h_theta=u_theta,
         u_h_phi=u_phi,
-        field=field,
+        magnetic_field=magnetic_field,
+        magnetic_unit_vector=magnetic_unit_vector,
         etaP=etaP,
         etaH=etaH,
     )
@@ -254,6 +264,7 @@ def test_weighted_wind_electric_field_matches_q_eff_away_from_equator():
     u_h_theta = np.array([20.0, 50.0, -85.0])
     u_h_phi = np.array([100.0, -30.0, 15.0])
     etaP, etaH = _pynamit_resistance_values(SigmaP, SigmaH)
+    magnetic_field, magnetic_unit_vector = _field_arrays(field)
 
     e_neutral_wind_theta, e_neutral_wind_phi = electric_field_from_weighted_winds(
         SigmaP=SigmaP,
@@ -262,7 +273,8 @@ def test_weighted_wind_electric_field_matches_q_eff_away_from_equator():
         u_p_phi=u_p_phi,
         u_h_theta=u_h_theta,
         u_h_phi=u_h_phi,
-        field=field,
+        magnetic_field=magnetic_field,
+        magnetic_unit_vector=magnetic_unit_vector,
         etaP=etaP,
         etaH=etaH,
     )
@@ -300,6 +312,7 @@ def test_weighted_wind_electric_field_is_regular_at_dip_equator():
     SigmaP = np.full(3, 7.0)
     SigmaH = np.full(3, 2.5)
     etaP, etaH = _pynamit_resistance_values(SigmaP, SigmaH)
+    magnetic_field, magnetic_unit_vector = _field_arrays(field)
 
     e_theta, e_phi = electric_field_from_weighted_winds(
         SigmaP=SigmaP,
@@ -308,7 +321,8 @@ def test_weighted_wind_electric_field_is_regular_at_dip_equator():
         u_p_phi=np.full(3, -35.0),
         u_h_theta=np.full(3, -20.0),
         u_h_phi=np.full(3, 110.0),
-        field=field,
+        magnetic_field=magnetic_field,
+        magnetic_unit_vector=magnetic_unit_vector,
         etaP=etaP,
         etaH=etaH,
     )

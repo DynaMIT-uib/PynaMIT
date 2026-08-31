@@ -12,7 +12,6 @@ import numpy as np
 from kompe import SphericalGrid
 from kompe.spherical_transform import SphericalTransform
 
-from pynamit.geomagnetism import MagneticFieldEvaluation
 from pynamit.plotting.hemisphere import (
     DEFAULT_HEMISPHERE_MIN_ABS_LATITUDE,
     hemisphere_masks_for_latitude,
@@ -204,9 +203,9 @@ def plot_output_quicklook(
         simulation.geometry.main_field, geographic_lat, geographic_lon, event_time=plot_time
     )
     global_transform = SphericalTransform(simulation.geometry.horizontal_basis, global_grid)
-    global_field_evaluation = MagneticFieldEvaluation(
-        simulation.geometry.main_field, global_grid, simulation.config.RI
-    )
+    global_unit_br = simulation.geometry.main_field.unit_vector(global_grid, simulation.config.RI)[
+        0
+    ]
 
     output_coefficients = output_at_current_time(simulation)
     requested_fields = {"induced_Br", "boundary_jr", "equivalent_current_function"}
@@ -217,7 +216,7 @@ def plot_output_quicklook(
         field_names=requested_fields,
     )
     global_br = global_fields["induced_Br"]
-    global_fac = global_fields["boundary_jr"] / global_field_evaluation.unit_br
+    global_fac = global_fields["boundary_jr"] / global_unit_br
     global_eq_current = global_fields["equivalent_current_function"]
 
     # Evaluate hemisphere fields on the model grid, then express the
@@ -225,9 +224,7 @@ def plot_output_quicklook(
     model_lat, model_lon = map(np.ravel, np.meshgrid(latitude, longitude))
     model_grid = SphericalGrid(lat=model_lat, lon=model_lon)
     model_transform = SphericalTransform(simulation.geometry.horizontal_basis, model_grid)
-    model_field_evaluation = MagneticFieldEvaluation(
-        simulation.geometry.main_field, model_grid, simulation.config.RI
-    )
+    model_unit_br = simulation.geometry.main_field.unit_vector(model_grid, simulation.config.RI)[0]
     model_fields = evaluate_output_coefficients(
         output_coefficients,
         model_transform,
@@ -235,7 +232,7 @@ def plot_output_quicklook(
         field_names=requested_fields,
     )
     model_br = model_fields["induced_Br"]
-    model_fac = model_fields["boundary_jr"] / model_field_evaluation.unit_br
+    model_fac = model_fields["boundary_jr"] / model_unit_br
     model_eq_current = model_fields["equivalent_current_function"]
     if magnetic_coordinates_available:
         geographic_model_lat, geographic_model_lon = main_field.model_to_geo_coordinates(

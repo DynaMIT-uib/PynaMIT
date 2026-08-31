@@ -44,7 +44,9 @@ Write simulation code for scientists who read, modify, and explore it interactiv
 - Name transformations by their mathematical direction. Use projection or analysis for sampled
   fields to coefficients, and evaluation or synthesis for coefficients to field values. Make
   coordinate systems, component order, domains, and codomains explicit at transformation
-  boundaries.
+  boundaries. Name explicit values that retain scientific or component axes `array`, even
+  when a scalar instance happens to be two-dimensional; reserve `matrix` for contracts that
+  are always a flat two-dimensional linear-algebra representation.
 - Use the configured shared array backend for pure numerical operations supported by NumPy
   and JAX. Do not convert arrays to NumPy merely to call familiar helpers. Keep SciPy
   algorithms, provider libraries, file I/O, and plotting at explicit CPU boundaries, and make

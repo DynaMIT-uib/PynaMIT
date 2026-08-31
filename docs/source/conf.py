@@ -22,7 +22,7 @@ author = "PynaMIT Developers"
 extensions = ["sphinx.ext.napoleon", "sphinx.ext.autodoc", "sphinx.ext.viewcode", "myst_parser"]
 
 templates_path = ["_templates"]
-exclude_patterns = ["modules.rst", "pynamit.rst"]
+exclude_patterns = []
 
 nitpicky = True
 nitpick_ignore = [

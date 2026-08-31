@@ -8,12 +8,12 @@ import numpy as np
 from kompe.constants import EARTH_RADIUS_M
 
 from pynamit.external_inputs import (
+    ExternalInputCoordinates,
     get_boundary_jr_inputs,
     get_conductance_inputs,
     get_input_source,
     get_wind_inputs,
 )
-from pynamit.external_inputs.contracts import ExternalInputRequest
 from pynamit.simulation.input_manifest import clear_prepared_input_package
 from pynamit.simulation.input_preparation import InputPreparation
 from pynamit.storage import ArtifactStore
@@ -36,17 +36,17 @@ def _wind_to_model_coordinates(main_field, u_theta, u_phi, lat, lon, *, event_ti
     return -model_north, model_east, model_lat, model_lon
 
 
-def _require_source_grid(provider_name, request, returned_lat, returned_lon):
-    """Require an adapter to preserve the source-grid identity."""
-    returned_identity = request.source_grid.coordinate_convention.coordinate_identity(
+def _require_geographic_grid(provider_name, coordinates, returned_lat, returned_lon):
+    """Require an adapter to preserve the geographic-grid identity."""
+    returned_identity = coordinates.geographic_grid.coordinate_convention.coordinate_identity(
         returned_lat, returned_lon
     )
-    if returned_identity != request.source_grid.coordinate_identity:
+    if returned_identity != coordinates.geographic_grid.coordinate_identity:
         returned_size = np.asarray(returned_lat).size
         raise ValueError(
             f"{provider_name} must return values on the shared "
-            f"{request.source_grid.coordinate_convention.coordinate_system} "
-            f"source grid; expected {request.source_grid.size} ordered "
+            f"{coordinates.geographic_grid.coordinate_convention.coordinate_system} "
+            f"grid; expected {coordinates.geographic_grid.size} ordered "
             f"points but received a different {returned_size}-point grid."
         )
 
@@ -128,14 +128,14 @@ def prepare_example_inputs(
     geo_lat, geo_lon = preparation.main_field.model_to_geo_coordinates(
         model_lat, model_lon, event_time=event_time
     )
-    external_request = ExternalInputRequest.from_model_coordinates(
+    external_coordinates = ExternalInputCoordinates.from_model_coordinates(
         model_lat,
         model_lon,
         geographic_lat=geo_lat,
         geographic_lon=geo_lon,
         coordinate_system=preparation.main_field.horizontal_coordinate_system,
         model_epoch=preparation.main_field.epoch,
-        grid_id="prepared-input-source",
+        grid_id="prepared-input-geographic",
         sampling_geometry={"type": "simulation_model_grid"},
         provenance={
             "originating_model_frame": {
@@ -149,9 +149,11 @@ def prepare_example_inputs(
     )
 
     pedersen, hall, conductance_lat, conductance_lon = get_conductance_inputs(
-        event_time, request=external_request, kp=kp, starlight=starlight_conductance_S
+        event_time, coordinates=external_coordinates, kp=kp, starlight=starlight_conductance_S
     )
-    _require_source_grid("Conductance adapter", external_request, conductance_lat, conductance_lon)
+    _require_geographic_grid(
+        "Conductance adapter", external_coordinates, conductance_lat, conductance_lon
+    )
     preparation.set_conductance(
         pedersen=pedersen, hall=hall, lat=model_lat, lon=model_lon, reg_lambda=conductance_lambda
     )
@@ -159,7 +161,7 @@ def prepare_example_inputs(
     if use_boundary_jr:
         boundary_jr, jr_lat, jr_lon = get_boundary_jr_inputs(
             event_time,
-            request=external_request,
+            coordinates=external_coordinates,
             v=solar_wind_speed_km_s,
             By=imf_By_nT,
             Bz=imf_Bz_nT,
@@ -167,15 +169,15 @@ def prepare_example_inputs(
             f107=f107_sfu,
             minlat=amps_min_latitude_deg,
         )
-        _require_source_grid("AMPS boundary-jr adapter", external_request, jr_lat, jr_lon)
+        _require_geographic_grid("AMPS boundary-jr adapter", external_coordinates, jr_lat, jr_lon)
         preparation.set_boundary_jr(
             boundary_jr, lat=model_lat, lon=model_lon, reg_lambda=boundary_jr_lambda
         )
 
     if use_wind:
-        wind_inputs = get_wind_inputs(event_time, request=external_request, ap=hwm_ap)
+        wind_inputs = get_wind_inputs(event_time, coordinates=external_coordinates, ap=hwm_ap)
         u_theta, u_phi, u_lat, u_lon, weights = wind_inputs
-        _require_source_grid("HWM neutral-wind adapter", external_request, u_lat, u_lon)
+        _require_geographic_grid("HWM neutral-wind adapter", external_coordinates, u_lat, u_lon)
         u_theta, u_phi, _, _ = _wind_to_model_coordinates(
             preparation.main_field, u_theta, u_phi, u_lat, u_lon, event_time=event_time
         )

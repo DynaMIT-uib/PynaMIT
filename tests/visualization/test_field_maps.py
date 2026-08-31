@@ -5,7 +5,7 @@ import pytest
 import scipy.sparse
 from kompe.math import as_linear_map
 
-from pynamit.results.evaluation import (
+from pynamit.results.field_evaluation import (
     evaluate_conductance_coefficients,
     evaluate_conductance_values,
     evaluate_sheet_current_from_operators,

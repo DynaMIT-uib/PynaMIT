@@ -42,10 +42,10 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
 
     geometry = simulation.geometry
     spherical_transform = geometry.horizontal_transform
-    expected_helmholtz = simulation.geometry.horizontal_basis.helmholtz_synthesis_matrix(
+    expected_helmholtz = simulation.geometry.horizontal_basis.helmholtz_synthesis_array(
         geometry.model_grid
     )
-    np.testing.assert_allclose(spherical_transform.helmholtz_synthesis_matrix, expected_helmholtz)
+    np.testing.assert_allclose(spherical_transform.helmholtz_synthesis_array, expected_helmholtz)
     np.testing.assert_allclose(
         geometry.surface_laplacian_operator.to_matrix(backend="numpy"),
         simulation.geometry.horizontal_basis.surface_laplacian_matrix(geometry.RI),
@@ -128,7 +128,7 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
         ),
         plot_data=view,
     )
-    br_dynamic, bh_dynamic, _, _ = renderer._ground_field_matrices([65.0], [0.0])
+    br_dynamic, bh_dynamic, _, _ = renderer._ground_field_values([65.0], [0.0])
     assert br_dynamic.shape == (1, view.n_time)
     assert bh_dynamic.shape == (2, 1, view.n_time)
     assert np.all(np.isfinite(br_dynamic))

@@ -482,7 +482,7 @@ def test_interhemispheric_constraint_uses_geometry_operator_without_dense_proper
         )
 
         @property
-        def interhemispheric_electric_field_difference_matrix(self):
+        def interhemispheric_electric_field_difference_array(self):
             raise AssertionError("constraint should use the LinearMap operator")
 
     response = object.__new__(ElectrodynamicResponse)
@@ -517,7 +517,7 @@ def test_resistance_tensor_uses_conductance_synthesis_operator_without_matrix():
             assert grid is model_grid
             return as_linear_map(synthesis, input_shape=(n_coeffs,), output_shape=(n_grid,))
 
-        def scalar_evaluation_matrix(self, _grid):
+        def scalar_evaluation_array(self, _grid):
             raise AssertionError("conductance synthesis should use the operator API")
 
     conductance_basis = ConductanceBasis()

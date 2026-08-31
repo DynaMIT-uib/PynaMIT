@@ -1,9 +1,9 @@
-"""Evaluate projected simulation inputs on spherical grids."""
+"""Evaluate projected simulation input fields on spherical grids."""
 
 from kompe.spherical_transform import SphericalTransform
 
 from pynamit.fields import FieldCoefficients
-from pynamit.results.evaluation import (
+from pynamit.results.field_evaluation import (
     evaluate_conductance_values,
     evaluate_tangential_coefficients,
 )

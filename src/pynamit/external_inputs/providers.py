@@ -14,23 +14,27 @@ import apexpy
 import dipole
 import numpy as np
 
-from pynamit.external_inputs.contracts import (
+from pynamit.external_inputs.coordinates import (
+    LIBRARY_GEOGRAPHIC_110KM,
+    ExternalInputCoordinates,
+    SampleGrid,
+)
+from pynamit.external_inputs.fallback_data import (
+    FALLBACK_SCHEMA_VERSION,
+    FallbackCollection,
+    ProviderSnapshot,
+)
+from pynamit.external_inputs.provider_definitions import (
     BOUNDARY_JR_PROVIDER_SPEC,
     CONDUCTANCE_PROVIDER_SPEC,
-    LIBRARY_GEOGRAPHIC_110KM,
     NEUTRAL_WIND_PROVIDER_SPEC,
     PROVIDER_SPECS,
-    CachedProviderData,
-    ExternalInputRequest,
-    FallbackCollection,
     InputProviderSpec,
-    SampleGrid,
 )
 from pynamit.geodesy import library_horizontal_to_spherical
 from pynamit.geomagnetism import decimal_year
 
 FALLBACK_RESOURCE = resources.files("pynamit.data") / "fallback_inputs.json"
-FALLBACK_SCHEMA_VERSION = 7
 _INPUT_SOURCE = os.environ.get("PYNAMIT_INPUT_SOURCE", "native").strip().lower()
 if _INPUT_SOURCE == "auto":
     _INPUT_SOURCE = "native"
@@ -211,29 +215,29 @@ def _paired_sample_coordinates(
     )
 
 
-def _coerce_request(
+def _coerce_coordinates(
     lat: np.ndarray | None,
     lon: np.ndarray | None,
-    request: ExternalInputRequest | None,
+    coordinates: ExternalInputCoordinates | None,
     *,
     grid_id: str,
-) -> ExternalInputRequest:
-    """Return a request and validate redundant coordinates."""
-    if request is None:
+) -> ExternalInputCoordinates:
+    """Return input coordinates after validating redundant arrays."""
+    if coordinates is None:
         if lat is None or lon is None:
             raise ValueError(
-                "External inputs require source geocentric-GEO lat/lon "
-                "or a shared ExternalInputRequest."
+                "External inputs require geocentric-GEO lat/lon "
+                "or a shared ExternalInputCoordinates."
             )
-        return ExternalInputRequest.from_geocentric_geo(lat, lon, grid_id=grid_id)
+        return ExternalInputCoordinates.from_geocentric_geo(lat, lon, grid_id=grid_id)
 
     if (lat is None) != (lon is None):
         raise ValueError("lat and lon must be supplied together.")
     if lat is not None:
-        supplied = request.source_grid.coordinate_convention.coordinate_identity(lat, lon)
-        if supplied != request.source_grid.coordinate_identity:
-            raise ValueError("Explicit coordinates do not match the shared request source grid.")
-    return request
+        supplied = coordinates.geographic_grid.coordinate_convention.coordinate_identity(lat, lon)
+        if supplied != coordinates.geographic_grid.coordinate_identity:
+            raise ValueError("Explicit lat/lon do not match the shared geographic grid.")
+    return coordinates
 
 
 def save_fallback_dataset(
@@ -263,7 +267,7 @@ def save_fallback_dataset(
     if not (hall.size == pedersen.size == jr.size):
         raise ValueError("Hall, Pedersen, and jr arrays must have equal sizes.")
     scalar_lat, scalar_lon = _paired_sample_coordinates(lat, lon, value_size=hall.size)
-    scalar_request = ExternalInputRequest.from_geocentric_geo(
+    scalar_coordinates = ExternalInputCoordinates.from_geocentric_geo(
         scalar_lat, scalar_lon, grid_id=str(grid_id), sampling_geometry={"type": "sample_points"}
     )
 
@@ -276,52 +280,58 @@ def save_fallback_dataset(
     if wind_lon is None:
         wind_lon = lon
     wind_lat, wind_lon = _paired_sample_coordinates(wind_lat, wind_lon, value_size=u_theta.size)
-    wind_source_id = (
+    wind_grid_id = (
         str(grid_id)
         if scalar_lat.size == wind_lat.size
-        and scalar_request.source_grid.coordinate_convention.coordinate_identity(
+        and scalar_coordinates.geographic_grid.coordinate_convention.coordinate_identity(
             wind_lat, wind_lon
         )
-        == scalar_request.source_grid.coordinate_identity
+        == scalar_coordinates.geographic_grid.coordinate_identity
         else f"{grid_id}-wind"
     )
-    wind_request = (
-        scalar_request
-        if wind_source_id == str(grid_id)
-        else ExternalInputRequest.from_geocentric_geo(
-            wind_lat, wind_lon, grid_id=wind_source_id, sampling_geometry={"type": "sample_points"}
+    wind_coordinates = (
+        scalar_coordinates
+        if wind_grid_id == str(grid_id)
+        else ExternalInputCoordinates.from_geocentric_geo(
+            wind_lat, wind_lon, grid_id=wind_grid_id, sampling_geometry={"type": "sample_points"}
         )
     )
 
     grids: dict[str, SampleGrid] = {}
-    for request_object in (scalar_request, wind_request):
-        source = request_object.source_grid
-        provider_grid = request_object.grid_for(LIBRARY_GEOGRAPHIC_110KM)
-        grids[source.grid_id] = source
+    for coordinate_set in (scalar_coordinates, wind_coordinates):
+        geographic_grid = coordinate_set.geographic_grid
+        provider_grid = coordinate_set.sample_grid(LIBRARY_GEOGRAPHIC_110KM)
+        grids[geographic_grid.grid_id] = geographic_grid
         grids[provider_grid.grid_id] = provider_grid
 
     datasets = {
         CONDUCTANCE_PROVIDER_SPEC.key: {
-            scalar_request.source_grid.grid_id: CachedProviderData(
+            scalar_coordinates.geographic_grid.grid_id: ProviderSnapshot(
                 spec=CONDUCTANCE_PROVIDER_SPEC,
-                source_grid=scalar_request.source_grid,
-                request_grid=scalar_request.grid_for(CONDUCTANCE_PROVIDER_SPEC),
+                geographic_grid=scalar_coordinates.geographic_grid,
+                request_grid=scalar_coordinates.sample_grid(
+                    CONDUCTANCE_PROVIDER_SPEC.request_coordinate_convention
+                ),
                 values={"hall": hall, "pedersen": pedersen},
             )
         },
         BOUNDARY_JR_PROVIDER_SPEC.key: {
-            scalar_request.source_grid.grid_id: CachedProviderData(
+            scalar_coordinates.geographic_grid.grid_id: ProviderSnapshot(
                 spec=BOUNDARY_JR_PROVIDER_SPEC,
-                source_grid=scalar_request.source_grid,
-                request_grid=scalar_request.grid_for(BOUNDARY_JR_PROVIDER_SPEC),
+                geographic_grid=scalar_coordinates.geographic_grid,
+                request_grid=scalar_coordinates.sample_grid(
+                    BOUNDARY_JR_PROVIDER_SPEC.request_coordinate_convention
+                ),
                 values={"jr": jr},
             )
         },
         NEUTRAL_WIND_PROVIDER_SPEC.key: {
-            wind_request.source_grid.grid_id: CachedProviderData(
+            wind_coordinates.geographic_grid.grid_id: ProviderSnapshot(
                 spec=NEUTRAL_WIND_PROVIDER_SPEC,
-                source_grid=wind_request.source_grid,
-                request_grid=wind_request.grid_for(NEUTRAL_WIND_PROVIDER_SPEC),
+                geographic_grid=wind_coordinates.geographic_grid,
+                request_grid=wind_coordinates.sample_grid(
+                    NEUTRAL_WIND_PROVIDER_SPEC.request_coordinate_convention
+                ),
                 values={"u_theta": u_theta, "u_phi": u_phi},
             )
         },
@@ -345,26 +355,26 @@ def save_fallback_dataset(
     return destination_path
 
 
-def _dataset_description(dataset: CachedProviderData) -> str:
+def _dataset_description(dataset: ProviderSnapshot) -> str:
     """Return a compact physical-grid description."""
-    geometry = dataset.source_grid.sampling_geometry
-    provenance = dataset.source_grid.provenance
+    geometry = dataset.geographic_grid.sampling_geometry
+    provenance = dataset.geographic_grid.provenance
     origin = provenance.get("originating_model_frame", {})
     details = [str(origin.get("horizontal_coordinate_system", "runtime"))]
     if "ncs" in geometry:
         details.append(f"Ncs={geometry['ncs']}")
     if "epoch" in origin:
         details.append(f"epoch={float(origin['epoch']):.6f}")
-    details.append(dataset.source_grid.coordinate_convention.coordinate_system)
-    details.append(f"{dataset.source_grid.size} ordered points")
-    return f"{dataset.source_grid.grid_id} ({', '.join(details)})"
+    details.append(dataset.geographic_grid.coordinate_convention.coordinate_system)
+    details.append(f"{dataset.geographic_grid.size} ordered points")
+    return f"{dataset.geographic_grid.grid_id} ({', '.join(details)})"
 
 
-def _dataset_sort_key(item: tuple[str, CachedProviderData]) -> tuple[Any, ...]:
-    """Return a natural diagnostic ordering for cached source grids."""
-    source_grid_id, dataset = item
-    geometry = dataset.source_grid.sampling_geometry
-    origin = dataset.source_grid.provenance.get("originating_model_frame", {})
+def _dataset_sort_key(item: tuple[str, ProviderSnapshot]) -> tuple[Any, ...]:
+    """Return the diagnostic ordering for cached geographic grids."""
+    geographic_grid_id, dataset = item
+    geometry = dataset.geographic_grid.sampling_geometry
+    origin = dataset.geographic_grid.provenance.get("originating_model_frame", {})
     horizontal = str(origin.get("horizontal_coordinate_system", ""))
     geometry_order = {"geocentric_geographic": 0, "centered_dipole": 1}.get(horizontal, 2)
     try:
@@ -375,27 +385,30 @@ def _dataset_sort_key(item: tuple[str, CachedProviderData]) -> tuple[Any, ...]:
         epoch = float(origin.get("epoch"))
     except (TypeError, ValueError):
         epoch = float("inf")
-    return geometry_order, ncs, epoch, str(source_grid_id)
+    return geometry_order, ncs, epoch, str(geographic_grid_id)
 
 
 def _select_fallback_entry(
-    entries: Mapping[str, CachedProviderData],
-    request: ExternalInputRequest,
+    entries: Mapping[str, ProviderSnapshot],
+    coordinates: ExternalInputCoordinates,
     quantity: str,
     *,
     spec: InputProviderSpec,
-) -> CachedProviderData:
-    """Select an exact source/request-grid pair for one provider."""
+) -> ProviderSnapshot:
+    """Select an exact geographic/request-grid pair for one provider."""
     if not entries:
         raise ValueError(f"No fallback {quantity} data available.")
 
-    expected_request_grid = request.grid_for(spec)
+    expected_request_grid = coordinates.sample_grid(spec.request_coordinate_convention)
     compatible = []
-    for source_grid_id, dataset in entries.items():
+    for geographic_grid_id, dataset in entries.items():
         if dataset.spec != spec:
             continue
-        compatible.append((source_grid_id, dataset))
-        if dataset.source_grid.coordinate_identity == request.source_grid.coordinate_identity:
+        compatible.append((geographic_grid_id, dataset))
+        if (
+            dataset.geographic_grid.coordinate_identity
+            == coordinates.geographic_grid.coordinate_identity
+        ):
             if (
                 dataset.request_grid.coordinate_identity
                 != expected_request_grid.coordinate_identity
@@ -414,25 +427,25 @@ def _select_fallback_entry(
     )
     raise ValueError(
         f"No fallback {quantity} data matches the requested ordered "
-        f"{request.source_grid.size}-point source grid. "
+        f"{coordinates.geographic_grid.size}-point geographic grid. "
         f"Available compatible grids: {available}"
     )
 
 
-def _validated_centered_dipole(request: ExternalInputRequest) -> dipole.Dipole:
-    """Return the request dipole after checking its paired GEO view."""
-    model_epoch = request.model_epoch
+def _validated_centered_dipole(coordinates: ExternalInputCoordinates) -> dipole.Dipole:
+    """Return the dipole after checking the paired geographic view."""
+    model_epoch = coordinates.model_epoch
     if model_epoch is None:
         raise ValueError("A centered-dipole external-input view requires a model epoch.")
 
-    model_grid = request.model_grid
-    source_grid = request.source_grid
+    model_grid = coordinates.model_grid
+    geographic_grid = coordinates.geographic_grid
     centered_dipole = dipole.Dipole(model_epoch)
     geographic_lat, geographic_lon = centered_dipole.mag2geo(model_grid.lat, model_grid.lon)
-    longitude_error = (np.asarray(geographic_lon) - source_grid.lon + 180.0) % 360.0 - 180.0
-    if not np.allclose(geographic_lat, source_grid.lat, rtol=0.0, atol=1e-8) or not np.allclose(
-        longitude_error, 0.0, rtol=0.0, atol=1e-8
-    ):
+    longitude_error = (np.asarray(geographic_lon) - geographic_grid.lon + 180.0) % 360.0 - 180.0
+    if not np.allclose(
+        geographic_lat, geographic_grid.lat, rtol=0.0, atol=1e-8
+    ) or not np.allclose(longitude_error, 0.0, rtol=0.0, atol=1e-8):
         raise ValueError(
             "Centered-dipole model coordinates, model_epoch, and physical GEO samples disagree."
         )
@@ -441,7 +454,7 @@ def _validated_centered_dipole(request: ExternalInputRequest) -> dipole.Dipole:
 
 def _hardy_euv_from_coordinate_views(
     conductance,
-    request: ExternalInputRequest,
+    coordinates: ExternalInputCoordinates,
     provider_date: dt.datetime,
     centered_dipole: dipole.Dipole | None,
     *,
@@ -449,10 +462,12 @@ def _hardy_euv_from_coordinate_views(
     starlight: float,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Evaluate Hardy magnetically and EUV in physical GEO."""
-    model_grid = request.model_grid
-    source_grid = request.source_grid
+    model_grid = coordinates.model_grid
+    geographic_grid = coordinates.geographic_grid
     if centered_dipole is None:
-        provider_grid = request.grid_for(CONDUCTANCE_PROVIDER_SPEC)
+        provider_grid = coordinates.sample_grid(
+            CONDUCTANCE_PROVIDER_SPEC.request_coordinate_convention
+        )
         apex = apexpy.Apex(date=provider_date, refh=_IONOSPHERE_ALTITUDE_KM)
         auroral_lat, auroral_lon = apex.geo2apex(
             provider_grid.lat, provider_grid.lon, _IONOSPHERE_ALTITUDE_KM
@@ -462,7 +477,9 @@ def _hardy_euv_from_coordinate_views(
         auroral_lat, auroral_lon = model_grid.lat, model_grid.lon
 
     mlt = centered_dipole.mlon2mlt(auroral_lon, provider_date)
-    solar_zenith_angle = conductance.sunlight.sza(source_grid.lat, source_grid.lon, provider_date)
+    solar_zenith_angle = conductance.sunlight.sza(
+        geographic_grid.lat, geographic_grid.lon, provider_date
+    )
     euv_hall, euv_pedersen = conductance.EUV_conductance(
         solar_zenith_angle, 100, "hp", calibration="MoenBrekke1993"
     )
@@ -479,11 +496,11 @@ def get_conductance_inputs(
     lat: np.ndarray | None = None,
     lon: np.ndarray | None = None,
     *,
-    request: ExternalInputRequest | None = None,
+    coordinates: ExternalInputCoordinates | None = None,
     kp: int,
     starlight: float,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Return Pedersen/Hall conductance on the source PynaMIT grid.
+    """Return Pedersen/Hall conductance on the geographic PynaMIT grid.
 
     ``kp`` is the Hardy activity index and ``starlight`` is the
     nightside background conductance in siemens.
@@ -491,16 +508,18 @@ def get_conductance_inputs(
     Returns
     -------
     pedersen, hall, lat, lon : ndarray
-        Conductance in siemens followed by the source-grid coordinates.
+        Conductance in siemens followed by geographic-grid coordinates.
         Lompe's native Hardy/EUV routine returns Hall first; that order
         is converted explicitly at this adapter boundary.
     """
-    request = _coerce_request(lat, lon, request, grid_id="runtime-conductance-source")
-    source_grid = request.source_grid
+    coordinates = _coerce_coordinates(
+        lat, lon, coordinates, grid_id="runtime-conductance-geographic"
+    )
+    geographic_grid = coordinates.geographic_grid
     centered_dipole_convention = CONDUCTANCE_PROVIDER_SPEC.request_coordinate_views["model"]
     centered_dipole = (
-        _validated_centered_dipole(request)
-        if request.model_grid.coordinate_convention == centered_dipole_convention
+        _validated_centered_dipole(coordinates)
+        if coordinates.model_grid.coordinate_convention == centered_dipole_convention
         else None
     )
     conductance = _load_optional_module("conductance", "lompe")
@@ -509,23 +528,26 @@ def get_conductance_inputs(
         provider_date = _provider_utc_datetime(date)
         hall, pedersen = _hardy_euv_from_coordinate_views(
             conductance,
-            request,
+            coordinates,
             provider_date,
             centered_dipole,
             kp=int(kp),
             starlight=float(starlight),
         )
         hall = _provider_values(
-            hall, provider="Lompe Hardy/EUV", field="hall", expected_size=source_grid.size
+            hall, provider="Lompe Hardy/EUV", field="hall", expected_size=geographic_grid.size
         )
         pedersen = _provider_values(
-            pedersen, provider="Lompe Hardy/EUV", field="pedersen", expected_size=source_grid.size
+            pedersen,
+            provider="Lompe Hardy/EUV",
+            field="pedersen",
+            expected_size=geographic_grid.size,
         )
         return (
             pedersen,
             hall,
-            np.array(source_grid.lat, copy=True),
-            np.array(source_grid.lon, copy=True),
+            np.array(geographic_grid.lat, copy=True),
+            np.array(geographic_grid.lon, copy=True),
         )
 
     if get_input_source() == "fallback":
@@ -543,15 +565,15 @@ def get_conductance_inputs(
             )
         dataset = _select_fallback_entry(
             collection.datasets[CONDUCTANCE_PROVIDER_SPEC.key],
-            request,
+            coordinates,
             "conductance",
             spec=collection.providers[CONDUCTANCE_PROVIDER_SPEC.key],
         )
         return (
             np.array(dataset.values["pedersen"], copy=True),
             np.array(dataset.values["hall"], copy=True),
-            np.array(dataset.source_grid.lat, copy=True),
-            np.array(dataset.source_grid.lon, copy=True),
+            np.array(dataset.geographic_grid.lat, copy=True),
+            np.array(dataset.geographic_grid.lon, copy=True),
         )
 
     raise RuntimeError("Native conductance inputs are not available.")
@@ -562,7 +584,7 @@ def get_boundary_jr_inputs(
     lat: np.ndarray | None = None,
     lon: np.ndarray | None = None,
     *,
-    request: ExternalInputRequest | None = None,
+    coordinates: ExternalInputCoordinates | None = None,
     v: float,
     By: float,
     Bz: float,
@@ -570,18 +592,20 @@ def get_boundary_jr_inputs(
     f107: float,
     minlat: float,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Return AMPS upward radial current on the source PynaMIT grid.
+    """Return AMPS upward radial current on the geographic PynaMIT grid.
 
     The AMPS drivers are solar-wind speed ``v`` in km/s, IMF ``By`` and
     ``Bz`` in nT, dipole ``tilt`` in degrees, F10.7 flux ``f107`` in
     sfu, and the model cutoff ``minlat`` in degrees.
     """
-    request = _coerce_request(lat, lon, request, grid_id="runtime-boundary-jr-source")
-    source_grid = request.source_grid
+    coordinates = _coerce_coordinates(
+        lat, lon, coordinates, grid_id="runtime-boundary-jr-geographic"
+    )
+    geographic_grid = coordinates.geographic_grid
     centered_dipole_convention = BOUNDARY_JR_PROVIDER_SPEC.request_coordinate_views["model"]
     centered_dipole = (
-        _validated_centered_dipole(request)
-        if request.model_grid.coordinate_convention == centered_dipole_convention
+        _validated_centered_dipole(coordinates)
+        if coordinates.model_grid.coordinate_convention == centered_dipole_convention
         else None
     )
     pyamps = _load_optional_module("pyamps", "pyamps")
@@ -589,14 +613,16 @@ def get_boundary_jr_inputs(
     if pyamps is not None:
         provider_date = _provider_utc_datetime(date)
         if centered_dipole is None:
-            provider_grid = request.grid_for(BOUNDARY_JR_PROVIDER_SPEC)
+            provider_grid = coordinates.sample_grid(
+                BOUNDARY_JR_PROVIDER_SPEC.request_coordinate_convention
+            )
             apex = apexpy.Apex(date=provider_date, refh=_IONOSPHERE_ALTITUDE_KM)
             mlat, mlon = apex.geo2apex(
                 provider_grid.lat, provider_grid.lon, _IONOSPHERE_ALTITUDE_KM
             )
             mlt = pyamps.mlon_to_mlt(mlon, provider_date, decimal_year(provider_date))
         else:
-            mlat, mlon = request.model_grid.lat, request.model_grid.lon
+            mlat, mlon = coordinates.model_grid.lat, coordinates.model_grid.lon
             mlt = centered_dipole.mlon2mlt(mlon, provider_date)
         coeff_path = os.path.join(
             os.path.dirname(pyamps.__file__),
@@ -617,12 +643,16 @@ def get_boundary_jr_inputs(
                 amps.get_upward_current(mlat=mlat, mlt=mlt),
                 provider="pyAMPS",
                 field="jr",
-                expected_size=source_grid.size,
+                expected_size=geographic_grid.size,
             )
             * 1e-6
         )
         jr[np.abs(mlat) < float(minlat)] = 0
-        return (jr, np.array(source_grid.lat, copy=True), np.array(source_grid.lon, copy=True))
+        return (
+            jr,
+            np.array(geographic_grid.lat, copy=True),
+            np.array(geographic_grid.lon, copy=True),
+        )
 
     if get_input_source() == "fallback":
         collection = _load_fallback_snapshot(date)
@@ -639,14 +669,14 @@ def get_boundary_jr_inputs(
             )
         dataset = _select_fallback_entry(
             collection.datasets[BOUNDARY_JR_PROVIDER_SPEC.key],
-            request,
+            coordinates,
             "boundary_jr",
             spec=collection.providers[BOUNDARY_JR_PROVIDER_SPEC.key],
         )
         return (
             np.array(dataset.values["jr"], copy=True),
-            np.array(dataset.source_grid.lat, copy=True),
-            np.array(dataset.source_grid.lon, copy=True),
+            np.array(dataset.geographic_grid.lat, copy=True),
+            np.array(dataset.geographic_grid.lon, copy=True),
         )
 
     raise RuntimeError("Native FAC/jr inputs are not available.")
@@ -663,20 +693,22 @@ def _hwm_utc_hours(date: Any) -> float:
 
 
 def _library_horizontal_wind_to_spherical(
-    request: ExternalInputRequest, zonal_east: np.ndarray, meridional_north: np.ndarray
+    coordinates: ExternalInputCoordinates, zonal_east: np.ndarray, meridional_north: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
     """Apply the spherical east/north identity used by all adapters."""
-    source_grid = request.source_grid
-    provider_grid = request.grid_for(NEUTRAL_WIND_PROVIDER_SPEC)
+    geographic_grid = coordinates.geographic_grid
+    provider_grid = coordinates.sample_grid(
+        NEUTRAL_WIND_PROVIDER_SPEC.request_coordinate_convention
+    )
     zonal_east, meridional_north = np.broadcast_arrays(
         np.asarray(zonal_east, dtype=float), np.asarray(meridional_north, dtype=float)
     )
-    if zonal_east.size != source_grid.size:
+    if zonal_east.size != geographic_grid.size:
         raise ValueError("HWM wind values must match the request grid size.")
-    if not np.array_equal(provider_grid.lat, source_grid.lat):
-        raise RuntimeError("Library request latitude must equal source latitude.")
-    if not np.array_equal(provider_grid.lon, source_grid.lon):
-        raise RuntimeError("Library request longitude must equal source longitude.")
+    if not np.array_equal(provider_grid.lat, geographic_grid.lat):
+        raise RuntimeError("Library coordinates latitude must equal geographic latitude.")
+    if not np.array_equal(provider_grid.lon, geographic_grid.lon):
+        raise RuntimeError("Library coordinates longitude must equal geographic longitude.")
     u_theta, u_phi = library_horizontal_to_spherical(
         zonal_east.reshape(-1), meridional_north.reshape(-1)
     )
@@ -688,17 +720,21 @@ def get_wind_inputs(
     lat: np.ndarray | None = None,
     lon: np.ndarray | None = None,
     *,
-    request: ExternalInputRequest | None = None,
+    coordinates: ExternalInputCoordinates | None = None,
     ap: tuple[float, float],
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray | None]:
-    """Return HWM wind on the shared empirical-input source grid.
+    """Return HWM wind on the shared empirical-input geographic grid.
 
     ``ap`` is the two-value geomagnetic-activity input expected by the
     vectorized pyHWM2014 interface.
     """
-    request = _coerce_request(lat, lon, request, grid_id="runtime-neutral-wind-source")
-    source_grid = request.source_grid
-    provider_grid = request.grid_for(NEUTRAL_WIND_PROVIDER_SPEC)
+    coordinates = _coerce_coordinates(
+        lat, lon, coordinates, grid_id="runtime-neutral-wind-geographic"
+    )
+    geographic_grid = coordinates.geographic_grid
+    provider_grid = coordinates.sample_grid(
+        NEUTRAL_WIND_PROVIDER_SPEC.request_coordinate_convention
+    )
     ap = tuple(float(value) for value in ap)
     if len(ap) != 2:
         raise ValueError("HWM ap must contain the two values expected by pyHWM2014.")
@@ -721,13 +757,13 @@ def get_wind_inputs(
             ap=list(ap),
         )
         u_theta, u_phi = _library_horizontal_wind_to_spherical(
-            request, zonal_east, meridional_north
+            coordinates, zonal_east, meridional_north
         )
         return (
             u_theta,
             u_phi,
-            np.array(source_grid.lat, copy=True),
-            np.array(source_grid.lon, copy=True),
+            np.array(geographic_grid.lat, copy=True),
+            np.array(geographic_grid.lon, copy=True),
             None,
         )
 
@@ -744,14 +780,14 @@ def get_wind_inputs(
 
     dataset = _select_fallback_entry(
         collection.datasets[NEUTRAL_WIND_PROVIDER_SPEC.key],
-        request,
+        coordinates,
         "neutral_wind",
         spec=collection.providers[NEUTRAL_WIND_PROVIDER_SPEC.key],
     )
     return (
         np.array(dataset.values["u_theta"], copy=True),
         np.array(dataset.values["u_phi"], copy=True),
-        np.array(dataset.source_grid.lat, copy=True),
-        np.array(dataset.source_grid.lon, copy=True),
+        np.array(dataset.geographic_grid.lat, copy=True),
+        np.array(dataset.geographic_grid.lon, copy=True),
         None,
     )

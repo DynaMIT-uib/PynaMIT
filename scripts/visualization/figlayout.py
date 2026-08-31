@@ -9,7 +9,7 @@ import pyhwm2014  # https://github.com/rilma/pyHWM14
 
 import pynamit
 from pynamit.external_inputs import get_conductance_inputs
-from pynamit.external_inputs.contracts import ExternalInputRequest
+from pynamit.external_inputs.coordinates import ExternalInputCoordinates
 from pynamit.plotting.quicklook import plot_output_quicklook
 
 RE = 6371.2e3
@@ -41,7 +41,7 @@ model_grid = simulation.model_grid
 dipole_model = dipole.Dipole(simulation.geometry.main_field.epoch)
 noon_longitude = dipole_model.mlt2mlon(12, date)
 geographic_lat, geographic_lon = dipole_model.mag2geo(model_grid.lat, model_grid.lon)
-request = ExternalInputRequest.from_model_coordinates(
+coordinates = ExternalInputCoordinates.from_model_coordinates(
     model_grid.lat,
     model_grid.lon,
     geographic_lat=geographic_lat,
@@ -50,7 +50,7 @@ request = ExternalInputRequest.from_model_coordinates(
     model_epoch=simulation.geometry.main_field.epoch,
     grid_id="figlayout-model-grid",
 )
-pedersen, hall, _, _ = get_conductance_inputs(date, request=request, kp=Kp, starlight=1.0)
+pedersen, hall, _, _ = get_conductance_inputs(date, coordinates=coordinates, kp=Kp, starlight=1.0)
 simulation.set_conductance(pedersen=pedersen, hall=hall, lat=model_grid.lat, lon=model_grid.lon)
 
 amps = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50)

@@ -20,7 +20,7 @@ from kompe.spherical_transform import grid_sqrt_area_weights
 
 import pynamit
 from pynamit.coordinates import wrap_longitude_180
-from pynamit.geomagnetism import MagneticFieldEvaluation, MainField, decimal_year
+from pynamit.geomagnetism import MainField, decimal_year
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     electric_field_from_weighted_winds,
     resistance_from_log_conductance_coordinates,
@@ -236,9 +236,6 @@ class _MageInputProjector:
         self._boundary_jr_lambda = boundary_jr_lambda
         self._e_neutral_wind_lambda = e_neutral_wind_lambda
 
-        self._ionosphere_field = MagneticFieldEvaluation(
-            preparation.main_field, ionosphere_grid, IONOSPHERE_RADIUS_M
-        )
         self._magnetosphere_sqrt_weights = grid_sqrt_area_weights(magnetosphere_grid)
         self._ionosphere_sqrt_weights = grid_sqrt_area_weights(ionosphere_grid)
         self._ionosphere_tangential_sqrt_weights = np.tile(self._ionosphere_sqrt_weights, (2, 1))
@@ -336,6 +333,12 @@ class _MageInputProjector:
         _print_field_stats("  Hall-weighted wind speed [m/s]", np.hypot(u_h_theta, u_h_phi))
 
         etaP, etaH = self._projected_resistance(input_time)
+        magnetic_field = self._preparation.main_field.evaluate(
+            self._ionosphere_grid, IONOSPHERE_RADIUS_M
+        )
+        magnetic_unit_vector = self._preparation.main_field.unit_vector(
+            self._ionosphere_grid, IONOSPHERE_RADIUS_M
+        )
         wind_driven_e_theta, wind_driven_e_phi = electric_field_from_weighted_winds(
             SigmaP=SigmaP,
             SigmaH=SigmaH,
@@ -343,7 +346,8 @@ class _MageInputProjector:
             u_p_phi=u_p_phi,
             u_h_theta=u_h_theta,
             u_h_phi=u_h_phi,
-            field=self._ionosphere_field,
+            magnetic_field=magnetic_field,
+            magnetic_unit_vector=magnetic_unit_vector,
             etaP=etaP,
             etaH=etaH,
         )

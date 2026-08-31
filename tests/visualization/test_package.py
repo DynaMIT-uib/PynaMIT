@@ -74,14 +74,14 @@ def test_optional_namespaces_advertise_only_the_common_api():
 
 def test_magnetic_boundary_operators_are_available():
     """JS operators are available from their owning modules."""
-    evaluation = importlib.import_module("pynamit.results.evaluation")
+    evaluation = importlib.import_module("pynamit.results.field_evaluation")
     magnetic_boundary = importlib.import_module(
         "pynamit.simulation.electrodynamics.magnetic_boundary"
     )
 
     assert callable(magnetic_boundary.induced_Br_to_gridded_JS_operator)
     assert callable(magnetic_boundary.boundary_jr_to_gridded_JS_operator)
-    assert callable(evaluation.build_sheet_current_matrices)
+    assert callable(evaluation.build_sheet_current_arrays)
 
 
 def test_input_projection_comparison_recipe_is_importable():
@@ -184,7 +184,7 @@ def test_saved_output_joule_uses_pedersen_dissipation(monkeypatch):
     plot_data = importlib.import_module("pynamit.plotting.plot_data")
 
     class IdentityEvaluator:
-        scalar_synthesis_matrix = np.eye(2)
+        scalar_synthesis_array = np.eye(2)
         scalar_synthesis_operator = as_linear_map(np.eye(2))
 
         @staticmethod
@@ -329,7 +329,7 @@ def test_plot_data_aligns_inputs_by_time_not_index(tmp_path):
     fields = view.input_plot_data(1)
     expected = (
         view.input_transforms["boundary_Br"]
-        .scalar_synthesis_matrix.dot(br_coefficients[2])
+        .scalar_synthesis_array.dot(br_coefficients[2])
         .reshape(view.lat.shape)
     )
 

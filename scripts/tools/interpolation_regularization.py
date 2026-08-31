@@ -11,7 +11,7 @@ import pyhwm2014  # https://github.com/rilma/pyHWM14
 
 import pynamit
 from pynamit.external_inputs import get_conductance_inputs
-from pynamit.external_inputs.contracts import ExternalInputRequest
+from pynamit.external_inputs.coordinates import ExternalInputCoordinates
 from pynamit.geomagnetism import decimal_year
 
 plt.rcParams["figure.constrained_layout.use"] = True
@@ -67,10 +67,12 @@ input_grid = kompe.SphericalGrid(lat=u_lat.flatten(), lon=u_lon.flatten())
 if CONDUCTANCE:
     # Get and set conductance input.
     Kp = 5
-    request = ExternalInputRequest.from_geocentric_geo(
+    coordinates = ExternalInputCoordinates.from_geocentric_geo(
         input_grid.lat, input_grid.lon, grid_id="interpolation-input-grid"
     )
-    pedersen, hall, _, _ = get_conductance_inputs(date, request=request, kp=Kp, starlight=1.0)
+    pedersen, hall, _, _ = get_conductance_inputs(
+        date, coordinates=coordinates, kp=Kp, starlight=1.0
+    )
 
     input_grid_values = hall
     input_weights = None

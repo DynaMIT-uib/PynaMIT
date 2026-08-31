@@ -62,7 +62,7 @@ def test_sh_evaluation_cache_uses_exact_grid_coordinates(tmp_path, monkeypatch):
     cache = ArrayCache(tmp_path / "cache")
     grid = SphericalGrid(lat=[10.0, 20.0], lon=[30.0, 40.0])
     first_basis = SHBasis(2, 2, mean_free=False, operator_cache=cache)
-    expected = first_basis.scalar_evaluation_matrix(grid)
+    expected = first_basis.scalar_evaluation_array(grid)
 
     second_basis = SHBasis(2, 2, mean_free=False, operator_cache=cache)
     monkeypatch.setattr(
@@ -70,7 +70,7 @@ def test_sh_evaluation_cache_uses_exact_grid_coordinates(tmp_path, monkeypatch):
         "_evaluate_on_grid",
         lambda *_args, **_kwargs: pytest.fail("cached evaluation was rebuilt"),
     )
-    observed = second_basis.scalar_evaluation_matrix(grid)
+    observed = second_basis.scalar_evaluation_array(grid)
     np.testing.assert_array_equal(observed, expected)
 
     shifted_grid = SphericalGrid(lat=[10.0 + 1e-12, 20.0], lon=[30.0, 40.0])
@@ -83,7 +83,7 @@ def test_sh_evaluation_cache_uses_exact_grid_coordinates(tmp_path, monkeypatch):
         return original_evaluate(*args, **kwargs)
 
     monkeypatch.setattr(third_basis, "_evaluate_on_grid", track_rebuild)
-    third_basis.scalar_evaluation_matrix(shifted_grid)
+    third_basis.scalar_evaluation_array(shifted_grid)
     assert rebuilds == [True]
 
 

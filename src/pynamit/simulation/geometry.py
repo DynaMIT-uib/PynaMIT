@@ -29,7 +29,7 @@ from kompe.math import (
 from kompe.spherical_transform import SphericalTransform, resolve_sqrt_weights
 from numpy.typing import ArrayLike
 
-from pynamit.geomagnetism import MagneticFieldEvaluation, MainField
+from pynamit.geomagnetism import MainField
 from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.electrodynamics import ionospheric_closure, magnetic_boundary
 
@@ -94,7 +94,7 @@ class SimulationGeometry:
         self.fac_integration_radii = config.fac_integration_radii
         self.area_weighted_least_squares = config.area_weighted_least_squares
 
-        # Initialize the model grid and magnetic-field evaluators.
+        # Initialize the model grid, transforms, and magnetic geometry.
         self._init_spatial_context(cs_basis)
 
         # Build surface and magnetic-boundary maps.
@@ -165,7 +165,7 @@ class SimulationGeometry:
         return self.horizontal_transform.helmholtz_analysis_operator
 
     def _init_spatial_context(self, cs_basis: GlobalCSBasis) -> None:
-        """Set up grid, transforms, and background-field evaluators."""
+        """Set up the model grid and its spherical transforms."""
         self.model_grid = cs_basis.mesh.cell_centers
         self.horizontal_transform = SphericalTransform(
             self.horizontal_basis, self.model_grid, area_weighted=self.area_weighted_least_squares
@@ -178,14 +178,8 @@ class SimulationGeometry:
                 self.model_grid,
                 area_weighted=self.area_weighted_least_squares,
             )
-        self.main_field_evaluation = MagneticFieldEvaluation(
-            self.main_field, self.model_grid, self.RI
-        )
-
-        # Optional evaluators for the conjugate hemisphere
-        self.conjugate_grid = self.conjugate_horizontal_transform = (
-            self.conjugate_main_field_evaluation
-        ) = None
+        # Optional geometry for the conjugate hemisphere.
+        self.conjugate_grid = self.conjugate_horizontal_transform = None
         if self.enable_interhemispheric_coupling and self.main_field.kind != "radial":
             cp_theta, cp_phi = self.main_field.conjugate_coordinates(
                 self.RI, self.model_grid.theta, self.model_grid.phi
@@ -195,9 +189,6 @@ class SimulationGeometry:
                 self.horizontal_basis,
                 self.conjugate_grid,
                 area_weighted=self.area_weighted_least_squares,
-            )
-            self.conjugate_main_field_evaluation = MagneticFieldEvaluation(
-                self.main_field, self.conjugate_grid, self.RI
             )
 
     def model_grid_sqrt_weights(self, *, vector=False):
@@ -237,9 +228,9 @@ class SimulationGeometry:
         """
         if self.poloidal_basis.coefficients_are_compatible_with(self.horizontal_basis):
             return identity_linear_map((self.horizontal_basis.index_length,))
-        poloidal_to_grid_matrix = self.poloidal_transform.scalar_synthesis_matrix
+        poloidal_synthesis = self.poloidal_transform.scalar_synthesis_array
         grid_to_poloidal_operator = dense_full_rank_least_squares_map(
-            poloidal_to_grid_matrix,
+            poloidal_synthesis,
             sqrt_weights=self.model_grid_sqrt_weights(),
             input_shape=(self.model_grid.size,),
             output_shape=(self.poloidal_basis.index_length,),
@@ -345,7 +336,6 @@ class SimulationGeometry:
             # Compare mapped radial current at conjugate footpoints.
             conjugate_operator = self._build_radial_current_to_apex_current_operator(
                 transform=self.conjugate_horizontal_transform,
-                evaluator=self.conjugate_main_field_evaluation,
                 output_scale=self.interhemispheric_coupling_mask,
             )
             self.radial_current_constraint_operator = (
@@ -357,20 +347,16 @@ class SimulationGeometry:
             )
             conjugate_electric_field_to_apex = self._build_electric_field_to_apex_operator(
                 transform=self.conjugate_horizontal_transform,
-                evaluator=self.conjugate_main_field_evaluation,
                 output_mask=self.interhemispheric_coupling_mask,
             )
             self.interhemispheric_electric_field_difference_operator = (
                 local_electric_field_to_apex - conjugate_electric_field_to_apex
             )
 
-    def _build_radial_current_to_apex_current_operator(
-        self, *, transform=None, evaluator=None, output_scale=None
-    ):
+    def _build_radial_current_to_apex_current_operator(self, *, transform=None, output_scale=None):
         """Return radial-current coefficients mapped to apex current."""
         transform = self.horizontal_transform if transform is None else transform
-        evaluator = self.main_field_evaluation if evaluator is None else evaluator
-        scale_values = evaluator.radial_to_apex
+        scale_values = self.main_field.radial_to_apex_scale(transform.grid, self.RI)
         xp = get_array_module(scale_values, output_scale)
         scale = xp.asarray(scale_values)
         if output_scale is not None:
@@ -382,21 +368,18 @@ class SimulationGeometry:
         )
         return scale_operator @ transform.scalar_synthesis_operator
 
-    def _build_horizontal_grid_to_apex_operator(
-        self, *, evaluator=None, grid=None, output_mask=None
-    ) -> LinearMap:
+    def _build_horizontal_grid_to_apex_operator(self, *, grid=None, output_mask=None) -> LinearMap:
         """Return horizontal grid vectors mapped to apex components."""
-        evaluator = self.main_field_evaluation if evaluator is None else evaluator
         grid = self.model_grid if grid is None else grid
         if output_mask is None:
             indices = np.arange(grid.size)
         else:
             mask = np.asarray(output_mask, dtype=bool).reshape(-1)
             if mask.shape != (grid.size,):
-                raise ValueError("output_mask must match the evaluator grid size.")
+                raise ValueError("output_mask must match the grid size.")
             indices = np.flatnonzero(mask)
 
-        apex_values = evaluator.horizontal_to_apex[:, :, indices]
+        apex_values = self.main_field.horizontal_to_apex_array(grid, self.RI)[:, :, indices]
         xp = get_array_module(apex_values)
         apex = xp.asarray(apex_values)
         n_grid = int(grid.size)
@@ -408,20 +391,20 @@ class SimulationGeometry:
         return apex_rotation @ grid_selection
 
     def _build_electric_field_to_apex_operator(
-        self, *, transform=None, evaluator=None, output_mask=None
+        self, *, transform=None, output_mask=None
     ) -> LinearMap:
         """Return Helmholtz E coefficients mapped to apex components."""
         transform = self.horizontal_transform if transform is None else transform
         return (
             self._build_horizontal_grid_to_apex_operator(
-                evaluator=evaluator, grid=transform.grid, output_mask=output_mask
+                grid=transform.grid, output_mask=output_mask
             )
             @ transform.helmholtz_synthesis_operator
         )
 
     @property
-    def interhemispheric_electric_field_difference_matrix(self) -> Any | None:
-        """Materialize the low-latitude E-apex difference operator."""
+    def interhemispheric_electric_field_difference_array(self) -> Any | None:
+        """Materialize the shaped low-latitude E-apex difference map."""
         operator = self.interhemispheric_electric_field_difference_operator
         if operator is None:
             return None
@@ -430,22 +413,20 @@ class SimulationGeometry:
     @cached_property
     def pedersen_geometry_tensor(self) -> Any:
         """Return the Pedersen part of the resistance tensor."""
-        b_th, b_ph, b_r = (
-            self.main_field_evaluation.unit_btheta,
-            self.main_field_evaluation.unit_bphi,
-            self.main_field_evaluation.unit_br,
-        )
+        b_r, b_th, b_ph = self.main_field.unit_vector(self.model_grid, self.RI)
         return ionospheric_closure.pedersen_geometry_tensor(b_th, b_ph, b_r)
 
     @cached_property
     def hall_geometry_tensor(self) -> Any:
         """Return the Hall part of the resistance tensor."""
-        return ionospheric_closure.hall_geometry_tensor(self.main_field_evaluation.unit_br)
+        unit_br = self.main_field.unit_vector(self.model_grid, self.RI)[0]
+        return ionospheric_closure.hall_geometry_tensor(unit_br)
 
     @cached_property
     def wind_motional_E_tensor(self) -> Any:
         """Map neutral wind to motional electric field pointwise."""
-        return ionospheric_closure.wind_motional_E_tensor(self.main_field_evaluation.Br)
+        Br = self.main_field.evaluate(self.model_grid, self.RI)[0]
+        return ionospheric_closure.wind_motional_E_tensor(Br)
 
     @property
     def boundary_jr_to_gap_Br_matrix(self) -> np.ndarray:
@@ -473,16 +454,16 @@ class SimulationGeometry:
             r_dest=self.RI, r=radius, theta=self.model_grid.theta, phi=self.model_grid.phi
         )
         footpoint_grid = SphericalGrid(theta=theta_footpoint, phi=phi_footpoint)
-        shell_field = MagneticFieldEvaluation(self.main_field, self.model_grid, radius)
-        footpoint_field = MagneticFieldEvaluation(self.main_field, footpoint_grid, self.RI)
+        _, shell_Btheta, shell_Bphi = self.main_field.evaluate(self.model_grid, radius)
+        footpoint_Br = self.main_field.evaluate(footpoint_grid, self.RI)[0]
         footpoint_transform = SphericalTransform(
             self.horizontal_basis, footpoint_grid, use_persistent_evaluation_cache=False
         )
 
         jr_to_gridded_JS = pointwise_matrix_linear_map(
-            np.array(
-                [shell_field.Btheta / footpoint_field.Br, shell_field.Bphi / footpoint_field.Br]
-            ).reshape(2, 1, self.model_grid.size)
+            np.array([shell_Btheta / footpoint_Br, shell_Bphi / footpoint_Br]).reshape(
+                2, 1, self.model_grid.size
+            )
         )
 
         poloidal_scale = np.array(
@@ -521,11 +502,7 @@ class SimulationGeometry:
 
     def _boundary_jr_to_gap_Br_cache_identity(self) -> dict:
         """Return the exact identity of the gap-Br response."""
-        field_components = (
-            self.main_field_evaluation.Br,
-            self.main_field_evaluation.Btheta,
-            self.main_field_evaluation.Bphi,
-        )
+        field_components = self.main_field.evaluate(self.model_grid, self.RI)
         return {
             "algorithm": "boundary_jr_to_gap_Br_radial_integration",
             "version": _BOUNDARY_JR_TO_GAP_BR_CACHE_VERSION,

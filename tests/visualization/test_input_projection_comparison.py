@@ -19,7 +19,7 @@ def test_local_time_longitude_to_geographic_rotates_noon_meridian():
 
 
 def test_local_time_longitude_to_geographic_supports_nonzero_source_noon():
-    """Nonzero source-grid noon can be converted."""
+    """Nonzero geographic-grid noon can be converted."""
     converted = canonical_local_time_conversion(
         np.array([90.0]), noon_longitude=-100.0, local_noon_longitude=90.0
     )

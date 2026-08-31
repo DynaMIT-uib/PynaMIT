@@ -28,16 +28,17 @@ from pynamit.external_inputs import (
     CONDUCTANCE_PROVIDER_SPEC,
     NEUTRAL_WIND_PROVIDER_SPEC,
     PROVIDER_SPECS,
-    CachedProviderData,
-    ExternalInputRequest,
+    ExternalInputCoordinates,
     FallbackCollection,
+    ProviderSnapshot,
     get_boundary_jr_inputs,
     get_conductance_inputs,
     get_wind_inputs,
     native_inputs_available,
     set_input_source,
 )
-from pynamit.external_inputs.providers import FALLBACK_SCHEMA_VERSION, _read_fallback
+from pynamit.external_inputs.fallback_data import FALLBACK_SCHEMA_VERSION
+from pynamit.external_inputs.providers import _read_fallback
 from pynamit.geomagnetism import decimal_year
 
 OUTPUT = Path("src/pynamit/data/fallback_inputs.json")
@@ -66,26 +67,26 @@ GRID_SPECS = (
 )
 
 
-def _require_source_grid(
+def _require_geographic_grid(
     provider_name: str,
-    request: ExternalInputRequest,
+    coordinates: ExternalInputCoordinates,
     returned_lat: np.ndarray,
     returned_lon: np.ndarray,
 ) -> None:
-    """Require an adapter to preserve its source grid."""
-    returned = request.source_grid.coordinate_convention.coordinate_identity(
+    """Require an adapter to preserve its geographic grid."""
+    returned = coordinates.geographic_grid.coordinate_convention.coordinate_identity(
         returned_lat, returned_lon
     )
-    if returned != request.source_grid.coordinate_identity:
-        raise RuntimeError(f"{provider_name} did not return the requested source grid.")
+    if returned != coordinates.geographic_grid.coordinate_identity:
+        raise RuntimeError(f"{provider_name} did not return the requested geographic grid.")
 
 
-def _register_request_grids(grids: dict, request: ExternalInputRequest) -> None:
-    """Register source and provider-interface grid views."""
-    source = request.source_grid
-    grids[source.grid_id] = source
+def _register_coordinate_grids(grids: dict, coordinates: ExternalInputCoordinates) -> None:
+    """Register geographic and provider-interface grid views."""
+    geographic_grid = coordinates.geographic_grid
+    grids[geographic_grid.grid_id] = geographic_grid
     for spec in PROVIDER_SPECS.values():
-        provider_grid = request.grid_for(spec)
+        provider_grid = coordinates.sample_grid(spec.request_coordinate_convention)
         existing = grids.get(provider_grid.grid_id)
         if (
             existing is not None
@@ -105,7 +106,7 @@ def main() -> None:
 
     set_input_source("native")
     grids = {}
-    datasets: dict[str, dict[str, CachedProviderData]] = {
+    datasets: dict[str, dict[str, ProviderSnapshot]] = {
         provider_key: {} for provider_key in PROVIDER_SPECS
     }
 
@@ -129,7 +130,7 @@ def main() -> None:
             geo_lat, geo_lon = simulation.geometry.main_field.model_to_geo_coordinates(
                 model_lat, model_lon, event_time=EVENT_TIME
             )
-            request = ExternalInputRequest.from_model_coordinates(
+            coordinates = ExternalInputCoordinates.from_model_coordinates(
                 model_lat,
                 model_lon,
                 geographic_lat=geo_lat,
@@ -148,14 +149,14 @@ def main() -> None:
                     }
                 },
             )
-            _register_request_grids(grids, request)
+            _register_coordinate_grids(grids, coordinates)
 
             pedersen, hall, conductance_lat, conductance_lon = get_conductance_inputs(
-                EVENT_TIME, request=request, kp=KP, starlight=STARLIGHT_CONDUCTANCE_S
+                EVENT_TIME, coordinates=coordinates, kp=KP, starlight=STARLIGHT_CONDUCTANCE_S
             )
             jr, jr_lat, jr_lon = get_boundary_jr_inputs(
                 EVENT_TIME,
-                request=request,
+                coordinates=coordinates,
                 v=SOLAR_WIND_SPEED_KM_S,
                 By=IMF_BY_NT,
                 Bz=IMF_BZ_NT,
@@ -163,35 +164,47 @@ def main() -> None:
                 f107=F107_SFU,
                 minlat=AMPS_MIN_LATITUDE_DEG,
             )
-            wind = get_wind_inputs(EVENT_TIME, request=request, ap=HWM_AP)
+            wind = get_wind_inputs(EVENT_TIME, coordinates=coordinates, ap=HWM_AP)
             u_theta, u_phi, wind_lat, wind_lon, weights = wind
             if weights is not None:
-                raise RuntimeError("Requested-position HWM should not supply source-grid weights.")
+                raise RuntimeError(
+                    "Requested-position HWM should not supply geographic-grid weights."
+                )
 
-            _require_source_grid("Hardy/EUV", request, conductance_lat, conductance_lon)
-            _require_source_grid("AMPS", request, jr_lat, jr_lon)
-            _require_source_grid("HWM14", request, wind_lat, wind_lon)
+            _require_geographic_grid("Hardy/EUV", coordinates, conductance_lat, conductance_lon)
+            _require_geographic_grid("AMPS", coordinates, jr_lat, jr_lon)
+            _require_geographic_grid("HWM14", coordinates, wind_lat, wind_lon)
 
-            source = request.source_grid
-            datasets[CONDUCTANCE_PROVIDER_SPEC.key][source.grid_id] = CachedProviderData(
+            geographic_grid = coordinates.geographic_grid
+            datasets[CONDUCTANCE_PROVIDER_SPEC.key][geographic_grid.grid_id] = ProviderSnapshot(
                 spec=CONDUCTANCE_PROVIDER_SPEC,
-                source_grid=source,
-                request_grid=request.grid_for(CONDUCTANCE_PROVIDER_SPEC),
+                geographic_grid=geographic_grid,
+                request_grid=coordinates.sample_grid(
+                    CONDUCTANCE_PROVIDER_SPEC.request_coordinate_convention
+                ),
                 values={"hall": hall, "pedersen": pedersen},
             )
-            datasets[BOUNDARY_JR_PROVIDER_SPEC.key][source.grid_id] = CachedProviderData(
+            datasets[BOUNDARY_JR_PROVIDER_SPEC.key][geographic_grid.grid_id] = ProviderSnapshot(
                 spec=BOUNDARY_JR_PROVIDER_SPEC,
-                source_grid=source,
-                request_grid=request.grid_for(BOUNDARY_JR_PROVIDER_SPEC),
+                geographic_grid=geographic_grid,
+                request_grid=coordinates.sample_grid(
+                    BOUNDARY_JR_PROVIDER_SPEC.request_coordinate_convention
+                ),
                 values={"jr": jr},
             )
-            datasets[NEUTRAL_WIND_PROVIDER_SPEC.key][source.grid_id] = CachedProviderData(
+            datasets[NEUTRAL_WIND_PROVIDER_SPEC.key][geographic_grid.grid_id] = ProviderSnapshot(
                 spec=NEUTRAL_WIND_PROVIDER_SPEC,
-                source_grid=source,
-                request_grid=request.grid_for(NEUTRAL_WIND_PROVIDER_SPEC),
+                geographic_grid=geographic_grid,
+                request_grid=coordinates.sample_grid(
+                    NEUTRAL_WIND_PROVIDER_SPEC.request_coordinate_convention
+                ),
                 values={"u_theta": u_theta, "u_phi": u_phi},
             )
-            print(f"Generated {source.grid_id}: {source.size} source positions.", flush=True)
+            print(
+                f"Generated {geographic_grid.grid_id}: "
+                f"{geographic_grid.size} geographic positions.",
+                flush=True,
+            )
 
     collection = FallbackCollection(
         version=FALLBACK_SCHEMA_VERSION,
@@ -220,14 +233,18 @@ def main() -> None:
     collection.write(temporary_output)
 
     loaded = _read_fallback(temporary_output)
-    for source_grid_id in datasets[CONDUCTANCE_PROVIDER_SPEC.key]:
-        conductance = loaded.datasets[CONDUCTANCE_PROVIDER_SPEC.key][source_grid_id]
-        boundary_jr = loaded.datasets[BOUNDARY_JR_PROVIDER_SPEC.key][source_grid_id]
-        wind = loaded.datasets[NEUTRAL_WIND_PROVIDER_SPEC.key][source_grid_id]
-        if not (conductance.source_grid is boundary_jr.source_grid is wind.source_grid):
-            raise RuntimeError(f"Source grid {source_grid_id!r} was not structurally shared.")
+    for geographic_grid_id in datasets[CONDUCTANCE_PROVIDER_SPEC.key]:
+        conductance = loaded.datasets[CONDUCTANCE_PROVIDER_SPEC.key][geographic_grid_id]
+        boundary_jr = loaded.datasets[BOUNDARY_JR_PROVIDER_SPEC.key][geographic_grid_id]
+        wind = loaded.datasets[NEUTRAL_WIND_PROVIDER_SPEC.key][geographic_grid_id]
+        if not (
+            conductance.geographic_grid is boundary_jr.geographic_grid is wind.geographic_grid
+        ):
+            raise RuntimeError(
+                f"Geographic grid {geographic_grid_id!r} was not structurally shared."
+            )
         if not (conductance.request_grid is boundary_jr.request_grid is wind.request_grid):
-            raise RuntimeError(f"Provider request grid for {source_grid_id!r} was not shared.")
+            raise RuntimeError(f"Provider request grid for {geographic_grid_id!r} was not shared.")
 
     if OUTPUT.exists():
         backup.write_bytes(OUTPUT.read_bytes())

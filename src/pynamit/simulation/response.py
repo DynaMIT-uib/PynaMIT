@@ -6,10 +6,10 @@ import logging
 from typing import Any
 
 from kompe.math import (
+    ArrayBackend,
     LeastSquaresProblem,
     LeastSquaresSolver,
     LinearMap,
-    MatrixBackend,
     as_linear_map,
     content_fingerprint,
     get_array_module,
@@ -295,13 +295,15 @@ class ElectrodynamicResponse:
     def _prepare_repeated_E_operator(
         self, op: LinearMap | None, *, compact_input: bool
     ) -> LinearMap | None:
-        """Use dense multiplication where it reduces repeated work."""
+        """Use an explicit array when it reduces repeated work."""
         if op is None:
             return None
         spaces_coincide = self.geometry.horizontal_basis is self.geometry.poloidal_basis
-        if compact_input or spaces_coincide:
-            op.to_matrix()
-        return op
+        if not (compact_input or spaces_coincide) or op.is_diagonal:
+            return op
+        return as_linear_map(
+            op.to_array(), input_shape=op.input_shape, output_shape=op.output_shape
+        )
 
     @property
     def _runtime_induced_Br_to_E_coeffs(self) -> LinearMap:
@@ -461,9 +463,9 @@ class ElectrodynamicResponse:
         if self._boundary_jr_to_toroidal_potential_operator is None:
             logger.info("Building dense boundary-jr to toroidal-potential response matrix.")
             problem = self._toroidal_potential_problem
-            radial_current_matrix = self.geometry.radial_current_constraint_operator.to_matrix()
-            xp = get_array_module(radial_current_matrix)
-            radial_current_rhs = xp.asarray(radial_current_matrix).reshape(
+            radial_current_array = self.geometry.radial_current_constraint_operator.to_array()
+            xp = get_array_module(radial_current_array)
+            radial_current_rhs = xp.asarray(radial_current_array).reshape(
                 problem.A[0].output_shape + (-1,)
             )
             rhs_entries = [None] * problem.num_data_terms
@@ -489,7 +491,7 @@ class ElectrodynamicResponse:
             n = self.geometry.horizontal_basis.index_length
             problem = self._toroidal_potential_problem
             electric_field_rhs = (
-                -self.geometry.interhemispheric_electric_field_difference_matrix.reshape(
+                -self.geometry.interhemispheric_electric_field_difference_array.reshape(
                     problem.A[1].output_shape + (2 * n,)
                 )
             )
@@ -547,9 +549,7 @@ class ElectrodynamicResponse:
                 * self.geometry.interhemispheric_electric_field_difference_operator
                 @ source_to_driving_E
             )
-            electric_field_rhs = electric_field_rhs_operator.to_matrix().reshape(
-                problem.A[1].output_shape + source_to_driving_E.input_shape
-            )
+            electric_field_rhs = electric_field_rhs_operator.to_array()
             rhs_entries = [None] * problem.num_data_terms
             rhs_entries[1] = electric_field_rhs
             toroidal_potential_from_source = as_linear_map(
@@ -833,7 +833,7 @@ class ElectrodynamicResponse:
         include_boundary_Br: bool = True,
         include_Q_eff: bool = True,
         include_E_neutral_wind: bool = True,
-        backend: MatrixBackend | None = None,
+        backend: ArrayBackend | None = None,
     ) -> dict[str, Any]:
         """Return W maps as explicit matrices."""
         return {
@@ -851,7 +851,7 @@ class ElectrodynamicResponse:
         include_boundary_Br: bool = True,
         include_Q_eff: bool = True,
         include_E_neutral_wind: bool = True,
-        backend: MatrixBackend | None = None,
+        backend: ArrayBackend | None = None,
     ) -> dict[str, Any]:
         """Return ``d(induced_Br)/dt`` maps as explicit matrices."""
         return {

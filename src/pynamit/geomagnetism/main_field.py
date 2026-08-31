@@ -1,5 +1,6 @@
 """Background main-field models and magnetic coordinates."""
 
+from collections import OrderedDict
 from datetime import datetime, timezone
 
 import apexpy
@@ -7,6 +8,7 @@ import dipole
 import numpy as np
 import ppigrf
 from kompe.constants import EARTH_RADIUS_M
+from kompe.math import get_array_module, get_backend
 
 from pynamit.coordinates import (
     CENTERED_DIPOLE,
@@ -107,6 +109,8 @@ class MainField:
     ``h = r - EARTH_RADIUS_M``.
     """
 
+    _grid_cache_size = 8
+
     def __init__(self, kind="dipole", epoch=2020, ionosphere_height_km=0.0, B0=None):
         """Initialize a MainField instance.
 
@@ -137,6 +141,7 @@ class MainField:
             if self.kind == "igrf":
                 raise ValueError("B0 is not supported for the IGRF main-field model.")
         self.B0 = B0
+        self._grid_cache = OrderedDict()
 
         if is_dipole_kind(self.kind):
             if self.kind == "kaiju_dipole":
@@ -168,6 +173,116 @@ class MainField:
             f"MainField(kind={self.kind!r}, epoch={self.epoch:g}, "
             f"ionosphere_height_km={self.ionosphere_height_km:g}, B0={self.B0!r})"
         )
+
+    def evaluate(self, grid, radius):
+        """Return ``(Br, Btheta, Bphi)`` on a spherical grid.
+
+        The result has shape ``(3, grid.size)`` and uses the active
+        array backend. Equal grid coordinates and radii share a bounded
+        cache.
+        """
+        entry = self._grid_cache_entry(grid, radius)
+        if "components" not in entry:
+            xp = entry["array_module"]
+            components = self.field_components(entry["radius"], grid.theta, grid.phi)
+            entry["components"] = xp.stack(
+                [xp.asarray(component) for component in components], axis=0
+            )
+        return entry["components"]
+
+    def unit_vector(self, grid, radius):
+        """Return magnetic unit-vector components.
+
+        Component order is ``(br, btheta, bphi)``.
+        """
+        entry = self._grid_cache_entry(grid, radius)
+        if "unit_vector" not in entry:
+            xp = entry["array_module"]
+            components = self.evaluate(grid, radius)
+            entry["unit_vector"] = components / xp.linalg.norm(components, axis=0)
+        return entry["unit_vector"]
+
+    def horizontal_to_apex_array(self, grid, radius):
+        """Return pointwise horizontal-to-apex component transforms."""
+        entry = self._grid_cache_entry(grid, radius)
+        if "horizontal_to_apex_array" not in entry:
+            xp = entry["array_module"]
+            unit_br, unit_btheta, unit_bphi = self.unit_vector(grid, radius)
+            e1, e2 = self._cached_basis_vectors(grid, radius)[3:5]
+            ones = xp.ones(grid.size)
+            zeros = xp.zeros(grid.size)
+            horizontal_to_field_orthogonal = xp.stack(
+                (
+                    xp.stack((-unit_btheta / unit_br, -unit_bphi / unit_br)),
+                    xp.stack((ones, zeros)),
+                    xp.stack((zeros, ones)),
+                )
+            )
+            field_orthogonal_to_apex = xp.stack((e1, e2))
+            entry["horizontal_to_apex_array"] = xp.einsum(
+                "ijk,jlk->ilk",
+                field_orthogonal_to_apex,
+                horizontal_to_field_orthogonal,
+                optimize=True,
+            )
+        return entry["horizontal_to_apex_array"]
+
+    def radial_to_apex_scale(self, grid, radius):
+        """Return the pointwise radial-current-to-apex-current scale."""
+        entry = self._grid_cache_entry(grid, radius)
+        if "radial_to_apex_scale" not in entry:
+            xp = entry["array_module"]
+            unit_br, unit_btheta, unit_bphi = self.unit_vector(grid, radius)
+            d3 = self._cached_basis_vectors(grid, radius)[2]
+            field_parallel_from_radial = xp.stack(
+                (xp.ones(grid.size), unit_btheta / unit_br, unit_bphi / unit_br)
+            )
+            entry["radial_to_apex_scale"] = xp.einsum(
+                "ik,ik->k", d3, field_parallel_from_radial, optimize=True
+            )
+        return entry["radial_to_apex_scale"]
+
+    def _cached_basis_vectors(self, grid, radius):
+        """Return cached apex vectors on one evaluation surface."""
+        entry = self._grid_cache_entry(grid, radius)
+        if "basis_vectors" not in entry:
+            xp = entry["array_module"]
+            vectors = self.basis_vectors(entry["radius"], grid.theta, grid.phi)
+            entry["basis_vectors"] = tuple(xp.asarray(vector) for vector in vectors)
+        return entry["basis_vectors"]
+
+    def _grid_cache_entry(self, grid, radius):
+        """Return shared numerical values for one evaluation surface."""
+        radius = float(radius)
+        if not np.isfinite(radius) or radius <= 0.0:
+            raise ValueError("Main-field evaluation radius must be finite and positive.")
+        try:
+            grid_signature = grid.signature
+            grid_size = grid.size
+        except AttributeError as exc:
+            raise TypeError("MainField.evaluate requires a SphericalGrid-like object.") from exc
+        if grid_size < 1:
+            raise ValueError("MainField.evaluate requires a non-empty grid.")
+
+        backend = get_backend()
+        key = (grid_signature, radius, backend)
+        cache = self._grid_cache
+        if key in cache:
+            cache.move_to_end(key)
+            return cache[key]
+        entry = {"array_module": get_array_module(), "radius": radius}
+        cache[key] = entry
+        if len(cache) > self._grid_cache_size:
+            cache.popitem(last=False)
+        return entry
+
+    def clear_cache(self):
+        """Discard shared grid evaluations owned by this field model."""
+        self._grid_cache.clear()
+
+    def cache_info(self):
+        """Return cache occupancy without exposing mutable entries."""
+        return {"grids": len(self._grid_cache), "max_size": self._grid_cache_size}
 
     @staticmethod
     def _has_tangent_vector(east, north):

@@ -60,12 +60,12 @@ for dynamic_data in dynamic_data_list:
     # Calculate the time series.
     induced_Br = dynamic_data.SH_induced_Br.values.T
 
-    Br = (ground_evaluator.scalar_synthesis_matrix * induced_Br_to_Br_ground.reshape((1, -1))).dot(
+    Br = (ground_evaluator.scalar_synthesis_array * induced_Br_to_Br_ground.reshape((1, -1))).dot(
         induced_Br
     )
-    Bh = (
-        -ground_evaluator.surface_gradient_matrix * induced_Br_to_Bh_ground.reshape((1, -1))
-    ).dot(induced_Br)
+    Bh = (-ground_evaluator.surface_gradient_array * induced_Br_to_Bh_ground.reshape((1, -1))).dot(
+        induced_Br
+    )
     Btheta, Bphi = Bh
 
     ii, jj = np.unravel_index(np.arange(len(glat)), mlt.shape)
@@ -121,7 +121,7 @@ for p, dynamic_data in zip(periods, dynamic_data_list, strict=True):
     ).T
 
     induced_Br = sd.SH_induced_Br.values.T
-    Br = (ground_evaluator.scalar_synthesis_matrix * induced_Br_to_Br_ground.reshape((1, -1))).dot(
+    Br = (ground_evaluator.scalar_synthesis_array * induced_Br_to_Br_ground.reshape((1, -1))).dot(
         induced_Br
     )
 
