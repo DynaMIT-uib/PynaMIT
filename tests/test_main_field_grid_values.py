@@ -77,6 +77,22 @@ def test_main_field_cache_lifecycle():
     assert main_field.cache_info() == {"grids": 8, "max_size": 8}
 
 
+def test_main_field_numpy_cache_values_are_read_only():
+    """Callers cannot alter values shared by later evaluations."""
+    main_field = MainField(kind="radial")
+    grid = SphericalGrid(lat=[-60.0, 20.0], lon=[0.0, 90.0])
+
+    with backend_context("numpy"):
+        cached_values = (
+            main_field.evaluate(grid, EARTH_RADIUS_M),
+            main_field.unit_vector(grid, EARTH_RADIUS_M),
+            main_field.horizontal_to_apex_array(grid, EARTH_RADIUS_M),
+            main_field.radial_to_apex_scale(grid, EARTH_RADIUS_M),
+        )
+
+    assert all(not values.flags.writeable for values in cached_values)
+
+
 def test_main_field_grid_cache_is_backend_specific():
     """NumPy and JAX values occupy distinct cache entries."""
     main_field = MainField(kind="radial")

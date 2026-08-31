@@ -80,6 +80,13 @@ def _igrf_apex_input_from_spherical(r, theta, phi):
     )
 
 
+def _read_only_numpy_array(values):
+    """Protect a NumPy value retained in a shared evaluation cache."""
+    if isinstance(values, np.ndarray):
+        values.setflags(write=False)
+    return values
+
+
 class MainField:
     """Class for representing the main magnetic field.
 
@@ -185,8 +192,8 @@ class MainField:
         if "components" not in entry:
             xp = entry["array_module"]
             components = self.field_components(entry["radius"], grid.theta, grid.phi)
-            entry["components"] = xp.stack(
-                [xp.asarray(component) for component in components], axis=0
+            entry["components"] = _read_only_numpy_array(
+                xp.stack([xp.asarray(component) for component in components], axis=0)
             )
         return entry["components"]
 
@@ -199,7 +206,9 @@ class MainField:
         if "unit_vector" not in entry:
             xp = entry["array_module"]
             components = self.evaluate(grid, radius)
-            entry["unit_vector"] = components / xp.linalg.norm(components, axis=0)
+            entry["unit_vector"] = _read_only_numpy_array(
+                components / xp.linalg.norm(components, axis=0)
+            )
         return entry["unit_vector"]
 
     def horizontal_to_apex_array(self, grid, radius):
@@ -219,11 +228,13 @@ class MainField:
                 )
             )
             field_orthogonal_to_apex = xp.stack((e1, e2))
-            entry["horizontal_to_apex_array"] = xp.einsum(
-                "ijk,jlk->ilk",
-                field_orthogonal_to_apex,
-                horizontal_to_field_orthogonal,
-                optimize=True,
+            entry["horizontal_to_apex_array"] = _read_only_numpy_array(
+                xp.einsum(
+                    "ijk,jlk->ilk",
+                    field_orthogonal_to_apex,
+                    horizontal_to_field_orthogonal,
+                    optimize=True,
+                )
             )
         return entry["horizontal_to_apex_array"]
 
@@ -237,8 +248,8 @@ class MainField:
             field_parallel_from_radial = xp.stack(
                 (xp.ones(grid.size), unit_btheta / unit_br, unit_bphi / unit_br)
             )
-            entry["radial_to_apex_scale"] = xp.einsum(
-                "ik,ik->k", d3, field_parallel_from_radial, optimize=True
+            entry["radial_to_apex_scale"] = _read_only_numpy_array(
+                xp.einsum("ik,ik->k", d3, field_parallel_from_radial, optimize=True)
             )
         return entry["radial_to_apex_scale"]
 
@@ -248,7 +259,9 @@ class MainField:
         if "basis_vectors" not in entry:
             xp = entry["array_module"]
             vectors = self.basis_vectors(entry["radius"], grid.theta, grid.phi)
-            entry["basis_vectors"] = tuple(xp.asarray(vector) for vector in vectors)
+            entry["basis_vectors"] = tuple(
+                _read_only_numpy_array(xp.asarray(vector)) for vector in vectors
+            )
         return entry["basis_vectors"]
 
     def _grid_cache_entry(self, grid, radius):

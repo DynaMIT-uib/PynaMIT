@@ -101,15 +101,16 @@ if False:
     g, h = (g.loc[igrf_date, :].values, h.loc[igrf_date, :].values)  # Gauss coefficients
 
     igrf_basis = kompe.SHBasis(int(_n.max()), int(_m.max()))
-    igrf_keys = igrf_basis.cnm
+    igrf_degree = igrf_basis.cosine_degree
+    igrf_order = igrf_basis.cosine_order
 
     # Calculate u x B numerically on grid (we evaluate on the ground).
     ph = np.deg2rad(u_lon).reshape((-1, 1))
-    P = igrf_basis.legendre(np.deg2rad(90 - u_lat).reshape(-1))[:, igrf_basis.cnm_filter]
+    P = igrf_basis.legendre(np.deg2rad(90 - u_lat).reshape(-1))[:, igrf_basis.cosine_filter]
     G_Br = np.hstack(
         (
-            (igrf_keys.n + 1) * P * np.cos(igrf_keys.m * ph),
-            (igrf_keys.n + 1) * P * np.sin(igrf_keys.m * ph),
+            (igrf_degree + 1) * P * np.cos(igrf_order * ph),
+            (igrf_degree + 1) * P * np.sin(igrf_order * ph),
         )
     )
     Br = G_Br.dot(np.hstack((g, h))) * 1e-9
