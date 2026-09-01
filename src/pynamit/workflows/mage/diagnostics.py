@@ -246,7 +246,7 @@ def _error_metrics(raw, projected, weights) -> dict[str, float | int]:
     return {
         "weighted_rms_error": rms_error,
         "weighted_relative_rms_error": (
-            rms_error / rms_input if rms_input > np.finfo(float).tiny else float("nan")
+            rms_error / rms_input if rms_input != 0.0 else float("nan")
         ),
         "weighted_bias": float(np.sum(weights * residual)),
         "weighted_p95_absolute_error": _weighted_percentile(np.abs(residual), weights, 95.0),
@@ -406,13 +406,8 @@ def _field_scales(comparison, steps, field, *, vmin_percentile, vmax_percentile)
     physical_values = [
         comparison[(step, field)][source] for step in steps for source in ("input", "projected")
     ]
-    scale_values = (
-        [np.maximum(values, 0.0) for values in physical_values]
-        if details["positive"]
-        else physical_values
-    )
     physical_scale = build_percentile_color_scale(
-        scale_values,
+        physical_values,
         strictly_positive=details["positive"],
         vmin_percentile=vmin_percentile,
         vmax_percentile=vmax_percentile,

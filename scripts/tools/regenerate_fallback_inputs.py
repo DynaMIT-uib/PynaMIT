@@ -23,6 +23,7 @@ from tests.example_scenario import (
 )
 
 from pynamit import Simulation
+from pynamit.coordinates import decimal_year
 from pynamit.external_inputs import (
     BOUNDARY_JR_PROVIDER_SPEC,
     CONDUCTANCE_PROVIDER_SPEC,
@@ -39,7 +40,6 @@ from pynamit.external_inputs import (
 )
 from pynamit.external_inputs.fallback_data import FALLBACK_SCHEMA_VERSION
 from pynamit.external_inputs.providers import _read_fallback
-from pynamit.geomagnetism import decimal_year
 
 OUTPUT = Path("src/pynamit/data/fallback_inputs.json")
 

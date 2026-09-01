@@ -7,6 +7,27 @@ import pandas as pd
 from scipy.signal import find_peaks
 
 
+def datetime_at_index(times, index, *, start_time=None):
+    """Return a saved timestamp using ordinary NumPy indexing."""
+    values = np.asarray(times)
+    value = values[index]
+    if np.issubdtype(values.dtype, np.datetime64):
+        return pd.Timestamp(value)
+    if start_time is None:
+        raise ValueError("Numeric simulation times require the physical start_time.")
+    return pd.Timestamp(start_time) + pd.to_timedelta(float(value), unit="s")
+
+
+def time_index_from_dataset(dataset, *, start_time=None):
+    """Convert saved datetimes or model seconds to a DatetimeIndex."""
+    times = np.asarray(dataset.time.values)
+    if np.issubdtype(times.dtype, np.datetime64) or times.size == 0:
+        return pd.DatetimeIndex(times)
+    if start_time is None:
+        raise ValueError("Numeric simulation times require the physical start_time.")
+    return pd.Timestamp(start_time) + pd.to_timedelta(times, unit="s")
+
+
 def datetime_index_to_epoch_ns(index):
     """Return epoch nanoseconds for any pandas datetime64 resolution."""
     return pd.DatetimeIndex(pd.to_datetime(index)).to_numpy(dtype="datetime64[ns]").astype("int64")
@@ -272,14 +293,8 @@ def prominent_peak_candidates(
         return []
 
     abs_values = np.where(valid, np.abs(values_arr), np.nan)
-    finite_abs = abs_values[np.isfinite(abs_values)]
-    if finite_abs.size == 0:
-        return []
-
-    global_peak = float(np.nanmax(finite_abs))
-    if not np.isfinite(global_peak):
-        return []
-    if global_peak <= np.finfo(float).tiny:
+    global_peak = float(np.max(abs_values[valid]))
+    if global_peak == 0.0:
         return _global_peak_candidate(abs_values, valid, target_index)
 
     min_prominence = prominence_fraction * global_peak
@@ -366,8 +381,8 @@ def first_event_peak_abs_value_and_time(
     if finite_abs.size == 0:
         return np.nan, None
 
-    global_peak = float(np.nanmax(finite_abs))
-    if not np.isfinite(global_peak) or global_peak <= np.finfo(float).tiny:
+    global_peak = float(np.max(finite_abs))
+    if global_peak == 0.0:
         return most_prominent_peak_abs_value_and_time(values_arr, target_index)
 
     noise_floor = noise_floor_fraction * global_peak

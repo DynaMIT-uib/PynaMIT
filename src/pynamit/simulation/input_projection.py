@@ -49,7 +49,7 @@ class _InputProjector:
 
     @staticmethod
     def require_complete_values(label: str, **values) -> None:
-        """Require either all named values or none of them."""
+        """Require all named input values together."""
         supplied = [name for name, value in values.items() if value is not None]
         if len(supplied) == len(values):
             return
@@ -134,8 +134,6 @@ class _InputProjector:
     ) -> None:
         """Validate, project, and store one scalar input stream."""
         variables = INPUT_VARIABLES[key]
-        self._validate_variables(key, variables, samples, "samples")
-        self._validate_variables(key, variables, coefficients, "coefficients")
 
         if any(value is not None for value in coefficients.values()):
             self.validate_only_coefficients(
@@ -153,7 +151,7 @@ class _InputProjector:
                 var: get_array_module(coefficients[var]).atleast_2d(coefficients[var])
                 for var in variables
             }
-            self.add_input_coefficients(key, input_data, time)
+            self.store_input_coefficients(key, input_data, time)
             return
 
         self.require_complete_values(sample_label, **samples)
@@ -161,7 +159,7 @@ class _InputProjector:
         input_data = {
             var: get_array_module(samples[var]).atleast_2d(samples[var]) for var in variables
         }
-        self.project_and_add_input(
+        self.project_and_store_input(
             key,
             input_data,
             lat=lat,
@@ -220,14 +218,14 @@ class _InputProjector:
                     f"{coefficient_label} must have shape {field_space.coefficient_shape} "
                     f"for one time or (time, {', '.join(map(str, field_space.coefficient_shape))})."
                 )
-            self.add_input_coefficients(key, {key: coefficient_rows}, time)
+            self.store_input_coefficients(key, {key: coefficient_rows}, time)
             return
 
         self.require_complete_values(
             sample_label, **{f"{key}_theta": theta_component, f"{key}_phi": phi_component}
         )
         input_data = self.tangential_input_data(key, theta_component, phi_component)
-        self.project_and_add_input(
+        self.project_and_store_input(
             key,
             input_data,
             lat=lat,
@@ -325,7 +323,7 @@ class _InputProjector:
         xp = get_array_module(*q_coeff_rows)
         return xp.stack(q_coeff_rows)
 
-    def project_and_add_input(
+    def project_and_store_input(
         self,
         key: str,
         input_data: dict[str, Any],
@@ -345,15 +343,26 @@ class _InputProjector:
         transform = self.projection_transform(key)
         field_space = self.preparation.data.schema.input_field_spaces[key]
         if field_space.field_type == "scalar" and len(input_data) > 1:
-            projected_data = self.project_scalar_input_variables(
-                key,
-                input_data,
+            # Batch related scalar variables into one analysis solve.
+            normalized = {
+                var: transform.as_scalar_sample_rows(values, input_grid)
+                for var, values in input_data.items()
+            }
+            for var, values in normalized.items():
+                self._validate_time_rows(key, var, values, input_time)
+            xp = get_array_module(*normalized.values())
+            projected = transform.analyze_scalar_samples(
+                xp.concatenate(list(normalized.values()), axis=0),
                 input_grid=input_grid,
-                input_time=input_time,
+                analysis_basis=self.preparation.data.schema.input_projection_bases[key],
                 sqrt_weights=sqrt_weights,
                 reg_lambda=reg_lambda,
                 tolerance=tolerance,
             )
+            projected_data = {
+                var: projected[index * input_time.size : (index + 1) * input_time.size]
+                for index, var in enumerate(normalized)
+            }
         else:
             projected_data = {}
             project = (
@@ -376,42 +385,6 @@ class _InputProjector:
 
         self._store_input_rows(key, projected_data, input_time)
 
-    def project_scalar_input_variables(
-        self,
-        key: str,
-        input_data: dict[str, Any],
-        *,
-        input_grid,
-        input_time,
-        sqrt_weights=None,
-        reg_lambda=None,
-        tolerance=1e-15,
-    ) -> dict[str, Any]:
-        """Project scalar input variables in one batched transform."""
-        transform = self.projection_transform(key)
-        normalized = {
-            var: transform.as_scalar_sample_rows(values, input_grid)
-            for var, values in input_data.items()
-        }
-        for var, values in normalized.items():
-            self._validate_time_rows(key, var, values, input_time)
-
-        variables = tuple(normalized)
-        xp = get_array_module(*(normalized[var] for var in variables))
-        combined = xp.concatenate([normalized[var] for var in variables], axis=0)
-        projected = transform.analyze_scalar_samples(
-            combined,
-            input_grid=input_grid,
-            analysis_basis=self.preparation.data.schema.input_projection_bases[key],
-            sqrt_weights=sqrt_weights,
-            reg_lambda=reg_lambda,
-            tolerance=tolerance,
-        )
-        return {
-            var: projected[index * input_time.size : (index + 1) * input_time.size]
-            for index, var in enumerate(variables)
-        }
-
     def _store_input_rows(self, key: str, projected_data: dict[str, Any], input_time) -> None:
         """Store and persist coefficient rows for one input."""
         for time_index in range(input_time.size):
@@ -422,10 +395,11 @@ class _InputProjector:
             )
         self.preparation.data.input_series.save(key, self.preparation.data.artifact_store)
 
-    def add_input_coefficients(self, key: str, input_data: dict[str, Any], time) -> None:
+    def store_input_coefficients(self, key: str, input_data: dict[str, Any], time) -> None:
         """Store input-basis coefficients directly in a time series."""
         input_time = self.resolve_input_times(time, input_data)
-        self.validate_input_time_rows(key, input_time, input_data)
+        for var, values in input_data.items():
+            self._validate_time_rows(key, var, values, input_time)
         self._store_input_rows(key, input_data, input_time)
 
     def resolve_input_times(self, time, data: dict[str, Any]):
@@ -437,36 +411,6 @@ class _InputProjector:
                 )
             return np.atleast_1d(self.preparation.current_time)
         return np.atleast_1d(time)
-
-    @staticmethod
-    def validate_input_time_rows(key: str, input_time, input_data: dict[str, Any]) -> None:
-        """Require input rows to match times."""
-        row_counts = {var: int(values.shape[0]) for var, values in input_data.items()}
-        if not row_counts:
-            raise ValueError(f"{key} input data cannot be empty.")
-        unique_counts = set(row_counts.values())
-        if len(unique_counts) != 1:
-            details = ", ".join(f"{var}={count}" for var, count in row_counts.items())
-            raise ValueError(f"{key} input variables have inconsistent time rows: {details}.")
-        row_count = next(iter(unique_counts))
-        if row_count != int(input_time.size):
-            details = ", ".join(f"{var}={count}" for var, count in row_counts.items())
-            raise ValueError(
-                f"{key} received {int(input_time.size)} time values, but input data has "
-                f"{row_count} time rows ({details})."
-            )
-
-    @staticmethod
-    def _validate_variables(
-        key: str, variables: tuple[str, ...], values: dict[str, Any], value_kind: str
-    ) -> None:
-        """Require input dictionaries to match their declared spec."""
-        expected = set(variables)
-        actual = set(values)
-        if actual != expected:
-            raise ValueError(
-                f"{key} {value_kind} must use variables {sorted(expected)}, got {sorted(actual)}."
-            )
 
     @staticmethod
     def _validate_time_rows(key: str, var: str, values, input_time) -> None:

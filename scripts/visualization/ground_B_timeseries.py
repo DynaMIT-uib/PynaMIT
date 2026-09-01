@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from kompe.constants import EARTH_RADIUS_M
 
-from pynamit.geomagnetism import decimal_year
+from pynamit.coordinates import decimal_year
 from pynamit.storage import ArtifactStore
 
 periods = [50, 25, 10, 5, 1]

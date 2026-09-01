@@ -26,6 +26,7 @@ exclude_patterns = []
 
 nitpicky = True
 nitpick_ignore = [
+    ("py:class", "collections.abc.Mapping"),
     ("py:class", "InputPreparation"),
     ("py:class", "SimulationData"),
     ("py:class", "SimulationGeometry"),

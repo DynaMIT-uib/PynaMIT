@@ -1,4 +1,4 @@
-"""Coordinate conversion helpers."""
+"""Geographic, local-time, and epoch coordinate conversions."""
 
 import datetime as dt
 
@@ -43,6 +43,20 @@ def datetime_to_utc_hours(time_value):
         + time_value.minute / 60.0
         + time_value.second / 3600.0
         + time_value.microsecond / 3.6e9
+    )
+
+
+def decimal_year(epoch):
+    """Convert a datetime to decimal year, or retain a numeric year."""
+    if not isinstance(epoch, dt.datetime):
+        return float(epoch)
+    if epoch.tzinfo is not None:
+        epoch = epoch.astimezone(dt.timezone.utc).replace(tzinfo=None)
+    year_start = dt.datetime(epoch.year, 1, 1)
+    next_year_start = dt.datetime(epoch.year + 1, 1, 1)
+    return (
+        epoch.year
+        + (epoch - year_start).total_seconds() / (next_year_start - year_start).total_seconds()
     )
 
 
@@ -127,6 +141,7 @@ __all__ = [
     "DEFAULT_LOCAL_TIME_GRID_HOURS",
     "GEOCENTRIC_GEOGRAPHIC",
     "datetime_to_utc_hours",
+    "decimal_year",
     "decimal_year_to_datetime",
     "local_noon_longitude",
     "local_time_hours_to_longitude",

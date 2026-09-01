@@ -1,7 +1,5 @@
 """Background main-field models and magnetic coordinates."""
 
-from datetime import datetime, timezone
-
 import apexpy
 import dipole
 import numpy as np
@@ -49,20 +47,6 @@ def horizontal_coordinate_system_for_kind(kind):
     """Return the canonical horizontal frame for a main-field kind."""
     normalized = normalize_main_field_kind(kind)
     return CENTERED_DIPOLE if normalized == "dipole" else GEOCENTRIC_GEOGRAPHIC
-
-
-def decimal_year(epoch):
-    """Convert a datetime-like epoch to decimal year."""
-    if not isinstance(epoch, datetime):
-        return float(epoch)
-    if epoch.tzinfo is not None:
-        epoch = epoch.astimezone(timezone.utc).replace(tzinfo=None)
-    year_start = datetime(epoch.year, 1, 1, 0, 0)
-    next_year_start = datetime(epoch.year + 1, 1, 1, 0, 0)
-    return (
-        epoch.year
-        + (epoch - year_start).total_seconds() / (next_year_start - year_start).total_seconds()
-    )
 
 
 def _east_north_up_to_spherical(vector):

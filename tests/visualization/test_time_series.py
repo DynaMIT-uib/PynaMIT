@@ -11,6 +11,7 @@ from pynamit.results.time_series import (
     compute_centered_difference_series_at_times,
     compute_centered_difference_values_at_times,
     compute_time_derivative_values,
+    datetime_at_index,
     datetime_index_to_epoch_ns,
     first_event_peak_abs_value_and_time,
     get_time_index_median_cadence_seconds,
@@ -18,6 +19,7 @@ from pynamit.results.time_series import (
     prominent_peak_candidates,
     resample_series_to_times,
     resample_values_to_times,
+    time_index_from_dataset,
     vector_magnitude_from_component_series,
     vector_magnitude_preserve_shape,
 )
@@ -35,8 +37,6 @@ def test_datetime_index_to_epoch_ns_normalizes_resolution():
 
 def test_numeric_saved_times_use_mage_event_time_origin():
     """MAGE output seconds should be displayed from event t0."""
-    from pynamit.plotting.plot_data import time_index_from_dataset
-
     dataset = xr.Dataset(coords={"time": np.array([0.0, 10.0, 20.0])})
 
     index = time_index_from_dataset(dataset, start_time=pd.Timestamp("2011-10-24 18:00:10"))
@@ -49,12 +49,43 @@ def test_numeric_saved_times_use_mage_event_time_origin():
 
 def test_numeric_saved_times_require_physical_start_time():
     """Numeric model seconds are not silently treated as Unix time."""
-    from pynamit.plotting.plot_data import time_index_from_dataset
-
     dataset = xr.Dataset(coords={"time": np.array([0.0, 10.0])})
 
     with pytest.raises(ValueError, match="physical start_time"):
         time_index_from_dataset(dataset)
+
+
+@pytest.mark.parametrize("time_dtype", [float, "datetime64[us]"])
+def test_saved_time_index_matches_individual_timestamp_lookup(time_dtype):
+    """Vectorized conversion preserves precision and empty axes."""
+    start_time = pd.Timestamp("2011-10-24 18:00:10")
+    times = np.array([0.0, 0.25, 20.5])
+    if time_dtype is not float:
+        times = (start_time + pd.to_timedelta(times, unit="s")).to_numpy(dtype=time_dtype)
+    dataset = xr.Dataset(coords={"time": times})
+    index = time_index_from_dataset(dataset, start_time=start_time)
+    expected = pd.DatetimeIndex(
+        [datetime_at_index(times, i, start_time=start_time) for i in range(times.size)]
+    )
+    np.testing.assert_array_equal(index, expected)
+    assert time_index_from_dataset(dataset.isel(time=slice(0, 0))).empty
+
+
+@pytest.mark.parametrize("time_dtype", [float, "datetime64[us]"])
+def test_saved_timestamp_indexing_does_not_clip_or_truncate(time_dtype):
+    """Negative indices select from the end; invalid indices fail."""
+    start_time = pd.Timestamp("2011-10-24 18:00:10")
+    times = np.array([0.0, 10.0, 20.0])
+    if time_dtype is not float:
+        times = (start_time + pd.to_timedelta(times, unit="s")).to_numpy(dtype=time_dtype)
+    assert datetime_at_index(times, -1, start_time=start_time) == start_time + pd.Timedelta(
+        seconds=20
+    )
+    for index in (3, -4, 0.5):
+        with pytest.raises(IndexError):
+            datetime_at_index(times, index, start_time=start_time)
+    with pytest.raises(IndexError):
+        datetime_at_index(times[:0], 0, start_time=start_time)
 
 
 def test_saved_field_time_lookup_handles_mixed_datetime_resolutions():
@@ -206,10 +237,11 @@ def test_compute_time_derivative_values_rejects_invalid_time_axis():
         compute_time_derivative_values(np.ones((2, 4)), invalid_index)
 
 
-def test_prominent_peak_candidates_separate_events():
+@pytest.mark.parametrize("scale", [1.0, 1e-310])
+def test_prominent_peak_candidates_separate_events(scale):
     """Peak selection should prefer separated prominent peaks."""
     index = pd.date_range("2020-01-01", periods=8, freq="10s")
-    values = np.array([0.0, 1.0, 0.0, 4.0, 0.0, 3.0, 0.0, 0.5])
+    values = scale * np.array([0.0, 1.0, 0.0, 4.0, 0.0, 3.0, 0.0, 0.5])
 
     candidates = prominent_peak_candidates(
         values, index, min_separation_seconds=15.0, prominence_fraction=0.10
@@ -223,7 +255,7 @@ def test_prominent_peak_candidates_separate_events():
         prominence_fraction=0.10,
         noise_floor_fraction=0.20,
     )
-    assert peak_value == 1.0
+    assert peak_value == scale
     assert peak_time == index[1]
 
 

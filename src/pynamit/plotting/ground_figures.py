@@ -15,17 +15,19 @@ from pynamit.magnetometers import (
     load_local_iaga2002_station_data,
     load_station_catalog,
 )
-from pynamit.plotting.map_coordinates import MapCoordinateContext
+from pynamit.plotting.map_coordinates import (
+    MapCoordinateContext,
+    geographic_local_time_mask,
+    local_time_window_extent,
+    wrap_longitudes,
+)
 from pynamit.plotting.map_curves import (
     build_even_global_sites,
     curve_site_group_zorders,
     draw_curve_scale_inset,
     draw_timeseries_curve_map,
-    geographic_local_time_mask,
-    local_time_window_extent,
     reference_aligned_curve_centers,
     split_wrapped_curve,
-    wrap_longitudes,
 )
 from pynamit.plotting.plot_data import _coerce_figure_settings, get_plot_data
 from pynamit.results.time_series import (

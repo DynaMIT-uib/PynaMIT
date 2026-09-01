@@ -7,13 +7,7 @@ from functools import cached_property
 from typing import Any
 
 import numpy as np
-from kompe import (
-    GlobalCSBasis,
-    SHBasis,
-    SolidHarmonicOperators,
-    SphericalGrid,
-    SurfaceDifferentialBasis,
-)
+from kompe import GlobalCSBasis, SolidHarmonicOperators, SphericalGrid, SurfaceDifferentialBasis
 from kompe.constants import EARTH_RADIUS_M, MU0
 from kompe.math import (
     LinearMap,
@@ -61,25 +55,14 @@ class SimulationGeometry:
         cs_basis: GlobalCSBasis,
         main_field: MainField,
         config: SimulationConfig,
+        *,
+        solid_harmonics: SolidHarmonicOperators,
         boundary_jr_to_gap_Br_matrix: ArrayLike | None = None,
-        solid_harmonics: SolidHarmonicOperators | None = None,
         operator_cache=None,
     ) -> None:
         """Initialize the geometric context."""
         self.horizontal_basis = horizontal_basis
-        self.solid_harmonics = (
-            solid_harmonics
-            if solid_harmonics is not None
-            else (
-                SolidHarmonicOperators(horizontal_basis)
-                if isinstance(getattr(horizontal_basis, "root_basis", horizontal_basis), SHBasis)
-                else None
-            )
-        )
-        if self.solid_harmonics is None:
-            raise NotImplementedError(
-                f"{type(self.horizontal_basis).__name__} requires solid harmonics for JS coupling."
-            )
+        self.solid_harmonics = solid_harmonics
         self.poloidal_basis = self.solid_harmonics.basis
         self.main_field = main_field
         self.operator_cache = operator_cache

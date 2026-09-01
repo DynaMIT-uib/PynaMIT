@@ -12,8 +12,8 @@ import xarray as xr
 from kompe.constants import EARTH_RADIUS_M
 from kompe.math import LeastSquaresSolver, get_default_least_squares_solver
 
+from pynamit.coordinates import decimal_year
 from pynamit.geomagnetism.main_field import (
-    decimal_year,
     horizontal_coordinate_system_for_kind,
     normalize_main_field_kind,
 )
@@ -39,9 +39,6 @@ INTEGRATORS = {
     "bdf": "BDF",
     "lsoda": "LSODA",
 }
-_DERIVED_SETTING_NAMES = frozenset((*PROJECTION_BASIS_SETTING_NAMES, "fac_integration_radii"))
-
-_MISSING = object()
 
 
 def _integer_setting(value: Any, *, name: str, minimum: int) -> int:
@@ -146,30 +143,6 @@ def dipole_fac_integration_radii(inner_radius, outer_radius, n_points):
     return inner_radius / np.cos(magnetic_latitude) ** 2
 
 
-def _plain_setting_value(value: Any) -> Any:
-    """Return plain scalar values from xarray or NumPy wrappers."""
-    values = getattr(value, "values", value)
-    if getattr(values, "shape", None) == ():
-        return values.item()
-    return values
-
-
-def setting_value(settings: Any, name: str, default: Any = _MISSING) -> Any:
-    """Return one setting from a settings-like object."""
-    attrs = getattr(settings, "attrs", None)
-    if attrs is not None and name in attrs:
-        return _plain_setting_value(attrs[name])
-    if name in getattr(settings, "data_vars", {}):
-        return _plain_setting_value(settings[name])
-    if isinstance(settings, Mapping) and name in settings:
-        return _plain_setting_value(settings[name])
-    if hasattr(settings, name):
-        return _plain_setting_value(getattr(settings, name))
-    if default is not _MISSING:
-        return default
-    raise AttributeError(name)
-
-
 def normalize_horizontal_basis_kind(kind: str) -> str:
     """Normalize a simulation horizontal-basis kind."""
     normalized = str(kind).strip().upper()
@@ -189,7 +162,7 @@ def normalize_projection_basis_kind(kind: str, *, name: str = "projection_basis"
 def _projection_basis_kind(settings: Any, key: str, default: str) -> str:
     """Return normalized projection-basis setting for one input key."""
     name = f"{key}_projection_basis"
-    return normalize_projection_basis_kind(setting_value(settings, name, default), name=name)
+    return normalize_projection_basis_kind(settings.get(name, default), name=name)
 
 
 def resolve_projection_basis_settings(settings: Any, horizontal_basis_kind: str) -> dict[str, str]:
@@ -224,25 +197,6 @@ def _zero_to_none(value):
     if np.ndim(value) == 0 and value == 0:
         return None
     return value
-
-
-def _setting_values_equal(left, right) -> bool:
-    """Return whether two normalized setting values are equal."""
-    if isinstance(left, np.ndarray) or isinstance(right, np.ndarray):
-        return np.array_equal(np.asarray(left), np.asarray(right))
-    return left == right
-
-
-def _setting_is_present(settings: Any, name: str) -> bool:
-    """Return whether a setting is explicitly present."""
-    attrs = getattr(settings, "attrs", None)
-    if attrs is not None and name in attrs:
-        return True
-    if name in getattr(settings, "data_vars", {}):
-        return True
-    if isinstance(settings, Mapping) and name in settings:
-        return True
-    return hasattr(settings, name)
 
 
 @dataclass(frozen=True)
@@ -515,34 +469,34 @@ class SimulationConfig:
         }
 
     @classmethod
-    def from_settings(cls, settings: Any, **overrides) -> SimulationConfig:
-        """Build a normalized config from settings and overrides."""
+    def from_settings(cls, settings: SimulationConfig | xr.Dataset | Mapping) -> SimulationConfig:
+        """Read configuration from saved or in-memory settings.
+
+        Xarray attributes take precedence over data variables. Use
+        ``dataclasses.replace(config, ...)`` for deliberate changes.
+        """
+        if isinstance(settings, cls):
+            return settings
+        if isinstance(settings, xr.Dataset):
+            settings = {**settings.data_vars, **settings.attrs}
+        elif not isinstance(settings, Mapping):
+            raise TypeError("settings must be a SimulationConfig, xarray Dataset, or mapping.")
+
         kwargs = {}
         for config_field in fields(cls):
             name = config_field.name
-            default = None if name in _DERIVED_SETTING_NAMES else config_field.default
-            value = setting_value(settings, name, default)
+            value = settings.get(name, config_field.default)
+            if isinstance(value, xr.DataArray):
+                value = value.values
+            if isinstance(value, np.ndarray) and value.ndim == 0:
+                value = value.item()
             if name in {"RM", "main_field_B0"}:
                 value = _zero_to_none(value)
             kwargs[name] = value
 
-        for name, explicit in overrides.items():
-            if name not in kwargs:
-                raise TypeError(f"Unknown simulation setting {name!r}.")
-            if explicit is None:
-                continue
-            if _setting_is_present(settings, name):
-                stored_config = cls(**kwargs)
-                explicit_config = cls(**{**kwargs, name: explicit})
-                if not _setting_values_equal(
-                    getattr(stored_config, name), getattr(explicit_config, name)
-                ):
-                    raise ValueError(f"{name} argument does not match settings.")
-            kwargs[name] = explicit
-
         config = cls(**kwargs)
-        if _setting_is_present(settings, "horizontal_coordinate_system"):
-            stored_frame = setting_value(settings, "horizontal_coordinate_system")
+        if "horizontal_coordinate_system" in settings:
+            stored_frame = settings["horizontal_coordinate_system"]
             if stored_frame != config.horizontal_coordinate_system:
                 raise ValueError(
                     "horizontal_coordinate_system does not match main_field_kind: "

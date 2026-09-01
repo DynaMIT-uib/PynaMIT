@@ -8,7 +8,9 @@ from kompe import SphericalGrid
 from pynamit.coordinates import (
     DEFAULT_LOCAL_TIME_GRID_HOURS,
     local_noon_longitude,
+    local_time_hours_to_longitude,
     longitude_to_local_time_from_noon_longitude,
+    longitude_to_local_time_hours,
     wrap_longitude_180,
 )
 from pynamit.geodesy import library_geographic_to_spherical_geo
@@ -178,4 +180,110 @@ class MapCoordinateContext:
         return gridliner
 
 
-__all__ = ["MapCoordinateContext", "model_grid_from_geographic", "regular_geographic_grid"]
+def wrap_longitudes(lon_values, central_longitude=0.0):
+    """Wrap longitudes around ``central_longitude``."""
+    center = float(central_longitude)
+    return ((np.asarray(lon_values, dtype=float) - center + 180.0) % 360.0) + center - 180.0
+
+
+def local_time_window_is_full(lt_min, lt_max):
+    """Return whether a local-time window covers the full day."""
+    return float(lt_min) <= 0.0 and float(lt_max) >= 24.0
+
+
+def _coordinate_window(values, *, name, lower, upper, ordered):
+    """Return a finite two-value coordinate window."""
+    window = np.asarray(values, dtype=float)
+    if window.shape != (2,) or not np.all(np.isfinite(window)):
+        raise ValueError(f"{name} must contain two finite values.")
+    if np.any(window < lower) or np.any(window > upper):
+        raise ValueError(f"{name} must lie between {lower:g} and {upper:g}.")
+    if ordered and window[0] > window[1]:
+        raise ValueError(f"{name} must be ordered from minimum to maximum.")
+    return float(window[0]), float(window[1])
+
+
+def geographic_local_time_mask(
+    lat_values,
+    lon_values,
+    *,
+    lat_window=(-90.0, 90.0),
+    local_time_window=(0.0, 24.0),
+    reference_time=None,
+):
+    """Return a finite-site mask for latitude/local-time windows."""
+    lat_arr = np.asarray(lat_values, dtype=float).reshape(-1)
+    lon_arr = np.asarray(lon_values, dtype=float).reshape(-1)
+    if lat_arr.size != lon_arr.size:
+        raise ValueError("lat_values and lon_values must have the same size.")
+
+    lat_min, lat_max = _coordinate_window(
+        lat_window, name="lat_window", lower=-90.0, upper=90.0, ordered=True
+    )
+    mask = (
+        np.isfinite(lat_arr) & np.isfinite(lon_arr) & (lat_arr >= lat_min) & (lat_arr <= lat_max)
+    )
+
+    lt_min, lt_max = _coordinate_window(
+        local_time_window, name="local_time_window", lower=0.0, upper=24.0, ordered=False
+    )
+    if local_time_window_is_full(lt_min, lt_max):
+        return mask
+    if reference_time is None:
+        raise ValueError("reference_time is required when local_time_window is not full.")
+
+    local_time = longitude_to_local_time_hours(lon_arr, reference_time)
+    if lt_min <= lt_max:
+        lt_mask = (local_time >= lt_min) & (local_time <= lt_max)
+    else:
+        lt_mask = (local_time >= lt_min) | (local_time <= lt_max)
+    return mask & lt_mask
+
+
+def local_time_window_extent(
+    *,
+    lat_window=(-90.0, 90.0),
+    local_time_window=(0.0, 24.0),
+    reference_time,
+    central_longitude=0.0,
+):
+    """Return a Cartopy extent for latitude/local-time map windows."""
+    lat_min, lat_max = _coordinate_window(
+        lat_window, name="lat_window", lower=-90.0, upper=90.0, ordered=True
+    )
+    lt_min, lt_max = _coordinate_window(
+        local_time_window, name="local_time_window", lower=0.0, upper=24.0, ordered=False
+    )
+    full_lat = lat_min <= -90.0 and lat_max >= 90.0
+    full_lt = local_time_window_is_full(lt_min, lt_max)
+    if full_lat and full_lt:
+        return None
+
+    lat_min = max(float(lat_min), -89.9)
+    lat_max = min(float(lat_max), 89.9)
+    if full_lt:
+        lon_min, lon_max = -180.0, 180.0
+    else:
+        width_hours = (float(lt_max) - float(lt_min)) % 24.0
+        if width_hours <= 0.0:
+            width_hours = 24.0
+        lon_min = wrap_longitudes(
+            local_time_hours_to_longitude(float(lt_min), reference_time),
+            central_longitude=central_longitude,
+        )
+        lon_min = float(np.asarray(lon_min))
+        lon_max = lon_min + 15.0 * width_hours
+        if lon_max - lon_min >= 359.9:
+            lon_min, lon_max = -180.0, 180.0
+    return [float(lon_min), float(lon_max), float(lat_min), float(lat_max)]
+
+
+__all__ = [
+    "MapCoordinateContext",
+    "geographic_local_time_mask",
+    "local_time_window_extent",
+    "local_time_window_is_full",
+    "model_grid_from_geographic",
+    "regular_geographic_grid",
+    "wrap_longitudes",
+]

@@ -20,6 +20,7 @@ from pynamit.plotting.contours import (
     contour_kwargs_for_display,
     format_contour_interval,
     get_ticks_from_levels,
+    percentile_contour_levels,
     symmetric_contour_levels,
     symmetric_contour_levels_without_zero,
 )
@@ -28,14 +29,17 @@ from pynamit.plotting.hemisphere import (
     hemisphere_masks_for_latitude,
 )
 from pynamit.plotting.map_axes import style_global_axis
-from pynamit.plotting.map_coordinates import MapCoordinateContext, regular_geographic_grid
+from pynamit.plotting.map_coordinates import (
+    MapCoordinateContext,
+    geographic_local_time_mask,
+    local_time_window_extent,
+    regular_geographic_grid,
+    wrap_longitudes,
+)
 from pynamit.plotting.map_curves import (
     build_even_global_sites,
     build_timeseries_curve_layers,
-    geographic_local_time_mask,
-    local_time_window_extent,
     split_wrapped_curve,
-    wrap_longitudes,
 )
 from pynamit.storage import ArtifactStore
 
@@ -306,6 +310,40 @@ def test_percentile_color_scale_handles_positive_linear_and_log_data():
     np.testing.assert_allclose(log["vmax"], 100.0)
     assert log["norm"].vmin == log["vmin"]
     assert log["norm"].vmax == log["vmax"]
+
+
+@pytest.mark.parametrize("scale_type", ["linear", "log"])
+def test_percentile_color_scales_preserve_small_nonzero_data(scale_type):
+    """Physical units must not determine a hidden plotting threshold."""
+    scale = build_percentile_color_scale(
+        [np.array([1e-24, 1e-23])],
+        strictly_positive=True,
+        vmin_percentile=0.0,
+        vmax_percentile=100.0,
+        scale_type=scale_type,
+    )
+    assert scale["vmin"] == (0.0 if scale_type == "linear" else 1e-24)
+    assert scale["vmax"] == 1e-23
+
+
+@pytest.mark.parametrize("scale_type", ["linear", "log"])
+def test_positive_color_scales_reject_negative_data_at_any_magnitude(scale_type):
+    """The sign check does not depend on the data's units."""
+    with pytest.raises(ValueError, match="negative"):
+        build_percentile_color_scale(
+            [[-1e-12, 1.0]], strictly_positive=True, scale_type=scale_type
+        )
+    with pytest.raises(ValueError, match="negative"):
+        percentile_contour_levels([[-1e-12, 1.0]], [0.0, 0.5, 1.0], strictly_positive=True)
+
+
+@pytest.mark.parametrize("value,scale_type", [(0.0, "linear"), (1e-24, "log")])
+def test_constant_fields_still_get_usable_color_limits(value, scale_type):
+    """Constant-field limits do not change the underlying data."""
+    values = np.full(3, value)
+    scale = build_percentile_color_scale([values], strictly_positive=True, scale_type=scale_type)
+    assert scale["vmin"] <= value < scale["vmax"]
+    np.testing.assert_array_equal(values, np.full(3, value))
 
 
 def test_style_global_axis_centralizes_map_setup():

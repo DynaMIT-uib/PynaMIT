@@ -2,6 +2,7 @@
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from pynamit.magnetometers import (
     load_iaga2002_magnetometer_data,
@@ -78,11 +79,16 @@ def test_station_time_offset_helpers_are_explicit():
     assert source_end == pd.Timestamp("2020-01-01T00:00:10")
 
 
-def test_station_availability_checks_require_all_nonzero_components():
+@pytest.mark.parametrize("scale", [1.0, 1e-310])
+def test_station_availability_checks_require_all_nonzero_components(scale):
     """Availability checks should reject all-zero components."""
     index = pd.date_range("2020-01-01", periods=3, freq="10s")
-    data = pd.DataFrame(
-        {"AAAX": [1.0, 2.0, 3.0], "AAAY": [4.0, 5.0, 6.0], "AAAZ": [7.0, 8.0, 9.0]}, index=index
+    data = (
+        pd.DataFrame(
+            {"AAAX": [1.0, 2.0, 3.0], "AAAY": [4.0, 5.0, 6.0], "AAAZ": [7.0, 8.0, 9.0]},
+            index=index,
+        )
+        * scale
     )
 
     assert station_window_has_nonzero_measurements(

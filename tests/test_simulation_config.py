@@ -1,6 +1,7 @@
 """Tests for simulation configuration normalization."""
 
 import datetime as dt
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -8,9 +9,9 @@ import xarray as xr
 from kompe.constants import EARTH_RADIUS_M
 from kompe.math import LEAST_SQUARES_SOLVER_ENV
 
-from pynamit.geomagnetism import decimal_year
+from pynamit.coordinates import decimal_year
 from pynamit.simulation import Simulation
-from pynamit.simulation.config import SimulationConfig, dipole_fac_integration_radii, setting_value
+from pynamit.simulation.config import SimulationConfig, dipole_fac_integration_radii
 
 
 def test_simulation_constructs_from_normalized_config(tmp_path):
@@ -128,7 +129,7 @@ def test_simulation_config_dataset_roundtrip_preserves_stored_sentinels():
 
     assert settings.attrs["RM"] == 0
     assert settings.attrs["main_field_B0"] == 0
-    assert setting_value(settings, "enable_pfac_coupling") == 0
+    assert settings.attrs["enable_pfac_coupling"] == 0
     assert restored.RM is None
     assert not restored.magnetic_boundary_shielding
     assert restored.main_field_B0 is None
@@ -233,22 +234,35 @@ def test_simulation_config_parses_persisted_boolean_values_explicitly():
         SimulationConfig(save_equilibria="sometimes")
 
 
-def test_simulation_config_from_settings_rejects_conflicting_override():
-    """Explicit overrides must agree with stored settings."""
+def test_simulation_config_from_settings_is_a_reader_not_an_override_api():
+    """Reading settings does not combine two configuration sources."""
     settings = xr.Dataset(attrs={"Nmax": 3, "Mmax": 2, "Ncs": 4, "horizontal_basis_kind": "CS"})
 
-    with pytest.raises(ValueError, match="horizontal_basis_kind"):
+    with pytest.raises(TypeError, match="horizontal_basis_kind"):
         SimulationConfig.from_settings(settings, horizontal_basis_kind="SH")
 
 
-def test_simulation_config_from_settings_uses_override_when_missing():
-    """Explicit overrides fill absent settings."""
+def test_simulation_config_changes_use_dataclass_replace():
+    """Deliberate changes construct and validate a new configuration."""
     settings = xr.Dataset(attrs={"Nmax": 3, "Mmax": 2, "Ncs": 4})
+    config = SimulationConfig.from_settings(settings)
+    changed = replace(config, Nmax=4)
+    assert changed.Nmax == 4
+    assert config.Nmax == 3
+    assert SimulationConfig.from_settings(config) is config
 
-    config = SimulationConfig.from_settings(settings, horizontal_basis_kind="CS")
 
-    assert config.horizontal_basis_kind == "CS"
-    assert config.boundary_jr_projection_basis == "CS"
+@pytest.mark.parametrize("representation", ["mapping", "attrs", "data_vars"])
+def test_simulation_config_reads_scalar_settings_at_one_boundary(representation):
+    """Mappings and stored datasets use the same normalization."""
+    values = {"Nmax": np.array(3), "Mmax": np.array(2), "Ncs": np.array(4)}
+    settings = values
+    if representation == "attrs":
+        settings = xr.Dataset(attrs=values)
+    elif representation == "data_vars":
+        settings = xr.Dataset({name: ((), value) for name, value in values.items()})
+    config = SimulationConfig.from_settings(settings)
+    assert (config.Nmax, config.Mmax, config.Ncs) == (3, 2, 4)
 
 
 def test_simulation_config_enforces_radial_boundary_invariants():

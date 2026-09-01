@@ -48,7 +48,7 @@ jax = [
 plot = [
     "cartopy",
     "matplotlib",
-    "pillow",
+    "pillow>=9.1",
     "polplot @ git+https://github.com/klaundal/polplot.git@main",
 ]
 gui = [
@@ -57,7 +57,7 @@ gui = [
     "matplotlib",
     "netCDF4",
     "panel",
-    "pillow",
+    "pillow>=9.1",
     "polplot @ git+https://github.com/klaundal/polplot.git@main",
     "zarr",
 ]

@@ -50,7 +50,7 @@ def test_toroidal_potential_solvers_match_the_direct_physical_solution(
     )
 
     problem = response._toroidal_potential_problem
-    rhs_entries = [None] * problem.num_data_terms
+    rhs_entries = [None] * len(problem.data_operators)
     rhs_entries[0] = geometry.radial_current_constraint_operator.matvec(boundary_jr)
     rhs, _, _ = problem.assemble_rhs_block(rhs_entries)
     system = problem.system_operator.to_matrix(backend="numpy")
@@ -340,7 +340,7 @@ def test_toroidal_potential_runtime_solve_uses_one_physical_rhs():
             electric_field_difference, input_shape=(2, n), output_shape=(n,)
         ),
     )
-    response._toroidal_potential_problem_cache = SimpleNamespace(num_data_terms=2)
+    response._toroidal_potential_problem_cache = SimpleNamespace(data_operators=[None, None])
     response._interhemispheric_electric_field_constraint_cache = _dummy_constraint_map()
     response.config = SimpleNamespace(
         enable_interhemispheric_coupling=True, interhemispheric_electric_field_weight=weight
@@ -404,7 +404,7 @@ def test_induced_poloidal_potential_E_response_solves_only_poloidal_source_colum
     )
     response._interhemispheric_electric_field_constraint_cache = _dummy_constraint_map()
     response._toroidal_potential_problem_cache = SimpleNamespace(
-        num_data_terms=2, A=[SimpleNamespace(), SimpleNamespace(output_shape=(n_constraint,))]
+        data_operators=[SimpleNamespace(), SimpleNamespace(output_shape=(n_constraint,))]
     )
     response._toroidal_potential_to_E_coeffs_operator_cache = as_linear_map(
         toroidal_potential_to_E, input_shape=(n_surface,), output_shape=(2, n_surface)

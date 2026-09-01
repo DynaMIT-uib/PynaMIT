@@ -161,8 +161,6 @@ class FigureSettings:
         FigureSettings._validate_integer("time_range start", start, minimum=0)
         FigureSettings._validate_integer("time_range end", end, minimum=0)
         start, end = int(start), int(end)
-        if start < 0 or end < 0:
-            raise ValueError("time_range indices must be non-negative.")
         if end < start:
             raise ValueError("time_range end must be greater than or equal to start.")
         return (start, end)

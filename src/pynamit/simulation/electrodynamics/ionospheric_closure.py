@@ -30,15 +30,12 @@ def _invert_pedersen_hall_pair(pedersen, hall):
         xp.asarray(pedersen, dtype=float), xp.asarray(hall, dtype=float)
     )
     scale = xp.maximum(xp.abs(pedersen), xp.abs(hall))
-    valid = xp.isfinite(scale) & (scale > 0.0)
-    safe_scale = xp.where(valid, scale, xp.ones_like(scale))
-    scaled_pedersen = pedersen / safe_scale
-    scaled_hall = hall / safe_scale
-    denominator = safe_scale * (scaled_pedersen**2 + scaled_hall**2)
-    safe_denominator = xp.where(valid, denominator, xp.ones_like(denominator))
-    inverse_pedersen = xp.where(valid, scaled_pedersen / safe_denominator, xp.nan)
-    inverse_hall = xp.where(valid, scaled_hall / safe_denominator, xp.nan)
-    return inverse_pedersen, inverse_hall
+    # Scale before squaring to avoid underflow and overflow.
+    # A zero tensor has no inverse and naturally produces NaN.
+    scaled_pedersen = pedersen / scale
+    scaled_hall = hall / scale
+    denominator = scale * (scaled_pedersen**2 + scaled_hall**2)
+    return scaled_pedersen / denominator, scaled_hall / denominator
 
 
 def conductance_to_resistance(SigmaP, SigmaH):

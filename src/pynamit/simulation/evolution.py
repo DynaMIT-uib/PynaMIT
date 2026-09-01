@@ -365,7 +365,7 @@ class _TimeEvolution:
             int(
                 np.ceil(
                     max(options.target_time - float(self.simulation.current_time), 0.0)
-                    / max(float(options.dt), TIME_TOLERANCE_SECONDS)
+                    / float(options.dt)
                 )
             ),
         )

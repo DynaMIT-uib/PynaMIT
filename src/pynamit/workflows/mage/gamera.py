@@ -9,8 +9,11 @@ from typing import Any
 import h5py
 import numpy as np
 from kompe.constants import EARTH_RADIUS_M
+from kompe.math import backend_context
+from kompe.mesh import spherical_triangle_solid_angle
 
-from pynamit.geomagnetism import MainField, decimal_year
+from pynamit.coordinates import decimal_year
+from pynamit.geomagnetism import MainField
 from pynamit.geomagnetism.kaiju_geopack import kaiju_geopack_sm
 
 GAMERA_EARTH_SPEED_SCALE_M_S = 1.0e5
@@ -286,20 +289,6 @@ def _trilinear_hexahedron_volume_centers(vertices: np.ndarray) -> np.ndarray:
     return first_moment / volume[..., None]
 
 
-def _spherical_triangle_solid_angle(
-    first: np.ndarray, second: np.ndarray, third: np.ndarray
-) -> np.ndarray:
-    """Return the unsigned solid angle of unit-vector triangles."""
-    numerator = np.abs(np.einsum("...i,...i->...", first, np.cross(second, third)))
-    denominator = (
-        1.0
-        + np.einsum("...i,...i->...", first, second)
-        + np.einsum("...i,...i->...", second, third)
-        + np.einsum("...i,...i->...", third, first)
-    )
-    return 2.0 * np.arctan2(numerator, denominator)
-
-
 def _gamera_boundary_solid_angle(vertices: np.ndarray) -> np.ndarray:
     """Return each boundary cell's solid angle from its vertices."""
     mid_shell = np.stack(
@@ -316,9 +305,11 @@ def _gamera_boundary_solid_angle(vertices: np.ndarray) -> np.ndarray:
         raise RuntimeError("GAMERA inner-boundary vertices must have finite nonzero radii.")
     unit = mid_shell / norms
     lower_left, upper_left, upper_right, lower_right = np.moveaxis(unit, -2, 0)
-    solid_angle = _spherical_triangle_solid_angle(
-        lower_left, upper_left, upper_right
-    ) + _spherical_triangle_solid_angle(lower_left, upper_right, lower_right)
+    # Build provider-file geometry on the CPU before input projection.
+    with backend_context("numpy"):
+        solid_angle = spherical_triangle_solid_angle(
+            lower_left, upper_left, upper_right
+        ) + spherical_triangle_solid_angle(lower_left, upper_right, lower_right)
     if np.any(~np.isfinite(solid_angle)) or np.any(solid_angle <= 0.0):
         raise RuntimeError("GAMERA inner-boundary cells must have finite positive solid angles.")
     return solid_angle
@@ -493,7 +484,8 @@ class _GameraBoundaryInterpolator:
         weights = np.einsum(
             "nij,nj->ni", self._cell_inverse[colatitude_index, azimuth_index], target_basis
         )
-        weights = np.clip(weights, 0.0, 1.0)
+        # Skewed logical cells can give signed weights; clipping them
+        # would break constant and bilinear field reproduction.
         corners = np.column_stack(
             (
                 values[colatitude_index, azimuth_index],

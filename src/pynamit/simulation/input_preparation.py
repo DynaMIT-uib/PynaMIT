@@ -871,7 +871,9 @@ class InputPreparation:
         q_coeff_rows = self._input_projector.fit_Q_eff_from_neutral_wind(
             input_time, wind_coeff_rows, reg_lambda=Q_eff_reg_lambda, tolerance=tolerance
         )
-        self._input_projector.add_input_coefficients("Q_eff", {"Q_eff": q_coeff_rows}, input_time)
+        self._input_projector.store_input_coefficients(
+            "Q_eff", {"Q_eff": q_coeff_rows}, input_time
+        )
 
     def evaluate_Q_eff_from_neutral_wind(
         self,

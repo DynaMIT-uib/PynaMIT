@@ -151,7 +151,8 @@ def test_log_conductance_coordinates_require_positive_finite_inputs(pedersen, ha
 
 def test_pedersen_hall_inversion_broadcasts_and_marks_zero_pair_invalid():
     """Hall values broadcast and a zero tensor has no finite inverse."""
-    etaP, etaH = conductance_to_resistance(np.array([2.0, 0.0]), 0.0)
+    with np.errstate(invalid="ignore"):
+        etaP, etaH = conductance_to_resistance(np.array([2.0, 0.0]), 0.0)
 
     np.testing.assert_allclose(etaP[0], 0.5)
     np.testing.assert_allclose(etaH[0], 0.0)

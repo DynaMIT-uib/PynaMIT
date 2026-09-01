@@ -8,7 +8,7 @@ from typing import Any
 
 import numpy as np
 
-from pynamit.simulation.config import SimulationConfig, _setting_values_equal
+from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.schema import INPUT_DATASET_KEYS, SIMULATION_ARTIFACT_NAMES
 from pynamit.storage import ArtifactStore
 
@@ -37,21 +37,13 @@ _INPUT_DATASET_REQUIREMENT_KEYS = {"boundary_Br": ("RM",)}
 
 def input_projection_settings(config_or_settings: Any) -> dict[str, Any]:
     """Return settings defining prepared input coefficient space."""
-    config = (
-        config_or_settings
-        if isinstance(config_or_settings, SimulationConfig)
-        else SimulationConfig.from_settings(config_or_settings)
-    )
+    config = SimulationConfig.from_settings(config_or_settings)
     return {name: getattr(config, name) for name in _INPUT_PROJECTION_SETTING_KEYS}
 
 
 def input_geometry_settings(config_or_settings: Any) -> dict[str, Any]:
     """Return geometry settings stored with prepared inputs."""
-    config = (
-        config_or_settings
-        if isinstance(config_or_settings, SimulationConfig)
-        else SimulationConfig.from_settings(config_or_settings)
-    )
+    config = SimulationConfig.from_settings(config_or_settings)
     geometry = {name: getattr(config, name) for name in _INPUT_GEOMETRY_SETTING_KEYS}
     geometry["horizontal_coordinate_system"] = config.horizontal_coordinate_system
     geometry["input_time_origin"] = config.t0
@@ -255,9 +247,9 @@ def validate_prepared_input_compatibility(
     for name in _INPUT_MAINFIELD_SETTING_KEYS:
         input_value = getattr(input_config, name)
         simulation_value = getattr(simulation_config, name)
-        if not _setting_values_equal(input_value, simulation_value):
+        if not np.array_equal(input_value, simulation_value):
             mismatches[name] = (input_value, simulation_value)
-    if not _setting_values_equal(input_config.t0, simulation_config.t0):
+    if input_config.t0 != simulation_config.t0:
         mismatches["input_time_origin"] = (input_config.t0, simulation_config.t0)
 
     if input_datasets is not None:
@@ -267,7 +259,7 @@ def validate_prepared_input_compatibility(
         for name in sorted(required):
             input_value = getattr(input_config, name)
             simulation_value = getattr(simulation_config, name)
-            if not _setting_values_equal(input_value, simulation_value):
+            if not np.array_equal(input_value, simulation_value):
                 mismatches[name] = (input_value, simulation_value)
 
     if mismatches:

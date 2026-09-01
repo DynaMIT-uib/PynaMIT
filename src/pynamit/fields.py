@@ -29,7 +29,6 @@ class FieldSpace:
             raise ValueError("field_type must be either 'scalar' or 'tangential'.")
         if not isinstance(self.basis, ScalarBasis):
             raise TypeError("FieldSpace basis must be a Kompe ScalarBasis.")
-        self.basis.validate_metadata()
         if self.mean_free is None:
             mean_free = (
                 self.basis.omits_constant_mode()

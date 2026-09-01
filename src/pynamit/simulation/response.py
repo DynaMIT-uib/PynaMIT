@@ -432,7 +432,7 @@ class ElectrodynamicResponse:
     ) -> list[Any | None] | None:
         """Assemble the physical right-hand sides for one solve."""
         problem = self._toroidal_potential_problem
-        rhs_entries = [None] * problem.num_data_terms
+        rhs_entries = [None] * len(problem.data_operators)
         has_rhs = False
 
         if boundary_jr_coeffs is not None:
@@ -466,9 +466,9 @@ class ElectrodynamicResponse:
             radial_current_array = self.geometry.radial_current_constraint_operator.to_array()
             xp = get_array_module(radial_current_array)
             radial_current_rhs = xp.asarray(radial_current_array).reshape(
-                problem.A[0].output_shape + (-1,)
+                problem.data_operators[0].output_shape + (-1,)
             )
-            rhs_entries = [None] * problem.num_data_terms
+            rhs_entries = [None] * len(problem.data_operators)
             rhs_entries[0] = radial_current_rhs
             response = self._solve_toroidal_potential_response(rhs_entries)
             self._boundary_jr_to_toroidal_potential_operator = as_linear_map(
@@ -492,11 +492,11 @@ class ElectrodynamicResponse:
             problem = self._toroidal_potential_problem
             electric_field_rhs = (
                 -self.geometry.interhemispheric_electric_field_difference_array.reshape(
-                    problem.A[1].output_shape + (2 * n,)
+                    problem.data_operators[1].output_shape + (2 * n,)
                 )
             )
             electric_field_rhs *= self.config.interhemispheric_electric_field_weight
-            rhs_entries = [None] * problem.num_data_terms
+            rhs_entries = [None] * len(problem.data_operators)
             rhs_entries[1] = electric_field_rhs
             response = self._solve_toroidal_potential_response(rhs_entries)
             self._driving_E_to_toroidal_potential_operator = as_linear_map(
@@ -550,7 +550,7 @@ class ElectrodynamicResponse:
                 @ source_to_driving_E
             )
             electric_field_rhs = electric_field_rhs_operator.to_array()
-            rhs_entries = [None] * problem.num_data_terms
+            rhs_entries = [None] * len(problem.data_operators)
             rhs_entries[1] = electric_field_rhs
             toroidal_potential_from_source = as_linear_map(
                 self._solve_toroidal_potential_response(rhs_entries),

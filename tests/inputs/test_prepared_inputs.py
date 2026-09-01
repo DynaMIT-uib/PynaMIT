@@ -9,13 +9,14 @@ from kompe.constants import EARTH_RADIUS_M
 from tests import example_scenario
 
 import pynamit
+from pynamit.coordinates import decimal_year
 from pynamit.external_inputs.coordinates import PYNAMIT_CENTERED_DIPOLE_110KM
 from pynamit.external_inputs.provider_definitions import (
     BOUNDARY_JR_PROVIDER_SPEC,
     CONDUCTANCE_PROVIDER_SPEC,
     NEUTRAL_WIND_PROVIDER_SPEC,
 )
-from pynamit.geomagnetism import MainField, decimal_year
+from pynamit.geomagnetism import MainField
 from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.input_manifest import (
     INPUT_MANIFEST_FILENAME,

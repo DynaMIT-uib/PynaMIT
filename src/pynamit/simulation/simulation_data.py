@@ -52,11 +52,7 @@ class SimulationData:
         print_info=False,
     ) -> "SimulationData":
         """Open or create persisted simulation data."""
-        config = (
-            settings
-            if isinstance(settings, SimulationConfig)
-            else SimulationConfig.from_settings(settings)
-        )
+        config = SimulationConfig.from_settings(settings)
         settings_dataset = config.to_dataset()
 
         if simulation_directory is None:

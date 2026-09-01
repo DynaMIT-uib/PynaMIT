@@ -631,6 +631,31 @@ def test_gamera_boundary_interpolator_is_periodic_and_bilinear():
     np.testing.assert_allclose(observed, [240.0, 240.0, 420.0], atol=1e-12)
 
 
+@pytest.mark.parametrize("constant", [True, False])
+def test_gamera_boundary_interpolation_preserves_polynomials_on_skewed_cells(constant):
+    """Retain negative weights near skewed logical-cell boundaries."""
+    colatitude, azimuth = np.meshgrid(
+        np.deg2rad([30.0, 90.0, 150.0]), np.deg2rad([45.0, 135.0, 225.0, 315.0]), indexing="ij"
+    )
+    colatitude[1] += np.deg2rad([4.0, 4.0, -4.0, -4.0])
+    source_latitude, source_longitude = _sm_from_gamera_angles(colatitude, azimuth)
+    interpolator = _GameraBoundaryInterpolator(source_latitude, source_longitude)
+    theta, phi = np.deg2rad([91.0, 90.0])
+    target_latitude, target_longitude = _sm_from_gamera_angles(theta, phi)
+    values = (
+        np.ones_like(colatitude)
+        if constant
+        else 2.0 + colatitude + 2.0 * azimuth + colatitude * azimuth
+    )
+    expected = 1.0 if constant else 2.0 + theta + 2.0 * phi + theta * phi
+
+    observed = interpolator.interpolate(
+        values, target_sm_lat=target_latitude, target_sm_lon=target_longitude
+    )
+
+    np.testing.assert_allclose(observed, expected, rtol=1e-13)
+
+
 def test_gamera_boundary_interpolator_reconstructs_native_poles():
     """Use adjacent ring means at the two omitted GAMERA axes."""
     colatitude, azimuth = np.meshgrid(

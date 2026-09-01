@@ -2,14 +2,12 @@
 
 import numpy as np
 import pytest
-import xarray as xr
 
 from pynamit.simulation.config import (
     SimulationConfig,
     normalize_horizontal_basis_kind,
     normalize_projection_basis_kind,
     resolve_projection_basis_settings,
-    setting_value,
 )
 from pynamit.simulation.schema import (
     INPUT_VARIABLES,
@@ -60,18 +58,6 @@ def test_projection_basis_settings_reject_sh_projection_in_cs_mode():
     """A CS horizontal basis requires matching CS input settings."""
     with pytest.raises(ValueError, match="boundary_jr_projection_basis"):
         resolve_projection_basis_settings({"boundary_jr_projection_basis": "SH"}, "CS")
-
-
-def test_setting_value_accepts_attrs_and_data_vars():
-    """Settings access unwraps saved scalar values at the boundary."""
-    attr_settings = xr.Dataset(attrs={"Nmax": np.array(3)})
-    data_var_settings = xr.Dataset({"Nmax": ((), np.array(4))})
-    mapping_settings = {"Nmax": np.array(5)}
-
-    assert setting_value(attr_settings, "Nmax") == 3
-    assert setting_value(data_var_settings, "Nmax") == 4
-    assert setting_value(mapping_settings, "Nmax") == 5
-    assert setting_value(attr_settings, "missing", "fallback") == "fallback"
 
 
 def test_sh_schema_uses_mean_free_sh_inputs_and_outputs():

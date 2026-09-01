@@ -27,6 +27,7 @@ from pynamit.results.output_fields import (
     evaluate_output_coefficients,
 )
 from pynamit.results.simulation_results import SimulationResults
+from pynamit.results.time_series import datetime_at_index, time_index_from_dataset
 from pynamit.simulation.electrodynamics.ionospheric_closure import pedersen_geometry_tensor
 from pynamit.simulation.schema import SIMULATION_ARTIFACT_NAMES
 from pynamit.storage import ArtifactStore
@@ -123,30 +124,6 @@ def _dataset_index_at_time(dataset, timestamp, *, start_time=None):
     return max(0, min(position, len(times) - 1))
 
 
-def datetime_at_index(times, index, *, start_time=None):
-    """Return one saved time value as a pandas timestamp."""
-    values = np.asarray(times)
-    if values.size == 0:
-        raise ValueError("No time coordinates are available.")
-    idx = int(max(0, min(int(index), values.size - 1)))
-    value = values[idx]
-    if np.issubdtype(values.dtype, np.datetime64):
-        return pd.Timestamp(value)
-    if start_time is None:
-        raise ValueError("Numeric simulation times require the physical start_time.")
-    return pd.Timestamp(start_time) + pd.to_timedelta(float(value), unit="s")
-
-
-def time_index_from_dataset(dataset, *, start_time=None):
-    """Return dataset times as a ``DatetimeIndex``."""
-    return pd.DatetimeIndex(
-        [
-            datetime_at_index(dataset.time.values, index, start_time=start_time)
-            for index in range(len(dataset.time))
-        ]
-    )
-
-
 def evaluate_output_fields_at_index(
     index,
     results,
@@ -169,7 +146,7 @@ def evaluate_output_fields_at_index(
     reference_dataset = datasets[reference_key]
     if target_time is None:
         target_time = datetime_at_index(
-            reference_dataset.time.values, int(index), start_time=start_time
+            reference_dataset.time.values, index, start_time=start_time
         )
 
     boundary_Br = None
@@ -200,7 +177,7 @@ def evaluate_output_fields_at_index(
     for dataset_key in output_keys:
         dataset = datasets[dataset_key]
         output_index = (
-            int(index)
+            index
             if dataset_key == reference_key
             else _dataset_index_at_time(dataset, target_time, start_time=start_time)
         )
@@ -540,7 +517,6 @@ class PlotData:
         """Return flat output fields in the requested coordinates."""
         field_names = _normalize_output_field_names(field_names)
         coordinate_system = _normalize_display_coordinate_system(coordinate_system)
-        index = int(max(0, min(int(index), self.n_time - 1)))
         timestamp = self.timestamp_at_index(index)
         if not self.has_model_output:
             raise ValueError(
@@ -730,10 +706,8 @@ def get_plot_data(settings):
 __all__ = [
     "PlotData",
     "clear_plot_data_cache",
-    "datetime_at_index",
     "evaluate_input_fields_at_time",
     "evaluate_output_fields_at_index",
     "format_figure_time",
     "get_plot_data",
-    "time_index_from_dataset",
 ]

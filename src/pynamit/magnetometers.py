@@ -28,7 +28,7 @@ def shift_station_datetime_index(time_index, data_time_offset_seconds=0.0):
     """Shift station timestamps by the configured data offset."""
     data_index = pd.DatetimeIndex(pd.to_datetime(time_index))
     offset_seconds = float(data_time_offset_seconds)
-    if abs(offset_seconds) <= 1e-12:
+    if offset_seconds == 0.0:
         return data_index
     return data_index + pd.to_timedelta(offset_seconds, unit="s")
 
@@ -274,7 +274,7 @@ def station_window_has_nonzero_measurements(
     for column in mag_cols:
         values = window_df[column].to_numpy(dtype=float)
         values = values[np.isfinite(values)]
-        if values.size == 0 or not np.any(np.abs(values) > np.finfo(float).tiny):
+        if not np.any(values != 0.0):
             return False
     return True
 
@@ -317,7 +317,7 @@ def station_has_complete_nonzero_components_at_times(
         values = np.asarray(values, dtype=float).reshape(-1)
         if values.size != len(target_index) or not np.all(np.isfinite(values)):
             return False
-        if not np.any(np.abs(values) > np.finfo(float).tiny):
+        if not np.any(values != 0.0):
             return False
     return True
 

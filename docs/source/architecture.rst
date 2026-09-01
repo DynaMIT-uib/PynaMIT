@@ -80,8 +80,41 @@ Keep this layering intact: configuration should not perform numerical work,
 schema should not read simulation data, input projection should not evolve the model,
 and visualization should not mutate simulation state.
 
+``SimulationConfig.from_settings`` reads a configuration, mapping, or xarray
+dataset. It no longer probes arbitrary objects for attributes or accepts
+keyword overrides that actually checked agreement with stored values. Use
+``dataclasses.replace(config, Nmax=...)`` for a deliberate, validated change.
+When changing a setting with dependent defaults, supply those dependent choices
+explicitly or reset them to ``None`` to derive them again.
+
+``SimulationGeometry`` receives ``solid_harmonics`` explicitly from the schema.
+The poloidal radial representation is independent of the horizontal surface
+representation; geometry does not infer one from the other in the SH case.
+
 Package map and dependency direction
 ------------------------------------
+
+Function placement follows the data or equations each function interprets:
+
+* ``coordinates`` owns geographic, local-time, and epoch conversions.
+  ``decimal_year`` lives beside ``decimal_year_to_datetime`` here, rather than
+  in ``geomagnetism``. Empirical providers reuse the same UTC-hour conversion.
+* ``results.time_series`` owns saved-time decoding and numerical series
+  analysis. Import ``datetime_at_index`` and ``time_index_from_dataset`` here,
+  not from ``plotting.plot_data``. Full time-axis conversion is vectorized.
+  Saved-output indices follow normal NumPy indexing: ``-1`` selects the last
+  snapshot, while noninteger and out-of-range indices raise an error rather
+  than silently selecting another snapshot.
+* ``plotting.map_coordinates`` owns local-time window masks, map extents, and
+  centered longitude wrapping. ``map_curves`` owns curve geometry and drawing,
+  and consumes these coordinate operations.
+
+The physics-facing geometry, response, input projection, and evolution modules
+remain separate cohesive roles. Their local equation-specific helpers remain
+beside their callers; general numerical routines belong in Kompe.
+For example, GAMERA boundary cells and Kompe's global mesh share
+``kompe.mesh.spherical_triangle_solid_angle``. GAMERA's vertex ordering,
+file units, and Kaiju quadrature policy remain in the provider adapter.
 
 The top-level packages separate reusable scientific and infrastructural
 concepts from the PynaMIT simulation model::
@@ -227,6 +260,9 @@ grid-value compatibility and remapping identity. Its separate analysis
 signature also includes optional area weights: equal coordinates can share
 synthesis matrices while requiring different weighted least-squares analyses.
 Transform caches must choose deliberately between those two identities.
+Likewise, basis coefficient compatibility is distinct from its evaluation
+signature. A requested SH Legendre algorithm is preserved by ``with_basis``
+even when the coefficients themselves are interchangeable.
 Mean-freedom is owned by coefficient spaces, not by post-step cleanup. The
 schema's ``sh_basis`` retains the mean/monopole term for quantities such as
 conductance, while ``mean_free_sh_basis`` is used for radial magnetic fields.
@@ -788,6 +824,13 @@ Visualization code should treat saved simulations as read-only inputs.  The
 serializable, reusable, and testable outside the GUI.  Keep option validation
 close to the settings, rendering close to figure builders, and widget binding close
 to panel-specific modules.
+
+``save_movie`` renders exactly the inclusive ``FigureSettings.time_range``:
+``(3, 3)`` writes one frame, not an automatically expanded interval. Out-of-range
+indices and invalid FPS/DPI overrides are errors. Color scaling likewise keeps
+small finite values regardless of their units; positive-field scales reject
+negative data rather than silently clipping them. Only constant fields need an
+artificial display interval.
 
 Saved simulation loading has one persistence path. ``SimulationResults`` uses the same
 ``ArtifactStore`` abstraction as simulation persistence and constructs the canonical

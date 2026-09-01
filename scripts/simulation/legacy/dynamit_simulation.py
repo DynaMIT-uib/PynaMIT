@@ -2,7 +2,7 @@
 
 import numpy as np
 import pynamit
-from pynamit.geomagnetism import decimal_year
+from pynamit.coordinates import decimal_year
 from lompe import conductance
 import pyhwm2014  # https://github.com/rilma/pyHWM14
 import datetime

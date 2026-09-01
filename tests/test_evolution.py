@@ -60,6 +60,13 @@ def test_evolution_rejects_invalid_time_step(dt):
         _TimeEvolution(simulation).evolve_to_time(1.0, dt=dt, quiet=True)
 
 
+def test_progress_estimate_uses_the_requested_time_step():
+    """Progress estimation uses dt without a numerical floor."""
+    evolution = _TimeEvolution(_FakeSimulation())
+    options = SimpleNamespace(target_time=1e-4, dt=1e-8)
+    assert evolution._total_steps_estimate(options) == 10000
+
+
 @pytest.mark.parametrize("value", [0, -1, 1.5, True])
 def test_evolution_rejects_invalid_sample_intervals(value):
     """Sample controls must be positive integers without truncation."""

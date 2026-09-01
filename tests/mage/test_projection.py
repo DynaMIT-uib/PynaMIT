@@ -10,7 +10,7 @@ import pytest
 from tests.mage._support import _FakeH5, _write_projection_forcing
 
 from pynamit.simulation.input_manifest import clear_prepared_input_package
-from pynamit.workflows.mage.diagnostics import write_input_projection_diagnostics
+from pynamit.workflows.mage.diagnostics import _field_scales, write_input_projection_diagnostics
 from pynamit.workflows.mage.gamera import _centered_dipole_alignment_attrs
 from pynamit.workflows.mage.preparation import _create_output_datasets
 from pynamit.workflows.mage.prepared_forcing import (
@@ -29,6 +29,13 @@ from pynamit.workflows.mage.projection import (
     prepare_inputs,
 )
 from pynamit.workflows.mage.remix import _upward_fac_to_radial_current
+
+
+def test_projection_diagnostics_do_not_hide_negative_conductance():
+    """Do not silently clip unphysical conductance values."""
+    comparison = {(0, "SigmaP"): {"input": np.array([1.0]), "projected": np.array([-1e-12])}}
+    with pytest.raises(ValueError, match="SigmaP.*negative"):
+        _field_scales(comparison, [0], "SigmaP", vmin_percentile=0.0, vmax_percentile=100.0)
 
 
 def test_prepared_forcing_schema_contains_only_projection_inputs(tmp_path):

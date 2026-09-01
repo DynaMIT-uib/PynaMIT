@@ -19,8 +19,8 @@ from kompe import SphericalGrid
 from kompe.spherical_transform import grid_sqrt_area_weights
 
 import pynamit
-from pynamit.coordinates import wrap_longitude_180
-from pynamit.geomagnetism import MainField, decimal_year
+from pynamit.coordinates import decimal_year, wrap_longitude_180
+from pynamit.geomagnetism import MainField
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     electric_field_from_weighted_winds,
     resistance_from_log_conductance_coordinates,

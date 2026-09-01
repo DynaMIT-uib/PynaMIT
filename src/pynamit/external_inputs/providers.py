@@ -14,6 +14,7 @@ import apexpy
 import dipole
 import numpy as np
 
+from pynamit.coordinates import datetime_to_utc_hours, decimal_year
 from pynamit.external_inputs.coordinates import (
     LIBRARY_GEOGRAPHIC_110KM,
     ExternalInputCoordinates,
@@ -32,7 +33,6 @@ from pynamit.external_inputs.provider_definitions import (
     InputProviderSpec,
 )
 from pynamit.geodesy import library_horizontal_to_spherical
-from pynamit.geomagnetism import decimal_year
 
 FALLBACK_RESOURCE = resources.files("pynamit.data") / "fallback_inputs.json"
 _INPUT_SOURCE = os.environ.get("PYNAMIT_INPUT_SOURCE", "native").strip().lower()
@@ -687,11 +687,6 @@ def _hwm_iyd(date: Any) -> int:
     return int(date.year % 100) * 1000 + int(date.timetuple().tm_yday)
 
 
-def _hwm_utc_hours(date: Any) -> float:
-    """Return UTC hours including seconds and microseconds."""
-    return float(date.hour + date.minute / 60.0 + date.second / 3600.0 + date.microsecond / 3.6e9)
-
-
 def _library_horizontal_wind_to_spherical(
     coordinates: ExternalInputCoordinates, zonal_east: np.ndarray, meridional_north: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -752,7 +747,7 @@ def get_wind_inputs(
             alt_km=np.full(provider_grid.size, _IONOSPHERE_ALTITUDE_KM),
             glat_deg=provider_grid.lat,
             glon_deg=provider_grid.lon,
-            utc_hours=np.full(provider_grid.size, _hwm_utc_hours(provider_date)),
+            utc_hours=np.full(provider_grid.size, datetime_to_utc_hours(provider_date)),
             iyd=_hwm_iyd(provider_date),
             ap=list(ap),
         )

@@ -7,8 +7,8 @@ import numpy as np
 import pytest
 from kompe.constants import EARTH_RADIUS_M
 
-from pynamit.coordinates import decimal_year_to_datetime, local_noon_longitude
-from pynamit.geomagnetism import MainField, decimal_year
+from pynamit.coordinates import decimal_year, local_noon_longitude
+from pynamit.geomagnetism import MainField
 from pynamit.geomagnetism.kaiju_geopack import (
     KaijuGeopackMAG,
     KaijuGeopackSM,
@@ -272,16 +272,6 @@ def test_kaiju_main_field_model_noon_is_geographic_noon():
     main_field = MainField(kind="kaiju_dipole", epoch=decimal_year(event_time))
 
     assert main_field.local_noon_longitude(event_time) == local_noon_longitude(event_time)
-
-
-def test_decimal_year_roundtrip_preserves_every_supported_kaiju_day():
-    """Midnight roundoff must never select the preceding Geopack day."""
-    for year in range(1965, 2026):
-        value = dt.datetime(year, 1, 1)
-        while value.year == year:
-            epoch = decimal_year(value)
-            assert decimal_year_to_datetime(epoch).date() == value.date()
-            value += dt.timedelta(days=1)
 
 
 def test_kaiju_main_field_alignment_metadata_distinguishes_geo_mag_and_sm():

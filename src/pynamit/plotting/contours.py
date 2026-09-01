@@ -107,39 +107,36 @@ def finite_values(data_arrays):
     return values[np.isfinite(values)]
 
 
-def _color_scale_values(data_arrays, *, strictly_positive, scale_type, minimum_positive, label):
+def _color_scale_values(data_arrays, *, strictly_positive, scale_type, label):
     """Return finite values eligible for percentile color limits."""
     finite = finite_values(data_arrays)
     if finite.size == 0:
         raise ValueError(f"No finite data available for '{label}' color scale.")
     if not strictly_positive:
         return finite
-    if np.any(finite < -1e-9):
+    if np.any(finite < 0.0):
         raise ValueError(
             f"Data for '{label}' is marked strictly positive but contains negative values."
         )
 
-    values = finite[finite >= 0.0]
     if scale_type == "log":
-        values = values[values > float(minimum_positive)]
+        values = finite[finite > 0.0]
         if values.size == 0:
-            raise ValueError(f"No data above {minimum_positive:g} for '{label}' log color scale.")
-    if values.size == 0:
-        raise ValueError(f"No valid data available for '{label}' color scale.")
-    return values
+            raise ValueError(f"No positive data available for '{label}' log color scale.")
+        return values
+    return finite
 
 
-def _color_normalization(vmin, vmax, *, strictly_positive, scale_type, minimum_positive):
+def _color_normalization(vmin, vmax, *, strictly_positive, scale_type):
     """Return nondegenerate limits and normalization."""
     if scale_type == "log":
-        if not vmax > vmin:
-            center = max(float(vmax), float(minimum_positive) * 10.0)
-            vmin = max(center / np.sqrt(10.0), float(minimum_positive))
-            vmax = center * np.sqrt(10.0)
+        if vmax == vmin:
+            vmin, vmax = vmin / np.sqrt(10.0), vmax * np.sqrt(10.0)
         return vmin, vmax, mcolors.LogNorm(vmin=vmin, vmax=vmax, clip=True)
 
-    if abs(vmax - vmin) < 1e-12:
-        epsilon = abs(vmax) * 0.05 if abs(vmax) > 1e-9 else 0.05
+    # Only constant fields need an artificial display interval.
+    if vmax == vmin:
+        epsilon = abs(vmax) * 0.05 if vmax != 0.0 else 0.05
         if vmin == vmax == 0.0:
             vmax = epsilon
             if not strictly_positive:
@@ -147,8 +144,6 @@ def _color_normalization(vmin, vmax, *, strictly_positive, scale_type, minimum_p
         else:
             vmin -= epsilon
             vmax += epsilon
-        if strictly_positive and vmin < 0.0:
-            vmin = 0.0
     return vmin, vmax, mcolors.Normalize(vmin=vmin, vmax=vmax, clip=True)
 
 
@@ -160,7 +155,6 @@ def build_percentile_color_scale(
     vmax_percentile=99.8,
     scale_type="linear",
     cmap=None,
-    minimum_positive=1e-12,
     label="data",
 ):
     """Build a Matplotlib color scale from finite data percentiles."""
@@ -176,11 +170,7 @@ def build_percentile_color_scale(
         raise ValueError("Log color scales require strictly_positive=True.")
 
     percentile_values = _color_scale_values(
-        data_arrays,
-        strictly_positive=strictly_positive,
-        scale_type=scale_type,
-        minimum_positive=minimum_positive,
-        label=label,
+        data_arrays, strictly_positive=strictly_positive, scale_type=scale_type, label=label
     )
     if strictly_positive:
         vmin = float(np.percentile(percentile_values, vmin_percentile))
@@ -191,11 +181,7 @@ def build_percentile_color_scale(
         abs_max = float(np.percentile(np.abs(percentile_values), vmax_percentile))
         vmin, vmax = -abs_max, abs_max
     vmin, vmax, norm = _color_normalization(
-        vmin,
-        vmax,
-        strictly_positive=strictly_positive,
-        scale_type=scale_type,
-        minimum_positive=minimum_positive,
+        vmin, vmax, strictly_positive=strictly_positive, scale_type=scale_type
     )
 
     return {
@@ -220,9 +206,8 @@ def percentile_contour_levels(
     if not np.isfinite(percentile) or not 0.0 <= percentile <= 100.0:
         raise ValueError("percentile must be between 0 and 100.")
     if strictly_positive:
-        finite = finite[finite >= 0.0]
-        if finite.size == 0:
-            return fallback_levels
+        if np.any(finite < 0.0):
+            raise ValueError("Positive contour scales cannot contain negative data.")
         vmax = float(np.percentile(finite, percentile))
         if not np.isfinite(vmax) or vmax <= 0.0:
             return fallback_levels
