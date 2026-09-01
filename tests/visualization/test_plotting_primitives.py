@@ -1,12 +1,10 @@
-"""Tests for helpers extracted from the plotting notebook."""
+"""Tests for reusable map, contour, and plotting primitives."""
 
 import datetime as dt
 
 import cartopy.crs as ccrs
 import numpy as np
 import pytest
-from kompe import SHBasis, SolidHarmonicOperators, SphericalTransform
-from kompe.constants import EARTH_RADIUS_M, MU0
 
 from pynamit.coordinates import (
     datetime_to_utc_hours,
@@ -17,10 +15,19 @@ from pynamit.coordinates import (
     longitude_to_local_time_hours,
     wrap_longitude_180,
 )
+from pynamit.plotting.contours import (
+    build_percentile_color_scale,
+    contour_kwargs_for_display,
+    format_contour_interval,
+    get_ticks_from_levels,
+    symmetric_contour_levels,
+    symmetric_contour_levels_without_zero,
+)
 from pynamit.plotting.hemisphere import (
     coerce_hemisphere_min_abs_latitude,
     hemisphere_masks_for_latitude,
 )
+from pynamit.plotting.map_axes import style_global_axis
 from pynamit.plotting.map_coordinates import MapCoordinateContext, regular_geographic_grid
 from pynamit.plotting.map_curves import (
     build_even_global_sites,
@@ -30,17 +37,6 @@ from pynamit.plotting.map_curves import (
     split_wrapped_curve,
     wrap_longitudes,
 )
-from pynamit.plotting.plot_helpers import (
-    build_percentile_color_scale,
-    contour_kwargs_for_display,
-    format_contour_interval,
-    get_ticks_from_levels,
-    style_global_axis,
-    symmetric_contour_levels,
-    symmetric_contour_levels_without_zero,
-)
-from pynamit.results.output_fields import sheet_current_evaluation_arrays
-from pynamit.simulation.simulation import Simulation
 from pynamit.storage import ArtifactStore
 
 
@@ -144,7 +140,7 @@ def test_map_curve_sampling_rejects_invalid_geometry_settings():
 
 def test_percentile_contours_reject_invalid_percentiles():
     """Invalid percentile requests are not silently clipped."""
-    from pynamit.plotting.plot_helpers import percentile_contour_levels
+    from pynamit.plotting.contours import percentile_contour_levels
 
     with pytest.raises(ValueError, match="percentile"):
         percentile_contour_levels([np.arange(3.0)], np.arange(3.0), percentile=101.0)
@@ -421,130 +417,3 @@ def test_grid_helpers_are_importable_from_visualization():
     assert lat.shape == (3, 4)
     assert lon.shape == (3, 4)
     assert grid.size == 12
-
-
-def test_sheet_current_evaluation_arrays_match_core_formulas():
-    """Shared JS helper follows geometry formulas."""
-
-    class Settings:
-        RI = 1.0
-        RM = 2.0
-        magnetic_boundary_shielding = True
-
-    sh_basis = SHBasis(3, 2, mean_free=True)
-    solid_harmonics = SolidHarmonicOperators(sh_basis)
-    _, _, grid = regular_geographic_grid(nlat=4, nlon=5)
-    transform = SphericalTransform(sh_basis, grid)
-    boundary_jr_to_gap_Br = np.eye(sh_basis.index_length)
-
-    arrays = sheet_current_evaluation_arrays(
-        Settings, sh_basis, transform, boundary_jr_to_gap_Br_matrix=boundary_jr_to_gap_Br
-    )
-
-    poloidal_to_JS = (
-        -transform.rhat_cross_gradient_array
-        * solid_harmonics.poloidal_to_normalized_potential_jump_factors.reshape(1, 1, -1)
-        / MU0
-    )
-    toroidal_to_JS = -transform.surface_gradient_array / MU0
-    regular_shift = solid_harmonics.regular_reference_shift_factors(Settings.RM, Settings.RI)
-    irregular_shift = solid_harmonics.irregular_reference_shift_factors(Settings.RI, Settings.RM)
-    denominator = 1.0 - regular_shift * irregular_shift
-    induced_potential_to_Br = -(Settings.RI**2) * np.diag(
-        sh_basis.surface_laplacian_operator(Settings.RI).to_matrix()
-    )
-    boundary_jr_to_toroidal = (
-        MU0 / Settings.RI * sh_basis.mean_free_surface_poisson_operator(Settings.RI).to_array()
-    )
-
-    np.testing.assert_allclose(
-        arrays["boundary_jr_to_JS"],
-        np.tensordot(toroidal_to_JS, boundary_jr_to_toroidal, axes=([2], [0]))
-        + np.tensordot(
-            -poloidal_to_JS / induced_potential_to_Br, boundary_jr_to_gap_Br, axes=([2], [0])
-        ),
-    )
-    np.testing.assert_allclose(
-        arrays["induced_Br_to_JS"],
-        poloidal_to_JS
-        / induced_potential_to_Br
-        * (1.0 + regular_shift * irregular_shift / denominator),
-    )
-    np.testing.assert_allclose(
-        arrays["boundary_Br_to_JS"],
-        poloidal_to_JS * (-regular_shift / (denominator * induced_potential_to_Br)),
-    )
-
-
-def test_sheet_current_evaluation_arrays_default_to_unshielded_rm():
-    """RM does not impose shielding unless requested."""
-
-    class Settings:
-        RI = 1.0
-        RM = 2.0
-
-    sh_basis = SHBasis(3, 2, mean_free=True)
-    solid_harmonics = SolidHarmonicOperators(sh_basis)
-    _, _, grid = regular_geographic_grid(nlat=4, nlon=5)
-    transform = SphericalTransform(sh_basis, grid)
-
-    arrays = sheet_current_evaluation_arrays(Settings, sh_basis, transform)
-    poloidal_to_JS = (
-        -transform.rhat_cross_gradient_array
-        * solid_harmonics.poloidal_to_normalized_potential_jump_factors.reshape(1, 1, -1)
-        / MU0
-    )
-
-    degree_factor = -(Settings.RI**2) * np.diag(
-        sh_basis.surface_laplacian_operator(Settings.RI).to_matrix()
-    )
-    np.testing.assert_allclose(arrays["induced_Br_to_JS"], poloidal_to_JS / degree_factor)
-
-
-def test_sheet_current_evaluation_arrays_omit_boundary_map_without_rm():
-    """A run without a magnetic boundary allocates no zero Br map."""
-
-    class Settings:
-        RI = 1.0
-        RM = None
-
-    sh_basis = SHBasis(3, 2, mean_free=True)
-    _, _, grid = regular_geographic_grid(nlat=4, nlon=5)
-    transform = SphericalTransform(sh_basis, grid)
-
-    arrays = sheet_current_evaluation_arrays(Settings, sh_basis, transform)
-
-    assert arrays["boundary_Br_to_JS"] is None
-
-
-def test_sheet_current_evaluation_arrays_match_geometry(tmp_path):
-    """Notebook helper matches SimulationGeometry JS conventions."""
-    simulation = Simulation(
-        simulation_directory=str(tmp_path / "run"),
-        Nmax=2,
-        Mmax=1,
-        Ncs=8,
-        RM=4 * EARTH_RADIUS_M,
-        enable_pfac_coupling=False,
-        artifact_storage="netcdf",
-    )
-    geometry = simulation.geometry
-    _, _, grid = regular_geographic_grid(nlat=4, nlon=5)
-    transform = SphericalTransform(simulation.geometry.horizontal_basis, grid)
-    arrays = sheet_current_evaluation_arrays(
-        simulation.data.config,
-        simulation.geometry.horizontal_basis,
-        transform,
-        boundary_jr_to_gap_Br_matrix=geometry.boundary_jr_to_gap_Br_matrix,
-    )
-
-    np.testing.assert_allclose(
-        arrays["induced_Br_to_JS"],
-        geometry.induced_Br_to_gridded_JS_operator(transform).to_array(),
-    )
-    np.testing.assert_allclose(
-        arrays["boundary_jr_to_JS"],
-        geometry.boundary_jr_to_gridded_JS_operator(transform).to_array(),
-    )
-    boundary_Br_operator = geometry.boundary_Br_to_gridded_JS_operator(transform)
-    np.testing.assert_allclose(arrays["boundary_Br_to_JS"], boundary_Br_operator.to_array())

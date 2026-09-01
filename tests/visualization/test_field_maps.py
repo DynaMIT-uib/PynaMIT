@@ -116,7 +116,7 @@ def test_live_JS_evaluation_includes_boundary_field():
         {"boundary_jr": np.array([1.0, 2.0]), "induced_Br": np.array([3.0, 4.0])},
         transform=None,
         field_names={"JS_theta", "JS_phi"},
-        current_operators={
+        sheet_current_operators={
             "boundary_jr_to_JS": as_linear_map(np.eye(4, 2), output_shape=(2, 2)),
             "induced_Br_to_JS": as_linear_map(2.0 * np.eye(4, 2), output_shape=(2, 2)),
             "boundary_Br_to_JS": as_linear_map(3.0 * np.eye(4, 2), output_shape=(2, 2)),

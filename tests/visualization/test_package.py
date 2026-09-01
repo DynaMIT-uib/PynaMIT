@@ -29,7 +29,7 @@ def test_new_package_entry_points_are_available():
     assert plotting.FigureSettings.__name__ == "FigureSettings"
     assert plotting.PlotData.__name__ == "PlotData"
     assert not hasattr(plotting, "RunFields")
-    assert callable(plot_data.compute_output_fields_at_index)
+    assert callable(plot_data.evaluate_output_fields_at_index)
     assert callable(plotting.render_figure)
     assert gui.PynamitGUI.__name__ == "PynamitGUI"
     assert callable(gui.build_gui)
@@ -81,7 +81,7 @@ def test_magnetic_boundary_operators_are_available():
 
     assert callable(magnetic_boundary.induced_Br_to_gridded_JS_operator)
     assert callable(magnetic_boundary.boundary_jr_to_gridded_JS_operator)
-    assert callable(output_fields.sheet_current_evaluation_arrays)
+    assert callable(output_fields.build_sheet_current_operators)
 
 
 def test_input_projection_comparison_recipe_is_importable():
@@ -128,7 +128,7 @@ def test_plot_data_loads_projected_input_package_without_output(tmp_path):
     assert view.output_transform is None
     assert view.results._geometry is None
     assert view.output_evaluation_context is None
-    assert view.sheet_current_maps is None
+    assert view.sheet_current_operators is None
     assert view.input_transforms["boundary_jr"] is view.input_transforms["boundary_Br"]
     assert view.input_transforms["u"] is None
     assert view.input_transforms["Q_eff"] is None
@@ -160,7 +160,7 @@ def test_plot_data_loads_without_boundary_br(tmp_path):
     view = plot_data.PlotData.from_directory(tmp_path)
     assert view.results._geometry is None
     assert view.output_evaluation_context is None
-    assert view.sheet_current_maps is None
+    assert view.sheet_current_operators is None
     with pytest.raises(ValueError, match="Unknown output fields"):
         view.output_plot_data(0, field_names={"not-a-field"})
     assert view.results._geometry is None
@@ -171,7 +171,7 @@ def test_plot_data_loads_without_boundary_br(tmp_path):
     assert view.has_model_output
     assert view.results._geometry is not None
     assert view.output_evaluation_context is not None
-    assert view.sheet_current_maps is None
+    assert view.sheet_current_operators is None
     assert "boundary_Br" not in view.results.datasets
     assert set(view.available_inputs) == {"boundary_jr", "conductance"}
     assert set(fields) == {"Br_dynamic", "Br_equilibrium"}
@@ -222,7 +222,7 @@ def test_saved_output_joule_uses_pedersen_dissipation(monkeypatch):
             np.array([[[2.0, 1.0], [1.0, 3.0]], [[4.0, 0.0], [0.0, 5.0]]]), 0, -1
         ),
     }
-    sheet_current_maps = {
+    sheet_current_operators = {
         "induced_Br_to_JS": np.array([np.eye(2), np.zeros((2, 2))]),
         "boundary_jr_to_JS": np.array([np.zeros((2, 2)), np.eye(2)]),
         "boundary_Br_to_JS": None,
@@ -235,26 +235,26 @@ def test_saved_output_joule_uses_pedersen_dissipation(monkeypatch):
         plot_data, "evaluate_projected_input", lambda *_args, **_kwargs: {"etaP": etaP}
     )
 
-    fields = plot_data.compute_output_fields_at_index(
+    fields = plot_data.evaluate_output_fields_at_index(
         0,
         results,
         IdentityEvaluator(),
         IdentityEvaluator(),
         output_evaluation_context,
-        sheet_current_maps,
+        sheet_current_operators,
         start_time="2020-01-01",
     )["dynamic"]
 
     np.testing.assert_allclose(fields["joule"], [70.0, 288.0])
 
     results.datasets = {"equilibrium": output, "conductance": conductance}
-    equilibrium_fields = plot_data.compute_output_fields_at_index(
+    equilibrium_fields = plot_data.evaluate_output_fields_at_index(
         0,
         results,
         IdentityEvaluator(),
         IdentityEvaluator(),
         output_evaluation_context,
-        sheet_current_maps,
+        sheet_current_operators,
         start_time="2020-01-01",
     )["equilibrium"]
 
@@ -394,7 +394,7 @@ def test_plot_data_keeps_model_and_geographic_evaluation_grids_separate(tmp_path
     geographic = view._get_geographic_evaluation()
     geographic_output_transform = view._geographic_output_transform(geographic)
     expected_lat, expected_lon = view.results.main_field.geo_to_model_coordinates(
-        view.lat, view.lon, event_time=view.results.config.t0
+        view.lat, view.lon
     )
 
     np.testing.assert_allclose(view.output_transform.grid.lat, view.lat.reshape(-1))
@@ -430,13 +430,13 @@ def test_plot_data_reuses_earth_fixed_geographic_mapping(tmp_path):
     view = plot_data.PlotData.from_directory(tmp_path, nlat=6, nlon=8)
     first_time = view.timestamp_at_index(0)
     last_time = view.timestamp_at_index(1)
-    first = view._get_geographic_evaluation(first_time)
-    last = view._get_geographic_evaluation(last_time)
+    first = view._get_geographic_evaluation()
+    last = view._get_geographic_evaluation()
 
     assert first is last
     np.testing.assert_allclose(first.scalar_grid.lat, last.scalar_grid.lat)
     np.testing.assert_allclose(first.scalar_grid.lon, last.scalar_grid.lon)
-    assert view._get_geographic_evaluation(last_time) is last
+    assert view._get_geographic_evaluation() is last
     assert (
         view.model_map_context(first_time).noon_longitude
         != view.model_map_context(last_time).noon_longitude

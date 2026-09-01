@@ -6,16 +6,15 @@ import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
 import numpy as np
 
-from pynamit.plotting.figure_styles import INPUT_SUMMARY_KWARGS
-from pynamit.plotting.hemisphere import hemisphere_masks_for_latitude, make_hemisphere_polarplot
-from pynamit.plotting.plot_data import _coerce_figure_settings, format_figure_time, get_plot_data
-from pynamit.plotting.plot_helpers import (
-    add_panel_label,
+from pynamit.plotting.contours import (
     contour_kwargs_for_display,
     percentile_contour_levels,
     set_contour_edges_to_face,
-    style_global_input_axis,
 )
+from pynamit.plotting.figure_styles import INPUT_SUMMARY_KWARGS
+from pynamit.plotting.hemisphere import hemisphere_masks_for_latitude, make_hemisphere_polarplot
+from pynamit.plotting.map_axes import style_global_axis
+from pynamit.plotting.plot_data import _coerce_figure_settings, format_figure_time, get_plot_data
 
 
 class InputDriverRenderer:
@@ -75,7 +74,18 @@ class InputDriverRenderer:
             [pax_jr_n.ax, pax_jr_s.ax, ax_br, ax_source, ax_pedersen, ax_hall],
             strict=True,
         ):
-            add_panel_label(axis, label)
+            axis.text(
+                0.015,
+                0.965,
+                label,
+                transform=axis.transAxes,
+                ha="left",
+                va="top",
+                fontsize=10,
+                fontweight="bold",
+                bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.82, "pad": 2.0},
+                zorder=10,
+            )
 
         self._draw_colorbars(fig, layout, jr_n, br_mappable, conductance_mappable, input_kwargs)
         fig.suptitle(f"Input drivers at {format_figure_time(timestamp)}", fontsize=15, y=0.975)
@@ -250,7 +260,7 @@ class InputDriverRenderer:
                 True,
             ),
         ]:
-            style_global_input_axis(
+            style_global_axis(
                 axis,
                 coordinate_context=coordinate_context,
                 left_labels=left_labels,
@@ -277,7 +287,7 @@ class InputDriverRenderer:
         return br_mappable, conductance_mappable
 
     def _draw_tangential_source(self, fields, axis, coordinate_context):
-        style_global_input_axis(
+        style_global_axis(
             axis, coordinate_context=coordinate_context, left_labels=True, bottom_labels=True
         )
         source_options = [

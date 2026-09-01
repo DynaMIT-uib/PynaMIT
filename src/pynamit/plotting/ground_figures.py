@@ -11,9 +11,9 @@ from matplotlib.lines import Line2D
 from pynamit.coordinates import local_time_hours_to_longitude
 from pynamit.magnetometers import (
     download_and_load_iaga2002_station_data,
-    find_station_metadata,
+    iaga_xyz_to_geographic_components,
     load_local_iaga2002_station_data,
-    station_geographic_components,
+    load_station_catalog,
 )
 from pynamit.plotting.map_coordinates import MapCoordinateContext
 from pynamit.plotting.map_curves import (
@@ -44,7 +44,7 @@ class GroundFigureRenderer:
     def __init__(self, settings, plot_data=None):
         self.settings = _coerce_figure_settings(settings)
         self.plot_data = get_plot_data(self.settings) if plot_data is None else plot_data
-        self._station_table_cache = None
+        self._station_catalog_cache = None
 
     @property
     def _time_index(self):
@@ -91,7 +91,7 @@ class GroundFigureRenderer:
         curve_height_deg = 4.0
         low_latitude_scale = float(self.settings.low_latitude_scale)
         low_latitude_cutoff = float(self.settings.min_abs_dip_latitude)
-        low_latitude_values = self._site_magnetic_latitude(lat, lon, target_times[0])
+        low_latitude_values = self._site_magnetic_latitude(lat, lon)
         site_curve_scale = np.where(
             np.abs(low_latitude_values) < low_latitude_cutoff, low_latitude_scale, 1.0
         )
@@ -214,7 +214,7 @@ class GroundFigureRenderer:
 
     def render_timeseries(self):
         """Render selected-station ground magnetic time series."""
-        stations, _ = self._station_table()
+        stations, _ = self._station_catalog()
         station_code = str(self.settings.ground_station).upper()
         rows = stations[stations["IAGA"] == station_code]
         if rows.empty:
@@ -235,12 +235,12 @@ class GroundFigureRenderer:
         target_times = self._ground_plot_times()
         measured = None
         if self.settings.include_station_data:
-            _, stations_path = self._station_table()
+            _, stations_path = self._station_catalog()
             station_values = download_and_load_iaga2002_station_data(
                 station_code, target_times[0], stations_path.parent, logger=None
             )
             if station_values is not None:
-                measured = station_geographic_components(
+                measured = iaga_xyz_to_geographic_components(
                     station_values,
                     station_code,
                     data_time_offset_seconds=self.settings.data_time_offset_seconds,
@@ -334,7 +334,7 @@ class GroundFigureRenderer:
         measured_values = None
         if self.settings.include_station_data:
             station_sites = self._ground_curve_station_sites(target_times)
-            _, stations_path = self._station_table()
+            _, stations_path = self._station_catalog()
             station_lon = station_sites["GEOLON"].to_numpy(dtype=float)
             station_lat = station_sites["GEOLAT"].to_numpy(dtype=float)
             candidate_labels = station_sites["IAGA"].astype(str).to_list()
@@ -456,15 +456,15 @@ class GroundFigureRenderer:
             )
         return layers
 
-    def _station_table(self):
-        """Return normalized station metadata and source path."""
-        if self._station_table_cache is not None:
-            return self._station_table_cache
-        self._station_table_cache = find_station_metadata(
+    def _station_catalog(self):
+        """Return the normalized station catalog and source path."""
+        if self._station_catalog_cache is not None:
+            return self._station_catalog_cache
+        self._station_catalog_cache = load_station_catalog(
             self.settings.simulation_directory,
             station_data_directory=self.settings.station_data_directory,
         )
-        return self._station_table_cache
+        return self._station_catalog_cache
 
     def _station_values_at_times(self, measured, target_times, *, dbdt_cadence_seconds=None):
         """Return measured station values sampled at target times."""
@@ -499,8 +499,8 @@ class GroundFigureRenderer:
         return values
 
     def _ground_curve_station_sites(self, target_times):
-        """Return filtered station metadata."""
-        stations, _ = self._station_table()
+        """Return the filtered station catalog."""
+        stations, _ = self._station_catalog()
         mask = geographic_local_time_mask(
             stations["GEOLAT"].to_numpy(dtype=float),
             stations["GEOLON"].to_numpy(dtype=float),
@@ -510,7 +510,7 @@ class GroundFigureRenderer:
         )
         return stations.loc[mask].reset_index(drop=True)
 
-    def _site_magnetic_latitude(self, lat, lon, event_time):
+    def _site_magnetic_latitude(self, lat, lon):
         """Return magnetic latitude used for low-latitude selection."""
         lat_arr = np.asarray(lat, dtype=float)
         lon_arr = np.asarray(lon, dtype=float)
@@ -521,7 +521,7 @@ class GroundFigureRenderer:
             )
             return np.asarray(mlat, dtype=float)
         if main_field.kind == "dipole":
-            mlat, _ = main_field.geo_to_model_coordinates(lat_arr, lon_arr, event_time=event_time)
+            mlat, _ = main_field.geo_to_model_coordinates(lat_arr, lon_arr)
             return np.asarray(mlat, dtype=float)
         raise ValueError(f"Unsupported main_field kind for magnetic latitude: {main_field.kind!r}")
 

@@ -7,6 +7,14 @@ import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
 
+from pynamit.plotting.contours import (
+    contour_kwargs_for_display,
+    draw_line_contour_legend,
+    format_contour_interval,
+    get_ticks_from_levels,
+    percentile_contour_levels,
+    set_contour_edges_to_face,
+)
 from pynamit.plotting.figure_styles import (
     FIELD_DIFF_KWARGS,
     FIELD_PLOT_KWARGS,
@@ -15,23 +23,8 @@ from pynamit.plotting.figure_styles import (
     map_line_keys,
 )
 from pynamit.plotting.hemisphere import hemisphere_masks_for_latitude, make_hemisphere_polarplot
+from pynamit.plotting.map_axes import style_global_axis
 from pynamit.plotting.plot_data import _coerce_figure_settings, format_figure_time, get_plot_data
-from pynamit.plotting.plot_helpers import (
-    contour_kwargs_for_display,
-    draw_line_contour_legend,
-    format_contour_interval,
-    get_ticks_from_levels,
-    percentile_contour_levels,
-    set_contour_edges_to_face,
-    style_global_comparison_axis,
-)
-
-
-def _polar_comparison_coordinates(lat, lon, coordinate_context, minimum_latitude):
-    """Return polar coordinates and hemisphere masks."""
-    polar_time = coordinate_context.longitude_to_local_time(lon)
-    north_mask, south_mask = hemisphere_masks_for_latitude(lat, minimum_latitude)
-    return lat, polar_time, north_mask, south_mask
 
 
 def _field_panel_spec(field_key, fields_dict, plot_kwargs, diff_kwargs, panel_keys):
@@ -75,8 +68,10 @@ def _draw_field_comparison_artists(
     filled_key = None if str(filled_key) == "none" else str(filled_key)
     overlay_keys = list(overlay_keys)
     panel_keys = list(panel_keys)
-    polar_x, polar_y, polar_north_mask, polar_south_mask = _polar_comparison_coordinates(
-        lat, lon, coordinate_context, hemisphere_min_abs_latitude
+    polar_lat = lat
+    polar_time = coordinate_context.longitude_to_local_time(lon)
+    polar_north_mask, polar_south_mask = hemisphere_masks_for_latitude(
+        lat, hemisphere_min_abs_latitude
     )
 
     if filled_key is not None:
@@ -110,7 +105,7 @@ def _draw_field_comparison_artists(
             if filled_key is not None:
                 display_kwargs = contour_kwargs_for_display(fill_kwargs[panel_key])
                 plot_args, transform_args = _contour_plot_arguments(
-                    is_polar, mask, polar_x, polar_y, lon, lat, fill_fields[panel_key]
+                    is_polar, mask, polar_lat, polar_time, lon, lat, fill_fields[panel_key]
                 )
                 artist = axis.contourf(*plot_args, **transform_args, **display_kwargs)
                 set_contour_edges_to_face(artist)
@@ -123,7 +118,7 @@ def _draw_field_comparison_artists(
             for overlay_kwargs, overlay_fields in overlay_specs:
                 display_kwargs = contour_kwargs_for_display(overlay_kwargs[panel_key])
                 plot_args, transform_args = _contour_plot_arguments(
-                    is_polar, mask, polar_x, polar_y, lon, lat, overlay_fields[panel_key]
+                    is_polar, mask, polar_lat, polar_time, lon, lat, overlay_fields[panel_key]
                 )
                 new_artists.append(axis.contour(*plot_args, **transform_args, **display_kwargs))
 
@@ -329,11 +324,16 @@ class FieldComparisonRenderer:
         for axis, (_, title) in zip(axes, panel_specs, strict=True):
             axis.set_title(title, fontsize=14)
         for index, axis in enumerate(axes):
-            style_global_comparison_axis(
+            style_global_axis(
                 axis,
                 coordinate_context=coordinate_context,
                 left_labels=(index == 0),
                 bottom_labels=True,
+                coastline_color="black",
+                coastline_linewidth=1.0,
+                grid_color="gray",
+                grid_linewidth=1.0,
+                grid_alpha=0.5,
             )
         colorbar_axes = [
             fig.add_subplot(grid[0, n_panels]),

@@ -25,11 +25,9 @@ def regular_geographic_grid(nlat=60, nlon=100, lat_range=(-89.9, 89.9), lon_rang
     return latitude, longitude, SphericalGrid(lat=latitude, lon=longitude)
 
 
-def model_grid_from_geographic(main_field, latitude, longitude, *, event_time=None):
+def model_grid_from_geographic(main_field, latitude, longitude):
     """Return model coordinates underlying a geographic grid."""
-    model_latitude, model_longitude = main_field.geo_to_model_coordinates(
-        latitude, longitude, event_time=event_time
-    )
+    model_latitude, model_longitude = main_field.geo_to_model_coordinates(latitude, longitude)
     return SphericalGrid(lat=model_latitude, lon=model_longitude)
 
 

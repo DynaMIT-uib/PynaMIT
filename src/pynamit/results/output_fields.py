@@ -1,15 +1,13 @@
 """Evaluate simulation output fields on requested grids."""
 
-from kompe import SolidHarmonicOperators, SphericalTransform
-from kompe.constants import MU0
-from kompe.math import as_linear_map, get_array_module
+from kompe import SphericalTransform
+from kompe.constants import EARTH_RADIUS_M, MU0
+from kompe.math import diagonal_linear_map, get_array_module
 
 from pynamit.results.field_evaluation import (
     apply_coefficient_operator,
     evaluate_sheet_current_from_operators,
 )
-from pynamit.simulation.config import setting_value
-from pynamit.simulation.electrodynamics import magnetic_boundary
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     joule_heating_from_current,
     pedersen_geometry_tensor,
@@ -57,8 +55,8 @@ def output_at_current_time(simulation, key=None):
     return entry
 
 
-def output_evaluation_operators(geometry, transform):
-    """Return reusable coefficient-to-field operators for one grid."""
+def build_output_evaluation_operators(geometry, transform):
+    """Build reusable coefficient-to-field operators for one grid."""
     horizontal_transform = transform.with_basis(geometry.horizontal_basis)
     poloidal_transform = transform.with_basis(geometry.poloidal_basis)
     return {
@@ -75,8 +73,34 @@ def output_evaluation_operators(geometry, transform):
     }
 
 
-def sheet_current_operators(geometry, transform):
-    """Return reusable sheet-current operators for one grid."""
+def build_ground_magnetic_field_operators(geometry, grid, *, ground_radius=EARTH_RADIUS_M):
+    """Build induced-Br-to-ground-magnetic-field operators.
+
+    The ionospheric induced radial field is continued inward as a
+    regular solid harmonic from ``geometry.RI`` to ``ground_radius``.
+    The returned radial and tangential operators evaluate components
+    in tesla, with tangential component order ``(theta, phi)``
+    (south, east).
+    """
+    ionosphere_radius = float(geometry.RI)
+    solid_harmonics = geometry.solid_harmonics
+    basis = solid_harmonics.basis
+    transform = SphericalTransform(basis, grid)
+
+    reference_shift = solid_harmonics.regular_reference_shift_factors(
+        ionosphere_radius, float(ground_radius)
+    )
+    radial_coefficient_shift = diagonal_linear_map(reference_shift)
+    tangential_coefficient_shift = diagonal_linear_map(reference_shift / basis.n)
+
+    return {
+        "radial": transform.scalar_synthesis_operator @ radial_coefficient_shift,
+        "tangential": transform.surface_gradient_operator @ tangential_coefficient_shift,
+    }
+
+
+def build_sheet_current_operators(geometry, transform):
+    """Build reusable sheet-current operators for one grid."""
     horizontal_transform = transform.with_basis(geometry.horizontal_basis)
     poloidal_transform = transform.with_basis(geometry.poloidal_basis)
     return {
@@ -92,51 +116,6 @@ def sheet_current_operators(geometry, transform):
     }
 
 
-def sheet_current_evaluation_arrays(
-    settings, sh_basis, transform, boundary_jr_to_gap_Br_matrix=None
-):
-    """Return sheet-current evaluation arrays for direct workflows."""
-    rm = setting_value(settings, "RM", None)
-    rm = None if rm in (None, 0, 0.0) else float(rm)
-    radius = float(setting_value(settings, "RI"))
-    solid_harmonics = SolidHarmonicOperators(sh_basis)
-
-    induced_Br_to_JS = magnetic_boundary.induced_Br_to_gridded_JS_operator(
-        solid_harmonics,
-        transform,
-        radius=radius,
-        boundary_radius=rm,
-        boundary_shielding=bool(setting_value(settings, "magnetic_boundary_shielding", False)),
-    ).to_array()
-    boundary_jr_to_toroidal_potential = (
-        MU0 / radius * sh_basis.mean_free_surface_poisson_operator(radius)
-    )
-    boundary_jr_to_gap_Br = (
-        None
-        if boundary_jr_to_gap_Br_matrix is None
-        else as_linear_map(boundary_jr_to_gap_Br_matrix)
-    )
-    boundary_jr_to_JS = magnetic_boundary.boundary_jr_to_gridded_JS_operator(
-        solid_harmonics,
-        transform,
-        poloidal_transform=transform,
-        boundary_jr_to_toroidal_potential=boundary_jr_to_toroidal_potential,
-        boundary_jr_to_gap_Br=boundary_jr_to_gap_Br,
-    ).to_array()
-    boundary_Br_to_JS = (
-        None
-        if rm is None
-        else magnetic_boundary.boundary_Br_to_gridded_JS_operator(
-            solid_harmonics, transform, radius=radius, boundary_radius=rm
-        ).to_array()
-    )
-    return {
-        "induced_Br_to_JS": induced_Br_to_JS,
-        "boundary_jr_to_JS": boundary_jr_to_JS,
-        "boundary_Br_to_JS": boundary_Br_to_JS,
-    }
-
-
 def evaluate_output_coefficients(
     coefficients,
     transform,
@@ -144,7 +123,7 @@ def evaluate_output_coefficients(
     geometry=None,
     field_names=None,
     operators=None,
-    current_operators=None,
+    sheet_current_operators=None,
     boundary_Br=None,
     etaP=None,
     pedersen_geometry=None,
@@ -175,7 +154,7 @@ def evaluate_output_coefficients(
     if operators is None and basic_fields:
         if geometry is None:
             raise ValueError("geometry is required when operators are not supplied.")
-        operators = output_evaluation_operators(geometry, transform)
+        operators = build_output_evaluation_operators(geometry, transform)
     values = {}
 
     if "induced_Br" in requested:
@@ -220,19 +199,19 @@ def evaluate_output_coefficients(
 
     current_fields = requested & {"JS_theta", "JS_phi", "JS_mag", "joule_heating"}
     if current_fields:
-        if current_operators is None:
+        if sheet_current_operators is None:
             if geometry is None:
                 raise ValueError(
                     "geometry is required when sheet-current operators are not supplied."
                 )
-            current_operators = sheet_current_operators(geometry, transform)
+            sheet_current_operators = build_sheet_current_operators(geometry, transform)
         sheet_current = evaluate_sheet_current_from_operators(
             coefficients["boundary_jr"],
             coefficients["induced_Br"],
-            boundary_jr_to_JS=current_operators["boundary_jr_to_JS"],
-            induced_Br_to_JS=current_operators["induced_Br_to_JS"],
+            boundary_jr_to_JS=sheet_current_operators["boundary_jr_to_JS"],
+            induced_Br_to_JS=sheet_current_operators["induced_Br_to_JS"],
             boundary_Br=boundary_Br,
-            boundary_Br_to_JS=current_operators["boundary_Br_to_JS"],
+            boundary_Br_to_JS=sheet_current_operators["boundary_Br_to_JS"],
         )
         xp = get_array_module(sheet_current)
         if "JS_theta" in requested:
@@ -354,11 +333,11 @@ def evaluate_simulation_output(
 
 
 __all__ = [
+    "build_ground_magnetic_field_operators",
+    "build_output_evaluation_operators",
+    "build_sheet_current_operators",
     "output_at_current_time",
     "select_output_stream",
     "evaluate_output_coefficients",
     "evaluate_simulation_output",
-    "output_evaluation_operators",
-    "sheet_current_evaluation_arrays",
-    "sheet_current_operators",
 ]

@@ -13,8 +13,9 @@ import numpy as np
 from kompe import SphericalGrid
 from kompe.spherical_transform import SphericalTransform, grid_sqrt_area_weights
 
+from pynamit.plotting.contours import build_percentile_color_scale
+from pynamit.plotting.map_axes import style_global_axis
 from pynamit.plotting.map_coordinates import MapCoordinateContext
-from pynamit.plotting.plot_helpers import build_percentile_color_scale, style_global_input_axis
 from pynamit.results.input_fields import evaluate_projected_input
 from pynamit.results.simulation_results import SimulationResults
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
@@ -389,7 +390,7 @@ def plot_scalar_map_on_ax(
         shading="auto",
         zorder=1,
     )
-    style_global_input_axis(
+    style_global_axis(
         ax,
         coordinate_context=coordinate_context,
         draw_labels=True,

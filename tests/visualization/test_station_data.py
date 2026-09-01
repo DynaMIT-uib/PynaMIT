@@ -4,10 +4,10 @@ import numpy as np
 import pandas as pd
 
 from pynamit.magnetometers import (
-    find_station_metadata,
     load_iaga2002_magnetometer_data,
     load_local_iaga2002_station_data,
-    normalize_station_metadata,
+    load_station_catalog,
+    normalize_station_catalog,
     shift_station_datetime_index,
     station_has_complete_nonzero_components_at_times,
     station_source_time_window,
@@ -15,14 +15,14 @@ from pynamit.magnetometers import (
 )
 
 
-def test_find_station_metadata_prefers_explicit_directory(tmp_path):
+def test_load_station_catalog_prefers_explicit_directory(tmp_path):
     """An explicit station directory defines the metadata source."""
     station_directory = tmp_path / "stations"
     station_directory.mkdir()
     metadata_path = station_directory / "stations_full_list.csv"
     metadata_path.write_text("IAGA,GEOLAT,GEOLON\naaa,60,190\n", encoding="utf-8")
 
-    stations, source_path = find_station_metadata(
+    stations, source_path = load_station_catalog(
         tmp_path / "simulation", station_data_directory=station_directory
     )
 
@@ -51,13 +51,13 @@ def test_load_local_station_data_applies_display_time_offset(tmp_path):
     np.testing.assert_array_equal(data.iloc[0], [1.0, 2.0, 3.0])
 
 
-def test_normalize_station_metadata_uppercases_codes_and_wraps_longitude():
+def test_normalize_station_catalog_uppercases_codes_and_wraps_longitude():
     """Station metadata should match notebook expectations."""
     stations = pd.DataFrame(
         {"IAGA": ["ipm", "res"], "GEOLAT": ["10.5", "-20"], "GEOLON": [190.0, -181.0]}
     )
 
-    normalized = normalize_station_metadata(stations)
+    normalized = normalize_station_catalog(stations)
 
     assert normalized["IAGA"].tolist() == ["IPM", "RES"]
     np.testing.assert_allclose(normalized["GEOLAT"], np.array([10.5, -20.0]))

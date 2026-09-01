@@ -45,24 +45,19 @@ prepare_example_inputs = example_scenario.prepare_example_inputs
 def test_geographic_wind_is_rotated_into_model_coordinates():
     """Prepared dipole winds transform positions and components."""
     main_field = MainField(kind="dipole", epoch=2020)
-    event_time = example_scenario.EVENT_TIME
     lat = np.array([20.0, 60.0])
     lon = np.array([-30.0, 80.0])
     u_theta = np.array([[10.0, 20.0], [30.0, 40.0]])
     u_phi = np.array([[5.0, 6.0], [7.0, 8.0]])
 
     theta_model, phi_model, model_lat, model_lon = (
-        example_inputs_module._wind_to_model_coordinates(
-            main_field, u_theta, u_phi, lat, lon, event_time=event_time
-        )
+        example_inputs_module._wind_to_model_coordinates(main_field, u_theta, u_phi, lat, lon)
     )
-    expected_lat, expected_lon = main_field.geo_to_model_coordinates(
-        lat, lon, event_time=event_time
-    )
+    expected_lat, expected_lon = main_field.geo_to_model_coordinates(lat, lon)
     vector_lat = np.broadcast_to(lat, u_theta.shape)
     vector_lon = np.broadcast_to(lon, u_theta.shape)
     _, _, expected_east, expected_north = main_field.geo_to_model_coordinates(
-        vector_lat, vector_lon, east=u_phi, north=-u_theta, event_time=event_time
+        vector_lat, vector_lon, east=u_phi, north=-u_theta
     )
 
     np.testing.assert_allclose(model_lat, expected_lat)
@@ -164,9 +159,7 @@ def test_default_inputs_share_one_provider_coordinate_cache(tmp_path, monkeypatc
     )
 
     model_grid = prepared.model_grid
-    expected_geo = prepared.main_field.model_to_geo_coordinates(
-        model_grid.lat, model_grid.lon, event_time=example_scenario.EVENT_TIME
-    )
+    expected_geo = prepared.main_field.model_to_geo_coordinates(model_grid.lat, model_grid.lon)
     np.testing.assert_allclose(coordinates.geographic_grid.lat, expected_geo[0])
     np.testing.assert_allclose(coordinates.geographic_grid.lon, expected_geo[1])
     assert coordinates.model_grid.coordinate_convention is PYNAMIT_CENTERED_DIPOLE_110KM

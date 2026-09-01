@@ -19,7 +19,7 @@ from pynamit.simulation.input_preparation import InputPreparation
 from pynamit.storage import ArtifactStore
 
 
-def _wind_to_model_coordinates(main_field, u_theta, u_phi, lat, lon, *, event_time=None):
+def _wind_to_model_coordinates(main_field, u_theta, u_phi, lat, lon):
     """Rotate spherical-GEO wind samples into model coordinates."""
     u_theta, u_phi = np.broadcast_arrays(np.asarray(u_theta), np.asarray(u_phi))
     lat = np.asarray(lat).reshape(-1)
@@ -27,11 +27,11 @@ def _wind_to_model_coordinates(main_field, u_theta, u_phi, lat, lon, *, event_ti
     if lat.size != lon.size or u_theta.shape[-1] != lat.size:
         raise ValueError("Wind coordinates must match the final wind-sample dimension.")
 
-    model_lat, model_lon = main_field.geo_to_model_coordinates(lat, lon, event_time=event_time)
+    model_lat, model_lon = main_field.geo_to_model_coordinates(lat, lon)
     vector_lat = np.broadcast_to(lat, u_theta.shape)
     vector_lon = np.broadcast_to(lon, u_theta.shape)
     _, _, model_east, model_north = main_field.geo_to_model_coordinates(
-        vector_lat, vector_lon, east=u_phi, north=-u_theta, event_time=event_time
+        vector_lat, vector_lon, east=u_phi, north=-u_theta
     )
     return -model_north, model_east, model_lat, model_lon
 
@@ -125,9 +125,7 @@ def prepare_example_inputs(
 
     model_lat = preparation.model_grid.lat
     model_lon = preparation.model_grid.lon
-    geo_lat, geo_lon = preparation.main_field.model_to_geo_coordinates(
-        model_lat, model_lon, event_time=event_time
-    )
+    geo_lat, geo_lon = preparation.main_field.model_to_geo_coordinates(model_lat, model_lon)
     external_coordinates = ExternalInputCoordinates.from_model_coordinates(
         model_lat,
         model_lon,
@@ -179,7 +177,7 @@ def prepare_example_inputs(
         u_theta, u_phi, u_lat, u_lon, weights = wind_inputs
         _require_geographic_grid("HWM neutral-wind adapter", external_coordinates, u_lat, u_lon)
         u_theta, u_phi, _, _ = _wind_to_model_coordinates(
-            preparation.main_field, u_theta, u_phi, u_lat, u_lon, event_time=event_time
+            preparation.main_field, u_theta, u_phi, u_lat, u_lon
         )
         if use_Q_eff:
             preparation.set_Q_eff_from_neutral_wind(

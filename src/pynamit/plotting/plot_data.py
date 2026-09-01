@@ -11,7 +11,6 @@ import numpy as np
 import pandas as pd
 from kompe import SphericalGrid, SphericalTransform
 from kompe.cache import BoundedCache
-from kompe.constants import EARTH_RADIUS_M
 
 from pynamit.coordinates import GEOCENTRIC_GEOGRAPHIC
 from pynamit.plotting.figure_settings import FigureSettings
@@ -22,9 +21,10 @@ from pynamit.plotting.map_coordinates import (
 )
 from pynamit.results.input_fields import evaluate_projected_input
 from pynamit.results.output_fields import (
+    build_ground_magnetic_field_operators,
+    build_output_evaluation_operators,
+    build_sheet_current_operators,
     evaluate_output_coefficients,
-    output_evaluation_operators,
-    sheet_current_operators,
 )
 from pynamit.results.simulation_results import SimulationResults
 from pynamit.simulation.electrodynamics.ionospheric_closure import pedersen_geometry_tensor
@@ -107,7 +107,7 @@ class _GeographicEvaluation:
     output_transform: SphericalTransform | None
     input_transforms: dict[str, SphericalTransform | None] = field(default_factory=dict)
     output_evaluation_context: dict[str, object] | None = None
-    sheet_current_maps: dict[str, object] | None = None
+    sheet_current_operators: dict[str, object] | None = None
 
 
 def _dataset_index_at_time(dataset, timestamp, *, start_time=None):
@@ -147,13 +147,13 @@ def time_index_from_dataset(dataset, *, start_time=None):
     )
 
 
-def compute_output_fields_at_index(
+def evaluate_output_fields_at_index(
     index,
     results,
     transform,
     conductance_transform,
     output_evaluation_context,
-    sheet_current_maps,
+    sheet_current_operators,
     *,
     target_time=None,
     start_time=None,
@@ -215,7 +215,7 @@ def compute_output_fields_at_index(
             transform,
             field_names=physical_fields,
             operators=output_evaluation_context,
-            current_operators=sheet_current_maps,
+            sheet_current_operators=sheet_current_operators,
             boundary_Br=boundary_Br,
             etaP=etaP,
             pedersen_geometry=output_evaluation_context.get("pedersen_geometry"),
@@ -233,7 +233,7 @@ def compute_output_fields_at_index(
     return result
 
 
-def compute_input_fields_at_time(
+def evaluate_input_fields_at_time(
     timestamp, results, input_transforms, scalar_shape, vector_shape, *, start_time=None
 ):
     """Evaluate projected input drivers at one physical time."""
@@ -294,7 +294,7 @@ class PlotData:
     output_transform: SphericalTransform | None
     input_transforms: dict[str, SphericalTransform | None]
     output_evaluation_context: dict[str, object] | None
-    sheet_current_maps: dict[str, object] | None
+    sheet_current_operators: dict[str, object] | None
     _geographic_evaluation: _GeographicEvaluation | None = field(
         default=None, init=False, repr=False, compare=False
     )
@@ -344,7 +344,7 @@ class PlotData:
             output_transform=output_transform,
             input_transforms=input_transforms,
             output_evaluation_context=None,
-            sheet_current_maps=None,
+            sheet_current_operators=None,
         )
 
     @property
@@ -363,14 +363,13 @@ class PlotData:
             f"simulation_directory={self.results.simulation_directory!r})"
         )
 
-    def _get_geographic_evaluation(self, event_time=None):
+    def _get_geographic_evaluation(self):
         """Return evaluators sampled on the geographic display grid.
 
         Saved coefficients live in the simulation's horizontal
         coordinate system. Its orientation is fixed by the persisted
         main-field epoch, so this sampling geometry is immutable.
         """
-        del event_time
         if self._geographic_evaluation is not None:
             return self._geographic_evaluation
 
@@ -517,19 +516,13 @@ class PlotData:
             return cached
 
         grid = SphericalGrid(lat=lat, lon=lon)
-        radius = float(self.results.config.RI)
-        solid_harmonics = self.geometry.solid_harmonics
-        solid_basis = solid_harmonics.basis
-        transform = SphericalTransform(solid_basis, grid)
-        reference_shift = solid_harmonics.regular_reference_shift_factors(radius, EARTH_RADIUS_M)
-        induced_Br_to_ground_radial = reference_shift * transform.scalar_synthesis_array
-        induced_Br_to_ground_tangential = (
-            reference_shift / solid_basis.n * transform.surface_gradient_array
-        )
+        operators = build_ground_magnetic_field_operators(self.geometry, grid)
 
         def evaluate(coefficients):
-            radial = np.asarray(induced_Br_to_ground_radial.dot(coefficients))
-            tangential = np.asarray(induced_Br_to_ground_tangential.dot(coefficients))
+            radial = np.asarray(operators["radial"].matmat(coefficients)).reshape(grid.size, -1)
+            tangential = np.asarray(operators["tangential"].matmat(coefficients)).reshape(
+                2, grid.size, -1
+            )
             radial.setflags(write=False)
             tangential.setflags(write=False)
             return {"radial": radial, "tangential": tangential}
@@ -555,24 +548,24 @@ class PlotData:
                 "Choose 'Input drivers' or run a simulation first."
             )
         if coordinate_system == "geographic":
-            evaluation = self._get_geographic_evaluation(timestamp)
+            evaluation = self._get_geographic_evaluation()
             transform = self._geographic_output_transform(evaluation)
             output_evaluation_context = evaluation.output_evaluation_context
-            sheet_current_maps = evaluation.sheet_current_maps
+            sheet_current_operators = evaluation.sheet_current_operators
         else:
             evaluation = None
             transform = self.output_transform
             output_evaluation_context = self.output_evaluation_context
-            sheet_current_maps = self.sheet_current_maps
+            sheet_current_operators = self.sheet_current_operators
 
         if transform is None:
             raise RuntimeError("Saved output evaluation context is unavailable.")
         geometry = self.geometry
         if output_evaluation_context is None:
-            output_evaluation_context = output_evaluation_operators(geometry, transform)
+            output_evaluation_context = build_output_evaluation_operators(geometry, transform)
         needs_joule = "joule" in field_names
-        if needs_joule and sheet_current_maps is None:
-            sheet_current_maps = sheet_current_operators(geometry, transform)
+        if needs_joule and sheet_current_operators is None:
+            sheet_current_operators = build_sheet_current_operators(geometry, transform)
         if needs_joule and "pedersen_geometry" not in output_evaluation_context:
             unit_br, unit_btheta, unit_bphi = geometry.main_field.unit_vector(
                 transform.grid, self.results.config.RI
@@ -582,10 +575,10 @@ class PlotData:
             )
         if evaluation is None:
             self.output_evaluation_context = output_evaluation_context
-            self.sheet_current_maps = sheet_current_maps
+            self.sheet_current_operators = sheet_current_operators
         else:
             evaluation.output_evaluation_context = output_evaluation_context
-            evaluation.sheet_current_maps = sheet_current_maps
+            evaluation.sheet_current_operators = sheet_current_operators
         conductance_transform = self.input_transforms.get("conductance") if needs_joule else None
         if evaluation is not None:
             conductance_transform = (
@@ -593,13 +586,13 @@ class PlotData:
                 if needs_joule
                 else None
             )
-        return compute_output_fields_at_index(
+        return evaluate_output_fields_at_index(
             index,
             self.results,
             transform,
             conductance_transform,
             output_evaluation_context,
-            sheet_current_maps,
+            sheet_current_operators,
             target_time=timestamp,
             start_time=self.results.config.t0,
             field_names=field_names,
@@ -626,16 +619,14 @@ class PlotData:
         """Return time-selected inputs in the requested coordinates."""
         coordinate_system = _normalize_display_coordinate_system(coordinate_system)
         evaluation = (
-            self._get_geographic_evaluation(timestamp)
-            if coordinate_system == "geographic"
-            else None
+            self._get_geographic_evaluation() if coordinate_system == "geographic" else None
         )
         input_transforms = (
             self._geographic_input_transforms(evaluation)
             if evaluation is not None
             else self.input_transforms
         )
-        fields = compute_input_fields_at_time(
+        fields = evaluate_input_fields_at_time(
             timestamp,
             self.results,
             input_transforms,
@@ -739,9 +730,9 @@ def get_plot_data(settings):
 __all__ = [
     "PlotData",
     "clear_plot_data_cache",
-    "compute_input_fields_at_time",
-    "compute_output_fields_at_index",
     "datetime_at_index",
+    "evaluate_input_fields_at_time",
+    "evaluate_output_fields_at_index",
     "format_figure_time",
     "get_plot_data",
     "time_index_from_dataset",

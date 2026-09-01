@@ -1,10 +1,7 @@
-"""Small helpers shared by plotting workflows."""
+"""Contour levels, color scales, and Matplotlib contour presentation."""
 
-import cartopy.crs as ccrs
 import matplotlib.colors as mcolors
 import numpy as np
-
-from pynamit.plotting.map_coordinates import MapCoordinateContext
 
 
 def symmetric_contour_levels(first_abs_level, interval, levels_per_sign):
@@ -132,18 +129,6 @@ def _color_scale_values(data_arrays, *, strictly_positive, scale_type, minimum_p
     return values
 
 
-def _percentile_color_limits(
-    values, *, strictly_positive, vmin_percentile, vmax_percentile, scale_type
-):
-    """Return raw lower and upper percentile color limits."""
-    if strictly_positive:
-        vmin = float(np.percentile(values, vmin_percentile))
-        vmax = float(np.percentile(values, vmax_percentile))
-        return (0.0 if scale_type == "linear" else vmin), vmax
-    abs_max = float(np.percentile(np.abs(values), vmax_percentile))
-    return -abs_max, abs_max
-
-
 def _color_normalization(vmin, vmax, *, strictly_positive, scale_type, minimum_positive):
     """Return nondegenerate limits and normalization."""
     if scale_type == "log":
@@ -197,13 +182,14 @@ def build_percentile_color_scale(
         minimum_positive=minimum_positive,
         label=label,
     )
-    vmin, vmax = _percentile_color_limits(
-        percentile_values,
-        strictly_positive=strictly_positive,
-        vmin_percentile=vmin_percentile,
-        vmax_percentile=vmax_percentile,
-        scale_type=scale_type,
-    )
+    if strictly_positive:
+        vmin = float(np.percentile(percentile_values, vmin_percentile))
+        vmax = float(np.percentile(percentile_values, vmax_percentile))
+        if scale_type == "linear":
+            vmin = 0.0
+    else:
+        abs_max = float(np.percentile(np.abs(percentile_values), vmax_percentile))
+        vmin, vmax = -abs_max, abs_max
     vmin, vmax, norm = _color_normalization(
         vmin,
         vmax,
@@ -253,139 +239,15 @@ def set_contour_edges_to_face(contour):
     return contour
 
 
-def style_global_axis(
-    ax,
-    *,
-    coordinate_context=None,
-    local_time_reference=None,
-    draw_labels=True,
-    draw_coastlines=True,
-    set_global=True,
-    left_labels=True,
-    bottom_labels=True,
-    coastline_color="0.45",
-    coastline_linewidth=0.7,
-    grid_color="0.72",
-    grid_linewidth=0.7,
-    grid_alpha=0.75,
-    label_size=8,
-):
-    """Style a global Cartopy axis for PynaMIT map plots."""
-    if set_global:
-        ax.set_global()
-    coordinates_are_geographic = (
-        coordinate_context is None or coordinate_context.longitude_kind == "geographic"
-    )
-    if draw_coastlines and coordinates_are_geographic:
-        ax.coastlines(color=coastline_color, linewidth=coastline_linewidth, zorder=2)
-    gridliner = ax.gridlines(
-        crs=ccrs.PlateCarree(),
-        draw_labels=draw_labels,
-        linewidth=grid_linewidth,
-        color=grid_color,
-        alpha=grid_alpha,
-        linestyle="--",
-        zorder=1,
-    )
-    gridliner.top_labels = False
-    gridliner.right_labels = False
-    gridliner.left_labels = bool(draw_labels and left_labels)
-    gridliner.bottom_labels = bool(draw_labels and bottom_labels)
-    if coordinate_context is not None:
-        coordinate_context.apply_grid_labels(gridliner)
-    elif local_time_reference is not None:
-        MapCoordinateContext.geographic(local_time_reference).apply_grid_labels(gridliner)
-    gridliner.xlabel_style = {"size": label_size}
-    gridliner.ylabel_style = {"size": label_size}
-    return gridliner
-
-
-def style_global_input_axis(
-    ax,
-    *,
-    coordinate_context=None,
-    local_time_reference=None,
-    draw_labels=True,
-    draw_coastlines=True,
-    set_global=True,
-    left_labels=True,
-    bottom_labels=True,
-):
-    """Style a global axis for input-driver comparison plots."""
-    return style_global_axis(
-        ax,
-        coordinate_context=coordinate_context,
-        local_time_reference=local_time_reference,
-        draw_labels=draw_labels,
-        draw_coastlines=draw_coastlines,
-        set_global=set_global,
-        left_labels=left_labels,
-        bottom_labels=bottom_labels,
-        coastline_color="0.45",
-        coastline_linewidth=0.7,
-        grid_color="0.72",
-        grid_linewidth=0.7,
-        grid_alpha=0.75,
-        label_size=8,
-    )
-
-
-def style_global_comparison_axis(
-    ax,
-    *,
-    coordinate_context=None,
-    local_time_reference=None,
-    draw_labels=True,
-    draw_coastlines=True,
-    set_global=True,
-    left_labels=True,
-    bottom_labels=True,
-):
-    """Style a global axis for output-vs-baseline comparisons."""
-    return style_global_axis(
-        ax,
-        coordinate_context=coordinate_context,
-        local_time_reference=local_time_reference,
-        draw_labels=draw_labels,
-        draw_coastlines=draw_coastlines,
-        set_global=set_global,
-        left_labels=left_labels,
-        bottom_labels=bottom_labels,
-        coastline_color="black",
-        coastline_linewidth=1.0,
-        grid_color="gray",
-        grid_linewidth=1.0,
-        grid_alpha=0.5,
-        label_size=8,
-    )
-
-
-def add_panel_label(ax, label):
-    """Add a compact panel label in the upper-left axis corner."""
-    return ax.text(
-        0.015,
-        0.965,
-        label,
-        transform=ax.transAxes,
-        ha="left",
-        va="top",
-        fontsize=10,
-        fontweight="bold",
-        bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.82, "pad": 2.0},
-        zorder=10,
-    )
-
-
 __all__ = [
-    "add_panel_label",
     "build_percentile_color_scale",
     "contour_kwargs_for_display",
+    "draw_line_contour_legend",
+    "finite_values",
     "format_contour_interval",
     "get_ticks_from_levels",
+    "percentile_contour_levels",
     "set_contour_edges_to_face",
-    "style_global_axis",
-    "style_global_comparison_axis",
-    "style_global_input_axis",
     "symmetric_contour_levels",
     "symmetric_contour_levels_without_zero",
 ]

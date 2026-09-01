@@ -296,7 +296,7 @@ class MainField:
             raise ValueError("east and north vector components must be provided together.")
         return east is not None
 
-    def geo_to_model_coordinates(self, lat, lon, east=None, north=None, *, event_time=None):
+    def geo_to_model_coordinates(self, lat, lon, east=None, north=None):
         """Convert geographic coordinates to model coordinates.
 
         Parameters
@@ -305,9 +305,6 @@ class MainField:
             Geocentric geographic latitude and longitude in degrees.
         east, north : array-like, optional
             Tangential vector components in geographic east/north basis.
-        event_time : datetime, optional
-            Accepted for a uniform coordinate API. Frame orientation is
-            fixed by the main-field epoch, so transforms do not use it.
 
         Returns
         -------
@@ -332,7 +329,7 @@ class MainField:
         result = tuple(np.asarray(value) for value in result)
         return (result[0], wrap_longitude_180(result[1]), *result[2:])
 
-    def model_to_geo_coordinates(self, lat, lon, east=None, north=None, *, event_time=None):
+    def model_to_geo_coordinates(self, lat, lon, east=None, north=None):
         """Convert model coordinates to geographic coordinates."""
         has_vector = self._has_tangent_vector(east, north)
 

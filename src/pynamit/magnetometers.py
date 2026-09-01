@@ -39,8 +39,8 @@ def station_source_time_window(start_time, end_time, data_time_offset_seconds=0.
     return pd.Timestamp(start_time) - data_offset, pd.Timestamp(end_time) - data_offset
 
 
-def normalize_station_metadata(stations_df):
-    """Normalize IAGA station metadata."""
+def normalize_station_catalog(stations_df):
+    """Normalize an IAGA station catalog."""
     normalized = stations_df.copy()
     normalized["IAGA"] = normalized["IAGA"].astype(str).str.upper()
     normalized["GEOLAT"] = pd.to_numeric(normalized["GEOLAT"], errors="coerce")
@@ -49,8 +49,8 @@ def normalize_station_metadata(stations_df):
     return normalized.reset_index(drop=True)
 
 
-def find_station_metadata(simulation_directory, station_data_directory=None):
-    """Return normalized station metadata and its source path."""
+def load_station_catalog(simulation_directory, station_data_directory=None):
+    """Load a normalized station catalog and return its source path."""
     simulation_directory = Path(simulation_directory).expanduser()
     repo_root = Path(__file__).resolve().parents[2]
     candidates = []
@@ -67,7 +67,7 @@ def find_station_metadata(simulation_directory, station_data_directory=None):
     )
     for candidate in candidates:
         try:
-            return normalize_station_metadata(pd.read_csv(candidate)), candidate
+            return normalize_station_catalog(pd.read_csv(candidate)), candidate
         except FileNotFoundError:
             continue
     raise ValueError(
@@ -204,13 +204,13 @@ def load_local_iaga2002_station_data(
     )
     if measured is None:
         return None
-    return station_geographic_components(
+    return iaga_xyz_to_geographic_components(
         measured, station_code, data_time_offset_seconds=data_time_offset_seconds
     )
 
 
-def station_geographic_components(measured, station_code, *, data_time_offset_seconds=0.0):
-    """Name IAGA XYZ values as geographic north, east, and down."""
+def iaga_xyz_to_geographic_components(measured, station_code, *, data_time_offset_seconds=0.0):
+    """Convert IAGA XYZ columns to geographic north, east, and down."""
     station_code = str(station_code).upper()
     measured_index = shift_station_datetime_index(
         measured.index, data_time_offset_seconds=data_time_offset_seconds
@@ -324,13 +324,13 @@ def station_has_complete_nonzero_components_at_times(
 
 __all__ = [
     "download_and_load_iaga2002_station_data",
-    "find_station_metadata",
+    "iaga_xyz_to_geographic_components",
     "load_iaga2002_magnetometer_data",
     "load_local_iaga2002_station_data",
-    "normalize_station_metadata",
+    "load_station_catalog",
+    "normalize_station_catalog",
     "shift_station_datetime_index",
     "station_component_columns",
-    "station_geographic_components",
     "station_has_complete_nonzero_components_at_times",
     "station_source_time_window",
     "station_window_has_nonzero_measurements",

@@ -3,7 +3,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-from pynamit.plotting.plot_helpers import (
+from pynamit.plotting.contours import (
     symmetric_contour_levels,
     symmetric_contour_levels_without_zero,
 )

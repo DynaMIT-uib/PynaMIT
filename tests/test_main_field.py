@@ -161,16 +161,12 @@ def test_main_field_from_config_uses_canonical_settings():
     assert main_field.dipole.B0 == pytest.approx(29_000.0)
 
 
-def test_kaiju_main_field_geo_transform_is_earth_fixed():
+def test_kaiju_main_field_model_coordinates_are_geographic():
     """Kaiju simulation coordinates are Earth-fixed GEO."""
     main_field = MainField(kind="kaiju_dipole", epoch=2011)
-    first = main_field.geo_to_model_coordinates(65.0, -30.0)
-    later = main_field.geo_to_model_coordinates(
-        65.0, -30.0, event_time=dt.datetime(2011, 10, 24, 19)
-    )
+    model_coordinates = main_field.geo_to_model_coordinates(65.0, -30.0)
 
-    np.testing.assert_allclose(first, later)
-    np.testing.assert_allclose(first, (65.0, -30.0))
+    np.testing.assert_allclose(model_coordinates, (65.0, -30.0))
 
 
 def test_main_field_vector_transform_requires_east_and_north_pair():
