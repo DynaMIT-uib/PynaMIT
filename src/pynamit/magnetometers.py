@@ -8,11 +8,14 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from kompe.cache import BoundedCache
 
 from pynamit.results.time_series import (
     compute_centered_difference_series_at_times,
     resample_series_to_times,
 )
+
+_STATION_FILE_CACHE = BoundedCache(512)
 
 
 def station_component_columns(station_code):
@@ -44,6 +47,33 @@ def normalize_station_metadata(stations_df):
     lon = pd.to_numeric(normalized["GEOLON"], errors="coerce")
     normalized["GEOLON"] = ((lon + 180.0) % 360.0) - 180.0
     return normalized.reset_index(drop=True)
+
+
+def find_station_metadata(simulation_directory, station_data_directory=None):
+    """Return normalized station metadata and its source path."""
+    simulation_directory = Path(simulation_directory).expanduser()
+    repo_root = Path(__file__).resolve().parents[2]
+    candidates = []
+    if station_data_directory:
+        candidates.append(Path(station_data_directory).expanduser() / "stations_full_list.csv")
+    candidates.extend(
+        [
+            simulation_directory / "mag_data" / "stations_full_list.csv",
+            simulation_directory / "data" / "mag_data" / "stations_full_list.csv",
+            Path("mag_data/stations_full_list.csv"),
+            Path("notebooks/mag_data/stations_full_list.csv"),
+            repo_root / "notebooks" / "mag_data" / "stations_full_list.csv",
+        ]
+    )
+    for candidate in candidates:
+        try:
+            return normalize_station_metadata(pd.read_csv(candidate)), candidate
+        except FileNotFoundError:
+            continue
+    raise ValueError(
+        "Could not find stations_full_list.csv. Set station_data_directory in "
+        "pynamit_plot_defaults.json or place station data in mag_data/."
+    )
 
 
 def _log(logger, message):
@@ -148,6 +178,53 @@ def load_iaga2002_magnetometer_data(filepath, station_code, *, logger=None):
         return None
 
 
+def load_local_iaga2002_station_data(
+    data_directory, station_code, display_time, *, data_time_offset_seconds=0.0
+):
+    """Load a local IAGA2002 day in geographic components."""
+    source_time = pd.Timestamp(display_time) - pd.to_timedelta(
+        float(data_time_offset_seconds), unit="s"
+    )
+    path = (
+        Path(data_directory)
+        / f"{str(station_code).lower()}{source_time.strftime('%Y%m%d')}vsec.sec"
+    )
+    try:
+        file_stat = path.stat()
+    except FileNotFoundError:
+        return None
+    cache_key = (
+        str(path.resolve()),
+        file_stat.st_mtime_ns,
+        file_stat.st_size,
+        str(station_code).upper(),
+    )
+    measured = _STATION_FILE_CACHE.get_or_create(
+        cache_key, lambda: load_iaga2002_magnetometer_data(path, station_code, logger=None)
+    )
+    if measured is None:
+        return None
+    return station_geographic_components(
+        measured, station_code, data_time_offset_seconds=data_time_offset_seconds
+    )
+
+
+def station_geographic_components(measured, station_code, *, data_time_offset_seconds=0.0):
+    """Name IAGA XYZ values as geographic north, east, and down."""
+    station_code = str(station_code).upper()
+    measured_index = shift_station_datetime_index(
+        measured.index, data_time_offset_seconds=data_time_offset_seconds
+    )
+    return pd.DataFrame(
+        {
+            "North": measured[f"{station_code}X"].to_numpy(dtype=float),
+            "East": measured[f"{station_code}Y"].to_numpy(dtype=float),
+            "Down": measured[f"{station_code}Z"].to_numpy(dtype=float),
+        },
+        index=measured_index,
+    )
+
+
 def download_and_load_iaga2002_station_data(
     station_code, sim_start_time, data_dir, *, logger=None
 ):
@@ -247,10 +324,13 @@ def station_has_complete_nonzero_components_at_times(
 
 __all__ = [
     "download_and_load_iaga2002_station_data",
+    "find_station_metadata",
     "load_iaga2002_magnetometer_data",
+    "load_local_iaga2002_station_data",
     "normalize_station_metadata",
     "shift_station_datetime_index",
     "station_component_columns",
+    "station_geographic_components",
     "station_has_complete_nonzero_components_at_times",
     "station_source_time_window",
     "station_window_has_nonzero_measurements",

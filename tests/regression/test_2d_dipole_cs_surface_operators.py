@@ -48,7 +48,7 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
     np.testing.assert_allclose(spherical_transform.helmholtz_synthesis_array, expected_helmholtz)
     np.testing.assert_allclose(
         geometry.surface_laplacian_operator.to_matrix(backend="numpy"),
-        simulation.geometry.horizontal_basis.surface_laplacian_matrix(geometry.RI),
+        simulation.geometry.horizontal_basis.surface_laplacian_operator(geometry.RI).to_matrix(),
     )
     expected_normalized_potential_jump = np.diag(
         simulation.geometry.solid_harmonics.poloidal_to_normalized_potential_jump_factors
@@ -128,8 +128,13 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
         ),
         plot_data=view,
     )
-    br_dynamic, bh_dynamic, _, _ = renderer._ground_field_values([65.0], [0.0])
+    ground_fields = renderer.plot_data.ground_magnetic_fields([65.0], [0.0])
+    br_dynamic = ground_fields["dynamic"]["radial"]
+    bh_dynamic = ground_fields["dynamic"]["tangential"]
+    assert renderer.plot_data.ground_magnetic_fields([65.0], [0.0]) is ground_fields
     assert br_dynamic.shape == (1, view.n_time)
     assert bh_dynamic.shape == (2, 1, view.n_time)
+    assert not br_dynamic.flags.writeable
+    assert not bh_dynamic.flags.writeable
     assert np.all(np.isfinite(br_dynamic))
     assert np.all(np.isfinite(bh_dynamic))

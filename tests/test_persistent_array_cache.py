@@ -10,7 +10,7 @@ from kompe.math import array_fingerprint, content_fingerprint
 from kompe.spherical_transform import SphericalTransform
 
 import pynamit
-from pynamit.storage import ArrayCache
+from pynamit.storage import PersistentArrayCache
 
 
 def test_array_fingerprints_include_shape_dtype_and_exact_values():
@@ -24,9 +24,9 @@ def test_array_fingerprints_include_shape_dtype_and_exact_values():
     )
 
 
-def test_array_cache_reuses_only_an_exact_identity(tmp_path):
+def test_persistent_array_cache_reuses_only_an_exact_identity(tmp_path):
     """Only exact cache hits skip construction."""
-    cache = ArrayCache(tmp_path / "cache")
+    cache = PersistentArrayCache(tmp_path / "cache")
     calls = []
 
     def build(value):
@@ -44,9 +44,9 @@ def test_array_cache_reuses_only_an_exact_identity(tmp_path):
     assert first.flags.writeable is False
 
 
-def test_array_cache_rejects_a_mismatched_manifest(tmp_path):
+def test_persistent_array_cache_rejects_a_mismatched_manifest(tmp_path):
     """A damaged cache entry fails clearly instead of being trusted."""
-    cache = ArrayCache(tmp_path / "cache")
+    cache = PersistentArrayCache(tmp_path / "cache")
     cache.get_or_create("operators", {"resolution": 20}, lambda: np.eye(2))
     manifest_path = next((tmp_path / "cache" / "operators").glob("*.json"))
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -59,7 +59,7 @@ def test_array_cache_rejects_a_mismatched_manifest(tmp_path):
 
 def test_sh_evaluation_cache_uses_exact_grid_coordinates(tmp_path, monkeypatch):
     """Persisted SH evaluations use exact grid identities."""
-    cache = ArrayCache(tmp_path / "cache")
+    cache = PersistentArrayCache(tmp_path / "cache")
     grid = SphericalGrid(lat=[10.0, 20.0], lon=[30.0, 40.0])
     first_basis = SHBasis(2, 2, mean_free=False, operator_cache=cache)
     expected = first_basis.scalar_evaluation_array(grid)
@@ -89,7 +89,7 @@ def test_sh_evaluation_cache_uses_exact_grid_coordinates(tmp_path, monkeypatch):
 
 def test_transform_reuses_persisted_normal_pinv(tmp_path, monkeypatch):
     """A repeated regularized fit restores its expensive inverse."""
-    cache = ArrayCache(tmp_path / "cache")
+    cache = PersistentArrayCache(tmp_path / "cache")
     grid = SphericalGrid(
         lat=np.repeat(np.linspace(-60.0, 60.0, 7), 12), lon=np.tile(np.arange(0.0, 360.0, 30.0), 7)
     )
@@ -116,7 +116,7 @@ def test_transform_reuses_persisted_normal_pinv(tmp_path, monkeypatch):
 
 def test_transform_reuses_persisted_helmholtz_factor(tmp_path, monkeypatch):
     """A repeated transform restores its Cholesky factor."""
-    cache = ArrayCache(tmp_path / "cache")
+    cache = PersistentArrayCache(tmp_path / "cache")
     grid = SphericalGrid(
         lat=np.repeat(np.linspace(-75.0, 75.0, 8), 16), lon=np.tile(np.arange(0.0, 360.0, 22.5), 8)
     )

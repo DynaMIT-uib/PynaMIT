@@ -2,12 +2,8 @@
 
 from __future__ import annotations
 
-from kompe import SolidHarmonicOperators
-from kompe.constants import MU0
 from kompe.math import as_linear_map, get_array_module
 
-from pynamit.simulation.config import setting_value
-from pynamit.simulation.electrodynamics import magnetic_boundary
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     conductance_from_log_coordinates,
     conductance_to_resistance,
@@ -90,51 +86,8 @@ def evaluate_sheet_current_from_operators(
     return current.reshape(2, -1)
 
 
-def build_sheet_current_arrays(settings, sh_basis, transform, boundary_jr_to_gap_Br_matrix=None):
-    """Build coefficient-to-JS arrays for direct array workflows."""
-    rm = setting_value(settings, "RM", None)
-    rm = None if rm in (None, 0, 0.0) else float(rm)
-    solid_harmonics = SolidHarmonicOperators(sh_basis)
-    radius = float(setting_value(settings, "RI"))
-    induced_Br_to_JS_array = magnetic_boundary.induced_Br_to_gridded_JS_operator(
-        solid_harmonics,
-        transform,
-        radius=radius,
-        boundary_radius=rm,
-        boundary_shielding=bool(setting_value(settings, "magnetic_boundary_shielding", False)),
-    ).to_array()
-    boundary_jr_to_toroidal_potential = (
-        MU0 / radius * sh_basis.mean_free_surface_poisson_operator(radius)
-    )
-    boundary_jr_to_gap_Br = (
-        None
-        if boundary_jr_to_gap_Br_matrix is None
-        else as_linear_map(boundary_jr_to_gap_Br_matrix)
-    )
-    boundary_jr_to_JS_array = magnetic_boundary.boundary_jr_to_gridded_JS_operator(
-        solid_harmonics,
-        transform,
-        poloidal_transform=transform,
-        boundary_jr_to_toroidal_potential=boundary_jr_to_toroidal_potential,
-        boundary_jr_to_gap_Br=boundary_jr_to_gap_Br,
-    ).to_array()
-    boundary_Br_to_JS_array = (
-        None
-        if rm is None
-        else magnetic_boundary.boundary_Br_to_gridded_JS_operator(
-            solid_harmonics, transform, radius=radius, boundary_radius=rm
-        ).to_array()
-    )
-    return {
-        "induced_Br_to_JS": induced_Br_to_JS_array,
-        "boundary_jr_to_JS": boundary_jr_to_JS_array,
-        "boundary_Br_to_JS": boundary_Br_to_JS_array,
-    }
-
-
 __all__ = [
     "apply_coefficient_operator",
-    "build_sheet_current_arrays",
     "evaluate_sheet_current_from_operators",
     "evaluate_conductance_coefficients",
     "evaluate_conductance_values",

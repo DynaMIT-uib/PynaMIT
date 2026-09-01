@@ -9,7 +9,9 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from kompe import SphericalTransform
+from kompe import SphericalGrid, SphericalTransform
+from kompe.cache import BoundedCache
+from kompe.constants import EARTH_RADIUS_M
 
 from pynamit.coordinates import GEOCENTRIC_GEOGRAPHIC
 from pynamit.plotting.figure_settings import FigureSettings
@@ -42,7 +44,7 @@ _DISPLAY_OUTPUT_TO_PHYSICAL = {
 }
 _DISPLAY_COORDINATE_SYSTEMS = frozenset({"model", "geographic"})
 _CACHE_ARTIFACTS = tuple(sorted(SIMULATION_ARTIFACT_NAMES))
-_PLOT_DATA_CACHE: dict[tuple[str, int, int], tuple[tuple, PlotData]] = {}
+_PLOT_DATA_CACHE = BoundedCache(4)
 
 
 def _normalize_display_coordinate_system(coordinate_system):
@@ -282,7 +284,7 @@ def compute_input_fields_at_time(
 
 @dataclass
 class PlotData:
-    """Evaluate stored coefficients on plotting grids."""
+    """Evaluate saved coefficients for figures and requested sites."""
 
     results: SimulationResults
     lat: np.ndarray
@@ -294,7 +296,10 @@ class PlotData:
     output_evaluation_context: dict[str, object] | None
     sheet_current_maps: dict[str, object] | None
     _geographic_evaluation: _GeographicEvaluation | None = field(
-        default=None, init=False, repr=False
+        default=None, init=False, repr=False, compare=False
+    )
+    _ground_magnetic_field_cache: BoundedCache = field(
+        default_factory=lambda: BoundedCache(16), init=False, repr=False, compare=False
     )
 
     @classmethod
@@ -489,6 +494,55 @@ class PlotData:
         stored_name = self.results.data_var_name(dataset_key, variable_name)
         return dataset[stored_name].values
 
+    def ground_magnetic_fields(self, site_lat, site_lon):
+        """Return induced ground magnetic fields at geographic sites.
+
+        ``site_lat`` and ``site_lon`` are geocentric geographic degrees.
+        The returned mapping separates dynamic and, when available,
+        equilibrium fields into ``radial`` and ``tangential`` arrays in
+        tesla. Radial arrays have shape ``(site, time)``. Tangential
+        arrays have shape ``(component, site, time)``. Their component
+        order is ``(theta, phi)``, equivalent to ``(south, east)``.
+        """
+        if "dynamic" not in self.results.datasets:
+            raise ValueError("Ground magnetic fields require saved dynamic output.")
+        lat = np.asarray(site_lat, dtype=float).reshape(-1)
+        lon = np.asarray(site_lon, dtype=float).reshape(-1)
+        if lat.size != lon.size:
+            raise ValueError("site_lat and site_lon must have the same length.")
+
+        key = (tuple(np.round(lat, 8).tolist()), tuple(np.round(lon, 8).tolist()))
+        cached = self._ground_magnetic_field_cache.get(key)
+        if cached is not None:
+            return cached
+
+        grid = SphericalGrid(lat=lat, lon=lon)
+        radius = float(self.results.config.RI)
+        solid_harmonics = self.geometry.solid_harmonics
+        solid_basis = solid_harmonics.basis
+        transform = SphericalTransform(solid_basis, grid)
+        reference_shift = solid_harmonics.regular_reference_shift_factors(radius, EARTH_RADIUS_M)
+        induced_Br_to_ground_radial = reference_shift * transform.scalar_synthesis_array
+        induced_Br_to_ground_tangential = (
+            reference_shift / solid_basis.n * transform.surface_gradient_array
+        )
+
+        def evaluate(coefficients):
+            radial = np.asarray(induced_Br_to_ground_radial.dot(coefficients))
+            tangential = np.asarray(induced_Br_to_ground_tangential.dot(coefficients))
+            radial.setflags(write=False)
+            tangential.setflags(write=False)
+            return {"radial": radial, "tangential": tangential}
+
+        induced_Br = self.dataset_values("dynamic", "induced_Br").T
+        fields = {"dynamic": evaluate(induced_Br)}
+        if "equilibrium" in self.results.datasets:
+            equilibrium_induced_Br = self.dataset_values("equilibrium", "induced_Br").T
+            fields["equilibrium"] = evaluate(equilibrium_induced_Br)
+
+        self._ground_magnetic_field_cache.store(key, fields)
+        return fields
+
     def output_fields(self, index, *, field_names=None, coordinate_system="model"):
         """Return flat output fields in the requested coordinates."""
         field_names = _normalize_output_field_names(field_names)
@@ -678,7 +732,7 @@ def get_plot_data(settings):
     if cached is not None and cached[0] == fingerprint:
         return cached[1]
     plot_data = PlotData.from_directory(simulation_directory)
-    _PLOT_DATA_CACHE[key] = (fingerprint, plot_data)
+    _PLOT_DATA_CACHE.store(key, (fingerprint, plot_data))
     return plot_data
 
 

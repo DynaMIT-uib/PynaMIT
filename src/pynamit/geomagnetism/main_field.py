@@ -1,12 +1,12 @@
 """Background main-field models and magnetic coordinates."""
 
-from collections import OrderedDict
 from datetime import datetime, timezone
 
 import apexpy
 import dipole
 import numpy as np
 import ppigrf
+from kompe.cache import BoundedCache
 from kompe.constants import EARTH_RADIUS_M
 from kompe.math import get_array_module, get_backend
 
@@ -116,8 +116,6 @@ class MainField:
     ``h = r - EARTH_RADIUS_M``.
     """
 
-    _grid_cache_size = 8
-
     def __init__(self, kind="dipole", epoch=2020, ionosphere_height_km=0.0, B0=None):
         """Initialize a MainField instance.
 
@@ -148,7 +146,7 @@ class MainField:
             if self.kind == "igrf":
                 raise ValueError("B0 is not supported for the IGRF main-field model.")
         self.B0 = B0
-        self._grid_cache = OrderedDict()
+        self._grid_cache = BoundedCache(8)
 
         if is_dipole_kind(self.kind):
             if self.kind == "kaiju_dipole":
@@ -279,15 +277,9 @@ class MainField:
 
         backend = get_backend()
         key = (grid_signature, radius, backend)
-        cache = self._grid_cache
-        if key in cache:
-            cache.move_to_end(key)
-            return cache[key]
-        entry = {"array_module": get_array_module(), "radius": radius}
-        cache[key] = entry
-        if len(cache) > self._grid_cache_size:
-            cache.popitem(last=False)
-        return entry
+        return self._grid_cache.get_or_create(
+            key, lambda: {"array_module": get_array_module(), "radius": radius}
+        )
 
     def clear_cache(self):
         """Discard shared grid evaluations owned by this field model."""
@@ -295,7 +287,7 @@ class MainField:
 
     def cache_info(self):
         """Return cache occupancy without exposing mutable entries."""
-        return {"grids": len(self._grid_cache), "max_size": self._grid_cache_size}
+        return {"grids": len(self._grid_cache), "max_size": self._grid_cache.max_size}
 
     @staticmethod
     def _has_tangent_vector(east, north):

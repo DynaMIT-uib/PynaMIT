@@ -120,11 +120,6 @@ class _TimeEvolution:
         self._cached_exponential_dt = None
         self._cached_exponential_propagator = None
 
-    @staticmethod
-    def normalize_evolution_options(config, **kwargs) -> _EvolutionOptions:
-        """Validate options without constructing a simulation."""
-        return _EvolutionOptions.from_values(config, **kwargs)
-
     def evolve_to_time(
         self,
         t,
@@ -137,7 +132,7 @@ class _TimeEvolution:
         run_equilibrium=None,
     ) -> None:
         """Evolve the associated simulation to a target time."""
-        options = self.normalize_evolution_options(
+        options = _EvolutionOptions.from_values(
             self.simulation.config,
             t=t,
             dt=dt,

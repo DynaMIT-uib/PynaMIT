@@ -12,7 +12,7 @@ from pynamit.simulation.input_projection import _InputProjector
 from pynamit.simulation.response import ElectrodynamicResponse
 from pynamit.simulation.schema import INPUT_DATASET_KEYS, WIND_FORCING_INPUTS
 from pynamit.simulation.simulation_data import SimulationData
-from pynamit.storage import ArrayCache, ArtifactStore
+from pynamit.storage import ArtifactStore, PersistentArrayCache
 
 
 class InputPreparation:
@@ -41,7 +41,7 @@ class InputPreparation:
     geometry : SimulationGeometry
         Full simulation geometry. Constructed only when first accessed;
         ordinary input projection does not require it.
-    operator_cache : pynamit.storage.ArrayCache, optional
+    operator_cache : pynamit.storage.PersistentArrayCache, optional
         Shared cache for deterministic materialized operators.
     """
 
@@ -174,7 +174,9 @@ class InputPreparation:
         """Open the projection state shared with ``Simulation``."""
         set_backend(backend)
         self.operator_cache = (
-            None if operator_cache_directory is None else ArrayCache(operator_cache_directory)
+            None
+            if operator_cache_directory is None
+            else PersistentArrayCache(operator_cache_directory)
         )
         self.data = SimulationData.open(
             config,

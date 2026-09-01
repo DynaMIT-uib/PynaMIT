@@ -19,7 +19,7 @@ import numpy as np
 
 from pynamit.simulation import input_manifest as _input_manifest
 from pynamit.simulation.config import SimulationConfig
-from pynamit.simulation.evolution import DEFAULT_DT_SECONDS, _TimeEvolution
+from pynamit.simulation.evolution import DEFAULT_DT_SECONDS, _EvolutionOptions
 from pynamit.simulation.schema import INPUT_DATASET_KEYS, WIND_FORCING_INPUTS
 from pynamit.simulation.simulation import Simulation
 from pynamit.storage import ArtifactStore, FieldTimeSeries
@@ -329,7 +329,7 @@ def run_from_inputs(
     if not isinstance(skip_completed, (bool, np.bool_)):
         raise ValueError("skip_completed must be a boolean value.")
     skip_completed = bool(skip_completed)
-    options = _TimeEvolution.normalize_evolution_options(
+    options = _EvolutionOptions.from_values(
         config,
         t=final_time,
         dt=dt,

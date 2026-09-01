@@ -39,7 +39,7 @@ from pynamit.plotting.plot_helpers import (
     symmetric_contour_levels,
     symmetric_contour_levels_without_zero,
 )
-from pynamit.results.field_evaluation import build_sheet_current_arrays
+from pynamit.results.output_fields import sheet_current_evaluation_arrays
 from pynamit.simulation.simulation import Simulation
 from pynamit.storage import ArtifactStore
 
@@ -423,7 +423,7 @@ def test_grid_helpers_are_importable_from_visualization():
     assert grid.size == 12
 
 
-def test_build_sheet_current_arrays_match_core_formulas():
+def test_sheet_current_evaluation_arrays_match_core_formulas():
     """Shared JS helper follows geometry formulas."""
 
     class Settings:
@@ -437,7 +437,7 @@ def test_build_sheet_current_arrays_match_core_formulas():
     transform = SphericalTransform(sh_basis, grid)
     boundary_jr_to_gap_Br = np.eye(sh_basis.index_length)
 
-    arrays = build_sheet_current_arrays(
+    arrays = sheet_current_evaluation_arrays(
         Settings, sh_basis, transform, boundary_jr_to_gap_Br_matrix=boundary_jr_to_gap_Br
     )
 
@@ -451,7 +451,7 @@ def test_build_sheet_current_arrays_match_core_formulas():
     irregular_shift = solid_harmonics.irregular_reference_shift_factors(Settings.RI, Settings.RM)
     denominator = 1.0 - regular_shift * irregular_shift
     induced_potential_to_Br = -(Settings.RI**2) * np.diag(
-        sh_basis.surface_laplacian_matrix(Settings.RI)
+        sh_basis.surface_laplacian_operator(Settings.RI).to_matrix()
     )
     boundary_jr_to_toroidal = (
         MU0 / Settings.RI * sh_basis.mean_free_surface_poisson_operator(Settings.RI).to_array()
@@ -476,7 +476,7 @@ def test_build_sheet_current_arrays_match_core_formulas():
     )
 
 
-def test_build_sheet_current_arrays_default_to_unshielded_rm():
+def test_sheet_current_evaluation_arrays_default_to_unshielded_rm():
     """RM does not impose shielding unless requested."""
 
     class Settings:
@@ -488,18 +488,20 @@ def test_build_sheet_current_arrays_default_to_unshielded_rm():
     _, _, grid = regular_geographic_grid(nlat=4, nlon=5)
     transform = SphericalTransform(sh_basis, grid)
 
-    arrays = build_sheet_current_arrays(Settings, sh_basis, transform)
+    arrays = sheet_current_evaluation_arrays(Settings, sh_basis, transform)
     poloidal_to_JS = (
         -transform.rhat_cross_gradient_array
         * solid_harmonics.poloidal_to_normalized_potential_jump_factors.reshape(1, 1, -1)
         / MU0
     )
 
-    degree_factor = -(Settings.RI**2) * np.diag(sh_basis.surface_laplacian_matrix(Settings.RI))
+    degree_factor = -(Settings.RI**2) * np.diag(
+        sh_basis.surface_laplacian_operator(Settings.RI).to_matrix()
+    )
     np.testing.assert_allclose(arrays["induced_Br_to_JS"], poloidal_to_JS / degree_factor)
 
 
-def test_build_sheet_current_arrays_omit_boundary_map_without_rm():
+def test_sheet_current_evaluation_arrays_omit_boundary_map_without_rm():
     """A run without a magnetic boundary allocates no zero Br map."""
 
     class Settings:
@@ -510,12 +512,12 @@ def test_build_sheet_current_arrays_omit_boundary_map_without_rm():
     _, _, grid = regular_geographic_grid(nlat=4, nlon=5)
     transform = SphericalTransform(sh_basis, grid)
 
-    arrays = build_sheet_current_arrays(Settings, sh_basis, transform)
+    arrays = sheet_current_evaluation_arrays(Settings, sh_basis, transform)
 
     assert arrays["boundary_Br_to_JS"] is None
 
 
-def test_build_sheet_current_arrays_match_geometry(tmp_path):
+def test_sheet_current_evaluation_arrays_match_geometry(tmp_path):
     """Notebook helper matches SimulationGeometry JS conventions."""
     simulation = Simulation(
         simulation_directory=str(tmp_path / "run"),
@@ -529,7 +531,7 @@ def test_build_sheet_current_arrays_match_geometry(tmp_path):
     geometry = simulation.geometry
     _, _, grid = regular_geographic_grid(nlat=4, nlon=5)
     transform = SphericalTransform(simulation.geometry.horizontal_basis, grid)
-    arrays = build_sheet_current_arrays(
+    arrays = sheet_current_evaluation_arrays(
         simulation.data.config,
         simulation.geometry.horizontal_basis,
         transform,

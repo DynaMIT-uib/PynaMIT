@@ -74,14 +74,14 @@ def test_optional_namespaces_advertise_only_the_common_api():
 
 def test_magnetic_boundary_operators_are_available():
     """JS operators are available from their owning modules."""
-    evaluation = importlib.import_module("pynamit.results.field_evaluation")
+    output_fields = importlib.import_module("pynamit.results.output_fields")
     magnetic_boundary = importlib.import_module(
         "pynamit.simulation.electrodynamics.magnetic_boundary"
     )
 
     assert callable(magnetic_boundary.induced_Br_to_gridded_JS_operator)
     assert callable(magnetic_boundary.boundary_jr_to_gridded_JS_operator)
-    assert callable(evaluation.build_sheet_current_arrays)
+    assert callable(output_fields.sheet_current_evaluation_arrays)
 
 
 def test_input_projection_comparison_recipe_is_importable():

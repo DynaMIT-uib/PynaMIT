@@ -1,13 +1,15 @@
 """Evaluate simulation output fields on requested grids."""
 
-from kompe import SphericalTransform
+from kompe import SolidHarmonicOperators, SphericalTransform
 from kompe.constants import MU0
-from kompe.math import get_array_module
+from kompe.math import as_linear_map, get_array_module
 
 from pynamit.results.field_evaluation import (
     apply_coefficient_operator,
     evaluate_sheet_current_from_operators,
 )
+from pynamit.simulation.config import setting_value
+from pynamit.simulation.electrodynamics import magnetic_boundary
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     joule_heating_from_current,
     pedersen_geometry_tensor,
@@ -87,6 +89,51 @@ def sheet_current_operators(geometry, transform):
         "boundary_Br_to_JS": geometry.boundary_Br_to_gridded_JS_operator(
             horizontal_transform, poloidal_transform=poloidal_transform
         ),
+    }
+
+
+def sheet_current_evaluation_arrays(
+    settings, sh_basis, transform, boundary_jr_to_gap_Br_matrix=None
+):
+    """Return sheet-current evaluation arrays for direct workflows."""
+    rm = setting_value(settings, "RM", None)
+    rm = None if rm in (None, 0, 0.0) else float(rm)
+    radius = float(setting_value(settings, "RI"))
+    solid_harmonics = SolidHarmonicOperators(sh_basis)
+
+    induced_Br_to_JS = magnetic_boundary.induced_Br_to_gridded_JS_operator(
+        solid_harmonics,
+        transform,
+        radius=radius,
+        boundary_radius=rm,
+        boundary_shielding=bool(setting_value(settings, "magnetic_boundary_shielding", False)),
+    ).to_array()
+    boundary_jr_to_toroidal_potential = (
+        MU0 / radius * sh_basis.mean_free_surface_poisson_operator(radius)
+    )
+    boundary_jr_to_gap_Br = (
+        None
+        if boundary_jr_to_gap_Br_matrix is None
+        else as_linear_map(boundary_jr_to_gap_Br_matrix)
+    )
+    boundary_jr_to_JS = magnetic_boundary.boundary_jr_to_gridded_JS_operator(
+        solid_harmonics,
+        transform,
+        poloidal_transform=transform,
+        boundary_jr_to_toroidal_potential=boundary_jr_to_toroidal_potential,
+        boundary_jr_to_gap_Br=boundary_jr_to_gap_Br,
+    ).to_array()
+    boundary_Br_to_JS = (
+        None
+        if rm is None
+        else magnetic_boundary.boundary_Br_to_gridded_JS_operator(
+            solid_harmonics, transform, radius=radius, boundary_radius=rm
+        ).to_array()
+    )
+    return {
+        "induced_Br_to_JS": induced_Br_to_JS,
+        "boundary_jr_to_JS": boundary_jr_to_JS,
+        "boundary_Br_to_JS": boundary_Br_to_JS,
     }
 
 
@@ -312,5 +359,6 @@ __all__ = [
     "evaluate_output_coefficients",
     "evaluate_simulation_output",
     "output_evaluation_operators",
+    "sheet_current_evaluation_arrays",
     "sheet_current_operators",
 ]

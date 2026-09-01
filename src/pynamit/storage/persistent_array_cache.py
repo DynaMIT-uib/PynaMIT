@@ -28,7 +28,7 @@ def _safe_category(category: str) -> str:
     return category
 
 
-class ArrayCache:
+class PersistentArrayCache:
     """Store immutable NumPy arrays under exact content-derived keys.
 
     Cache entries are optional performance artifacts. Callers supply
@@ -123,7 +123,7 @@ class ArrayCache:
         # its memory order can double peak construction memory.
         built = np.asarray(builder())
         if built.dtype.hasobject:
-            raise TypeError("ArrayCache cannot persist object arrays.")
+            raise TypeError("PersistentArrayCache cannot persist object arrays.")
 
         array_path.parent.mkdir(parents=True, exist_ok=True)
         self._write_array_atomically(array_path, built)
@@ -143,4 +143,4 @@ class ArrayCache:
         return cached
 
 
-__all__ = ["ArrayCache"]
+__all__ = ["PersistentArrayCache"]

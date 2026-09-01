@@ -2,22 +2,18 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from kompe import SphericalGrid, SphericalTransform
-from kompe.constants import EARTH_RADIUS_M
 from matplotlib.lines import Line2D
 
 from pynamit.coordinates import local_time_hours_to_longitude
 from pynamit.magnetometers import (
     download_and_load_iaga2002_station_data,
-    load_iaga2002_magnetometer_data,
-    normalize_station_metadata,
-    shift_station_datetime_index,
+    find_station_metadata,
+    load_local_iaga2002_station_data,
+    station_geographic_components,
 )
 from pynamit.plotting.map_coordinates import MapCoordinateContext
 from pynamit.plotting.map_curves import (
@@ -41,9 +37,6 @@ from pynamit.results.time_series import (
     vector_magnitude_preserve_shape,
 )
 
-_GROUND_FIELD_CACHE = {}
-_STATION_FILE_CACHE = {}
-
 
 class GroundFigureRenderer:
     """Render ground magnetic figures."""
@@ -52,7 +45,6 @@ class GroundFigureRenderer:
         self.settings = _coerce_figure_settings(settings)
         self.plot_data = get_plot_data(self.settings) if plot_data is None else plot_data
         self._station_table_cache = None
-        self._station_data_directory_cache = None
 
     @property
     def _time_index(self):
@@ -76,9 +68,12 @@ class GroundFigureRenderer:
                 "and local-time filtering."
             )
 
-        br_dynamic, bh_dynamic, br_equilibrium, bh_equilibrium = self._ground_field_values(
-            lat, lon
-        )
+        ground_fields = self.plot_data.ground_magnetic_fields(lat, lon)
+        br_dynamic = ground_fields["dynamic"]["radial"]
+        bh_dynamic = ground_fields["dynamic"]["tangential"]
+        equilibrium = ground_fields.get("equilibrium")
+        br_equilibrium = None if equilibrium is None else equilibrium["radial"]
+        bh_equilibrium = None if equilibrium is None else equilibrium["tangential"]
         layers = self._curve_layers(
             br_dynamic,
             bh_dynamic,
@@ -225,15 +220,31 @@ class GroundFigureRenderer:
         if rows.empty:
             raise ValueError(f"Unknown station {station_code!r}.")
         station = rows.iloc[0]
-        br_dynamic, bh_dynamic, br_equilibrium, bh_equilibrium = self._ground_field_values(
+        ground_fields = self.plot_data.ground_magnetic_fields(
             [station["GEOLAT"]], [station["GEOLON"]]
         )
+        br_dynamic = ground_fields["dynamic"]["radial"]
+        bh_dynamic = ground_fields["dynamic"]["tangential"]
+        equilibrium = ground_fields.get("equilibrium")
+        br_equilibrium = None if equilibrium is None else equilibrium["radial"]
+        bh_equilibrium = None if equilibrium is None else equilibrium["tangential"]
         source_times = self._time_index + pd.to_timedelta(
             float(self.settings.simulation_time_offset_seconds), unit="s"
         )
         dbdt_cadence_seconds = get_time_index_median_cadence_seconds(source_times)
         target_times = self._ground_plot_times()
-        measured = self._station_measured_dataframe(station_code, target_times)
+        measured = None
+        if self.settings.include_station_data:
+            _, stations_path = self._station_table()
+            station_values = download_and_load_iaga2002_station_data(
+                station_code, target_times[0], stations_path.parent, logger=None
+            )
+            if station_values is not None:
+                measured = station_geographic_components(
+                    station_values,
+                    station_code,
+                    data_time_offset_seconds=self.settings.data_time_offset_seconds,
+                )
 
         components = ["North", "East", "Down"]
         fig, axes = plt.subplots(3, 1, figsize=(11, 7), sharex=True, constrained_layout=True)
@@ -317,59 +328,13 @@ class GroundFigureRenderer:
             return selected
         return pd.date_range(start, end, freq="1s")
 
-    def _ground_field_values(self, site_lat, site_lon):
-        """Return ground field values at sites and saved times."""
-        lat_arr = np.asarray(site_lat, dtype=float).reshape(-1)
-        lon_arr = np.asarray(site_lon, dtype=float).reshape(-1)
-        if lat_arr.size != lon_arr.size:
-            raise ValueError("site_lat and site_lon must have the same length.")
-
-        key = (
-            id(self.plot_data),
-            str(self.plot_data.results.artifact_store.directory),
-            tuple(np.round(lat_arr, 8).tolist()),
-            tuple(np.round(lon_arr, 8).tolist()),
-        )
-        cached = _GROUND_FIELD_CACHE.get(key)
-        if cached is not None:
-            return cached
-
-        geometry = self.plot_data.geometry
-        grid = SphericalGrid(lat=lat_arr, lon=lon_arr)
-        ri = float(self.plot_data.results.config.RI)
-        solid_harmonics = geometry.solid_harmonics
-        solid_basis = solid_harmonics.basis
-        transform = SphericalTransform(solid_basis, grid)
-        ve_to_ground = solid_harmonics.regular_reference_shift_factors(ri, EARTH_RADIUS_M)
-        induced_Br_to_br_ground = ve_to_ground * transform.scalar_synthesis_array
-        induced_Br_to_bh_ground = ve_to_ground / solid_basis.n * transform.surface_gradient_array
-
-        induced_Br = self.plot_data.dataset_values("dynamic", "induced_Br").T
-        equilibrium_dataset = self.plot_data.results.datasets.get("equilibrium")
-        if equilibrium_dataset is None:
-            br_equilibrium = None
-            bh_equilibrium = None
-        else:
-            equilibrium_induced_Br = self.plot_data.dataset_values("equilibrium", "induced_Br").T
-            br_equilibrium = induced_Br_to_br_ground.dot(equilibrium_induced_Br)
-            bh_equilibrium = induced_Br_to_bh_ground.dot(equilibrium_induced_Br)
-        cached = (
-            induced_Br_to_br_ground.dot(induced_Br),
-            induced_Br_to_bh_ground.dot(induced_Br),
-            br_equilibrium,
-            bh_equilibrium,
-        )
-        _GROUND_FIELD_CACHE[key] = cached
-        if len(_GROUND_FIELD_CACHE) > 64:
-            _GROUND_FIELD_CACHE.pop(next(iter(_GROUND_FIELD_CACHE)))
-        return cached
-
     def _curve_sites_and_measurements(self, target_times, *, dbdt_cadence_seconds=None):
         """Return curve-map sites and measured values."""
         station_labels = []
         measured_values = None
         if self.settings.include_station_data:
             station_sites = self._ground_curve_station_sites(target_times)
+            _, stations_path = self._station_table()
             station_lon = station_sites["GEOLON"].to_numpy(dtype=float)
             station_lat = station_sites["GEOLAT"].to_numpy(dtype=float)
             candidate_labels = station_sites["IAGA"].astype(str).to_list()
@@ -379,7 +344,12 @@ class GroundFigureRenderer:
             for station_code, site_lon, site_lat in zip(
                 candidate_labels, station_lon, station_lat, strict=True
             ):
-                measured = self._load_local_station_dataframe(station_code, target_times)
+                measured = load_local_iaga2002_station_data(
+                    stations_path.parent,
+                    station_code,
+                    target_times[0],
+                    data_time_offset_seconds=self.settings.data_time_offset_seconds,
+                )
                 if measured is None:
                     continue
                 station_values = self._station_values_at_times(
@@ -490,112 +460,11 @@ class GroundFigureRenderer:
         """Return normalized station metadata and source path."""
         if self._station_table_cache is not None:
             return self._station_table_cache
-
-        simulation_directory = Path(self.settings.simulation_directory).expanduser()
-        repo_root = Path(__file__).resolve().parents[3]
-        candidates = []
-        if self.settings.station_data_directory:
-            candidates.append(
-                Path(self.settings.station_data_directory).expanduser() / "stations_full_list.csv"
-            )
-        candidates.extend(
-            [
-                simulation_directory / "mag_data" / "stations_full_list.csv",
-                simulation_directory / "data" / "mag_data" / "stations_full_list.csv",
-                Path("mag_data/stations_full_list.csv"),
-                Path("notebooks/mag_data/stations_full_list.csv"),
-                repo_root / "notebooks" / "mag_data" / "stations_full_list.csv",
-            ]
+        self._station_table_cache = find_station_metadata(
+            self.settings.simulation_directory,
+            station_data_directory=self.settings.station_data_directory,
         )
-        for candidate in candidates:
-            try:
-                table = normalize_station_metadata(pd.read_csv(candidate))
-                self._station_table_cache = (table, str(candidate))
-                return self._station_table_cache
-            except FileNotFoundError:
-                continue
-        raise ValueError(
-            "Could not find stations_full_list.csv. Set station_data_directory in "
-            "pynamit_plot_defaults.json or place station data in mag_data/."
-        )
-
-    def _station_data_directory(self):
-        """Return directory containing station data files."""
-        if self._station_data_directory_cache is not None:
-            return self._station_data_directory_cache
-        _, stations_path = self._station_table()
-        self._station_data_directory_cache = Path(stations_path).expanduser().parent
-        return self._station_data_directory_cache
-
-    def _load_local_station_dataframe(self, station_code, target_times):
-        """Load local IAGA2002 station data for a curve map."""
-        data_dir = self._station_data_directory()
-        source_start = pd.Timestamp(target_times[0]) - pd.to_timedelta(
-            float(self.settings.data_time_offset_seconds), unit="s"
-        )
-        filename = (
-            data_dir / f"{str(station_code).lower()}{source_start.strftime('%Y%m%d')}vsec.sec"
-        )
-        if not filename.exists():
-            return None
-        measured = self._load_cached_station_file(filename, station_code)
-        if measured is None:
-            return None
-        return self._station_xyz_dataframe(
-            measured, station_code, data_time_offset_seconds=self.settings.data_time_offset_seconds
-        )
-
-    def _station_measured_dataframe(self, station_code, target_index):
-        """Download/load station data for one selected station."""
-        try:
-            _, stations_path = self._station_table()
-        except ValueError:
-            return None
-        data_dir = str(pd.io.common.stringify_path(stations_path)).rsplit("/", 1)[0]
-        measured = download_and_load_iaga2002_station_data(
-            station_code, target_index[0], data_dir, logger=None
-        )
-        if measured is None:
-            return None
-        return self._station_xyz_dataframe(
-            measured, station_code, data_time_offset_seconds=self.settings.data_time_offset_seconds
-        )
-
-    @staticmethod
-    def _load_cached_station_file(filename, station_code):
-        path = Path(filename)
-        try:
-            stat = path.stat()
-        except FileNotFoundError:
-            return None
-        cache_key = (
-            str(path.resolve()),
-            stat.st_mtime_ns,
-            stat.st_size,
-            str(station_code).upper(),
-        )
-        if cache_key not in _STATION_FILE_CACHE:
-            _STATION_FILE_CACHE[cache_key] = load_iaga2002_magnetometer_data(
-                path, station_code, logger=None
-            )
-            if len(_STATION_FILE_CACHE) > 512:
-                _STATION_FILE_CACHE.pop(next(iter(_STATION_FILE_CACHE)))
-        return _STATION_FILE_CACHE[cache_key]
-
-    @staticmethod
-    def _station_xyz_dataframe(measured, station_code, *, data_time_offset_seconds=0.0):
-        station_code = str(station_code).upper()
-        measured_index = shift_station_datetime_index(
-            measured.index, data_time_offset_seconds=data_time_offset_seconds
-        )
-        return pd.DataFrame(
-            {
-                "North": measured[f"{station_code}X"].to_numpy(dtype=float),
-                "East": measured[f"{station_code}Y"].to_numpy(dtype=float),
-                "Down": measured[f"{station_code}Z"].to_numpy(dtype=float),
-            },
-            index=measured_index,
-        )
+        return self._station_table_cache
 
     def _station_values_at_times(self, measured, target_times, *, dbdt_cadence_seconds=None):
         """Return measured station values sampled at target times."""

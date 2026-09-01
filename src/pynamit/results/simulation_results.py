@@ -18,7 +18,7 @@ from pynamit.simulation.schema import (
     SimulationSchema,
     build_simulation_schema,
 )
-from pynamit.storage import ArrayCache, ArtifactStore, FieldTimeSeries
+from pynamit.storage import ArtifactStore, FieldTimeSeries, PersistentArrayCache
 
 
 @dataclass
@@ -36,7 +36,7 @@ class SimulationResults:
     config: SimulationConfig
     schema: SimulationSchema
     main_field: MainField
-    operator_cache: ArrayCache | None = None
+    operator_cache: PersistentArrayCache | None = None
     boundary_jr_to_gap_Br_matrix: xr.DataArray | None = None
     _geometry: SimulationGeometry | None = field(default=None, init=False, repr=False)
     _input_series: FieldTimeSeries | None = field(default=None, init=False, repr=False)
@@ -71,7 +71,9 @@ class SimulationResults:
             )
         config = SimulationConfig.from_settings(datasets["settings"])
         operator_cache = (
-            None if operator_cache_directory is None else ArrayCache(operator_cache_directory)
+            None
+            if operator_cache_directory is None
+            else PersistentArrayCache(operator_cache_directory)
         )
         results = cls(
             artifact_store=artifact_store,
