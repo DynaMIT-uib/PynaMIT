@@ -2,7 +2,14 @@
 
 import numpy as np
 import pytest
-from kompe.math import LinearMap, as_linear_map, get_backend, set_backend
+from kompe.math import (
+    LeastSquaresSolver,
+    LinearMap,
+    as_linear_map,
+    get_array_module,
+    get_backend,
+    set_backend,
+)
 
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     Q_eff_on_grid_from_wind,
@@ -272,8 +279,41 @@ def test_Q_eff_regularization_weights_the_squared_coefficient_norm():
     np.testing.assert_allclose(coefficients, expected)
 
 
-def test_Q_eff_solver_reuses_a_matrix_free_operator():
-    """Repeated wind fits do not materialize the operator."""
+@pytest.mark.parametrize("rhs_shape", [(4,), (2, 4)])
+@pytest.mark.parametrize("matrix_kind", ["tall", "wide", "rank_deficient"])
+def test_Q_eff_regularized_solver_handles_rhs_blocks(rhs_shape, matrix_kind):
+    """Damping preserves the regularized solution and RHS axes."""
+    xp = get_array_module()
+    matrix = np.array([[2.0, 1.0], [-1.0, 3.0], [4.0, -2.0]])
+    if matrix_kind == "wide":
+        matrix = matrix.T
+    elif matrix_kind == "rank_deficient":
+        matrix[:, 1] = 2 * matrix[:, 0]
+    data_size, coefficient_size = matrix.shape
+    rhs = (
+        np.arange(data_size * int(np.prod(rhs_shape)), dtype=float).reshape(data_size, -1) / 4
+        - 0.5
+    )
+    reg_lambda = 0.25
+    solve = build_Q_eff_coefficient_solver(as_linear_map(matrix), reg_lambda=reg_lambda)
+    expected = np.linalg.solve(
+        matrix.T @ matrix + reg_lambda * np.eye(matrix.shape[1]), matrix.T @ rhs
+    )
+
+    # One prepared solver accepts both coefficient fields and blocks.
+    single = solve(xp.asarray(rhs[:, 0]))
+    block = solve(xp.asarray(rhs.reshape((data_size,) + rhs_shape)))
+
+    assert isinstance(single, xp.ndarray)
+    assert isinstance(block, xp.ndarray)
+    assert block.shape == (coefficient_size,) + rhs_shape
+    np.testing.assert_allclose(single, expected[:, 0], rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(block, expected.reshape(block.shape), rtol=1e-12, atol=1e-12)
+
+
+@pytest.mark.parametrize("reg_lambda", [0.0, 0.25])
+def test_Q_eff_solver_reuses_a_matrix_free_operator(monkeypatch, reg_lambda):
+    """Repeated fits neither materialize nor augment the operator."""
     matrix = np.array([[2.0, 1.0], [-1.0, 3.0], [4.0, -2.0]])
 
     def fail_dense(_xp):
@@ -288,10 +328,22 @@ def test_Q_eff_solver_reuses_a_matrix_free_operator():
         rmatmat=lambda values: matrix.T @ values,
         dense_array=fail_dense,
     )
-    solve = build_Q_eff_coefficient_solver(operator)
+    original_solve = LeastSquaresSolver.solve
 
-    for expected in (np.array([1.5, -0.5]), np.array([-0.25, 2.0])):
-        np.testing.assert_allclose(solve(matrix @ expected), expected)
+    def solve_without_augmentation(self, problem, rhs, **kwargs):
+        assert problem.system_operator is operator
+        assert kwargs["damp"] == pytest.approx(reg_lambda**0.5)
+        return original_solve(self, problem, rhs, **kwargs)
+
+    monkeypatch.setattr(LeastSquaresSolver, "solve", solve_without_augmentation)
+    solve = build_Q_eff_coefficient_solver(operator, reg_lambda=reg_lambda)
+
+    for coefficients in (np.array([1.5, -0.5]), np.array([-0.25, 2.0])):
+        rhs = matrix @ coefficients
+        expected = np.linalg.solve(
+            matrix.T @ matrix + reg_lambda * np.eye(matrix.shape[1]), matrix.T @ rhs
+        )
+        np.testing.assert_allclose(solve(rhs), expected)
 
 
 @pytest.mark.requires_jax
@@ -319,21 +371,42 @@ def test_closure_math_preserves_explicit_jax_arrays(backend, data_source):
         coefficients = solve_Q_eff_coefficients(
             as_linear_map(np.asarray(matrix)), matrix @ expected
         )
+        regularized_coefficients = solve_Q_eff_coefficients(
+            as_linear_map(np.asarray(matrix)), matrix @ expected, reg_lambda=0.25
+        )
     finally:
         set_backend(previous_backend)
 
-    for values in (log_magnitude, log_ratio, etaP, etaH, Q_eff, coefficients):
+    for values in (
+        log_magnitude,
+        log_ratio,
+        etaP,
+        etaH,
+        Q_eff,
+        coefficients,
+        regularized_coefficients,
+    ):
         assert "jax" in type(values).__module__
     np.testing.assert_allclose(np.asarray(coefficients), np.asarray(expected), rtol=1e-6)
+    matrix_np = np.asarray(matrix)
+    regularized_expected = np.linalg.solve(
+        matrix_np.T @ matrix_np + 0.25 * np.eye(matrix_np.shape[1]),
+        matrix_np.T @ (matrix_np @ np.asarray(expected)),
+    )
+    np.testing.assert_allclose(regularized_coefficients, regularized_expected, rtol=1e-6)
 
 
 @pytest.mark.parametrize(
-    ("kwargs", "message"),
-    [({"reg_lambda": -1.0}, "reg_lambda"), ({"tolerance": np.nan}, "tolerance")],
+    ("kwargs", "error", "message"),
+    [
+        ({"reg_lambda": -1.0}, ValueError, "reg_lambda"),
+        ({"tolerance": np.nan}, ValueError, "tolerance"),
+        ({"tolerance": True}, TypeError, "tolerance"),
+    ],
 )
-def test_Q_eff_coefficient_solve_rejects_invalid_controls(kwargs, message):
+def test_Q_eff_coefficient_solve_rejects_invalid_controls(kwargs, error, message):
     """Invalid solver controls must not silently change behavior."""
     operator = as_linear_map(np.eye(2))
 
-    with pytest.raises(ValueError, match=message):
+    with pytest.raises(error, match=message):
         solve_Q_eff_coefficients(operator, np.ones(2), **kwargs)

@@ -8,7 +8,6 @@ from kompe.math import (
     LeastSquaresSolver,
     LinearMap,
     get_array_module,
-    identity_linear_map,
     pointwise_matrix_linear_map,
 )
 
@@ -349,31 +348,23 @@ def build_Q_eff_coefficient_solver(
 
     The fitted objective is ``||R Q_eff - E_wind||²`` plus
     ``reg_lambda * ||Q_eff||²`` when regularization is requested.
+    LSMR applies this penalty through damping, without augmented rows.
+    The returned solver accepts trailing right-hand-side axes.
     """
-    tolerance = float(tolerance)
-    if not np.isfinite(tolerance) or tolerance < 0.0:
-        raise ValueError("tolerance must be finite and non-negative.")
     weight = 0.0 if reg_lambda is None else float(reg_lambda)
     if not np.isfinite(weight) or weight < 0.0:
         raise ValueError("reg_lambda must be finite and non-negative.")
 
-    operators = [Q_eff_to_E_operator]
-    data_shapes = [Q_eff_to_E_operator.output_shape]
-    if weight > 0.0:
-        operators.append(weight**0.5 * identity_linear_map(Q_eff_to_E_operator.input_shape))
-        data_shapes.append(Q_eff_to_E_operator.input_shape)
-
     problem = LeastSquaresProblem(
-        A=operators, solution_shape=Q_eff_to_E_operator.input_shape, data_shapes=data_shapes
+        A=Q_eff_to_E_operator,
+        solution_shape=Q_eff_to_E_operator.input_shape,
+        data_shapes=Q_eff_to_E_operator.output_shape,
     )
-    solve = LeastSquaresSolver(solver="lsmr", tolerance=tolerance).build_response_solver(problem)
+    solver = LeastSquaresSolver(solver="lsmr", tolerance=tolerance)
+    damping = weight**0.5
 
     def solve_E_wind(E_wind_coeffs):
-        if weight == 0.0:
-            return solve(E_wind_coeffs)
-        xp = get_array_module(E_wind_coeffs, *Q_eff_to_E_operator.backend_operands)
-        regularization_rhs = xp.zeros(Q_eff_to_E_operator.input_shape)
-        return solve([E_wind_coeffs, regularization_rhs])
+        return solver.solve(problem, E_wind_coeffs, damp=damping)
 
     return solve_E_wind
 

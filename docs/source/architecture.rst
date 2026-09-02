@@ -589,6 +589,10 @@ instead of mirroring individual coefficient names:
   converts exactly at the module boundary. Motion of an SM forcing pattern
   appears through timestamped SM-to-GEO preparation, not through a rotating
   model basis.
+  The SciPy path completes its forcing calculation on the selected array
+  backend, then transfers the forcing and initial state at the solver
+  boundary. Intermediate coordinate conversions do not round-trip through
+  the CPU.
 
 ``SimulationGeometry`` supplies simulation-specific grids, magnetic-field factors,
 transforms, radial field-line mapping, exact physical-to-private coordinate

@@ -249,6 +249,48 @@ def test_scipy_step_uses_feedback_operator():
 
 
 @pytest.mark.requires_jax
+@pytest.mark.parametrize("backend", ["numpy"], ids=["backend=numpy"])
+@pytest.mark.parametrize("data_source", ["fallback"], ids=["data=fallback"])
+def test_scipy_step_transfers_only_completed_forcing(backend, data_source, monkeypatch):
+    """Finish forcing on JAX before crossing into SciPy."""
+    import jax
+    import jax.numpy as jnp
+    from kompe.math import LinearMap
+
+    transfers = []
+    original_to_numpy = induction.to_numpy
+
+    def to_numpy(values):
+        transfers.append(values)
+        return original_to_numpy(values)
+
+    def surface_to_poloidal(values):
+        assert isinstance(values, jax.Array)
+        return 2.0 * values
+
+    identity = as_linear_map(jnp.eye(1))
+    response = SimpleNamespace(
+        config=SimpleNamespace(integrator="RK45"),
+        induced_poloidal_potential_feedback_operator=as_linear_map(jnp.array([[-1.0]])),
+        geometry=SimpleNamespace(
+            induced_poloidal_potential_faraday_rate_scale=1.0,
+            induced_Br_to_poloidal_potential_operator=identity,
+            induced_poloidal_potential_to_Br_operator=identity,
+            helmholtz_divergence_free_potential_operator=identity,
+            surface_to_poloidal_operator=LinearMap(
+                shape=(1, 1), dtype=float, matvec=surface_to_poloidal, rmatvec=surface_to_poloidal
+            ),
+        ),
+    )
+    monkeypatch.setattr(induction, "to_numpy", to_numpy)
+    evolved = induction.evolve_induced_Br(response, jnp.array([2.0]), 0.1, jnp.array([0.5]))
+
+    assert len(transfers) == 2  # Completed forcing and initial state.
+    assert isinstance(evolved, jax.Array)
+    np.testing.assert_allclose(evolved, 1.0 + np.exp(-0.1), rtol=1e-6)
+
+
+@pytest.mark.requires_jax
 @pytest.mark.parametrize("backend", ["jax"], ids=["backend=jax"])
 @pytest.mark.parametrize("data_source", ["fallback"], ids=["data=fallback"])
 def test_output_snapshot_stays_on_jax_until_storage_boundary(backend, data_source):

@@ -112,7 +112,7 @@ def test_cs_runtime_toroidal_solve_does_not_build_dense_response_matrix(tmp_path
     _, solved_boundary_jr = response.solve_noninductive_response()
 
     assert response._boundary_jr_to_toroidal_potential_operator is None
-    assert response._runtime_toroidal_potential_to_E_coeffs._cached_dense(np) is None
+    assert np not in response._runtime_toroidal_potential_to_E_coeffs._dense_cache
     explicit_toroidal_potential = response.boundary_jr_to_toroidal_potential_operator.matvec(
         response.boundary_jr.array
     )

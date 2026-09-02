@@ -104,9 +104,10 @@ def evolve_induced_Br(
 
     logger.debug("Using scipy.solve_ivp with method=%r.", integrator)
     feedback = response.induced_poloidal_potential_feedback_operator.to_matrix(backend="numpy")
-    W_noninductive = to_numpy(
-        geometry.helmholtz_divergence_free_potential_operator.matvec(backend_E_noninductive)
+    W_noninductive = geometry.helmholtz_divergence_free_potential_operator.matvec(
+        backend_E_noninductive
     )
+    # Finish the forcing on its backend before transferring to SciPy.
     poloidal_W_noninductive = to_numpy(
         geometry.surface_to_poloidal_operator.matvec(W_noninductive)
     )

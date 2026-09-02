@@ -313,7 +313,7 @@ def test_equilibrium_operator_keeps_cross_space_bridge_structured():
     actual = operator.matvec(probe)
     expected = -np.linalg.pinv(feedback_matrix, rtol=1e-15) @ surface_matrix @ probe
 
-    assert surface_operator._cached_dense(np) is None
+    assert np not in surface_operator._dense_cache
     np.testing.assert_allclose(actual, expected, rtol=1e-13, atol=1e-13)
 
     explicit = response.noninductive_W_to_equilibrium_induced_poloidal_potential_matrix
