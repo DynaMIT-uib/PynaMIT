@@ -1,12 +1,18 @@
-"""Investigate intepolation regularization and resolution."""
+"""Investigate interpolation regularization and resolution."""
 
-import numpy as np
-import pynamit
-import dipole
-import pyhwm2014  # https://github.com/rilma/pyHWM14
 import datetime
-import matplotlib.pyplot as plt
+
 import cartopy.crs as ccrs
+import dipole
+import kompe
+import matplotlib.pyplot as plt
+import numpy as np
+import pyhwm2014  # https://github.com/rilma/pyHWM14
+
+import pynamit
+from pynamit.coordinates import decimal_year
+from pynamit.external_inputs import get_conductance_inputs
+from pynamit.external_inputs.coordinates import ExternalInputCoordinates
 
 plt.rcParams["figure.constrained_layout.use"] = True
 
@@ -28,16 +34,16 @@ MIN_REG_LAMBDA_LOG = -6
 MAX_REG_LAMBDA_LOG = -1
 REG_LAMBDA_LOG_STEPS = 21
 
-rtol = 1e-15
+tolerance = 1e-15
 Ncs = 70
 
 date = datetime.datetime(2001, 5, 12, 17, 0)
-d = dipole.Dipole(date.year)
+d = dipole.Dipole(decimal_year(date))
 noon_lon = d.mlt2mlon(12, date)  # noon longitude
 
 # Define cubed sphere basis and grid
-cs_basis = pynamit.CSBasis(Ncs)
-output_grid = pynamit.Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi)
+cs_basis = kompe.GlobalCSBasis(Ncs)
+output_grid = cs_basis.native_grid
 output_weights = None
 
 # Use regular grid from PyHWM14.
@@ -56,15 +62,16 @@ hwm14Obj = pyhwm2014.HWM142D(
 
 u_theta, u_phi = (-hwm14Obj.Vwind.flatten(), hwm14Obj.Uwind.flatten())
 u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing="ij")
-input_grid = pynamit.Grid(lat=u_lat.flatten(), lon=u_lon.flatten())
+input_grid = kompe.SphericalGrid(lat=u_lat.flatten(), lon=u_lon.flatten())
 
 if CONDUCTANCE:
     # Get and set conductance input.
-    from lompe import conductance
-
     Kp = 5
-    hall, pedersen = conductance.hardy_EUV(
-        input_grid.lon, input_grid.lat, Kp, date, starlight=1, dipole=True
+    coordinates = ExternalInputCoordinates.from_geocentric_geo(
+        input_grid.lat, input_grid.lon, grid_id="interpolation-input-grid"
+    )
+    pedersen, hall, _, _ = get_conductance_inputs(
+        date, coordinates=coordinates, kp=Kp, starlight=1.0
     )
 
     input_grid_values = hall
@@ -112,16 +119,16 @@ if WIND:
     field_type = "tangential"
     nmin = 1
 
-    interpolated_east, interpolated_north, _ = cs_basis.interpolate_vector_components(
+    interpolated_theta, interpolated_phi, _ = cs_basis.interpolate_vector(
+        u_theta,
         u_phi,
-        -u_theta,
         np.zeros_like(u_phi),
         input_grid.theta,
         input_grid.phi,
         output_grid.theta,
         output_grid.phi,
     )
-    interpolated_data = np.array([-interpolated_north, interpolated_east])  # Convert to theta, phi
+    interpolated_data = np.array([interpolated_theta, interpolated_phi])
 
 if CURRENT:
     import pyamps
@@ -134,16 +141,16 @@ if CURRENT:
     field_type = "tangential"
     nmin = 1
 
-    interpolated_east, interpolated_north, _ = cs_basis.interpolate_vector_components(
+    interpolated_theta, interpolated_phi, _ = cs_basis.interpolate_vector(
+        -jn,
         je,
-        jn,
         np.zeros_like(je),
         input_grid.theta,
         input_grid.phi,
         output_grid.theta,
         output_grid.phi,
     )
-    interpolated_data = np.array([-interpolated_north, interpolated_east])  # convert to theta, phi
+    interpolated_data = np.array([interpolated_theta, interpolated_phi])
 
 
 lon = output_grid.lon.flatten()
@@ -155,7 +162,7 @@ if SH_COMPARISON:
     relative_coeff_errors = []
 if L_CURVE:
     sh_norms = []
-    sh_resiudal_norms = []
+    sh_residual_norms = []
     reg_lambda_values = []
 
 Nmax_values = []
@@ -169,21 +176,21 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
 
         Nmax_values.append(Nmax)
 
-        sh_basis = pynamit.SHBasis(Nmax, Mmax, nmin)
+        sh_basis = kompe.SHBasis(Nmax, Mmax, nmin)
         field_space = pynamit.FieldSpace(sh_basis, field_type=field_type)
-        input_spherical_transform = pynamit.SphericalTransform(
+        input_spherical_transform = kompe.SphericalTransform(
             sh_basis,
             input_grid,
             sqrt_weights=input_weights,
             reg_lambda=reg_lambda,
-            pinv_rtol=rtol,
+            tolerance=tolerance,
         )
-        output_spherical_transform = pynamit.SphericalTransform(
+        output_spherical_transform = kompe.SphericalTransform(
             sh_basis,
             output_grid,
             sqrt_weights=output_weights,
             reg_lambda=reg_lambda,
-            pinv_rtol=rtol,
+            tolerance=tolerance,
         )
         analyze_input = (
             input_spherical_transform.analyze_helmholtz
@@ -205,29 +212,22 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
             if field_type == "tangential"
             else output_spherical_transform.synthesize_scalar
         )
-        regularization_term = (
-            input_spherical_transform.helmholtz_regularization_term
+        apply_regularization = (
+            input_spherical_transform.apply_helmholtz_regularization
             if field_type == "tangential"
-            else input_spherical_transform.scalar_regularization_term
+            else input_spherical_transform.apply_scalar_regularization
         )
 
-        input_sh = pynamit.FieldCoefficients(
-            field_space,
-            analyze_input(input_grid_values),
-        )
+        input_sh = pynamit.FieldCoefficients(field_space, analyze_input(input_grid_values))
 
-        print(
-            "Interpolation with Nmax = %d, Mmax = %d:, reg lambda: %e" % (Nmax, Mmax, reg_lambda)
-        )
+        print(f"Interpolation with Nmax = {Nmax:d}, Mmax = {Mmax:d}:, reg lambda: {reg_lambda:e}")
 
         if L_CURVE:
             reg_lambda_values.append(reg_lambda)
             # sh_norms.append(np.linalg.norm(input_sh.array))
-            sh_norms.append(
-                np.linalg.norm(regularization_term(input_sh.array))
-            )
+            sh_norms.append(np.linalg.norm(apply_regularization(input_sh.array)))
             input_sh_on_input_grid = synthesize_input(input_sh)
-            sh_resiudal_norms.append(
+            sh_residual_norms.append(
                 np.linalg.norm(input_sh_on_input_grid - input_grid_values)
                 / np.linalg.norm(input_grid_values)
             )
@@ -239,18 +239,17 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
                 np.linalg.norm(cs_interpolated_output - sh_interpolated_output)
                 / np.linalg.norm(cs_interpolated_output)
             )
-            print("   Relative grid error = %e" % (relative_grid_errors[-1]))
+            print(f"   Relative grid error = {relative_grid_errors[-1]:e}")
 
         if SH_COMPARISON:
             cs_interpolated_output_sh = pynamit.FieldCoefficients(
-                field_space,
-                analyze_output(interpolated_data),
+                field_space, analyze_output(interpolated_data)
             )
             relative_coeff_errors.append(
                 np.linalg.norm(cs_interpolated_output_sh.array - input_sh.array)
                 / np.linalg.norm(cs_interpolated_output_sh.array)
             )
-            print("   Relative coefficient error = %e" % (relative_coeff_errors[-1]))
+            print(f"   Relative coefficient error = {relative_coeff_errors[-1]:e}")
 
         if PLOT:
             if GRID_COMPARISON:
@@ -353,7 +352,7 @@ if GRID_COMPARISON or SH_COMPARISON:
     plt.show()
 
 if L_CURVE:
-    scatter = plt.plot(sh_resiudal_norms, sh_norms)
+    scatter = plt.plot(sh_residual_norms, sh_norms)
 
     plt.xscale("log")
     plt.yscale("log")
@@ -363,7 +362,7 @@ if L_CURVE:
     for i, reg_lambda_val in enumerate(reg_lambda_values):
         plt.annotate(
             f"{reg_lambda_val:.1e}",
-            (sh_resiudal_norms[i], sh_norms[i]),
+            (sh_residual_norms[i], sh_norms[i]),
             textcoords="offset points",
             xytext=(5, 5),
             ha="center",

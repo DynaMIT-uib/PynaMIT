@@ -1,38 +1,41 @@
 """Ground magnetic field time series visualization."""
 
-from pathlib import Path
-import numpy as np
-import matplotlib.pyplot as plt
-import pynamit
-from pynamit.math.constants import RE
-from pynamit.primitives.io import IO
-import dipole
 import datetime
+from pathlib import Path
+
 import apexpy
+import dipole
+import kompe
+import matplotlib.pyplot as plt
+import numpy as np
+from kompe.constants import EARTH_RADIUS_M
+
+from pynamit.coordinates import decimal_year
+from pynamit.storage import ArtifactStore
 
 periods = [50, 25, 10, 5, 1]
 DATA_DIRECTORY = Path("../simulation/oscillations")
 
 
 def _load_period_dataset(period, name):
-    run_directory = DATA_DIRECTORY / f"{period:02d}s"
-    dataset = IO(run_directory).load_dataset(name)
+    simulation_directory = DATA_DIRECTORY / f"{period:02d}s"
+    dataset = ArtifactStore(simulation_directory).load_dataset(name)
     if dataset is None:
         raise FileNotFoundError(
-            f"No {name!r} artifact found in run directory {run_directory}."
+            f"No {name!r} artifact found in simulation directory {simulation_directory}."
         )
     return dataset
 
 
-state_data_list = [_load_period_dataset(p, "state") for p in periods]
+dynamic_data_list = [_load_period_dataset(p, "dynamic") for p in periods]
 settings_list = [_load_period_dataset(p, "settings") for p in periods]
 
 RI = settings_list[0].RI
-sh_basis = pynamit.SHBasis(settings_list[0].Nmax, settings_list[0].Mmax)
+sh_basis = kompe.SHBasis(settings_list[0].Nmax, settings_list[0].Mmax)
 
 t0 = datetime.datetime.strptime(settings_list[0].t0, "%Y-%m-%d %H:%M:%S")
-d = dipole.Dipole(t0.year)
-a = apexpy.Apex(t0.year)
+d = dipole.Dipole(decimal_year(t0))
+a = apexpy.Apex(t0)
 
 # Construct plot grid in mlt/mlat, then convert to glat/glon.
 mlt, mlat = np.meshgrid([4, 9, 12, 15, 20], [-80, -60, -20, 20, 60, 80][::-1], indexing="ij")
@@ -44,35 +47,37 @@ mlon = d.mlt2mlon(mlt, t0)
 glat, glon, _ = a.apex2geo(mlat, mlon, 0)
 glat, glon = glat.flatten(), glon.flatten()
 
-ground_grid = pynamit.Grid(lat=glat, lon=glon)
-ground_evaluator = pynamit.SphericalTransform(
-    sh_basis, ground_grid
-)
+ground_grid = kompe.SphericalGrid(lat=glat, lon=glon)
+ground_evaluator = kompe.SphericalTransform(sh_basis, ground_grid)
 
-m_ind_to_Bh_ground = -(sh_basis.n + 1) * (RE / RI) ** sh_basis.n
-m_ind_to_Br_ground = sh_basis.n * (sh_basis.n + 1) * (RE / RI) ** (sh_basis.n - 1)
+induced_Br_to_Bh_ground = -((EARTH_RADIUS_M / RI) ** sh_basis.n) / sh_basis.n
+induced_Br_to_Br_ground = (EARTH_RADIUS_M / RI) ** (sh_basis.n - 1)
 
 
 fig, axes = plt.subplots(ncols=Ncols, nrows=Nrows, sharex=True)
 
-for state_data in state_data_list:
+for dynamic_data in dynamic_data_list:
     # Calculate the time series.
-    m_ind = state_data.SH_m_ind.values.T
+    induced_Br = dynamic_data.SH_induced_Br.values.T
 
-    Br = (ground_evaluator.G * m_ind_to_Br_ground.reshape((1, -1))).dot(m_ind)
-    Bh = (-ground_evaluator.G_grad * m_ind_to_Bh_ground.reshape((1, -1))).dot(m_ind)
-    Btheta, Bphi = np.split(Bh, 2, axis=0)
+    Br = (ground_evaluator.scalar_synthesis_array * induced_Br_to_Br_ground.reshape((1, -1))).dot(
+        induced_Br
+    )
+    Bh = (-ground_evaluator.surface_gradient_array * induced_Br_to_Bh_ground.reshape((1, -1))).dot(
+        induced_Br
+    )
+    Btheta, Bphi = Bh
 
     ii, jj = np.unravel_index(np.arange(len(glat)), mlt.shape)
     for i in range(len(glat)):
-        axes[jj[i], ii[i]].plot(state_data.time.values, Br[i] * 1e9, label="$B_r$")
+        axes[jj[i], ii[i]].plot(dynamic_data.time.values, Br[i] * 1e9, label="$B_r$")
         # ax.plot(
-        #    state_data.time.values,
+        #    dynamic_data.time.values,
         #    Btheta[i] * 1e9,
         #    label="$B_\\theta$"
         # )
         # ax.plot(
-        #    state_data.time.values,
+        #    dynamic_data.time.values,
         #    Bphi[i] * 1e9,
         #    label="$B_\phi$"
         # )
@@ -92,13 +97,10 @@ for state_data in state_data_list:
 
 fig, axes = plt.subplots(ncols=5, nrows=5, sharex=True)
 
-for state_data in state_data_list:
-    # calculate the time series:
-    m_ind = state_data.SH_m_ind.values.T
-
+for dynamic_data in dynamic_data_list:
     for i in range(25):
         axes.flatten()[i].plot(
-            state_data.time.values, state_data["SH_m_imp"].values[:, i], label="$B_r$"
+            dynamic_data.time.values, dynamic_data["SH_boundary_jr"].values[:, i], label="$j_r$"
         )
 
 
@@ -110,16 +112,18 @@ fig, axesA = plt.subplots(ncols=Ncols, nrows=Nrows, sharex=True)
 fig, axesphi = plt.subplots(ncols=Ncols, nrows=Nrows, sharex=True)
 
 
-for p, state_data in zip(periods, state_data_list):
-    sd = state_data.sel(time=slice(200, None))
+for p, dynamic_data in zip(periods, dynamic_data_list, strict=True):
+    sd = dynamic_data.sel(time=slice(200, None))
     t = sd.time.values
 
     G_fourier = np.vstack(
         (np.ones_like(t), np.cos(t / p * 2 * np.pi), np.sin(t / p * 2 * np.pi))
     ).T
 
-    m_ind = sd.SH_m_ind.values.T
-    Br = (ground_evaluator.G * m_ind_to_Br_ground.reshape((1, -1))).dot(m_ind)
+    induced_Br = sd.SH_induced_Br.values.T
+    Br = (ground_evaluator.scalar_synthesis_array * induced_Br_to_Br_ground.reshape((1, -1))).dot(
+        induced_Br
+    )
 
     # Fit the wave parameters.
     m = np.linalg.lstsq(G_fourier, Br.T)[0]
@@ -134,12 +138,12 @@ for p, state_data in zip(periods, state_data_list):
         axesphi[jj[i], ii[i]].scatter(p, phi[i], color="black")
 
         # ax.plot(
-        #    state_data.time.values,
+        #    dynamic_data.time.values,
         #    Btheta[i] * 1e9,
         #    label="$B_\\theta$"
         # )
         # ax.plot(
-        #    state_data.time.values,
+        #    dynamic_data.time.values,
         #    Bphi[i] * 1e9,
         #    label="$B_\phi$"
         # )

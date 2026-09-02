@@ -4,172 +4,231 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from pynamit.simulation.data import SimulationData
-from pynamit.simulation.dynamics import Dynamics
+import pynamit
+from pynamit.simulation.config import SimulationConfig
+from pynamit.simulation.simulation import Simulation
+from pynamit.simulation.simulation_data import SimulationData
+from pynamit.storage import ArtifactStore
 
 
 def _settings(**attrs):
-    defaults = {
-        "Nmax": 3,
-        "Mmax": 2,
-        "Ncs": 4,
-    }
+    defaults = {"Nmax": 3, "Mmax": 2, "Ncs": 4}
     defaults.update(attrs)
     return xr.Dataset(attrs=defaults)
 
 
-def _state_payload(n_coeffs):
+def _output_payload(n_magnetic, n_surface):
     return {
-        "m_ind": np.zeros(n_coeffs),
-        "m_imp": np.zeros(n_coeffs),
-        "Phi": np.zeros(n_coeffs),
-        "W": np.zeros(n_coeffs),
+        "induced_Br": np.zeros(n_magnetic),
+        "boundary_jr": np.zeros(n_surface),
+        "Phi": np.zeros(n_surface),
+        "W": np.zeros(n_surface),
     }
 
 
-def test_simulation_data_owns_schema_io_and_timeseries(tmp_path):
-    """SimulationData creates and reloads the persisted run context."""
-    run_dir = tmp_path / "run"
+def test_public_simulation_name_is_canonical():
+    """The public facade has one descriptive class name."""
+    assert pynamit.Simulation is Simulation
+    assert "Dynamics" not in pynamit.__all__
+    assert not hasattr(pynamit, "Dynamics")
+
+
+def test_simulation_data_owns_schema_artifacts_and_field_series(tmp_path):
+    """SimulationData creates and reloads persisted simulation state."""
+    simulation_directory = tmp_path / "simulation"
     settings = _settings(horizontal_basis_kind="CS", area_weighted_least_squares=1)
-    data = SimulationData.create(
-        settings,
-        run_directory=run_dir,
-        artifact_storage="netcdf",
+    data = SimulationData.open(
+        settings, simulation_directory=simulation_directory, artifact_storage="netcdf"
     )
 
-    assert data.run_directory == str(run_dir.resolve())
-    assert not data.settings_from_file
-    assert not data.pfac_matrix_from_file
+    assert data.simulation_directory == str(simulation_directory.resolve())
+    assert not hasattr(data, "run_directory")
+    assert data.settings_saved is False
+    assert data.boundary_jr_to_gap_Br_matrix is None
     assert data.config.horizontal_basis_kind == "CS"
-    assert data.settings.attrs["horizontal_basis_kind"] == "CS"
-    assert data.settings.attrs["jr_projection_basis"] == "CS"
-    assert data.input_timeseries.area_weighted_least_squares
-    assert data.output_timeseries.area_weighted_least_squares
-
+    assert data.config.boundary_jr_projection_basis == "CS"
     data.save_settings_if_missing()
-    n_state = data.schema.output_field_spaces["state"].coefficient_length
-    data.save_pfac_matrix_if_missing(
-        xr.DataArray(np.eye(n_state), dims=("row", "col"), name="PFAC_matrix")
-    )
-    data.input_timeseries.add_entry(
-        "jr",
-        {"jr": np.arange(data.schema.input_field_spaces["jr"].coefficient_length)},
+    output_spaces = data.schema.output_field_spaces["dynamic"]
+    n_magnetic = output_spaces["induced_Br"].coefficient_length
+    n_surface = output_spaces["boundary_jr"].coefficient_length
+    data.save_boundary_jr_to_gap_Br_matrix_if_missing(np.zeros((n_magnetic, n_surface)))
+    data.input_series.add_entry(
+        "boundary_jr",
+        {
+            "boundary_jr": np.arange(
+                data.schema.input_field_spaces["boundary_jr"].coefficient_length
+            )
+        },
         time=0.0,
     )
-    data.save_input_dataset("jr")
-    data.add_output_entry("state", _state_payload(n_state), time=0.0)
-    data.save_output_dataset("state")
+    data.input_series.save("boundary_jr", data.artifact_store)
+    data.output_series.add_entry("dynamic", _output_payload(n_magnetic, n_surface), time=0.0)
+    data.output_series.save("dynamic", data.artifact_store)
 
-    reloaded = SimulationData.create(
-        settings,
-        run_directory=run_dir,
-        artifact_storage="netcdf",
+    reloaded = SimulationData.open(
+        settings, simulation_directory=simulation_directory, artifact_storage="netcdf"
     )
 
-    assert reloaded.settings_from_file
-    assert reloaded.pfac_matrix_from_file
-    assert "jr" in reloaded.input_timeseries.datasets
-    assert "state" in reloaded.output_timeseries.datasets
-    np.testing.assert_allclose(reloaded.pfac_matrix.values, np.eye(n_state))
+    assert reloaded.settings_saved is True
+    assert reloaded.boundary_jr_to_gap_Br_matrix is not None
+    assert reloaded.boundary_jr_to_gap_Br_matrix.dims == ("poloidal_i", "surface_i")
+    assert "boundary_jr" in reloaded.input_series.datasets
+    assert "dynamic" in reloaded.output_series.datasets
     np.testing.assert_allclose(
-        reloaded.output_timeseries.get_entry("state", 0.0)["m_imp"],
-        np.zeros(n_state),
+        reloaded.boundary_jr_to_gap_Br_matrix.values, np.zeros((n_magnetic, n_surface))
     )
+    np.testing.assert_allclose(
+        reloaded.output_series.get_entry("dynamic", 0.0)["boundary_jr"], np.zeros(n_surface)
+    )
+
+
+def test_simulation_data_reuses_validated_config(tmp_path):
+    """The runtime shares one immutable validated configuration."""
+    config = SimulationConfig(Nmax=2, Mmax=1, Ncs=8, enable_pfac_coupling=False)
+
+    data = SimulationData.open(
+        config, simulation_directory=tmp_path / "simulation", artifact_storage="netcdf"
+    )
+
+    assert data.config is config
 
 
 def test_simulation_data_rejects_saved_settings_mismatch(tmp_path):
     """Saved settings guard against restarting with new args."""
-    run_dir = tmp_path / "run"
+    simulation_directory = tmp_path / "simulation"
     settings = _settings(Nmax=3)
-    data = SimulationData.create(
-        settings,
-        run_directory=run_dir,
-        artifact_storage="netcdf",
+    data = SimulationData.open(
+        settings, simulation_directory=simulation_directory, artifact_storage="netcdf"
     )
     data.save_settings_if_missing()
 
     with pytest.raises(ValueError, match="Mismatch"):
-        SimulationData.create(
-            _settings(Nmax=4),
-            run_directory=run_dir,
-            artifact_storage="netcdf",
+        SimulationData.open(
+            _settings(Nmax=4), simulation_directory=simulation_directory, artifact_storage="netcdf"
         )
 
 
-def test_simulation_data_rejects_setting_override_mismatch(tmp_path):
-    """Explicit schema overrides must agree with stored settings."""
-    settings = _settings(horizontal_basis_kind="CS")
+def test_simulation_data_rejects_legacy_magnetic_schema(tmp_path):
+    """Legacy data cannot be misread as physical magnetic variables."""
+    simulation_directory = tmp_path / "simulation"
+    legacy_settings = _settings()
+    ArtifactStore(simulation_directory, preferred_dataset_storage="netcdf").save_dataset(
+        legacy_settings, "settings"
+    )
 
-    with pytest.raises(ValueError, match="horizontal_basis_kind"):
-        SimulationData.create(
-            settings,
-            run_directory=tmp_path / "run",
-            artifact_storage="netcdf",
-            horizontal_basis_kind="SH",
+    with pytest.raises(ValueError, match="uses schema"):
+        SimulationData.open(
+            legacy_settings, simulation_directory=simulation_directory, artifact_storage="netcdf"
         )
 
 
-def test_dynamics_delegates_persistence_to_simulation_data(tmp_path):
-    """Dynamics aliases are backed by SimulationData."""
-    dynamics = Dynamics(
-        run_directory=str(tmp_path / "run"),
+def test_simulation_exposes_interactive_views_without_copying_data(tmp_path):
+    """Common notebook data is available without internal navigation."""
+    simulation = Simulation(
+        simulation_directory=str(tmp_path / "simulation"),
         Nmax=2,
         Mmax=1,
         Ncs=8,
-        ignore_PFAC=True,
+        enable_pfac_coupling=True,
         artifact_storage="netcdf",
     )
 
-    assert dynamics.data.io is dynamics.io
-    assert dynamics.data.schema is dynamics.schema
-    assert dynamics.data.input_timeseries is dynamics.input_timeseries
-    assert dynamics.data.output_timeseries is dynamics.output_timeseries
-    assert dynamics.data.pfac_matrix is not None
+    assert simulation._geometry is None
+    assert simulation._response is None
+    assert simulation.config is simulation.data.config
+    assert simulation.geometry.horizontal_basis is simulation.data.schema.horizontal_basis
+    assert simulation.response.geometry is simulation.geometry
+    assert simulation.simulation_directory == simulation.data.simulation_directory
+    assert simulation.model_grid is simulation.geometry.model_grid
+    assert simulation.inputs is simulation.data.input_series.datasets
+    assert simulation.outputs is simulation.data.output_series.datasets
+    assert repr(simulation).startswith("Simulation(Nmax=2, Mmax=1, Ncs=8, current_time=0")
+    for redundant_name in (
+        "settings",
+        "io",
+        "schema",
+        "cs_basis",
+        "horizontal_basis",
+        "solid_harmonics",
+        "input_field_spaces",
+        "output_field_spaces",
+        "input_series",
+        "output_series",
+        "backend",
+    ):
+        assert not hasattr(simulation, redundant_name)
+    assert simulation.main_field is simulation.geometry.main_field
+    assert simulation.data.boundary_jr_to_gap_Br_matrix is None
 
 
-def test_dynamics_from_directory_uses_saved_configuration(tmp_path):
+@pytest.mark.parametrize(
+    ("enable_pfac_coupling", "expected_persisted"), [(True, True), (False, False)]
+)
+def test_simulation_persists_only_active_gap_Br_response(
+    tmp_path, enable_pfac_coupling, expected_persisted
+):
+    """Defer active gap-field work until model output is requested."""
+    simulation = Simulation(
+        simulation_directory=str(tmp_path / "simulation"),
+        Nmax=2,
+        Mmax=1,
+        Ncs=8,
+        enable_pfac_coupling=enable_pfac_coupling,
+        artifact_storage="netcdf",
+    )
+    resistance_shape = simulation.data.schema.input_field_spaces["conductance"].coefficient_shape
+    simulation.set_conductance(
+        log_magnitude_coefficients=np.zeros(resistance_shape),
+        log_ratio_coefficients=np.zeros(resistance_shape),
+        time=0.0,
+    )
+    boundary_jr_shape = simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
+    simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
+
+    assert simulation.data.boundary_jr_to_gap_Br_matrix is None
+    simulation.impose_equilibrium(time=0.0, quiet=True)
+    assert (simulation.data.boundary_jr_to_gap_Br_matrix is not None) is expected_persisted
+
+
+def test_simulation_from_directory_uses_saved_configuration(tmp_path):
     """Saved settings seed restart construction."""
-    run_dir = tmp_path / "run"
-    original = Dynamics(
-        run_directory=str(run_dir),
+    simulation_directory = tmp_path / "simulation"
+    original = Simulation(
+        simulation_directory=str(simulation_directory),
         Nmax=2,
         Mmax=1,
         Ncs=8,
         horizontal_basis_kind="CS",
-        ignore_PFAC=True,
+        enable_pfac_coupling=False,
         artifact_storage="netcdf",
     )
 
-    reloaded = Dynamics.from_directory(
-        str(run_dir),
-        horizontal_basis_kind=None,
-        artifact_storage="netcdf",
+    reloaded = Simulation.from_directory(
+        str(simulation_directory), horizontal_basis_kind=None, artifact_storage="netcdf"
     )
 
     assert reloaded.config.Nmax == original.config.Nmax
+    assert not hasattr(reloaded, "run_data")
+    assert not hasattr(reloaded, "run_directory")
     assert reloaded.config.Mmax == original.config.Mmax
     assert reloaded.config.horizontal_basis_kind == "CS"
-    assert reloaded.schema.horizontal_basis is not original.schema.horizontal_basis
-    assert reloaded.schema.horizontal_basis.index_length == (
-        original.schema.horizontal_basis.index_length
+    assert reloaded.data.schema.horizontal_basis is not original.data.schema.horizontal_basis
+    assert reloaded.data.schema.horizontal_basis.index_length == (
+        original.data.schema.horizontal_basis.index_length
     )
 
 
-def test_dynamics_from_directory_rejects_conflicting_override(tmp_path):
+def test_simulation_from_directory_rejects_conflicting_override(tmp_path):
     """Explicit restart overrides must match saved settings."""
-    run_dir = tmp_path / "run"
-    Dynamics(
-        run_directory=str(run_dir),
+    simulation_directory = tmp_path / "simulation"
+    Simulation(
+        simulation_directory=str(simulation_directory),
         Nmax=2,
         Mmax=1,
         Ncs=8,
-        ignore_PFAC=True,
+        enable_pfac_coupling=False,
         artifact_storage="netcdf",
     )
 
     with pytest.raises(ValueError, match="Mismatch"):
-        Dynamics.from_directory(
-            str(run_dir),
-            Nmax=3,
-            artifact_storage="netcdf",
-        )
+        Simulation.from_directory(str(simulation_directory), Nmax=3, artifact_storage="netcdf")

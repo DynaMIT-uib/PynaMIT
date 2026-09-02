@@ -1,37 +1,44 @@
 """Tests for JAX backend functionality."""
 
-import numpy as np
-import pytest
+import os
 
-from pynamit.math.tensor_operations import tensor_product
-from pynamit.math import to_jax, to_numpy, use_jax
+import pytest
+from kompe.math import backend_context, get_backend, set_backend
+
+
+def test_backend_context_restores_backend_and_environment(monkeypatch):
+    """Scoped backend changes restore the previous process state."""
+    previous_backend = get_backend()
+    previous_env = os.environ.get("KOMPE_USE_JAX")
+    try:
+        set_backend("numpy")
+        monkeypatch.setenv("KOMPE_USE_JAX", "preserved")
+
+        with backend_context("numpy") as active_backend:
+            assert active_backend == "numpy"
+            assert get_backend() == "numpy"
+            assert os.environ["KOMPE_USE_JAX"] == "0"
+
+        assert get_backend() == "numpy"
+        assert os.environ["KOMPE_USE_JAX"] == "preserved"
+    finally:
+        set_backend(previous_backend)
+        if previous_env is None:
+            os.environ.pop("KOMPE_USE_JAX", None)
+        else:
+            os.environ["KOMPE_USE_JAX"] = previous_env
 
 
 @pytest.mark.requires_jax
 @pytest.mark.parametrize("backend", ["jax"], ids=["backend=jax"])
 @pytest.mark.parametrize("data_source", ["fallback"], ids=["data=fallback"])
 def test_backend_toggle_round_trip(backend: str, data_source: str):
-    """Verify that `use_jax` faithfully toggles the active backend."""
-    previous = use_jax()
+    """Verify that the backend can be changed and restored."""
+    previous = get_backend()
     try:
-        use_jax(True)
-        assert use_jax() is True
-        use_jax(False)
-        assert use_jax() is False
+        set_backend("jax")
+        assert get_backend() == "jax"
+        set_backend("numpy")
+        assert get_backend() == "numpy"
     finally:
-        use_jax(previous)
-
-
-@pytest.mark.requires_jax
-@pytest.mark.parametrize("backend", ["jax"], ids=["backend=jax"])
-@pytest.mark.parametrize("data_source", ["fallback"], ids=["data=fallback"])
-def test_tensor_product_backend_parity(backend: str, data_source: str):
-    """Ensure tensor_product produces identical results with JAX."""
-    rng = np.random.default_rng(0)
-    A = rng.random((3, 4, 5))
-    B = rng.random((5, 6, 2))
-
-    numpy_result = tensor_product(A, B, n_contracted=1)
-    jax_result = tensor_product(to_jax(A), to_jax(B), n_contracted=1)
-
-    np.testing.assert_allclose(to_numpy(jax_result), numpy_result)
+        set_backend(previous)

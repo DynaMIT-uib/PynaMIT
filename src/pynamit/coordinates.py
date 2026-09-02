@@ -1,10 +1,22 @@
-"""Coordinate conversion helpers."""
+"""Geographic, local-time, and epoch coordinate conversions."""
 
 import datetime as dt
 
 import numpy as np
 
 DEFAULT_LOCAL_TIME_GRID_HOURS = (3, 9, 15, 21)
+GEOCENTRIC_GEOGRAPHIC = "geocentric_geographic"
+CENTERED_DIPOLE = "centered_dipole"
+
+
+def parse_utc_datetime(value):
+    """Parse a datetime-like value and return naive UTC."""
+    if isinstance(value, bytes):
+        value = value.decode("ascii")
+    timestamp = value if isinstance(value, dt.datetime) else dt.datetime.fromisoformat(str(value))
+    if timestamp.tzinfo is not None:
+        timestamp = timestamp.astimezone(dt.timezone.utc).replace(tzinfo=None)
+    return timestamp
 
 
 def wrap_longitude_180(lon):
@@ -34,8 +46,42 @@ def datetime_to_utc_hours(time_value):
     )
 
 
+def decimal_year(epoch):
+    """Convert a datetime to decimal year, or retain a numeric year."""
+    if not isinstance(epoch, dt.datetime):
+        return float(epoch)
+    if epoch.tzinfo is not None:
+        epoch = epoch.astimezone(dt.timezone.utc).replace(tzinfo=None)
+    year_start = dt.datetime(epoch.year, 1, 1)
+    next_year_start = dt.datetime(epoch.year + 1, 1, 1)
+    return (
+        epoch.year
+        + (epoch - year_start).total_seconds() / (next_year_start - year_start).total_seconds()
+    )
+
+
+def decimal_year_to_datetime(epoch):
+    """Convert decimal year while preserving day boundaries."""
+    epoch = float(epoch)
+    year = int(np.floor(epoch))
+    year_start = dt.datetime(year, 1, 1)
+    next_year_start = dt.datetime(year + 1, 1, 1)
+    year_seconds = (next_year_start - year_start).total_seconds()
+    elapsed_seconds = (epoch - year) * year_seconds
+
+    # At decimal-year magnitudes, a datetime round trip can lose a few
+    # microseconds. Preserve exact day boundaries when the discrepancy
+    # is only floating-point roundoff.
+    day_seconds = 86400.0
+    nearest_day = round(elapsed_seconds / day_seconds) * day_seconds
+    roundoff_tolerance = max(1e-6, 4.0 * abs(np.spacing(epoch)) * year_seconds)
+    if abs(elapsed_seconds - nearest_day) <= roundoff_tolerance:
+        elapsed_seconds = nearest_day
+    return year_start + dt.timedelta(seconds=elapsed_seconds)
+
+
 def local_noon_longitude(reference_time):
-    """Return geographic longitude where local noon occurs."""
+    """Return the mean-solar local-noon geographic longitude."""
     utc_hours = datetime_to_utc_hours(reference_time)
     return wrap_longitude_180((12.0 - utc_hours) * 15.0)
 
@@ -59,9 +105,7 @@ def longitude_to_local_time_from_noon_longitude(lon, noon_longitude, *, wrap=Tru
         Wrap output to ``[0, 24)``. Set false when a continuous
         unwrapped coordinate is preferable for polar contour plots.
     """
-    local_time = 12.0 + (
-        np.asarray(lon, dtype=float) - float(noon_longitude)
-    ) / 15.0
+    local_time = 12.0 + (np.asarray(lon, dtype=float) - float(noon_longitude)) / 15.0
     if wrap:
         local_time = local_time % 24.0
     if np.isscalar(lon):
@@ -72,17 +116,10 @@ def longitude_to_local_time_from_noon_longitude(lon, noon_longitude, *, wrap=Tru
 def local_time_hours_to_longitude(local_time_hours, reference_time):
     """Convert local-time hours to geographic longitude."""
     utc_hours = datetime_to_utc_hours(reference_time)
-    return wrap_longitude_180(
-        (np.asarray(local_time_hours, dtype=float) - utc_hours) * 15.0
-    )
+    return wrap_longitude_180((np.asarray(local_time_hours, dtype=float) - utc_hours) * 15.0)
 
 
-def local_time_longitude_to_geographic(
-    lon,
-    *,
-    noon_longitude,
-    local_noon_longitude=0.0,
-):
+def local_time_longitude_to_geographic(lon, *, noon_longitude, local_noon_longitude=0.0):
     """Convert local-time-like longitude to geographic longitude.
 
     Parameters
@@ -100,12 +137,17 @@ def local_time_longitude_to_geographic(
 
 
 __all__ = [
+    "CENTERED_DIPOLE",
     "DEFAULT_LOCAL_TIME_GRID_HOURS",
+    "GEOCENTRIC_GEOGRAPHIC",
     "datetime_to_utc_hours",
+    "decimal_year",
+    "decimal_year_to_datetime",
     "local_noon_longitude",
     "local_time_hours_to_longitude",
     "local_time_longitude_to_geographic",
     "longitude_to_local_time_from_noon_longitude",
     "longitude_to_local_time_hours",
+    "parse_utc_datetime",
     "wrap_longitude_180",
 ]

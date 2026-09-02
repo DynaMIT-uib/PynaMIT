@@ -1,0 +1,403 @@
+"""Figure renderer for projected input-driver summaries."""
+
+from __future__ import annotations
+
+import cartopy.crs as ccrs
+import matplotlib.pyplot as plt
+import numpy as np
+
+from pynamit.plotting.contours import (
+    contour_kwargs_for_display,
+    percentile_contour_levels,
+    set_contour_edges_to_face,
+)
+from pynamit.plotting.figure_styles import INPUT_SUMMARY_KWARGS
+from pynamit.plotting.hemisphere import hemisphere_masks_for_latitude, make_hemisphere_polarplot
+from pynamit.plotting.map_axes import style_global_axis
+from pynamit.plotting.plot_data import _coerce_figure_settings, format_figure_time, get_plot_data
+
+
+class InputDriverRenderer:
+    """Render projected input drivers on the saved simulation grid."""
+
+    def __init__(self, settings, plot_data=None):
+        self.settings = _coerce_figure_settings(settings)
+        self.plot_data = get_plot_data(self.settings) if plot_data is None else plot_data
+
+    def render(self):
+        """Render projected input drivers."""
+        model_fields = self.plot_data.input_plot_data(
+            self.settings.time_index, coordinate_system="model"
+        )
+        geographic_fields = self.plot_data.input_plot_data(
+            self.settings.time_index, coordinate_system="geographic"
+        )
+        timestamp = self.plot_data.timestamp_at_index(self.settings.time_index)
+        magnetic_latitude, magnetic_longitude = self.plot_data.magnetic_plot_coordinates()
+        magnetic_coordinate_context = self.plot_data.magnetic_map_context(timestamp)
+        input_kwargs = self._plot_kwargs({**geographic_fields, "jr": model_fields["jr"]})
+
+        fig = plt.figure(figsize=(14, 7.875))
+        layout = self._layout()
+
+        pax_jr_n = make_hemisphere_polarplot(
+            fig.add_axes(layout["jr_n"]),
+            min_abs_latitude=self.settings.hemisphere_min_abs_latitude,
+        )
+        pax_jr_s = make_hemisphere_polarplot(
+            fig.add_axes(layout["jr_s"]),
+            min_abs_latitude=self.settings.hemisphere_min_abs_latitude,
+        )
+        coordinate_context = self.plot_data.geographic_map_context(timestamp)
+        global_projection = coordinate_context.projection()
+        ax_br = fig.add_axes(layout["Br"], projection=global_projection)
+        ax_source = fig.add_axes(layout["source"], projection=global_projection)
+        ax_pedersen = fig.add_axes(layout["SigmaP"], projection=global_projection)
+        ax_hall = fig.add_axes(layout["SigmaH"], projection=global_projection)
+
+        jr_n = self._draw_jr_hemispheres(
+            model_fields,
+            input_kwargs["jr"],
+            pax_jr_n,
+            pax_jr_s,
+            magnetic_latitude,
+            magnetic_longitude,
+            magnetic_coordinate_context,
+        )
+        br_mappable, conductance_mappable = self._draw_global_scalars(
+            geographic_fields, input_kwargs, ax_br, ax_pedersen, ax_hall, coordinate_context
+        )
+        self._draw_tangential_source(geographic_fields, ax_source, coordinate_context)
+
+        for label, axis in zip(
+            ["a", "b", "c", "d", "e", "f"],
+            [pax_jr_n.ax, pax_jr_s.ax, ax_br, ax_source, ax_pedersen, ax_hall],
+            strict=True,
+        ):
+            axis.text(
+                0.015,
+                0.965,
+                label,
+                transform=axis.transAxes,
+                ha="left",
+                va="top",
+                fontsize=10,
+                fontweight="bold",
+                bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.82, "pad": 2.0},
+                zorder=10,
+            )
+
+        self._draw_colorbars(fig, layout, jr_n, br_mappable, conductance_mappable, input_kwargs)
+        fig.suptitle(f"Input drivers at {format_figure_time(timestamp)}", fontsize=15, y=0.975)
+        return fig
+
+    def _plot_kwargs(self, fields):
+        kwargs = {key: dict(value) for key, value in INPUT_SUMMARY_KWARGS.items()}
+        if self.settings.color_scale_mode != "percentile":
+            return kwargs
+        kwargs["jr"]["levels"] = percentile_contour_levels(
+            [fields["jr"] * kwargs["jr"].get("scale", 1.0)],
+            INPUT_SUMMARY_KWARGS["jr"]["levels"],
+            percentile=self.settings.color_scale_percentile,
+            strictly_positive=False,
+        )
+        kwargs["Br"]["levels"] = percentile_contour_levels(
+            [fields["Br"] * kwargs["Br"].get("scale", 1.0)],
+            INPUT_SUMMARY_KWARGS["Br"]["levels"],
+            percentile=self.settings.color_scale_percentile,
+            strictly_positive=False,
+        )
+        kwargs["conductance"]["levels"] = percentile_contour_levels(
+            [
+                fields["SigmaP"] * kwargs["conductance"].get("scale", 1.0),
+                fields["SigmaH"] * kwargs["conductance"].get("scale", 1.0),
+            ],
+            INPUT_SUMMARY_KWARGS["conductance"]["levels"],
+            percentile=self.settings.color_scale_percentile,
+            strictly_positive=True,
+        )
+        return kwargs
+
+    @staticmethod
+    def _has_finite(values):
+        return np.any(np.isfinite(values))
+
+    @staticmethod
+    def _mark_missing(axis, message):
+        axis.text(
+            0.5,
+            0.5,
+            message,
+            transform=axis.transAxes,
+            ha="center",
+            va="center",
+            fontsize=10,
+            color="0.35",
+        )
+
+    @staticmethod
+    def _layout():
+        figure_aspect = 16.0 / 9.0
+        top_center_y = 0.70
+        bottom_center_y = 0.255
+        bottom_map_width = 0.285
+        bottom_map_height = 0.5 * figure_aspect * bottom_map_width
+        polar_width = 0.190
+        polar_height = figure_aspect * polar_width
+        br_map_height = polar_height
+        br_map_width = 2.0 * br_map_height / figure_aspect
+        bottom_x = {"source": 0.035, "SigmaP": 0.350, "SigmaH": 0.665}
+        top_x = {
+            "jr_n": bottom_x["source"] + 0.5 * (bottom_map_width - polar_width),
+            "jr_s": bottom_x["SigmaP"] + 0.5 * (bottom_map_width - polar_width),
+            "Br": 0.985 - br_map_width,
+        }
+        layout = {
+            "jr_n": [top_x["jr_n"], top_center_y - 0.5 * polar_height, polar_width, polar_height],
+            "jr_s": [top_x["jr_s"], top_center_y - 0.5 * polar_height, polar_width, polar_height],
+            "Br": [top_x["Br"], top_center_y - 0.5 * br_map_height, br_map_width, br_map_height],
+            "source": [
+                bottom_x["source"],
+                bottom_center_y - 0.5 * bottom_map_height,
+                bottom_map_width,
+                bottom_map_height,
+            ],
+            "SigmaP": [
+                bottom_x["SigmaP"],
+                bottom_center_y - 0.5 * bottom_map_height,
+                bottom_map_width,
+                bottom_map_height,
+            ],
+            "SigmaH": [
+                bottom_x["SigmaH"],
+                bottom_center_y - 0.5 * bottom_map_height,
+                bottom_map_width,
+                bottom_map_height,
+            ],
+        }
+        layout["jr_cbar"] = [
+            layout["jr_n"][0] + 0.030,
+            layout["jr_n"][1] - 0.035,
+            layout["jr_s"][0] + layout["jr_s"][2] - layout["jr_n"][0] - 0.060,
+            0.026,
+        ]
+        layout["Br_cbar"] = [layout["Br"][0], layout["Br"][1] - 0.050, layout["Br"][2], 0.026]
+        layout["conductance_cbar"] = [
+            layout["SigmaH"][0] + layout["SigmaH"][2] + 0.014,
+            layout["SigmaH"][1],
+            0.015,
+            layout["SigmaH"][3],
+        ]
+        return layout
+
+    def _draw_jr_hemispheres(
+        self,
+        fields,
+        jr_kwargs,
+        pax_jr_n,
+        pax_jr_s,
+        magnetic_latitude,
+        magnetic_longitude,
+        coordinate_context,
+    ):
+        mlt = coordinate_context.longitude_to_local_time(magnetic_longitude)
+        north_mask, south_mask = hemisphere_masks_for_latitude(
+            magnetic_latitude, self.settings.hemisphere_min_abs_latitude
+        )
+        jr_display = fields["jr"] * jr_kwargs.get("scale", 1.0)
+        if not self._has_finite(jr_display):
+            for pax in (pax_jr_n, pax_jr_s):
+                self._mark_missing(pax.ax, "Input jr not stored")
+            pax_jr_n.ax.set_title(r"Input $j_r$ north", fontsize=11)
+            pax_jr_s.ax.set_title(r"Input $j_r$ south", fontsize=11)
+            return None
+        jr_plot_kwargs = contour_kwargs_for_display(jr_kwargs)
+        jr_n = pax_jr_n.contourf(
+            magnetic_latitude[north_mask],
+            mlt[north_mask],
+            jr_display[north_mask],
+            **jr_plot_kwargs,
+        )
+        jr_s = pax_jr_s.contourf(
+            magnetic_latitude[south_mask],
+            mlt[south_mask],
+            jr_display[south_mask],
+            **jr_plot_kwargs,
+        )
+        set_contour_edges_to_face(jr_n)
+        set_contour_edges_to_face(jr_s)
+        pax_jr_n.ax.set_title(r"Input $j_r$ north", fontsize=11)
+        pax_jr_s.ax.set_title(r"Input $j_r$ south", fontsize=11)
+        pax_jr_n.writeLATlabels(color="black", backgroundcolor=(0, 0, 0, 0), north=True)
+        pax_jr_n.writeLTlabels()
+        pax_jr_s.writeLATlabels(color="black", backgroundcolor=(0, 0, 0, 0), north=False)
+        pax_jr_s.writeLTlabels()
+        return jr_n
+
+    def _draw_global_scalars(
+        self, fields, input_kwargs, ax_br, ax_pedersen, ax_hall, coordinate_context
+    ):
+        br_mappable = None
+        conductance_mappable = None
+        for axis, title, missing_message, field_key, kwargs_key, left_labels, bottom_labels in [
+            (ax_br, r"Input $B_r$ at $R_M$", r"Input $B_r$ not stored", "Br", "Br", False, True),
+            (
+                ax_pedersen,
+                "Pedersen conductance",
+                "Conductance not stored",
+                "SigmaP",
+                "conductance",
+                False,
+                True,
+            ),
+            (
+                ax_hall,
+                "Hall conductance",
+                "Conductance not stored",
+                "SigmaH",
+                "conductance",
+                False,
+                True,
+            ),
+        ]:
+            style_global_axis(
+                axis,
+                coordinate_context=coordinate_context,
+                left_labels=left_labels,
+                bottom_labels=bottom_labels,
+            )
+            plot_kwargs = input_kwargs[kwargs_key]
+            if not self._has_finite(fields[field_key]):
+                self._mark_missing(axis, missing_message)
+                axis.set_title(title, fontsize=11)
+                continue
+            contour = axis.contourf(
+                self.plot_data.lon,
+                self.plot_data.lat,
+                fields[field_key] * plot_kwargs.get("scale", 1.0),
+                transform=ccrs.PlateCarree(),
+                **contour_kwargs_for_display(plot_kwargs),
+            )
+            set_contour_edges_to_face(contour)
+            axis.set_title(title, fontsize=11)
+            if field_key == "Br":
+                br_mappable = contour
+            else:
+                conductance_mappable = contour
+        return br_mappable, conductance_mappable
+
+    def _draw_tangential_source(self, fields, axis, coordinate_context):
+        style_global_axis(
+            axis, coordinate_context=coordinate_context, left_labels=True, bottom_labels=True
+        )
+        source_options = [
+            {
+                "theta": fields["E_neutral_wind_theta"],
+                "phi": fields["E_neutral_wind_phi"],
+                "scale_factor": 1.0e3,
+                "title": r"Input neutral-wind $E$",
+                "key_value": 10.0,
+                "key_label": "10 mV/m",
+                "scale": 90.0,
+            },
+            {
+                "theta": fields["Q_eff_theta"],
+                "phi": fields["Q_eff_phi"],
+                "scale_factor": 1.0e3,
+                "title": r"Input $Q_\mathrm{eff}$",
+                "key_value": 50.0,
+                "key_label": "50 mA/m",
+                "scale": 450.0,
+            },
+            {
+                "theta": fields["wind_theta"],
+                "phi": fields["wind_phi"],
+                "scale_factor": 1.0,
+                "title": "Input horizontal wind",
+                "key_value": 200.0,
+                "key_label": "200 m/s",
+                "scale": 1800.0,
+            },
+        ]
+        selected = None
+        for option in source_options:
+            north = -np.asarray(option["theta"], dtype=float) * option["scale_factor"]
+            east = np.asarray(option["phi"], dtype=float) * option["scale_factor"]
+            if np.any(np.isfinite(north) & np.isfinite(east)):
+                selected = {**option, "north": north, "east": east}
+                break
+
+        if selected is not None:
+            quiver = axis.quiver(
+                self.plot_data.wind_lon,
+                self.plot_data.wind_lat,
+                selected["east"],
+                selected["north"],
+                transform=ccrs.PlateCarree(),
+                color="0.08",
+                scale=selected["scale"],
+                width=0.0022,
+                headwidth=3.4,
+                headaxislength=3.4,
+                minlength=0.02,
+                zorder=4,
+            )
+            axis.quiverkey(
+                quiver,
+                0.08,
+                0.08,
+                selected["key_value"],
+                selected["key_label"],
+                labelpos="E",
+                coordinates="axes",
+                fontproperties={"size": 8},
+            )
+            axis.set_title(selected["title"], fontsize=11)
+        else:
+            axis.text(
+                0.5,
+                0.5,
+                "No tangential neutral-wind input stored",
+                transform=axis.transAxes,
+                ha="center",
+                va="center",
+                fontsize=10,
+                color="0.35",
+            )
+            axis.set_title("Input tangential source", fontsize=11)
+
+    @staticmethod
+    def _draw_colorbars(fig, layout, jr_n, br_mappable, conductance_mappable, input_kwargs):
+        jr_axis = fig.add_axes(layout["jr_cbar"])
+        if jr_n is not None:
+            jr_kwargs = input_kwargs["jr"]
+            jr_cbar = fig.colorbar(jr_n, cax=jr_axis, orientation="horizontal")
+            jr_cbar.set_label(f"{jr_kwargs['symbol']} ({jr_kwargs['units']})", size=10)
+            jr_cbar.ax.tick_params(labelsize=8)
+        else:
+            jr_axis.axis("off")
+
+        br_axis = fig.add_axes(layout["Br_cbar"])
+        if br_mappable is not None:
+            br_kwargs = input_kwargs["Br"]
+            br_cbar = fig.colorbar(br_mappable, cax=br_axis, orientation="horizontal")
+            br_cbar.set_label(f"{br_kwargs['symbol']} ({br_kwargs['units']})", size=10)
+            br_cbar.ax.tick_params(labelsize=8)
+        else:
+            br_axis.axis("off")
+
+        conductance_axis = fig.add_axes(layout["conductance_cbar"])
+        if conductance_mappable is not None:
+            conductance_kwargs = input_kwargs["conductance"]
+            conductance_cbar = fig.colorbar(
+                conductance_mappable, cax=conductance_axis, orientation="vertical"
+            )
+            conductance_cbar.set_label(
+                f"{conductance_kwargs['symbol']} ({conductance_kwargs['units']})", size=10
+            )
+            conductance_cbar.ax.tick_params(labelsize=8)
+        else:
+            conductance_axis.axis("off")
+
+
+__all__ = ["InputDriverRenderer"]

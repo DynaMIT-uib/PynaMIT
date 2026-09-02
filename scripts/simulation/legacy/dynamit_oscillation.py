@@ -1,0 +1,177 @@
+"""Oscillating input simulation."""
+
+import numpy as np
+import pynamit
+from lompe import conductance
+import dipole
+import pyhwm2014  # https://github.com/rilma/pyHWM14
+import datetime
+import pyamps
+import apexpy
+import matplotlib.pyplot as plt
+
+RE = 6371.2e3
+RI = RE + 110e3
+LATITUDE_BOUNDARY = 40
+
+STEADY_STATE_INITIALIZATION = True
+RELAXATION_TIME = 0.0
+TAPERING_TIME = 200.0
+FINAL_TIME = 300.0
+JR_SAMPLING_DT = 0.5
+JR_PERIOD = 20.0
+
+PLOT_SCALING = False
+
+WIND_FACTOR = 1  # Scale wind by this factor
+FLOAT_ERROR_MARGIN = 1e-6
+
+Nmax, Mmax, Ncs = 50, 50, 50
+rk = RI / np.cos(np.deg2rad(np.r_[0:70:2])) ** 2  # int(80 / Nmax)])) ** 2
+# print(len(rk))
+
+for JR_PERIOD in [50, 25, 10, 5, 1]:
+    JR_SAMPLING_DT = JR_PERIOD / 50
+
+    simulation_directory = "oscillations/" + str(int(JR_PERIOD)).zfill(2) + "s"
+
+    date = datetime.datetime(2001, 5, 12, 17, 0)
+    d = dipole.Dipole(date.year)
+    noon_longitude = d.mlt2mlon(12, date)  # Noon longitude
+    noon_mlon = d.mlt2mlon(12, date)  # Noon longitude
+
+    # Set up simulation object.
+    simulation = pynamit.Simulation(
+        simulation_directory=simulation_directory,
+        Nmax=Nmax,
+        Mmax=Mmax,
+        Ncs=Ncs,
+        RI=RI,
+        main_field_kind="igrf",
+        fac_integration_radii=rk,
+        enable_pfac_coupling=True,
+        enable_interhemispheric_coupling=True,
+        interhemispheric_coupling_latitude=LATITUDE_BOUNDARY,
+        interhemispheric_electric_field_weight=1e-5,
+        t0=str(date),
+    )
+
+    print("Setting wind", flush=True)
+    # Get and set wind input.
+    hwm14Obj = pyhwm2014.HWM142D(
+        alt=110.0,
+        ap=[35, 35],
+        glatlim=[-88.5, 88.5],
+        glatstp=1.5,
+        glonlim=[-180.0, 180.0],
+        glonstp=3.0,
+        option=6,
+        verbose=False,
+        ut=date.hour + date.minute / 60,
+        day=date.timetuple().tm_yday,
+    )
+
+    u_theta, u_phi = (
+        -hwm14Obj.Vwind.flatten() * WIND_FACTOR,
+        hwm14Obj.Uwind.flatten() * WIND_FACTOR,
+    )
+    u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing="ij")
+    # u_lat, u_lon, u_phi, u_theta = (
+    #     np.load("ulat.npy"),
+    #     np.load("ulon.npy"),
+    #     np.load("uphi.npy"),
+    #     np.load("utheta.npy"),
+    # )
+    # u_lat, u_lon = np.meshgrid(u_lat, u_lon, indexing="ij")
+    # simulation.set_neutral_wind(
+    #     u_theta=u_theta,
+    #     u_phi=u_phi,
+    #     lat=u_lat,
+    #     lon=u_lon,
+    #     sqrt_weights=np.tile(
+    #         np.sqrt(np.sin(np.deg2rad(90 - u_lat.flatten()))), (2, 1)
+    #     ),
+    # )
+
+    print("Setting conductance", flush=True)
+    # Get and set conductance input.
+    conductance_lat = simulation.geometry.model_grid.lat
+    conductance_lon = simulation.geometry.model_grid.lon
+
+    sza = conductance.sunlight.sza(conductance_lat, conductance_lon, date, degrees=True)
+    hall_EUV, pedersen_EUV = conductance.EUV_conductance(sza)
+    # Add starlight.
+    hall_EUV, pedersen_EUV = (np.sqrt(hall_EUV**2 + 1), np.sqrt(pedersen_EUV**2 + 1))
+    simulation.set_conductance(
+        pedersen=pedersen_EUV, hall=hall_EUV, lat=conductance_lat, lon=conductance_lon
+    )
+
+    # Get and set static jr input.
+    jr_lat = simulation.geometry.model_grid.lat
+    jr_lon = simulation.geometry.model_grid.lon
+    apx = apexpy.Apex(refh=(RI - RE) * 1e-3, date=2020)
+    mlat, mlon = apx.geo2apex(jr_lat, jr_lon, (RI - RE) * 1e-3)
+    mlt = d.mlon2mlt(mlon, date)
+    _, noon_longitude, _ = apx.apex2geo(0, noon_mlon, (RI - RE) * 1e-3)  # Fix this
+    a = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50)
+    jr = a.get_upward_current(mlat=mlat, mlt=mlt) * 1e-6
+    jr[np.abs(jr_lat) < 50] = 0  # Filter low latitude jr
+
+    if STEADY_STATE_INITIALIZATION:
+        simulation.set_boundary_jr(boundary_jr=jr, lat=jr_lat, lon=jr_lon)
+
+        simulation.impose_equilibrium()
+
+    # Create array that will store all jr values.
+    time_values = np.arange(
+        0, FINAL_TIME + JR_SAMPLING_DT - FLOAT_ERROR_MARGIN, JR_SAMPLING_DT, dtype=np.float64
+    )
+    scaled_jr_values = np.zeros((time_values.size, jr.size), dtype=np.float64)
+
+    envelope_factors = np.empty(time_values.size, dtype=np.float64)
+    sine_wave_factors = np.empty(time_values.size, dtype=np.float64)
+
+    print("Interpolating jr", flush=True)
+    for time_index in range(time_values.size):
+        if time_values[time_index] < RELAXATION_TIME - FLOAT_ERROR_MARGIN:
+            envelope_factor = 0.0
+        elif time_values[time_index] < RELAXATION_TIME + TAPERING_TIME - FLOAT_ERROR_MARGIN:
+            envelope_factor = (
+                np.sin(0.5 * np.pi * (time_values[time_index] - RELAXATION_TIME) / TAPERING_TIME)
+                ** 2
+            )
+        else:
+            envelope_factor = 1.0
+
+        sine_wave_factor = np.sin(
+            2.0 * np.pi * (time_values[time_index] - RELAXATION_TIME) / JR_PERIOD
+        )
+
+        scaled_jr = jr * (1.0 + envelope_factor * 0.5 * sine_wave_factor)
+
+        scaled_jr_values[time_index] = scaled_jr
+
+        envelope_factors[time_index] = envelope_factor
+        sine_wave_factors[time_index] = sine_wave_factor
+
+    if PLOT_SCALING:
+        fig, axs = plt.subplots(3, 1, tight_layout=True)
+
+        axs[0].plot(time_values, envelope_factors)
+        axs[1].plot(time_values, sine_wave_factors)
+        axs[2].plot(time_values, envelope_factors * sine_wave_factors)
+
+        axs[0].set_title("Envelope")
+        axs[1].set_title("Oscillation")
+        axs[2].set_title("Product")
+
+        plt.savefig(simulation_directory + ".png")
+        plt.close()
+
+    print("Setting jr", flush=True)
+    simulation.set_boundary_jr(
+        boundary_jr=scaled_jr_values, lat=jr_lat, lon=jr_lon, time=time_values
+    )
+
+    print("Starting simulation", flush=True)
+    simulation.evolve_to_time(FINAL_TIME, interpolation=True)

@@ -1,66 +1,67 @@
-"""Figure layout."""
+"""Build and plot a representative equilibrium simulation."""
 
-import matplotlib.pyplot as plt
-import numpy as np
-from polplot import Polarplot
-import cartopy.crs as ccrs
-import pynamit
-
-# Define toy model object (placeholder).
-from lompe import conductance
-import dipole
-import pyhwm2014  # https://github.com/rilma/pyHWM14
 import datetime
+
+import dipole
+import numpy as np
 import pyamps
+import pyhwm2014  # https://github.com/rilma/pyHWM14
+
+import pynamit
+from pynamit.external_inputs import get_conductance_inputs
+from pynamit.external_inputs.coordinates import ExternalInputCoordinates
+from pynamit.plotting.quicklook import plot_output_quicklook
 
 RE = 6371.2e3
 RI = RE + 110e3
-latitude_boundary = 35
+LATITUDE_BOUNDARY = 35
+WIND_FACTOR = 1
 
-WIND_FACTOR = 1  # Scale wind by this factor
-
-run_directory = "figlayout"
-
+simulation_directory = "figlayout"
 Nmax, Mmax, Ncs = 14, 14, 30
-rk = RI / np.cos(np.deg2rad(np.r_[0 : 80 : int(80 / Nmax)])) ** 2
-print(len(rk))
+fac_integration_radii = RI / np.cos(np.deg2rad(np.r_[0 : 80 : int(80 / Nmax)])) ** 2
 date = datetime.datetime(2001, 5, 12, 21, 45)
 Kp = 5
-d = dipole.Dipole(date.year)
-noon_longitude = d.mlt2mlon(12, date)  # Noon longitude
 
-# Set up simulation object.
-dynamics = pynamit.Dynamics(
-    run_directory=run_directory,
+simulation = pynamit.Simulation(
+    simulation_directory=simulation_directory,
     Nmax=Nmax,
     Mmax=Mmax,
     Ncs=Ncs,
     RI=RI,
-    mainfield_kind="dipole",
-    FAC_integration_steps=rk,
-    ignore_PFAC=False,
-    connect_hemispheres=True,
-    latitude_boundary=latitude_boundary,
+    main_field_kind="dipole",
+    fac_integration_radii=fac_integration_radii,
+    enable_pfac_coupling=True,
+    enable_interhemispheric_coupling=True,
+    interhemispheric_coupling_latitude=LATITUDE_BOUNDARY,
+    t0=str(date),
 )
 
-# Get and set conductance input.
-conductance_lat = dynamics.state.geometry.grid.lat
-conductance_lon = dynamics.state.geometry.grid.lon
-hall, pedersen = conductance.hardy_EUV(
-    conductance_lon, conductance_lat, Kp, date, starlight=1, dipole=True
+model_grid = simulation.model_grid
+dipole_model = dipole.Dipole(simulation.geometry.main_field.epoch)
+noon_longitude = dipole_model.mlt2mlon(12, date)
+geographic_lat, geographic_lon = dipole_model.mag2geo(model_grid.lat, model_grid.lon)
+coordinates = ExternalInputCoordinates.from_model_coordinates(
+    model_grid.lat,
+    model_grid.lon,
+    geographic_lat=geographic_lat,
+    geographic_lon=geographic_lon,
+    coordinate_system=simulation.geometry.main_field.horizontal_coordinate_system,
+    model_epoch=simulation.geometry.main_field.epoch,
+    grid_id="figlayout-model-grid",
 )
-dynamics.set_conductance(hall, pedersen, lat=conductance_lat, lon=conductance_lon)
+pedersen, hall, _, _ = get_conductance_inputs(date, coordinates=coordinates, kp=Kp, starlight=1.0)
+simulation.set_conductance(pedersen=pedersen, hall=hall, lat=model_grid.lat, lon=model_grid.lon)
 
-# Get and set jr input.
-jr_lat = dynamics.state.geometry.grid.lat
-jr_lon = dynamics.state.geometry.grid.lon
-a = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50)
-jr = a.get_upward_current(mlat=jr_lat, mlt=d.mlon2mlt(jr_lon, date)) * 1e-6
-jr[np.abs(jr_lat) < 50] = 0  # Filter low latitude jr
-dynamics.set_jr(jr, lat=jr_lat, lon=jr_lon)
+amps = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50)
+jr = (
+    amps.get_upward_current(mlat=model_grid.lat, mlt=dipole_model.mlon2mlt(model_grid.lon, date))
+    * 1e-6
+)
+jr[np.abs(model_grid.lat) < 50] = 0
+simulation.set_boundary_jr(jr, lat=model_grid.lat, lon=model_grid.lon)
 
-# Get and set wind input.
-hwm14Obj = pyhwm2014.HWM142D(
+hwm14 = pyhwm2014.HWM142D(
     alt=110.0,
     ap=[35, 35],
     glatlim=[-89.0, 88.0],
@@ -72,9 +73,10 @@ hwm14Obj = pyhwm2014.HWM142D(
     ut=date.hour,
     day=date.timetuple().tm_yday,
 )
-u_theta, u_phi = (-hwm14Obj.Vwind.flatten() * WIND_FACTOR, hwm14Obj.Uwind.flatten() * WIND_FACTOR)
-u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing="ij")
-dynamics.set_neutral_wind(
+u_theta = -hwm14.Vwind.flatten() * WIND_FACTOR
+u_phi = hwm14.Uwind.flatten() * WIND_FACTOR
+u_lat, u_lon = np.meshgrid(hwm14.glatbins, hwm14.glonbins, indexing="ij")
+simulation.set_neutral_wind(
     u_theta=u_theta,
     u_phi=u_phi,
     lat=u_lat,
@@ -82,201 +84,7 @@ dynamics.set_neutral_wind(
     sqrt_weights=np.tile(np.sqrt(np.sin(np.deg2rad(90 - u_lat.flatten()))), (2, 1)),
 )
 
-dynamics.update_conductance()
-dynamics.update_u()
-dynamics.update_jr()
-dynamics.state.update_m_imp()
-
-
-def plot_state_debug_summary(dynamics, title=None, filename=None, noon_longitude=0):
-    """Plot a state diagnostic summary for the model object.
-
-    Parameters
-    ----------
-    dynamics : pynamit.Dynamics
-        The model object to plot.
-    title : str, optional
-        Title for the plot.
-    filename : str, optional
-        Filename to save the plot to. If None, the plot is shown.
-    noon_longitude : float, optional
-        The longitude of noon in degrees.
-    """
-    B_kwargs = {"cmap": plt.cm.bwr, "levels": np.linspace(-50, 50, 22) * 1e-9, "extend": "both"}
-    eqJ_kwargs = {"colors": "black", "levels": np.r_[-210:220:20] * 1e3}
-    FAC_kwargs = {
-        "cmap": plt.cm.bwr,
-        "levels": np.linspace(-0.95, 0.95, 22) * 1e-6,
-        "extend": "both",
-    }
-
-    # Set up map projection.
-    global_projection = ccrs.PlateCarree(central_longitude=noon_longitude)
-
-    fig = plt.figure(figsize=(15, 13))
-
-    paxn_B = Polarplot(plt.subplot2grid((4, 4), (0, 0)))
-    paxs_B = Polarplot(plt.subplot2grid((4, 4), (0, 1)))
-    paxn_j = Polarplot(plt.subplot2grid((4, 4), (0, 2)))
-    paxs_j = Polarplot(plt.subplot2grid((4, 4), (0, 3)))
-    gax_B = plt.subplot2grid((4, 2), (1, 0), projection=global_projection, rowspan=2)
-    gax_j = plt.subplot2grid((4, 2), (1, 1), projection=global_projection, rowspan=2)
-    ax_1 = plt.subplot2grid((4, 3), (3, 0))
-    ax_2 = plt.subplot2grid((4, 3), (3, 1))
-    ax_3 = plt.subplot2grid((4, 3), (3, 2))
-
-    for ax in [gax_B, gax_j]:
-        ax.coastlines(zorder=2, color="grey")
-
-    # Set up plotting grid and evaluators.
-    NLA, NLO = 50, 90
-    lat, lon = np.linspace(-89.9, 89.9, NLA), np.linspace(-180, 180, NLO)
-    lat, lon = map(np.ravel, np.meshgrid(lat, lon))
-    plt_grid = pynamit.Grid(lat=lat, lon=lon)
-    plt_state_evaluator = pynamit.SphericalTransform(
-        dynamics.horizontal_basis, plt_grid
-    )
-    plt_b_evaluator = pynamit.FieldEvaluator(dynamics.state.mainfield, plt_grid, dynamics.state.RI)
-
-    # Calculate values to plot.
-    Br = dynamics.state.get_Br(plt_state_evaluator)
-    FAC = (
-        plt_state_evaluator.contract_scalar_coeffs_to_grid(
-            1 / plt_b_evaluator.br.reshape((-1, 1))
-        )
-    ).dot(
-        dynamics.state.m_imp.array * dynamics.state.m_imp_to_jr
-    )
-    jr_mod = plt_state_evaluator.G.dot(dynamics.state.m_imp.array * dynamics.state.m_imp_to_jr)
-    eq_current_function = dynamics.state.get_Jeq(plt_state_evaluator)
-
-    # Make global plots.
-    gax_B.contourf(
-        lon.reshape((NLO, NLA)),
-        lat.reshape((NLO, NLA)),
-        Br.reshape((NLO, NLA)),
-        transform=ccrs.PlateCarree(),
-        **B_kwargs,
-    )
-    gax_j.contour(
-        lon.reshape((NLO, NLA)),
-        lat.reshape((NLO, NLA)),
-        eq_current_function.reshape((NLO, NLA)),
-        transform=ccrs.PlateCarree(),
-        **eqJ_kwargs,
-    )
-    gax_j.contourf(
-        lon.reshape((NLO, NLA)), lat.reshape((NLO, NLA)), FAC.reshape((NLO, NLA)), **FAC_kwargs
-    )
-
-    # Make polar plots.
-    mlt = (lon - noon_longitude + 180) / 15  # rotate so that noon is up
-
-    # Make north polar plots.
-    north_mask = lat > 50
-    paxn_B.contourf(lat[north_mask], mlt[north_mask], Br[north_mask], **B_kwargs)
-    paxn_j.contour(
-        lat[north_mask],
-        mlt[north_mask],
-        eq_current_function[north_mask],
-        **eqJ_kwargs,
-    )
-    paxn_j.contourf(
-        lat[north_mask],
-        mlt[north_mask],
-        FAC[north_mask],
-        **FAC_kwargs,
-    )
-
-    # Make south polar plots.
-    south_mask = lat < -50
-    paxs_B.contourf(lat[south_mask], mlt[south_mask], Br[south_mask], **B_kwargs)
-    paxs_j.contour(
-        lat[south_mask],
-        mlt[south_mask],
-        eq_current_function[south_mask],
-        **eqJ_kwargs,
-    )
-    paxs_j.contourf(
-        lat[south_mask],
-        mlt[south_mask],
-        FAC[south_mask],
-        **FAC_kwargs,
-    )
-
-    # Scatter plot high latitude jr.
-    high_latitude_mask = (
-        np.abs(dynamics.state.geometry.grid.lat) > dynamics.state.latitude_boundary
-    )
-    jrmax = np.max(np.abs(dynamics.state.jr))
-    ax_1.scatter(dynamics.state.jr, jr_mod[high_latitude_mask])
-    ax_1.plot([-jrmax, jrmax], [-jrmax, jrmax], "k-")
-    ax_1.set_xlabel("Input ")
-
-    # Scatter plot FACs at conjugate points.
-    j_par_ll = dynamics.state.G_par_ll.dot(dynamics.state.m_imp.array)
-    j_par_cp = dynamics.state.G_par_cp.dot(dynamics.state.m_imp.array)
-    j_par_max = np.max(np.abs(j_par_ll))
-    ax_2.scatter(j_par_ll, j_par_cp)
-    ax_2.plot([-j_par_max, j_par_max], [-j_par_max, j_par_max], "k-")
-    ax_2.set_xlabel(
-        r"$j_\parallel$ [A/m$^2$] at |latitude| $< {}^\circ$".format(
-            dynamics.state.latitude_boundary
-        )
-    )
-    ax_2.set_ylabel(r"$j_\parallel$ [A/m$^2$] at conjugate points")
-
-    # Scatter plot Ed1 and Ed2 vs values at conjugate points.
-    cu_ll = (
-        dynamics.state.u_phi_cp * dynamics.state.aup_cp
-        + dynamics.state.u_theta_cp * dynamics.state.aut_cp
-    )
-    cu_cp = (
-        dynamics.state.u_phi_ll * dynamics.state.aup_ll
-        + dynamics.state.u_theta_ll * dynamics.state.aut_ll
-    )
-    A_imp_ll = (
-        dynamics.state.etaP_ll * dynamics.state.aeP_imp_ll
-        + dynamics.state.etaH_ll * dynamics.state.aeH_imp_ll
-    )
-    A_imp_cp = (
-        dynamics.state.etaP_cp * dynamics.state.aeP_imp_cp
-        + dynamics.state.etaH_cp * dynamics.state.aeH_imp_cp
-    )
-    A_ind_ll = (
-        dynamics.state.etaP_ll * dynamics.state.aeP_ind_ll
-        + dynamics.state.etaH_ll * dynamics.state.aeH_ind_ll
-    )
-    A_ind_cp = (
-        dynamics.state.etaP_cp * dynamics.state.aeP_ind_cp
-        + dynamics.state.etaH_cp * dynamics.state.aeH_ind_cp
-    )
-
-    c_ll = cu_ll + A_ind_ll.dot(dynamics.state.m_ind.array)
-    c_cp = cu_cp + A_ind_cp.dot(dynamics.state.m_ind.array)
-    Ed1_ll, Ed2_ll = np.split(c_ll + A_imp_ll.dot(dynamics.state.m_imp.array), 2)
-    Ed1_cp, Ed2_cp = np.split(c_cp + A_imp_cp.dot(dynamics.state.m_imp.array), 2)
-    ax_3.scatter(Ed1_ll, Ed1_cp, label="$E_{d_1}$")
-    ax_3.scatter(Ed2_ll, Ed2_cp, label="$E_{d_2}$")
-    ax_3.set_xlabel("$E_{d_i}$")
-    ax_3.set_ylabel("$E_{d_i}$ at conjugate points")
-    ax_3.legend(frameon=False)
-
-    if title is not None:
-        gax_j.set_title(title)
-
-    plt.subplots_adjust(top=0.89, bottom=0.095, left=0.025, right=0.95, hspace=0.0, wspace=0.185)
-    if filename is not None:
-        fig.savefig(filename)
-    else:
-        plt.show()
-
-    plt.close()
-
-
-plot_state_debug_summary(
-    dynamics,
-    title="State diagnostic summary",
-    filename=None,
-    noon_longitude=noon_longitude,
+simulation.impose_equilibrium(time=0.0, save=True, quiet=True)
+plot_output_quicklook(
+    simulation, title="Output diagnostic summary", filename=None, noon_longitude=noon_longitude
 )

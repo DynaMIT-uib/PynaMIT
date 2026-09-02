@@ -1,15 +1,13 @@
 """Tests for visualization map coordinate contexts."""
 
 import datetime as dt
-from types import SimpleNamespace
 
-import numpy as np
 import cartopy.crs as ccrs
+import numpy as np
+import pytest
 
-import pynamit.visualization as visualization
 from pynamit.coordinates import local_noon_longitude
-from pynamit.visualization.map_coordinates import MapCoordinateContext
-from pynamit.visualization.pynameye import PynamEye
+from pynamit.plotting.map_coordinates import MapCoordinateContext
 
 
 class FakeDipole:
@@ -43,17 +41,37 @@ def test_geographic_context_matches_utc_local_time_helpers():
     assert context.local_time_kind == "solar"
     assert context.label == "LT"
     assert context.noon_longitude == local_noon_longitude(reference_time)
-    assert context.projection().equals(
-        ccrs.PlateCarree(central_longitude=context.noon_longitude)
+    assert context.projection().equals(ccrs.PlateCarree(central_longitude=context.noon_longitude))
+    np.testing.assert_allclose(
+        context.local_time_grid_longitudes(), np.array([127.5, -142.5, -52.5, 37.5])
     )
     np.testing.assert_allclose(
-        context.local_time_grid_longitudes(),
-        np.array([127.5, -142.5, -52.5, 37.5]),
+        context.longitude_to_local_time(np.array([-97.5, -7.5])), np.array([12.0, 18.0])
     )
-    np.testing.assert_allclose(
-        context.longitude_to_local_time(np.array([-97.5, -7.5])),
-        np.array([12.0, 18.0]),
+
+
+@pytest.mark.parametrize("utc_hour", [0.0, 6.0, 12.0, 18.5])
+def test_geographic_projection_places_solar_noon_at_map_center(utc_hour):
+    """A GEO projection moves only the seam, putting 12 LT at x=0."""
+    hour = int(utc_hour)
+    minute = int(round((utc_hour - hour) * 60.0))
+    context = MapCoordinateContext.geographic(dt.datetime(2011, 10, 24, hour, minute))
+    geographic_crs = ccrs.PlateCarree()
+
+    noon_x, noon_y = context.projection().transform_point(
+        context.noon_longitude, 0.0, geographic_crs
     )
+    midnight_longitude = context.local_time_to_longitude(0.0)
+    midnight_x, midnight_y = context.projection().transform_point(
+        midnight_longitude, 0.0, geographic_crs
+    )
+
+    assert context.longitude_kind == "geographic"
+    assert context.longitude_to_local_time(context.noon_longitude) == pytest.approx(12.0)
+    assert noon_x == pytest.approx(0.0, abs=1e-10)
+    assert noon_y == pytest.approx(0.0, abs=1e-10)
+    assert abs(midnight_x) == pytest.approx(180.0, abs=1e-10)
+    assert midnight_y == pytest.approx(0.0, abs=1e-10)
 
 
 def test_magnetic_context_matches_dipole_mlt_conversion():
@@ -68,19 +86,14 @@ def test_magnetic_context_matches_dipole_mlt_conversion():
     assert context.label == "MLT"
     assert context.noon_longitude == 40.0
     np.testing.assert_allclose(
-        context.longitude_to_local_time(mlon),
-        dipole.mlon2mlt(mlon, reference_time),
+        context.longitude_to_local_time(mlon), dipole.mlon2mlt(mlon, reference_time)
     )
 
 
 def test_apex_context_uses_geographic_longitude_for_global_maps():
     """Apex context converts magnetic noon into geographic longitude."""
     reference_time = dt.datetime(2011, 10, 24, 18, 30)
-    context = MapCoordinateContext.magnetic(
-        reference_time,
-        FakeDipole(),
-        apex=FakeApex(),
-    )
+    context = MapCoordinateContext.magnetic(reference_time, FakeDipole(), apex=FakeApex())
 
     assert context.longitude_kind == "geographic"
     assert context.local_time_kind == "magnetic"
@@ -92,37 +105,12 @@ def test_apex_context_uses_geographic_longitude_for_global_maps():
 def test_context_converts_source_local_time_longitude_to_plot_coordinate():
     """Context replaces ad hoc source-longitude rotations."""
     context = MapCoordinateContext.from_noon_longitude(
-        -100.0,
-        longitude_kind="geographic",
-        local_time_kind="solar",
+        -100.0, longitude_kind="geographic", local_time_kind="solar"
     )
 
     np.testing.assert_allclose(
         context.local_time_longitude_to_coordinate(
-            np.array([-180.0, 0.0, 90.0]),
-            local_noon_longitude=0.0,
+            np.array([-180.0, 0.0, 90.0]), local_noon_longitude=0.0
         ),
         np.array([80.0, -100.0, -10.0]),
     )
-    assert visualization.MapCoordinateContext is MapCoordinateContext
-
-
-def test_pynameye_uses_distinct_global_and_magnetic_contexts():
-    """PynamEye keeps global map and polar MLT contexts explicit."""
-    eye = object.__new__(PynamEye)
-    eye.time = dt.datetime(2011, 10, 24, 18, 30)
-    eye.dp = FakeDipole()
-    eye.apx = FakeApex()
-
-    eye.settings = SimpleNamespace(mainfield_kind="dipole")
-    magnetic_context = eye.get_magnetic_coordinate_context()
-    global_context = eye.get_global_coordinate_context()
-    assert magnetic_context.longitude_kind == "magnetic"
-    assert global_context == magnetic_context
-
-    eye.settings = SimpleNamespace(mainfield_kind="igrf")
-    global_context = eye.get_global_coordinate_context()
-    assert global_context.longitude_kind == "geographic"
-    assert global_context.local_time_kind == "magnetic"
-    assert global_context.noon_longitude == 45.0
-    assert magnetic_context.noon_longitude == 40.0

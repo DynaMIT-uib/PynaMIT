@@ -7,12 +7,10 @@ python
 
 # scientific stack
 h5py
-jax>=0.4.1
 numpy
 pandas
 ppigrf
 scipy
-tqdm
 xarray
 zarr
 
@@ -20,9 +18,9 @@ zarr
 cartopy
 matplotlib
 mscorefonts
+panel
 
 # testing and documentation
-coveralls
 myst-parser
 pytest
 sphinx

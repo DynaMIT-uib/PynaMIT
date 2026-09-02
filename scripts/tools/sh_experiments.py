@@ -1,41 +1,41 @@
 """Script for testing various things with spherical harmonics."""
 
-import numpy as np
-import pynamit
-import pyhwm2014  # https://github.com/rilma/pyHWM14
-from lompe import conductance
 import datetime
+
+import kompe
+import numpy as np
 import ppigrf
+import pyhwm2014  # https://github.com/rilma/pyHWM14
+
+from pynamit.external_inputs import get_conductance_inputs
+from pynamit.external_inputs.coordinates import ExternalInputCoordinates
 
 Nmax, Mmax = 20, 20
 Ncs = 30
 RI = (6371.2 + 110) * 1e3
 
 Kp = 3
-ckeys = pynamit.sha.helpers.SHIndices(Nmax, Mmax).MleN()
-skeys = pynamit.sha.helpers.SHIndices(Nmax, Mmax).MleN().Mge(1)
-ubasis = pynamit.sha.sh_basis.SHBasis(Nmax, Mmax)
+ubasis = kompe.SHBasis(Nmax, Mmax)
 
 
 # Fit wind pattern using a spherical harmonic Helmholtz representation.
 date = datetime.datetime(2000, 5, 12, 21, 45)
-# Since IGRF coefficients are used without interpolation (fix if used by
-# something different).
-assert date.year % 5 == 0
 
 ### CONDUCTANCE EXPERIMENT
-cbasis = pynamit.sha.sh_basis.SHBasis(Nmax, Mmax, Nmin=0)
+cbasis = kompe.SHBasis(Nmax, Mmax, min_degree=0)
 
-cs_basis = pynamit.CSBasis(Ncs)
-conductance_lat = 90 - cs_basis.arr_theta
-conductance_lon = cs_basis.arr_phi
-hall, pedersen = conductance.hardy_EUV(
-    conductance_lon, conductance_lat, Kp, date, starlight=1, dipole=False
+cs_basis = kompe.GlobalCSBasis(Ncs)
+conductance_grid = cs_basis.native_grid
+conductance_lat = conductance_grid.lat
+conductance_lon = conductance_grid.lon
+coordinates = ExternalInputCoordinates.from_geocentric_geo(
+    conductance_lat, conductance_lon, grid_id="sh-experiment-grid"
 )
+pedersen, hall, _, _ = get_conductance_inputs(date, coordinates=coordinates, kp=Kp, starlight=1.0)
 
 etaH, etaP = hall / (hall**2 + pedersen**2), pedersen / (hall**2 + pedersen**2)
 
-G = cbasis.get_G(pynamit.Grid(theta=cs_basis.arr_theta, phi=cs_basis.arr_phi))
+G = cbasis.scalar_evaluation_array(conductance_grid)
 d = etaH
 
 m_plain = np.linalg.lstsq(G, d, rcond=0)[0]
@@ -72,18 +72,27 @@ if False:
     u_theta = -hwm14Obj.Vwind
     u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing="ij")
 
-    ugrid = pynamit.Grid(lat=u_lat.flatten(), lon=u_lon.flatten())
+    ugrid = kompe.SphericalGrid(lat=u_lat.flatten(), lon=u_lon.flatten())
 
-    Gphi, Gtheta = (ubasis.get_G(ugrid, derivative="phi"), ubasis.get_G(ugrid, derivative="theta"))
-    G_df = np.vstack((-Gphi, Gtheta))  # u_df = r x grad()
-    G_cf = np.vstack((Gtheta, Gphi))  # u_cf = grad()
+    Gphi, Gtheta = (
+        ubasis.scalar_evaluation_array(ugrid, derivative="phi"),
+        ubasis.scalar_evaluation_array(ugrid, derivative="theta"),
+    )
+    divergence_free_potential_matrix = np.vstack((-Gphi, Gtheta))
+    curl_free_potential_matrix = np.vstack((Gtheta, Gphi))
 
     d = np.hstack((u_theta.flatten(), u_phi.flatten()))
-    u_coeffs = np.linalg.lstsq(np.hstack((G_df, G_cf)), d, rcond=0)[0]
-    u_coeff_df, u_coeff_cf = np.split(u_coeffs, 2)
+    potential_coefficients = np.linalg.lstsq(
+        np.hstack((curl_free_potential_matrix, divergence_free_potential_matrix)), d, rcond=0
+    )[0]
+    curl_free_coefficients, divergence_free_coefficients = np.split(potential_coefficients, 2)
 
-    misfit = G_df.dot(u_coeff_df) + G_cf.dot(u_coeff_cf) - d
-    print("rms misfit for fitted wind field is {:.5f} m/s".format(np.sqrt(np.mean(misfit**2))))
+    misfit = (
+        divergence_free_potential_matrix.dot(divergence_free_coefficients)
+        + curl_free_potential_matrix.dot(curl_free_coefficients)
+        - d
+    )
+    print(f"rms misfit for fitted wind field is {np.sqrt(np.mean(misfit**2)):.5f} m/s")
 
     # Get IGRF gauss coefficients.
     igrf_date = datetime.datetime(date.year, 1, 1)
@@ -91,19 +100,17 @@ if False:
     _n, _m = np.array([k for k in g.columns]).T  # n and m
     g, h = (g.loc[igrf_date, :].values, h.loc[igrf_date, :].values)  # Gauss coefficients
 
-    igrf_basis = pynamit.sha.sh_basis.SHBasis(_n.max(), _m.max())
-
-    igrf_keys = pynamit.sha.helpers.SHIndices(_n.max(), _m.max()).setNmin(1).MleN()
+    igrf_basis = kompe.SHBasis(int(_n.max()), int(_m.max()))
+    igrf_degree = igrf_basis.cosine_degree
+    igrf_order = igrf_basis.cosine_order
 
     # Calculate u x B numerically on grid (we evaluate on the ground).
     ph = np.deg2rad(u_lon).reshape((-1, 1))
-    P, dP = np.split(
-        igrf_basis.legendre(_n.max(), _m.max(), 90 - u_lat, keys=igrf_keys), 2, axis=1
-    )
+    P = igrf_basis.legendre(np.deg2rad(90 - u_lat).reshape(-1))[:, igrf_basis.cosine_filter]
     G_Br = np.hstack(
         (
-            (igrf_keys.n + 1) * P * np.cos(igrf_keys.m * ph),
-            (igrf_keys.n + 1) * P * np.sin(igrf_keys.m * ph),
+            (igrf_degree + 1) * P * np.cos(igrf_order * ph),
+            (igrf_degree + 1) * P * np.sin(igrf_order * ph),
         )
     )
     Br = G_Br.dot(np.hstack((g, h))) * 1e-9
