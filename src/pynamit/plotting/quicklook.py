@@ -18,7 +18,8 @@ from pynamit.plotting.hemisphere import (
     make_hemisphere_polarplot,
 )
 from pynamit.plotting.map_axes import style_global_axis
-from pynamit.plotting.map_coordinates import MapCoordinateContext, model_grid_from_geographic
+from pynamit.plotting.map_coordinates import MapCoordinateContext
+from pynamit.results.field_evaluation import model_grid_from_geographic
 from pynamit.results.output_fields import evaluate_output_coefficients, output_at_current_time
 
 

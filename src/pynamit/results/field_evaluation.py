@@ -2,12 +2,36 @@
 
 from __future__ import annotations
 
+import numpy as np
+from kompe import SphericalGrid
 from kompe.math import as_linear_map, get_array_module
 
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     conductance_from_log_coordinates,
     resistance_from_log_conductance_coordinates,
 )
+
+
+def model_grid_from_geographic(main_field, latitude, longitude):
+    """Convert geographic degrees to model-frame sample points."""
+    latitude, longitude = main_field.geo_to_model_coordinates(latitude, longitude)
+    return SphericalGrid(lat=latitude, lon=longitude)
+
+
+def model_to_geographic_tangential_array(main_field, grid):
+    """Return pointwise model-to-geographic theta/phi rotations.
+
+    Provider transformations run on the CPU once. The returned array
+    rotates arbitrary field/time blocks on their backend.
+    """
+    ones, zeros = np.ones(grid.size), np.zeros(grid.size)
+    _, _, east_from_theta, north_from_theta = main_field.model_to_geo_coordinates(
+        grid.lat, grid.lon, east=zeros, north=-ones
+    )
+    _, _, east_from_phi, north_from_phi = main_field.model_to_geo_coordinates(
+        grid.lat, grid.lon, east=ones, north=zeros
+    )
+    return np.array([[-north_from_theta, -north_from_phi], [east_from_theta, east_from_phi]])
 
 
 def apply_coefficient_operator(operator, coefficients):

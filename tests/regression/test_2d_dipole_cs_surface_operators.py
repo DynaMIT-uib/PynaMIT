@@ -60,12 +60,12 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
     assert geometry.induced_Br_to_gridded_JS_operator().to_array().shape == (
         2,
         geometry.model_grid.size,
-        simulation.geometry.poloidal_basis.index_length,
+        simulation.geometry.poloidal_basis.coefficient_count,
     )
     assert geometry.boundary_jr_to_gridded_JS_operator().to_array().shape == (
         2,
         geometry.model_grid.size,
-        simulation.geometry.horizontal_basis.index_length,
+        simulation.geometry.horizontal_basis.coefficient_count,
     )
 
     plot_grid = SphericalGrid(
@@ -78,7 +78,7 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
     assert geometry.induced_Br_to_gridded_JS_operator(plot_transform).to_array().shape == (
         2,
         plot_grid.size,
-        simulation.geometry.poloidal_basis.index_length,
+        simulation.geometry.poloidal_basis.coefficient_count,
     )
 
     output = simulation.data.output_series.datasets["dynamic"]
@@ -91,8 +91,8 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
     actual_n_coeffs = induced_Br.size + boundary_jr.size
 
     assert actual_n_coeffs == (
-        simulation.geometry.poloidal_basis.index_length
-        + simulation.geometry.horizontal_basis.index_length
+        simulation.geometry.poloidal_basis.coefficient_count
+        + simulation.geometry.horizontal_basis.coefficient_count
     )
     assert np.all(np.isfinite(induced_Br))
     assert np.all(np.isfinite(boundary_jr))

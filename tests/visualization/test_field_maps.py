@@ -50,8 +50,8 @@ def test_conductance_coefficients_use_transform_before_conversion(basis_kind):
     cs_basis = GlobalCSBasis(4)
     basis = SHBasis(2, 2, mean_free=False) if basis_kind == "SH" else cs_basis
     transform = SphericalTransform(basis, cs_basis.native_grid)
-    log_magnitude_coeffs = np.linspace(-0.1, 0.2, basis.index_length)
-    log_ratio_coeffs = np.linspace(-0.3, 0.4, basis.index_length)
+    log_magnitude_coeffs = np.linspace(-0.1, 0.2, basis.coefficient_count)
+    log_ratio_coeffs = np.linspace(-0.3, 0.4, basis.coefficient_count)
     expected = evaluate_conductance_values(
         transform.synthesize_scalar(log_magnitude_coeffs),
         transform.synthesize_scalar(log_ratio_coeffs),

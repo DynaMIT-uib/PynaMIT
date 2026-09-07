@@ -53,7 +53,9 @@ simulation = pynamit.Simulation(
     t0=str(date),
     integrator="exponential",
 )
-state_field_space = pynamit.FieldSpace(simulation.geometry.horizontal_basis, field_type="scalar")
+state_field_space = kompe.CoefficientSpace(
+    simulation.geometry.horizontal_basis, representation="scalar"
+)
 conductance_field_space = simulation.data.schema.input_field_spaces["conductance"]
 
 mage_dir = "./mage_data/"
@@ -79,9 +81,9 @@ r = np.sqrt(x_c**2.0 + y_c**2.0 + z_c**2.0)
 theta = np.rad2deg(np.arctan2(np.sqrt(x_c**2 + y_c**2), z_c))
 phi = np.rad2deg(np.arctan2(y_c, x_c))
 
-Br_grid = kompe.Grid(theta=theta.flatten(), phi=phi.flatten())
+Br_grid = kompe.SphericalGrid(theta=theta.flatten(), phi=phi.flatten())
 Br_spherical_transform = kompe.SphericalTransform(
-    state_field_space.representation,
+    state_field_space.basis,
     Br_grid,
     sqrt_weights=np.sqrt(np.sin(np.deg2rad(theta.flatten()))),
     reg_lambda=BR_LAMBDA,
@@ -121,17 +123,15 @@ for step in range(0, nstep):
         lon = phi
         plot_global_polar_map(lon, lat, delta_Br, cmap=plt.cm.bwr, extend="both")
 
-    Br_field = pynamit.FieldCoefficients(
+    Br_field = kompe.FieldCoefficients(
         state_field_space, Br_spherical_transform.analyze_scalar(delta_Br.flatten())
     )
 
     plt_lat, plt_lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)
     plt_lat, plt_lon = np.meshgrid(plt_lat, plt_lon)
-    plt_grid = kompe.Grid(lat=plt_lat, lon=plt_lon)
-    plt_evaluator = kompe.SphericalTransform(state_field_space.representation, plt_grid)
-    conductance_plt_evaluator = kompe.SphericalTransform(
-        conductance_field_space.representation, plt_grid
-    )
+    plt_grid = kompe.SphericalGrid(lat=plt_lat, lon=plt_lon)
+    plt_evaluator = kompe.SphericalTransform(state_field_space.basis, plt_grid)
+    conductance_plt_evaluator = kompe.SphericalTransform(conductance_field_space.basis, plt_grid)
 
     if PLOT_BR:
         plot_global_polar_map(
@@ -296,7 +296,7 @@ for step in range(0, nstep):
     )
 
     # Get and set jr input.
-    grid = kompe.Grid(
+    grid = kompe.SphericalGrid(
         theta=full_theta_padded_centered.flatten(), phi=full_phi_padded_centered.flatten()
     )
     unit_br = simulation.geometry.main_field.unit_vector(grid, RI)[0]
@@ -326,7 +326,7 @@ for step in range(0, nstep):
         plot_global_polar_map(
             plt_lon,
             plt_lat,
-            kompe.SphericalTransform(simulation.response.jr.field_space.representation, plt_grid)
+            kompe.SphericalTransform(simulation.response.jr.field_space.basis, plt_grid)
             .synthesize_scalar(simulation.response.jr)
             .reshape(plt_lon.shape),
             cmap=plt.cm.bwr,
@@ -483,9 +483,9 @@ for step in range(0, nstep):
 
         lat, lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)
         lat, lon = np.meshgrid(lat, lon)
-        plt_grid = kompe.Grid(lat=lat, lon=lon)
+        plt_grid = kompe.SphericalGrid(lat=lat, lon=lon)
         plt_evaluator = kompe.SphericalTransform(
-            simulation.response.jr.field_space.representation, plt_grid
+            simulation.response.jr.field_space.basis, plt_grid
         )
 
         simulation.set_state_variables("jr")

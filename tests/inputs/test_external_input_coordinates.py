@@ -8,7 +8,7 @@ from pynamit.external_inputs.coordinates import (
     PYNAMIT_CENTERED_DIPOLE_110KM,
     PYNAMIT_SPHERICAL_GEO_110KM,
     ExternalInputCoordinates,
-    SampleGrid,
+    SampleCoordinates,
 )
 from pynamit.external_inputs.provider_definitions import (
     BOUNDARY_JR_PROVIDER_SPEC,
@@ -146,7 +146,7 @@ def test_sample_grid_is_immutable_and_owns_arrays():
     """External mutation cannot alter a registered coordinate grid."""
     lat = np.array([10.0, 20.0])
     geometry = {"type": "sample_points"}
-    grid = SampleGrid(
+    grid = SampleCoordinates(
         grid_id="grid",
         coordinate_convention=PYNAMIT_SPHERICAL_GEO_110KM,
         lat=lat,

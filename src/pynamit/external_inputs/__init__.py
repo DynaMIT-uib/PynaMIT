@@ -7,7 +7,7 @@ from .coordinates import (
     CoordinateConvention,
     ExternalInputCoordinates,
     ReferenceSurface,
-    SampleGrid,
+    SampleCoordinates,
 )
 from .fallback_data import FallbackCollection, ProviderSnapshot
 from .provider_definitions import (
@@ -42,7 +42,7 @@ __all__ = [
     "FallbackCollection",
     "InputProviderSpec",
     "ReferenceSurface",
-    "SampleGrid",
+    "SampleCoordinates",
     "get_boundary_jr_inputs",
     "get_conductance_inputs",
     "get_input_source",

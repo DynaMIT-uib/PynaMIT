@@ -15,7 +15,7 @@ from pynamit.coordinates import (
     wrap_longitude_180,
 )
 from pynamit.coordinates import local_noon_longitude as geographic_noon_longitude
-from pynamit.geodesy import (
+from pynamit.geographic_approximation import (
     library_geographic_to_spherical_geo,
     spherical_geo_to_library_geographic,
 )

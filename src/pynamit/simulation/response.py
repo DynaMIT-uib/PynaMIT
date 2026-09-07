@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 import numpy as np
+from kompe.coefficients import FieldCoefficients
 from kompe.math import (
     ArrayBackend,
     LeastSquaresProblem,
@@ -19,7 +20,6 @@ from kompe.math import (
     to_numpy,
 )
 
-from pynamit.fields import FieldCoefficients
 from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.electrodynamics import ionospheric_closure
 from pynamit.simulation.geometry import SimulationGeometry
@@ -137,7 +137,7 @@ class ElectrodynamicResponse:
             basis = self.E_neutral_wind.field_space.basis
             if basis.coefficients_are_compatible_with(self.geometry.horizontal_basis):
                 self._E_neutral_wind_to_E_coeffs_operator_cache = identity_linear_map(
-                    (2, self.geometry.horizontal_basis.index_length)
+                    (2, self.geometry.horizontal_basis.coefficient_count)
                 )
             else:
                 self._E_neutral_wind_to_E_coeffs_operator_cache = (
@@ -396,13 +396,13 @@ class ElectrodynamicResponse:
             # Add Tikhonov regularization if lambda is set.
             reg_ops, reg_weights = [], []
             if self.config.toroidal_potential_regularization_lambda > 0:
-                n = self.geometry.horizontal_basis.index_length
+                n = self.geometry.horizontal_basis.coefficient_count
                 reg_ops.append(identity_linear_map((n,)))
                 reg_weights.append(self.config.toroidal_potential_regularization_lambda)
 
             self._toroidal_potential_problem_cache = LeastSquaresProblem(
                 A=operators,
-                solution_shape=self.geometry.horizontal_basis.index_length,
+                solution_shape=self.geometry.horizontal_basis.coefficient_count,
                 data_shapes=data_shapes,
                 regularization_operators=reg_ops,
                 regularization_strengths=reg_weights,
@@ -428,7 +428,7 @@ class ElectrodynamicResponse:
         """Solve toroidal-potential response right-hand sides."""
         if self._toroidal_potential_response_solver_cache is None:
             self._toroidal_potential_response_solver_cache = (
-                self._toroidal_potential_solver.build_response_solver(
+                self._toroidal_potential_solver.prepare(
                     self._toroidal_potential_problem,
                     preconditioner=self._toroidal_potential_preconditioner,
                 )
@@ -481,8 +481,8 @@ class ElectrodynamicResponse:
             response = self._solve_toroidal_potential_response(rhs_entries)
             self._boundary_jr_to_toroidal_potential_operator = as_linear_map(
                 response,
-                input_shape=(self.geometry.horizontal_basis.index_length,),
-                output_shape=(self.geometry.horizontal_basis.index_length,),
+                input_shape=(self.geometry.horizontal_basis.coefficient_count,),
+                output_shape=(self.geometry.horizontal_basis.coefficient_count,),
             )
         return self._boundary_jr_to_toroidal_potential_operator
 
@@ -496,7 +496,7 @@ class ElectrodynamicResponse:
             return None
         if self._driving_E_to_toroidal_potential_operator is None:
             logger.info("Building dense driving-E-to-toroidal-potential response matrix.")
-            n = self.geometry.horizontal_basis.index_length
+            n = self.geometry.horizontal_basis.coefficient_count
             problem = self._toroidal_potential_problem
             electric_field_rhs = (
                 -self.geometry.interhemispheric_electric_field_difference_array.reshape(
@@ -509,8 +509,8 @@ class ElectrodynamicResponse:
             response = self._solve_toroidal_potential_response(rhs_entries)
             self._driving_E_to_toroidal_potential_operator = as_linear_map(
                 response,
-                input_shape=(2, self.geometry.horizontal_basis.index_length),
-                output_shape=(self.geometry.horizontal_basis.index_length,),
+                input_shape=(2, self.geometry.horizontal_basis.coefficient_count),
+                output_shape=(self.geometry.horizontal_basis.coefficient_count,),
             )
         return self._driving_E_to_toroidal_potential_operator
 
@@ -518,7 +518,7 @@ class ElectrodynamicResponse:
     def driving_E_to_total_E_operator(self) -> LinearMap:
         """Map driving E to total model E."""
         if self._driving_E_to_total_E_operator is None:
-            identity = identity_linear_map((2, self.geometry.horizontal_basis.index_length))
+            identity = identity_linear_map((2, self.geometry.horizontal_basis.coefficient_count))
             if (
                 not self.config.enable_interhemispheric_coupling
                 or self._interhemispheric_electric_field_constraint is None
@@ -563,7 +563,7 @@ class ElectrodynamicResponse:
             toroidal_potential_from_source = as_linear_map(
                 self._solve_toroidal_potential_response(rhs_entries),
                 input_shape=source_to_driving_E.input_shape,
-                output_shape=(self.geometry.horizontal_basis.index_length,),
+                output_shape=(self.geometry.horizontal_basis.coefficient_count,),
             )
             total_E_from_source = (
                 source_to_driving_E
@@ -599,7 +599,7 @@ class ElectrodynamicResponse:
         driving_E = xp.asarray(driving_E)
         rhs_entries = self._toroidal_potential_rhs_entries(boundary_jr_coeffs, driving_E)
         if rhs_entries is None:
-            return xp.zeros(self.geometry.horizontal_basis.index_length)
+            return xp.zeros(self.geometry.horizontal_basis.coefficient_count)
 
         solution = self._solve_toroidal_potential_response(rhs_entries)
         return self.geometry.horizontal_basis.project_scalar_mean_free(solution)
@@ -688,7 +688,7 @@ class ElectrodynamicResponse:
         E_from_toroidal_potential = self._apply_operator(
             self._runtime_toroidal_potential_to_E_coeffs,
             toroidal_potential,
-            (2, self.geometry.horizontal_basis.index_length),
+            (2, self.geometry.horizontal_basis.coefficient_count),
         )
         solved_boundary_jr = self.geometry.toroidal_potential_to_boundary_jr_operator.matvec(
             toroidal_potential
@@ -702,7 +702,7 @@ class ElectrodynamicResponse:
 
     def solve_noninductive_response(self) -> tuple[Any, Any]:
         """Return E and boundary-jr responses without induced Br."""
-        E_shape = (2, self.geometry.horizontal_basis.index_length)
+        E_shape = (2, self.geometry.horizontal_basis.coefficient_count)
         active_arrays = [
             field.array
             for field in (
@@ -745,7 +745,7 @@ class ElectrodynamicResponse:
     def solve_induced_response(self, induced_Br: Any) -> tuple[Any, Any]:
         """Return E and boundary-jr responses caused by induced Br."""
         xp = get_array_module(induced_Br)
-        E_shape = (2, self.geometry.horizontal_basis.index_length)
+        E_shape = (2, self.geometry.horizontal_basis.coefficient_count)
         driving_E = self._apply_operator(
             self._runtime_induced_Br_to_E_coeffs, xp.asarray(induced_Br), E_shape
         )
@@ -782,7 +782,7 @@ class ElectrodynamicResponse:
             feedback_pinv = synchronize_linalg_result(
                 array_module.linalg.pinv(feedback_matrix, rtol=1e-15)
             )
-            poloidal_size = self.geometry.poloidal_basis.index_length
+            poloidal_size = self.geometry.poloidal_basis.coefficient_count
             equilibrium_poloidal_response = as_linear_map(
                 -feedback_pinv, input_shape=(poloidal_size,), output_shape=(poloidal_size,)
             )

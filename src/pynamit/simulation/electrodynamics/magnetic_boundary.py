@@ -18,7 +18,7 @@ import logging
 import numpy as np
 from kompe import SphericalGrid, SphericalTransform
 from kompe.constants import MU0
-from kompe.math import diagonal_linear_map, get_array_module, pointwise_matrix_linear_map
+from kompe.math import diagonal_linear_map, get_array_module, pointwise_component_map
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +137,7 @@ def boundary_jr_to_gap_Br_matrix(
     model_grid = poloidal_transform.grid
     poloidal_basis = solid_harmonics.basis
     shielding_potential_response = np.zeros(
-        (poloidal_basis.index_length, horizontal_basis.index_length)
+        (poloidal_basis.coefficient_count, horizontal_basis.coefficient_count)
     )
     integration_radii = np.asarray(integration_radii)
     radial_step_widths = np.diff(integration_radii)
@@ -171,7 +171,7 @@ def boundary_jr_to_gap_Br_matrix(
         footpoint_transform = SphericalTransform(
             horizontal_basis, footpoint_grid, use_persistent_evaluation_cache=False
         )
-        jr_to_gridded_JS = pointwise_matrix_linear_map(
+        jr_to_gridded_JS = pointwise_component_map(
             np.array([shell_Btheta / footpoint_Br, shell_Bphi / footpoint_Br]).reshape(
                 2, 1, model_grid.size
             )

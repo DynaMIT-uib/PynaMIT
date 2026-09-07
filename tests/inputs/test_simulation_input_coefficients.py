@@ -2,9 +2,9 @@
 
 import numpy as np
 import pytest
+from kompe.coefficients import FieldCoefficients
 from kompe.constants import EARTH_RADIUS_M
 
-from pynamit.fields import FieldCoefficients
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     conductance_to_log_coordinates,
     resistance_to_log_conductance_coordinates,
@@ -47,7 +47,7 @@ def test_simulation_reuses_projection_transforms_for_shared_representations(tmp_
 def test_set_boundary_jr_accepts_input_basis_coefficients(tmp_path):
     """Radial current coefficients are stored directly."""
     simulation = _small_simulation(tmp_path)
-    n_coeffs = simulation.data.schema.input_field_spaces["boundary_jr"].index_length
+    n_coeffs = simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_count
     boundary_jr_coeffs = np.arange(n_coeffs, dtype=float) + 0.25
 
     simulation.set_boundary_jr(boundary_jr_coefficients=boundary_jr_coeffs, time=4.0)
@@ -61,7 +61,7 @@ def test_set_boundary_jr_accepts_input_basis_coefficients(tmp_path):
 def test_set_boundary_Br_accepts_input_basis_coefficients(tmp_path):
     """Magnetospheric Br coefficients are stored directly."""
     simulation = _small_simulation(tmp_path, RM=4 * EARTH_RADIUS_M)
-    n_coeffs = simulation.data.schema.input_field_spaces["boundary_Br"].index_length
+    n_coeffs = simulation.data.schema.input_field_spaces["boundary_Br"].coefficient_count
     br_coeffs = np.linspace(-1.0, 1.0, n_coeffs)
 
     simulation.set_boundary_Br(boundary_Br_coefficients=br_coeffs, time=2.0)
@@ -74,7 +74,7 @@ def test_set_boundary_Br_accepts_input_basis_coefficients(tmp_path):
 def test_set_neutral_wind_accepts_helmholtz_input_basis_coefficients(tmp_path):
     """Wind Helmholtz coefficients are stored directly."""
     simulation = _small_simulation(tmp_path)
-    n_coeffs = simulation.data.schema.input_field_spaces["u"].index_length
+    n_coeffs = simulation.data.schema.input_field_spaces["u"].coefficient_count
     cf_coeffs = np.arange(n_coeffs, dtype=float)
     df_coeffs = -np.arange(n_coeffs, dtype=float) - 1.0
 
@@ -91,7 +91,7 @@ def test_set_neutral_wind_accepts_helmholtz_input_basis_coefficients(tmp_path):
 def test_set_neutral_wind_accepts_time_dependent_coefficient_arrays(tmp_path):
     """The leading coefficient-array axis corresponds to time."""
     simulation = _small_simulation(tmp_path)
-    coefficient_shape = simulation.data.schema.input_field_spaces["u"].coefficient_shape
+    coefficient_shape = simulation.data.schema.input_field_spaces["u"].shape
     u_coefficients = np.arange(2 * np.prod(coefficient_shape), dtype=float).reshape(
         (2, *coefficient_shape)
     )
@@ -106,7 +106,7 @@ def test_set_neutral_wind_accepts_time_dependent_coefficient_arrays(tmp_path):
 def test_input_activation_uses_field_coefficients_for_wind(tmp_path):
     """Response input storage does not need grid expansion."""
     simulation = _small_simulation(tmp_path)
-    n_coeffs = simulation.data.schema.input_field_spaces["u"].index_length
+    n_coeffs = simulation.data.schema.input_field_spaces["u"].coefficient_count
     cf_coeffs = np.arange(n_coeffs, dtype=float)
     df_coeffs = -np.arange(n_coeffs, dtype=float) - 1.0
 
@@ -121,8 +121,8 @@ def test_input_activation_uses_field_coefficients_for_wind(tmp_path):
 def test_nonwind_response_keeps_wind_operator_lazy(tmp_path):
     """A zero wind contribution should not build the wind operator."""
     simulation = _small_simulation(tmp_path)
-    conductance_shape = simulation.data.schema.input_field_spaces["conductance"].coefficient_shape
-    current_shape = simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
+    conductance_shape = simulation.data.schema.input_field_spaces["conductance"].shape
+    current_shape = simulation.data.schema.input_field_spaces["boundary_jr"].shape
     simulation.set_conductance(
         log_magnitude_coefficients=np.zeros(conductance_shape),
         log_ratio_coefficients=np.zeros(conductance_shape),
@@ -139,7 +139,7 @@ def test_nonwind_response_keeps_wind_operator_lazy(tmp_path):
 def test_set_Q_eff_accepts_helmholtz_input_basis_coefficients(tmp_path):
     """Q_eff Helmholtz coefficients are stored directly."""
     simulation = _small_simulation(tmp_path)
-    n_coeffs = simulation.data.schema.input_field_spaces["Q_eff"].index_length
+    n_coeffs = simulation.data.schema.input_field_spaces["Q_eff"].coefficient_count
     cf_coeffs = np.arange(n_coeffs, dtype=float) + 2.0
     df_coeffs = -np.arange(n_coeffs, dtype=float) - 3.0
 
@@ -156,7 +156,7 @@ def test_set_Q_eff_accepts_helmholtz_input_basis_coefficients(tmp_path):
 def test_evaluate_Q_eff_uses_canonical_input_series_owner(tmp_path):
     """Q_eff reads conductance through SimulationData."""
     simulation = _small_simulation(tmp_path)
-    conductance_shape = simulation.data.schema.input_field_spaces["conductance"].coefficient_shape
+    conductance_shape = simulation.data.schema.input_field_spaces["conductance"].shape
     simulation.set_conductance(
         log_magnitude_coefficients=np.zeros(conductance_shape),
         log_ratio_coefficients=np.zeros(conductance_shape),
@@ -176,10 +176,37 @@ def test_evaluate_Q_eff_uses_canonical_input_series_owner(tmp_path):
     np.testing.assert_array_equal(q_lon, grid.lon)
 
 
+@pytest.mark.parametrize("operation", ["evaluate", "fit"])
+def test_wind_Q_eff_preparation_preserves_live_response(tmp_path, operation):
+    """Preview and fitting leave the live closure state intact."""
+    simulation = _small_simulation(tmp_path)
+    shape = simulation.data.schema.input_field_spaces["conductance"].shape
+    for time, value in ((0.0, 0.0), (10.0, 1.0)):
+        simulation.set_conductance(
+            log_magnitude_coefficients=np.full(shape, value),
+            log_ratio_coefficients=np.zeros(shape),
+            time=time,
+        )
+    response = simulation.response
+    response.activate_inputs_at_time(simulation.data.input_series, 0.0)
+    coefficients = response.log_conductance_magnitude
+    resistance = response.resistance_tensor_on_grid
+    wind_shape = simulation.data.schema.input_field_spaces["u"].shape
+    wind = np.zeros((1,) + wind_shape)
+    projector = simulation._input_projector
+    if operation == "evaluate":
+        projector.evaluate_Q_eff_from_neutral_wind([10.0], wind)
+    else:
+        projector.fit_Q_eff_from_neutral_wind([10.0], wind)
+    assert simulation.current_time == 0.0
+    assert response.log_conductance_magnitude is coefficients
+    assert response.resistance_tensor_on_grid is resistance
+
+
 def test_set_neutral_wind_rejects_existing_Q_eff_input(tmp_path):
     """Direct wind and Q_eff are mutually exclusive."""
     simulation = _small_simulation(tmp_path)
-    n_coeffs = simulation.data.schema.input_field_spaces["Q_eff"].index_length
+    n_coeffs = simulation.data.schema.input_field_spaces["Q_eff"].coefficient_count
     cf_coeffs = np.arange(n_coeffs, dtype=float)
     df_coeffs = -np.arange(n_coeffs, dtype=float)
     Q_eff_coefficients = np.stack((cf_coeffs, df_coeffs))
@@ -192,7 +219,7 @@ def test_set_neutral_wind_rejects_existing_Q_eff_input(tmp_path):
 def test_set_Q_eff_rejects_existing_neutral_wind_input(tmp_path):
     """Q_eff cannot be added after direct wind input."""
     simulation = _small_simulation(tmp_path)
-    n_coeffs = simulation.data.schema.input_field_spaces["u"].index_length
+    n_coeffs = simulation.data.schema.input_field_spaces["u"].coefficient_count
     cf_coeffs = np.arange(n_coeffs, dtype=float)
     df_coeffs = -np.arange(n_coeffs, dtype=float)
     u_coefficients = np.stack((cf_coeffs, df_coeffs))
@@ -205,7 +232,7 @@ def test_set_Q_eff_rejects_existing_neutral_wind_input(tmp_path):
 def test_reopening_rejects_conflicting_stored_wind_forcing(tmp_path):
     """Stored input validation catches conflicts before evolution."""
     simulation = _small_simulation(tmp_path)
-    n_coeffs = simulation.data.schema.input_field_spaces["Q_eff"].index_length
+    n_coeffs = simulation.data.schema.input_field_spaces["Q_eff"].coefficient_count
     zeros = np.zeros((2, n_coeffs))
     simulation.set_Q_eff(Q_eff_coefficients=zeros, time=0.0)
 
@@ -219,7 +246,7 @@ def test_reopening_rejects_conflicting_stored_wind_forcing(tmp_path):
 def test_E_neutral_wind_rejects_existing_neutral_wind_input(tmp_path):
     """Equivalent neutral-wind E cannot double-count direct wind."""
     simulation = _small_simulation(tmp_path)
-    vector_length = simulation.data.schema.input_field_spaces["u"].index_length
+    vector_length = simulation.data.schema.input_field_spaces["u"].coefficient_count
     wind_coefficients = np.stack(
         (np.linspace(0.0, 1.0, vector_length), np.linspace(1.0, 0.0, vector_length))
     )
@@ -232,7 +259,7 @@ def test_E_neutral_wind_rejects_existing_neutral_wind_input(tmp_path):
 def test_input_activation_uses_field_coefficients_for_Q_eff(tmp_path):
     """Active Q_eff keeps its canonical coefficient shape."""
     simulation = _small_simulation(tmp_path)
-    n_coeffs = simulation.data.schema.input_field_spaces["Q_eff"].index_length
+    n_coeffs = simulation.data.schema.input_field_spaces["Q_eff"].coefficient_count
     cf_coeffs = np.arange(n_coeffs, dtype=float) + 2.0
     df_coeffs = -np.arange(n_coeffs, dtype=float) - 3.0
 
@@ -247,7 +274,7 @@ def test_input_activation_uses_field_coefficients_for_Q_eff(tmp_path):
 def test_set_conductance_accepts_canonical_input_basis_coefficients(tmp_path):
     """Store dimensionless magnitude/ratio coefficients directly."""
     simulation = _small_simulation(tmp_path)
-    n_coeffs = simulation.data.schema.input_field_spaces["conductance"].index_length
+    n_coeffs = simulation.data.schema.input_field_spaces["conductance"].coefficient_count
     log_magnitude_coeffs = np.arange(n_coeffs, dtype=float) + 1.0
     log_ratio_coeffs = np.arange(n_coeffs, dtype=float) - 2.0
 
@@ -270,7 +297,7 @@ def test_set_conductance_accepts_canonical_input_basis_coefficients(tmp_path):
 def test_coefficient_inputs_reject_projection_coordinates(tmp_path):
     """Direct coefficients should not specify sample geometry."""
     simulation = _small_simulation(tmp_path)
-    n_coeffs = simulation.data.schema.input_field_spaces["boundary_jr"].index_length
+    n_coeffs = simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_count
     boundary_jr_coeffs = np.arange(n_coeffs, dtype=float)
 
     with np.testing.assert_raises_regex(ValueError, "lat"):
@@ -282,7 +309,7 @@ def test_coefficient_inputs_reject_projection_coordinates(tmp_path):
 def test_tangential_coefficient_inputs_require_canonical_component_shape(tmp_path):
     """Helmholtz coefficients keep their component axis explicit."""
     simulation = _small_simulation(tmp_path)
-    n_coeffs = simulation.data.schema.input_field_spaces["u"].index_length
+    n_coeffs = simulation.data.schema.input_field_spaces["u"].coefficient_count
     curl_free_coefficients = np.arange(n_coeffs, dtype=float)
 
     with np.testing.assert_raises_regex(ValueError, "must have shape"):
@@ -292,7 +319,7 @@ def test_tangential_coefficient_inputs_require_canonical_component_shape(tmp_pat
 def test_tangential_inputs_reject_mixed_samples_and_coefficients(tmp_path):
     """Tangential setters should not mix samples with coefficients."""
     simulation = _small_simulation(tmp_path)
-    n_coeffs = simulation.data.schema.input_field_spaces["Q_eff"].index_length
+    n_coeffs = simulation.data.schema.input_field_spaces["Q_eff"].coefficient_count
     values = np.zeros(simulation.geometry.model_grid.size)
     coefficients = np.zeros((2, n_coeffs))
 
@@ -336,7 +363,7 @@ def test_set_conductance_rejects_mixed_samples_and_coefficients(tmp_path):
     """Do not silently ignore samples when coefficients are supplied."""
     simulation = _small_simulation(tmp_path)
     field_space = simulation.data.schema.input_field_spaces["conductance"]
-    coefficients = np.zeros(field_space.coefficient_shape)
+    coefficients = np.zeros(field_space.shape)
 
     with np.testing.assert_raises_regex(ValueError, "cannot be combined with sample values"):
         simulation.set_conductance(
@@ -351,7 +378,7 @@ def test_identical_conductance_history_retains_closure_caches(tmp_path):
     """Repeated coefficient values do not rebuild the same closure."""
     simulation = _small_simulation(tmp_path)
     field_space = simulation.data.schema.input_field_spaces["conductance"]
-    log_magnitude = np.zeros((2, *field_space.coefficient_shape))
+    log_magnitude = np.zeros((2, *field_space.shape))
     log_ratio = np.zeros_like(log_magnitude)
     simulation.set_conductance(
         log_magnitude_coefficients=log_magnitude, log_ratio_coefficients=log_ratio, time=[0.0, 1.0]
@@ -373,7 +400,7 @@ def test_identical_conductance_history_retains_closure_caches(tmp_path):
 def test_response_detects_small_edits_to_live_input_datasets(tmp_path):
     """Selection snapshots detect small edits to live input arrays."""
     simulation = _small_simulation(tmp_path)
-    shape = simulation.data.schema.input_field_spaces["conductance"].coefficient_shape
+    shape = simulation.data.schema.input_field_spaces["conductance"].shape
     simulation.set_conductance(
         log_magnitude_coefficients=np.zeros(shape), log_ratio_coefficients=np.zeros(shape)
     )
@@ -395,7 +422,7 @@ def test_response_detects_small_edits_to_live_input_datasets(tmp_path):
 def test_responses_select_shared_inputs_independently(tmp_path):
     """One response must not consume another's input update."""
     simulation = _small_simulation(tmp_path)
-    shape = simulation.data.schema.input_field_spaces["conductance"].coefficient_shape
+    shape = simulation.data.schema.input_field_spaces["conductance"].shape
     simulation.set_conductance(
         log_magnitude_coefficients=np.zeros(shape), log_ratio_coefficients=np.zeros(shape)
     )
@@ -413,7 +440,7 @@ def test_responses_select_shared_inputs_independently(tmp_path):
 def test_response_drops_inputs_unavailable_at_selected_time(tmp_path):
     """Backward selection must not retain a future forcing."""
     simulation = _small_simulation(tmp_path)
-    shape = simulation.data.schema.input_field_spaces["u"].coefficient_shape
+    shape = simulation.data.schema.input_field_spaces["u"].shape
     simulation.set_neutral_wind(u_coefficients=np.ones(shape), time=1.0)
     response = simulation.response
     response.activate_inputs_at_time(simulation.data.input_series, 1.0)
@@ -439,7 +466,7 @@ def test_conductance_invalidates_only_dependent_response_state(
         enable_interhemispheric_coupling=coupled,
         reuse_preconditioner=reuse_preconditioner,
     )
-    shape = simulation.data.schema.input_field_spaces["conductance"].coefficient_shape
+    shape = simulation.data.schema.input_field_spaces["conductance"].shape
     simulation.set_conductance(
         log_magnitude_coefficients=np.stack([np.zeros(shape), np.full(shape, 0.01)]),
         log_ratio_coefficients=np.zeros((2, *shape)),
@@ -472,7 +499,7 @@ def test_conductance_activation_fingerprints_stored_coefficients(tmp_path, monke
     """Fingerprint stored conductance before backend transfer."""
     simulation = _small_simulation(tmp_path)
     field_space = simulation.data.schema.input_field_spaces["conductance"]
-    coefficients = np.zeros(field_space.coefficient_shape)
+    coefficients = np.zeros(field_space.shape)
     simulation.set_conductance(
         log_magnitude_coefficients=coefficients, log_ratio_coefficients=coefficients, time=0.0
     )
@@ -499,18 +526,16 @@ def test_changed_conductance_response_matches_fresh_solve(tmp_path, coupled, mon
         time=[0.0, 1.0],
     )
     space = simulation.data.schema.input_field_spaces["boundary_jr"]
-    simulation.set_boundary_jr(
-        boundary_jr_coefficients=np.linspace(-1e-6, 1e-6, space.coefficient_length)
-    )
+    simulation.set_boundary_jr(boundary_jr_coefficients=np.linspace(-1e-6, 1e-6, space.size))
     response = simulation.response
-    build_solver = response._toroidal_potential_solver.build_response_solver
+    build_solver = response._toroidal_potential_solver.prepare
     builds = []
 
     def record_build(problem, **kwargs):
         builds.append(problem)
         return build_solver(problem, **kwargs)
 
-    monkeypatch.setattr(response._toroidal_potential_solver, "build_response_solver", record_build)
+    monkeypatch.setattr(response._toroidal_potential_solver, "prepare", record_build)
     series = simulation.data.input_series
     response.activate_inputs_at_time(series, 0.0)
     response.solve_noninductive_response()

@@ -1,8 +1,8 @@
 """Evaluate projected simulation input fields on spherical grids."""
 
+from kompe.coefficients import FieldCoefficients
 from kompe.spherical_transform import SphericalTransform
 
-from pynamit.fields import FieldCoefficients
 from pynamit.results.field_evaluation import (
     evaluate_conductance_values,
     evaluate_tangential_coefficients,
@@ -57,7 +57,7 @@ def evaluate_projected_input(
             series = source.data.input_series
             default_grid = source.model_grid
         elif isinstance(source, SimulationResults):
-            series = source.load_input_series()
+            series = source.load_input_series(key)
             default_grid = source.schema.cs_basis.mesh.cell_centers
         else:
             raise TypeError(
@@ -78,7 +78,7 @@ def evaluate_projected_input(
         raise ValueError("A target grid or transform is required.")
 
     values = {}
-    if field_space.field_type == "tangential":
+    if field_space.representation == "helmholtz":
         for var, coeffs in entry.items():
             field = FieldCoefficients(field_space, coeffs=coeffs)
             components = evaluate_tangential_coefficients(

@@ -5,9 +5,8 @@ from collections.abc import Mapping
 import numpy as np
 import pandas as pd
 import xarray as xr
+from kompe.coefficients import CoefficientSpace, FieldCoefficients
 from kompe.math import to_numpy
-
-from pynamit.fields import FieldCoefficients, FieldSpace
 
 TIME_TOLERANCE_SECONDS = 1e-6
 
@@ -21,7 +20,7 @@ class FieldTimeSeries:
         Parameters
         ----------
         field_spaces : dict
-            Mapping from time-series group to ``FieldSpace``.
+            Mapping from time-series group to ``CoefficientSpace``.
         variables : dict
             Variable names for each group.
         variable_attrs : dict, optional
@@ -66,7 +65,7 @@ class FieldTimeSeries:
             if isinstance(names, dict):
                 raise TypeError(
                     "FieldTimeSeries variables must be sequences of variable names; "
-                    "field types belong in FieldSpace."
+                    "field types belong in CoefficientSpace."
                 )
             if isinstance(names, str):
                 raise TypeError("FieldTimeSeries variable groups must be sequences, not strings.")
@@ -79,22 +78,22 @@ class FieldTimeSeries:
             raise ValueError("FieldTimeSeries field_spaces and variables must use the same keys.")
         normalized = {}
         for key, group_spaces in field_spaces.items():
-            if isinstance(group_spaces, FieldSpace):
+            if isinstance(group_spaces, CoefficientSpace):
                 normalized[key] = group_spaces
                 continue
             if not isinstance(group_spaces, Mapping):
                 raise TypeError(
-                    "FieldTimeSeries field_spaces values must be FieldSpace instances "
-                    "or variable-to-FieldSpace mappings."
+                    "FieldTimeSeries field_spaces values must be CoefficientSpace instances "
+                    "or variable-to-CoefficientSpace mappings."
                 )
             expected = set(self.variables[key])
             if set(group_spaces) != expected:
                 raise ValueError(
                     f"Field spaces for {key!r} must use variables {sorted(expected)}."
                 )
-            if not all(isinstance(space, FieldSpace) for space in group_spaces.values()):
+            if not all(isinstance(space, CoefficientSpace) for space in group_spaces.values()):
                 raise TypeError(
-                    "Variable field-space mappings must contain only FieldSpace instances."
+                    "Variable field-space mappings must contain only CoefficientSpace instances."
                 )
             normalized[key] = dict(group_spaces)
         return normalized
@@ -106,7 +105,7 @@ class FieldTimeSeries:
             group_spaces = self.field_spaces[key]
             expanded[key] = (
                 {name: group_spaces for name in names}
-                if isinstance(group_spaces, FieldSpace)
+                if isinstance(group_spaces, CoefficientSpace)
                 else dict(group_spaces)
             )
         return expanded
@@ -138,7 +137,11 @@ class FieldTimeSeries:
                     else (f"{label}_{name}" for name in field_space.index_names)
                 )
                 index = pd.MultiIndex.from_arrays(
-                    field_space.multiindex_arrays(), names=index_names
+                    [
+                        np.tile(values, field_space.component_count)
+                        for values in field_space.index_arrays
+                    ],
+                    names=index_names,
                 )
                 layouts[key][variable] = {
                     "dimension": dimension,
@@ -146,15 +149,17 @@ class FieldTimeSeries:
                     "index": index,
                     "component_name": (
                         None
-                        if field_space.field_type == "scalar"
+                        if field_space.representation == "scalar"
                         else "component"
                         if shared_layout
                         else f"{label}_component"
                     ),
                     "component_values": (
                         None
-                        if field_space.field_type == "scalar"
-                        else np.repeat(np.array([0, 1], dtype=np.int8), field_space.index_length)
+                        if field_space.representation == "scalar"
+                        else np.repeat(
+                            np.array([0, 1], dtype=np.int8), field_space.coefficient_count
+                        )
                     ),
                 }
         return layouts
@@ -174,7 +179,9 @@ class FieldTimeSeries:
                 attrs.setdefault(name, value)
             attrs.setdefault("physical_name", variable)
             attrs.setdefault("coefficient_basis", field_space.kind)
-            attrs.setdefault("field_type", field_space.field_type)
+            attrs.setdefault(
+                "field_type", "scalar" if field_space.representation == "scalar" else "tangential"
+            )
 
         for layout in self._coefficient_layouts[key].values():
             component_name = layout["component_name"]
@@ -200,7 +207,7 @@ class FieldTimeSeries:
     def get_field_space(self, key, variable=None):
         """Return a group or variable field space."""
         group_spaces = self.field_spaces[key]
-        if isinstance(group_spaces, FieldSpace):
+        if isinstance(group_spaces, CoefficientSpace):
             return group_spaces
         if variable is not None:
             return group_spaces[variable]

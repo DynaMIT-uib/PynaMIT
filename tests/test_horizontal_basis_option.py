@@ -26,11 +26,11 @@ def test_default_horizontal_basis_is_sh(tmp_path):
     schema = simulation.data.schema
     assert geometry.horizontal_basis.mean_free
     assert not schema.sh_basis.mean_free
-    assert schema.sh_basis.index_length == geometry.horizontal_basis.index_length + 1
+    assert schema.sh_basis.coefficient_count == geometry.horizontal_basis.coefficient_count + 1
     assert geometry.surface_gauge_operator is None
     np.testing.assert_allclose(
         geometry.surface_to_poloidal_operator.to_matrix(backend="numpy"),
-        np.eye(geometry.poloidal_basis.index_length),
+        np.eye(geometry.poloidal_basis.coefficient_count),
     )
 
 
@@ -77,14 +77,14 @@ def test_cs_surface_gauge_makes_toroidal_potential_system_unique(tmp_path):
     gauge = geometry.surface_gauge_operator
     assert gauge is not None
     np.testing.assert_allclose(
-        gauge.matvec(np.ones(geometry.horizontal_basis.index_length)),
-        np.sqrt(geometry.horizontal_basis.index_length),
+        gauge.matvec(np.ones(geometry.horizontal_basis.coefficient_count)),
+        np.sqrt(geometry.horizontal_basis.coefficient_count),
     )
 
     system = simulation.response._toroidal_potential_problem.data_operator.to_matrix(
         backend="numpy"
     )
-    assert np.linalg.matrix_rank(system) == geometry.horizontal_basis.index_length
+    assert np.linalg.matrix_rank(system) == geometry.horizontal_basis.coefficient_count
 
 
 def test_cs_runtime_toroidal_solve_does_not_build_dense_response_matrix(tmp_path):
@@ -101,7 +101,7 @@ def test_cs_runtime_toroidal_solve_does_not_build_dense_response_matrix(tmp_path
         artifact_storage="netcdf",
         backend="numpy",
     )
-    n = simulation.geometry.horizontal_basis.index_length
+    n = simulation.geometry.horizontal_basis.coefficient_count
     simulation.set_conductance(
         log_magnitude_coefficients=np.zeros(n), log_ratio_coefficients=np.zeros(n), time=0.0
     )
@@ -155,8 +155,8 @@ def test_cs_reduced_induction_response_matches_full_E_response(tmp_path):
     )
 
     assert reduced.shape == (
-        simulation.geometry.horizontal_basis.index_length,
-        simulation.geometry.poloidal_basis.index_length,
+        simulation.geometry.horizontal_basis.coefficient_count,
+        simulation.geometry.poloidal_basis.coefficient_count,
     )
     np.testing.assert_allclose(reduced, full, rtol=1e-10, atol=1e-12)
 
@@ -208,8 +208,13 @@ def test_cs_horizontal_basis_runs_with_split_output_spaces(tmp_path):
     output = simulation.data.output_series.datasets["dynamic"]
     assert "SH_induced_Br" in output
     assert "CS_boundary_jr" in output
-    assert output["SH_induced_Br"].shape[-1] == simulation.geometry.poloidal_basis.index_length
-    assert output["CS_boundary_jr"].shape[-1] == simulation.geometry.horizontal_basis.index_length
+    assert (
+        output["SH_induced_Br"].shape[-1] == simulation.geometry.poloidal_basis.coefficient_count
+    )
+    assert (
+        output["CS_boundary_jr"].shape[-1]
+        == simulation.geometry.horizontal_basis.coefficient_count
+    )
     assert simulation.data.schema.horizontal_basis is simulation.geometry.horizontal_basis
 
 
@@ -240,8 +245,8 @@ def test_cs_horizontal_basis_runs_with_pfac(tmp_path):
     assert simulation.data.schema.horizontal_basis is simulation.geometry.horizontal_basis
     assert simulation.geometry.solid_harmonics.basis is not simulation.geometry.horizontal_basis
     assert response_matrix.shape == (
-        simulation.geometry.poloidal_basis.index_length,
-        simulation.geometry.horizontal_basis.index_length,
+        simulation.geometry.poloidal_basis.coefficient_count,
+        simulation.geometry.horizontal_basis.coefficient_count,
     )
     assert np.linalg.norm(response_matrix) > 0.0
     assert np.all(np.isfinite(response_matrix))
@@ -269,7 +274,7 @@ def test_cs_horizontal_basis_supports_rm_solid_harmonics(tmp_path):
     assert induced_Br_to_JS.shape == (
         2,
         geometry.model_grid.size,
-        simulation.geometry.poloidal_basis.index_length,
+        simulation.geometry.poloidal_basis.coefficient_count,
     )
     assert boundary_Br_to_JS.shape == induced_Br_to_JS.shape
     assert np.all(np.isfinite(induced_Br_to_JS))
@@ -302,11 +307,11 @@ def test_cs_horizontal_basis_supports_connected_hemispheres(tmp_path):
         2,
         geometry.conjugate_grid.size,
         2,
-        simulation.geometry.horizontal_basis.index_length,
+        simulation.geometry.horizontal_basis.coefficient_count,
     )
     assert geometry.interhemispheric_electric_field_difference_array.shape[-2:] == (
         2,
-        simulation.geometry.horizontal_basis.index_length,
+        simulation.geometry.horizontal_basis.coefficient_count,
     )
     assert np.all(np.isfinite(geometry.conjugate_horizontal_transform.helmholtz_synthesis_array))
     assert np.all(np.isfinite(geometry.interhemispheric_electric_field_difference_array))
@@ -364,15 +369,15 @@ def test_cs_horizontal_basis_combines_pfac_rm_and_connected_terms(tmp_path):
     geometry = simulation.geometry
 
     assert geometry.boundary_jr_to_gap_Br_matrix.shape == (
-        simulation.geometry.poloidal_basis.index_length,
-        simulation.geometry.horizontal_basis.index_length,
+        simulation.geometry.poloidal_basis.coefficient_count,
+        simulation.geometry.horizontal_basis.coefficient_count,
     )
     assert geometry.boundary_Br_to_gridded_JS_operator().to_array().shape == (
         geometry.induced_Br_to_gridded_JS_operator().to_array().shape
     )
     assert geometry.interhemispheric_electric_field_difference_array.shape[-2:] == (
         2,
-        simulation.geometry.horizontal_basis.index_length,
+        simulation.geometry.horizontal_basis.coefficient_count,
     )
     assert np.linalg.norm(geometry.boundary_jr_to_gap_Br_matrix) > 0.0
     assert np.all(np.isfinite(geometry.boundary_jr_to_gap_Br_matrix))
@@ -401,7 +406,9 @@ def test_surface_to_poloidal_projection_matches_grid_least_squares(tmp_path):
     np.testing.assert_allclose(surface_to_poloidal, expected)
 
     rng = np.random.default_rng(20260520)
-    radial_coeffs = rng.standard_normal(simulation.geometry.solid_harmonics.basis.index_length)
+    radial_coeffs = rng.standard_normal(
+        simulation.geometry.solid_harmonics.basis.coefficient_count
+    )
     cs_coeffs = geometry.poloidal_transform.scalar_synthesis_array @ radial_coeffs
 
     np.testing.assert_allclose(surface_to_poloidal @ cs_coeffs, radial_coeffs, atol=1e-10)

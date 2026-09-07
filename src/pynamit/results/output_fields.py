@@ -1,12 +1,15 @@
 """Evaluate simulation output fields on requested grids."""
 
+import numpy as np
 from kompe import SphericalTransform
 from kompe.constants import EARTH_RADIUS_M, MU0
-from kompe.math import diagonal_linear_map, get_array_module
+from kompe.math import diagonal_linear_map, get_array_module, pointwise_component_map
 
 from pynamit.results.field_evaluation import (
     apply_coefficient_operator,
     evaluate_sheet_current_from_operators,
+    model_grid_from_geographic,
+    model_to_geographic_tangential_array,
 )
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     joule_heating_from_current,
@@ -55,11 +58,11 @@ def output_at_current_time(simulation, key=None):
     return entry
 
 
-def build_output_evaluation_operators(geometry, transform):
-    """Build reusable coefficient-to-field operators for one grid."""
+def build_output_evaluation_operators(geometry, transform, *, include_joule=False):
+    """Build field maps and optional Joule geometry for one grid."""
     horizontal_transform = transform.with_basis(geometry.horizontal_basis)
     poloidal_transform = transform.with_basis(geometry.poloidal_basis)
-    return {
+    operators = {
         "RI": float(geometry.RI),
         "horizontal_transform": horizontal_transform,
         "induced_Br_to_Br": poloidal_transform.scalar_synthesis_operator,
@@ -71,9 +74,17 @@ def build_output_evaluation_operators(geometry, transform):
             @ geometry.induced_Br_to_poloidal_potential_operator
         ),
     }
+    if include_joule:
+        unit_br, unit_btheta, unit_bphi = geometry.main_field.unit_vector(
+            transform.grid, geometry.RI
+        )
+        operators["pedersen_geometry"] = pedersen_geometry_tensor(unit_btheta, unit_bphi, unit_br)
+    return operators
 
 
-def build_ground_magnetic_field_operators(geometry, grid, *, ground_radius=EARTH_RADIUS_M):
+def build_ground_magnetic_field_operators(
+    geometry, grid, *, ground_radius=EARTH_RADIUS_M, coordinate_system="model"
+):
     """Build induced-Br-to-ground-magnetic-field operators.
 
     The ionospheric induced radial field is continued inward as a
@@ -81,11 +92,21 @@ def build_ground_magnetic_field_operators(geometry, grid, *, ground_radius=EARTH
     The returned radial and tangential operators evaluate components
     in tesla, with tangential component order ``(theta, phi)``
     (south, east).
+
+    ``coordinate_system`` names both the input grid's frame and the
+    returned components' frame: ``model`` or geocentric ``geographic``.
     """
+    if coordinate_system not in {"model", "geographic"}:
+        raise ValueError("coordinate_system must be 'model' or 'geographic'.")
+    model_grid = (
+        model_grid_from_geographic(geometry.main_field, grid.lat, grid.lon)
+        if coordinate_system == "geographic"
+        else grid
+    )
     ionosphere_radius = float(geometry.RI)
     solid_harmonics = geometry.solid_harmonics
     basis = solid_harmonics.basis
-    transform = SphericalTransform(basis, grid)
+    transform = SphericalTransform(basis, model_grid)
 
     reference_shift = solid_harmonics.regular_reference_shift_factors(
         ionosphere_radius, float(ground_radius)
@@ -93,9 +114,69 @@ def build_ground_magnetic_field_operators(geometry, grid, *, ground_radius=EARTH
     radial_coefficient_shift = diagonal_linear_map(reference_shift)
     tangential_coefficient_shift = diagonal_linear_map(reference_shift / basis.n)
 
+    tangential = transform.surface_gradient_operator @ tangential_coefficient_shift
+    if coordinate_system == "geographic":
+        rotation = model_to_geographic_tangential_array(geometry.main_field, model_grid)
+        tangential = pointwise_component_map(rotation) @ tangential
     return {
         "radial": transform.scalar_synthesis_operator @ radial_coefficient_shift,
-        "tangential": transform.surface_gradient_operator @ tangential_coefficient_shift,
+        "tangential": tangential,
+    }
+
+
+def evaluate_ground_magnetic_field(
+    source,
+    time=None,
+    *,
+    grid,
+    key="dynamic",
+    coordinate_system="geographic",
+    ground_radius=EARTH_RADIUS_M,
+    operators=None,
+):
+    """Evaluate the induced ground-field contribution in tesla.
+
+    ``source`` is a live Simulation or saved SimulationResults. ``time``
+    selects model seconds (scalar or 1-D); None selects all saved times
+    in ``key``. Input coefficients are selected without interpolation.
+    Arrays retain ``grid.shape`` followed by a time axis; tangential
+    arrays additionally lead with ``(theta, phi)`` components.
+
+    The grid and returned components use ``coordinate_system``. This
+    continues induced Br inward; it does not add the background field.
+    Repeated calls may reuse operators built for the same geometry,
+    grid, frame and radius with build_ground_magnetic_field_operators.
+    """
+    from pynamit.results.simulation_results import SimulationResults
+    from pynamit.simulation import Simulation
+
+    if isinstance(source, SimulationResults):
+        series = source.load_output_series(key) if key is not None else source.load_output_series()
+    elif isinstance(source, Simulation):
+        series = source.data.output_series
+    else:
+        raise TypeError("source must be a Simulation or SimulationResults.")
+    key = select_output_stream(series.datasets, preferred=key)
+    if time is None:
+        coefficients = series.datasets[key][series.get_data_var_name(key, "induced_Br")].values.T
+    else:
+        times = np.atleast_1d(np.asarray(time, dtype=float))
+        if times.ndim != 1 or times.size == 0:
+            raise ValueError("time must be a scalar or non-empty 1-D array.")
+        entries = [series.get_entry(key, value) for value in times]
+        if any(entry is None for entry in entries):
+            raise ValueError("No output is available at one or more requested times.")
+        coefficients = np.stack([entry["induced_Br"] for entry in entries], axis=-1)
+    if operators is None:
+        operators = build_ground_magnetic_field_operators(
+            source.geometry, grid, ground_radius=ground_radius, coordinate_system=coordinate_system
+        )
+    n_times = coefficients.shape[-1]
+    return {
+        "radial": operators["radial"].matmat(coefficients).reshape(grid.shape + (n_times,)),
+        "tangential": operators["tangential"]
+        .matmat(coefficients)
+        .reshape((2,) + grid.shape + (n_times,)),
     }
 
 
@@ -272,7 +353,9 @@ def evaluate_simulation_output(
         input_series = source.data.input_series
         geometry = source.geometry
     elif isinstance(source, SimulationResults):
-        output_series = source.load_output_series()
+        output_series = (
+            source.load_output_series(key) if key is not None else source.load_output_series()
+        )
         input_series = None
         geometry = source.geometry
     else:
@@ -293,7 +376,7 @@ def evaluate_simulation_output(
         )
 
     if input_series is None:
-        input_series = source.load_input_series()
+        input_series = source.load_input_series("boundary_Br", "conductance")
 
     boundary_Br = None
     if "boundary_Br" in input_series.datasets:
@@ -310,29 +393,29 @@ def evaluate_simulation_output(
         "JS_mag",
     }
     etaP = None
-    geometry_tensor = None
     if "conductance" in input_series.datasets:
         conductance = evaluate_projected_input(
             source, "conductance", time, transform=transform, interpolation=interpolation
         )
-        unit_br, unit_btheta, unit_bphi = geometry.main_field.unit_vector(
-            transform.grid, geometry.RI
-        )
         etaP = conductance["etaP"]
-        geometry_tensor = pedersen_geometry_tensor(unit_btheta, unit_bphi, unit_br)
         field_names.add("joule_heating")
+    operators = build_output_evaluation_operators(
+        geometry, transform, include_joule="joule_heating" in field_names
+    )
     return evaluate_output_coefficients(
         entry,
         transform,
         geometry=geometry,
         field_names=field_names,
+        operators=operators,
         boundary_Br=boundary_Br,
         etaP=etaP,
-        pedersen_geometry=geometry_tensor,
+        pedersen_geometry=operators.get("pedersen_geometry"),
     )
 
 
 __all__ = [
+    "evaluate_ground_magnetic_field",
     "build_ground_magnetic_field_operators",
     "build_output_evaluation_operators",
     "build_sheet_current_operators",

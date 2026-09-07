@@ -1,6 +1,7 @@
 """Project and persist physical inputs for later simulations."""
 
 import numpy as np
+from kompe.cache import PersistentArrayCache
 from kompe.constants import EARTH_RADIUS_M
 from kompe.math import set_backend
 
@@ -9,10 +10,9 @@ from pynamit.simulation.electrodynamics import ionospheric_closure
 from pynamit.simulation.geometry import SimulationGeometry, build_main_field
 from pynamit.simulation.input_manifest import write_input_manifest
 from pynamit.simulation.input_projection import _InputProjector
-from pynamit.simulation.response import ElectrodynamicResponse
 from pynamit.simulation.schema import INPUT_DATASET_KEYS, WIND_FORCING_INPUTS
 from pynamit.simulation.simulation_data import SimulationData
-from pynamit.storage import ArtifactStore, PersistentArrayCache
+from pynamit.storage import ArtifactStore
 
 
 class InputPreparation:
@@ -39,7 +39,7 @@ class InputPreparation:
     geometry : SimulationGeometry
         Full simulation geometry. Constructed only when first accessed;
         ordinary input projection does not require it.
-    operator_cache : pynamit.storage.PersistentArrayCache, optional
+    operator_cache : kompe.cache.PersistentArrayCache, optional
         Shared cache for deterministic materialized operators.
     """
 
@@ -198,7 +198,6 @@ class InputPreparation:
         self.model_grid = schema.cs_basis.mesh.cell_centers
         self._geometry = None
         self._input_projector = _InputProjector(self)
-        self._response = None
         self.current_time = np.float64(0)
 
         self.data.save_settings_if_missing()
@@ -232,16 +231,6 @@ class InputPreparation:
                 operator_cache=self.operator_cache,
             )
         return self._geometry
-
-    def _require_response(self):
-        """Construct the electrodynamic response when it is needed.
-
-        Ordinary projection does not need it. The response is required
-        only when deriving ``Q_eff`` from neutral wind and conductance.
-        """
-        if self._response is None:
-            self._response = ElectrodynamicResponse(self.geometry, self.config)
-        return self._response
 
     @classmethod
     def from_config(

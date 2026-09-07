@@ -10,7 +10,7 @@ from typing import Any
 
 import numpy as np
 
-from pynamit.external_inputs.coordinates import SampleGrid
+from pynamit.external_inputs.coordinates import SampleCoordinates
 from pynamit.external_inputs.provider_definitions import InputProviderSpec
 
 FALLBACK_SCHEMA_VERSION = 8
@@ -21,8 +21,8 @@ class ProviderSnapshot:
     """Provider values bound to geographic and library-request grids."""
 
     spec: InputProviderSpec
-    geographic_grid: SampleGrid
-    request_grid: SampleGrid
+    geographic_grid: SampleCoordinates
+    request_grid: SampleCoordinates
     values: Mapping[str, np.ndarray] = field(repr=False)
 
     def __post_init__(self) -> None:
@@ -71,7 +71,7 @@ class FallbackCollection:
     version: int
     event_time: str | None
     time: np.ndarray = field(repr=False, compare=False)
-    grids: Mapping[str, SampleGrid]
+    grids: Mapping[str, SampleCoordinates]
     providers: Mapping[str, InputProviderSpec]
     datasets: Mapping[str, Mapping[str, ProviderSnapshot]]
     conditions: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
@@ -140,7 +140,7 @@ class FallbackCollection:
             raise ValueError(f"Expected fallback schema {expected_version}, got {version}.")
 
         grids = {
-            str(grid_id): SampleGrid.from_dict(str(grid_id), grid_payload)
+            str(grid_id): SampleCoordinates.from_dict(str(grid_id), grid_payload)
             for grid_id, grid_payload in payload.get("grids", {}).items()
         }
         providers: dict[str, InputProviderSpec] = {}

@@ -43,7 +43,7 @@ def test_simulation_results_is_the_core_saved_simulation_api(tmp_path):
         enable_pfac_coupling=False,
         artifact_storage="netcdf",
     )
-    shape = simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
+    shape = simulation.data.schema.input_field_spaces["boundary_jr"].shape
     simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(shape), time=2.0)
 
     results = pynamit.SimulationResults.from_directory(tmp_path)
@@ -64,13 +64,13 @@ def test_evaluate_simulation_output_matches_live_and_saved_sources(tmp_path):
         enable_pfac_coupling=False,
         artifact_storage="netcdf",
     )
-    conductance_shape = simulation.data.schema.input_field_spaces["conductance"].coefficient_shape
+    conductance_shape = simulation.data.schema.input_field_spaces["conductance"].shape
     simulation.set_conductance(
         log_magnitude_coefficients=np.zeros(conductance_shape),
         log_ratio_coefficients=np.zeros(conductance_shape),
         time=0.0,
     )
-    current_shape = simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
+    current_shape = simulation.data.schema.input_field_spaces["boundary_jr"].shape
     simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(current_shape), time=0.0)
     simulation.impose_equilibrium(time=0.0, save=True, quiet=True)
 
@@ -119,3 +119,35 @@ def test_simulation_results_loads_requested_datasets(tmp_path):
     )
 
     assert set(results.datasets) == {"settings"}
+
+
+def test_saved_results_load_one_stream_and_keep_one_owner(tmp_path, monkeypatch):
+    """Selecting one input does not load siblings or copy ownership."""
+    simulation = pynamit.Simulation(
+        tmp_path, Nmax=2, Mmax=1, Ncs=4, enable_pfac_coupling=False, artifact_storage="netcdf"
+    )
+    shape = simulation.data.schema.input_field_spaces["boundary_jr"].shape
+    simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(shape), time=0.0)
+    results = SimulationResults.from_directory(tmp_path)
+    load_dataset = results.artifact_store.load_dataset
+    calls = []
+
+    def load(key, **kwargs):
+        calls.append(key)
+        return load_dataset(key, **kwargs)
+
+    monkeypatch.setattr(results.artifact_store, "load_dataset", load)
+    series = results.load_input_series("boundary_jr")
+    assert calls == ["boundary_jr"]
+    assert set(results.datasets) == {"settings", "boundary_jr"}
+    assert results._output_series is None
+    assert results.load_input_series("boundary_jr") is series
+    assert results.data_var_name("boundary_jr", "boundary_jr") == "SH_boundary_jr"
+    assert calls == ["boundary_jr"]
+
+    replacement = series.datasets["boundary_jr"].assign_attrs(note="inspection")
+    series.datasets["boundary_jr"] = replacement
+    assert results.datasets["boundary_jr"] is replacement
+    results.load_input_series("u")
+    results.load_input_series("u")
+    assert calls == ["boundary_jr", "u"]

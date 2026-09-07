@@ -26,7 +26,7 @@ def test_boundary_br_continuation_reproduces_prescribed_outer_field():
     denominator = 1.0 - regular_to_inner * irregular_to_boundary
     inner_br_per_poloidal = -(inner_radius**2) * np.asarray(
         solid_harmonics.basis.surface_laplacian_operator(inner_radius).matvec(
-            np.ones(solid_harmonics.basis.index_length)
+            np.ones(solid_harmonics.basis.coefficient_count)
         )
     )
     continued_Br = boundary_Br_to_ionosphere_external_Br_scale(

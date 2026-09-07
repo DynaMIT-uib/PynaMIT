@@ -16,7 +16,7 @@ PynaMIT has four API tiers:
   ``pynamit.simulation``. Saved results, plotting, the GUI, and reusable
   workflows have the explicit ``pynamit.results``, ``pynamit.plotting``,
   ``pynamit.gui``, and ``pynamit.workflows`` namespaces. Together they contain
-  the simulation facade, normalized configuration, field values and spaces,
+  the simulation facade, normalized configuration,
   background-field utilities, backend selection, saved simulation access, and
   renderers. Spherical and numerical APIs are imported from ``kompe``.
 * Reusable packages such as ``pynamit.geomagnetism`` and
@@ -37,7 +37,16 @@ PynaMIT has four API tiers:
   ``simulation._time_evolution``, caches, and scheduling helpers are internal. Tests
   may exercise these objects directly without turning them into user API.
 
-Spherical grids, bases, and transforms are imported directly from Kompe.
+Spherical grids, bases, transforms, ``CoefficientSpace``, and
+``FieldCoefficients`` are imported directly from Kompe. Coefficient spaces
+describe scalar or Helmholtz layouts and gauges; they do not contain sampled
+fields. Helmholtz coefficients are the two potentials, not theta/phi values.
+MIT input/output schemas and their xarray representation remain in PynaMIT.
+
+Numerical caches also belong to Kompe: ``kompe.cache.BoundedCache`` owns
+in-memory eviction, and ``kompe.cache.PersistentArrayCache`` owns reusable
+on-disk arrays. Each numerical owner supplies its own scientific cache key.
+Simulation artifacts and restart data remain under ``pynamit.storage``.
 
 High-level flow
 ---------------
@@ -55,7 +64,7 @@ The main setup path is:
    xarray attributes.
 2. ``build_simulation_schema`` creates the spherical-harmonic, solid-harmonic,
    and cubed-sphere basis objects, then declares the input and output
-   ``FieldSpace`` metadata used by storage and transforms.
+   ``CoefficientSpace`` metadata used by storage and transforms.
 3. ``Simulation`` attaches an ``_InputProjector``, which lazily builds reusable
    input transforms on the geometry's canonical model grid and owns all input
    validation, projection, and coefficient storage.
@@ -79,6 +88,28 @@ small and makes the owner of each object unambiguous.
 Keep this layering intact: configuration should not perform numerical work,
 schema should not read simulation data, input projection should not evolve the model,
 and visualization should not mutate simulation state.
+
+Wind-to-``Q_eff`` preparation uses a temporary ``ElectrodynamicResponse``
+that shares the fixed geometry but owns its input selection and closure
+caches. Evaluating or fitting inputs at another time therefore does not
+change the live ``Simulation.response`` or invalidate its cached operators.
+
+Ground-field evaluation belongs to ``pynamit.results``. For example::
+
+    from kompe import SphericalGrid
+    from pynamit.results import SimulationResults, evaluate_ground_magnetic_field
+
+    results = SimulationResults.from_directory("simulation")
+    sites = SphericalGrid(lat=[60.0, 70.0], lon=[10.0, 20.0])
+    fields = evaluate_ground_magnetic_field(results, [0.0, 60.0], grid=sites)
+
+The default site and component frame is geocentric geographic. The evaluator
+converts locations into the model frame and rotates tangential components
+back before returning SI-valued arrays. ``radial`` has shape ``(site, time)``;
+``tangential`` has shape ``(2, site, time)`` in south/east order. This is the
+inward continuation of the induced field, not the background field. Pass
+``coordinate_system="model"`` for model-frame locations and components.
+Plotting consumes the same evaluator and applies display conventions.
 
 ``SimulationConfig.from_settings`` reads a configuration, mapping, or xarray
 dataset. It no longer probes arbitrary objects for attributes or accepts
@@ -105,6 +136,14 @@ Function placement follows the data or equations each function interprets:
   Saved-output indices follow normal NumPy indexing: ``-1`` selects the last
   snapshot, while noninteger and out-of-range indices raise an error rather
   than silently selecting another snapshot.
+  ``resample_to_times`` and ``centered_difference_at_times`` act on the last
+  axis and retain arbitrary leading axes; callers do not choose separate
+  scalar and batched implementations. Datetime ordering is shared across a
+  batch, while each series retains its own missing-sample mask.
+* ``results.peaks`` owns event/peak selection. ``results.magnetic_signals``
+  owns model/station time alignment, component selection, and nT or nT/s
+  observational signals. Renderers consume these calculations rather than
+  defining a separate scientific implementation.
 * ``plotting.map_coordinates`` owns local-time window masks, map extents, and
   centered longitude wrapping. ``map_curves`` owns curve geometry and drawing,
   and consumes these coordinate operations.
@@ -205,7 +244,7 @@ persisted physical model settings.
 
 ``pynamit.simulation.schema`` is the canonical home for basis and field-space
 selection.  New persisted input or output streams should be declared through
-the schema tables and built into ``FieldSpace`` objects there.  This keeps
+the schema tables and built into ``CoefficientSpace`` objects there.  This keeps
 storage names, field types, mean-free choices, and projection bases visible in
 one place. A built ``SimulationSchema`` owns immutable mapping copies so
 storage metadata cannot drift after the corresponding time series exist.
@@ -357,7 +396,7 @@ defaults to the ``u`` route because it is an alternative representation of the
 same wind forcing;
 ``E_neutral_wind`` defaults to the horizontal model basis because it stores an
 equivalent electric field directly. Field type remains canonical in the
-schema's ``FieldSpace``. ``_InputProjector`` owns:
+schema's ``CoefficientSpace``. ``_InputProjector`` owns:
 
 * sample-vs-coefficient validation;
 * gridded scalar and tangential projection;
@@ -414,7 +453,7 @@ radius. The external libraries describe their interfaces as geographic or
 geodetic. PynaMIT deliberately applies a simple spherical-Earth approximation
 at this boundary: numerical latitude and longitude are passed through
 unchanged, and the same nominal 110-km altitude is supplied to the library.
-The approximation is centralized in ``pynamit.geodesy`` rather than being
+The approximation is centralized in ``pynamit.geographic_approximation`` rather than being
 repeated implicitly in each adapter.
 
 ``ExternalInputCoordinates`` owns the physical geocentric-GEO grid and the
@@ -888,6 +927,13 @@ artifacts also exist. Renderers consume the shared objects instead of
 rebuilding main fields, schemas, and transforms from raw settings. An
 ``equilibrium`` artifact is valid output even when no ``dynamic`` artifact is
 present; only difference plots require both.
+
+Saved coefficient datasets have one owner: their ``FieldTimeSeries``.
+``SimulationResults.datasets`` returns a catalog of the currently loaded
+datasets, not a second store. ``load_input_series("conductance")`` and
+``load_output_series("dynamic")`` load only the requested streams; omitting
+keys explicitly loads all streams of that kind. Field lookup also loads only
+the stream it needs.
 
 Saved simulation behavior enters through ``SimulationResults`` or ``PlotData``
 and the ``FigureSettings`` renderer path, rather than maintaining a second

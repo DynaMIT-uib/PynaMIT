@@ -18,7 +18,7 @@ from pynamit.coordinates import datetime_to_utc_hours, decimal_year
 from pynamit.external_inputs.coordinates import (
     LIBRARY_GEOGRAPHIC_110KM,
     ExternalInputCoordinates,
-    SampleGrid,
+    SampleCoordinates,
 )
 from pynamit.external_inputs.fallback_data import (
     FALLBACK_SCHEMA_VERSION,
@@ -32,7 +32,7 @@ from pynamit.external_inputs.provider_definitions import (
     PROVIDER_SPECS,
     InputProviderSpec,
 )
-from pynamit.geodesy import library_horizontal_to_spherical
+from pynamit.geographic_approximation import library_horizontal_to_spherical
 
 FALLBACK_RESOURCE = resources.files("pynamit.data") / "fallback_inputs.json"
 _INPUT_SOURCE = os.environ.get("PYNAMIT_INPUT_SOURCE", "native").strip().lower()
@@ -297,7 +297,7 @@ def save_fallback_dataset(
         )
     )
 
-    grids: dict[str, SampleGrid] = {}
+    grids: dict[str, SampleCoordinates] = {}
     for coordinate_set in (scalar_coordinates, wind_coordinates):
         geographic_grid = coordinate_set.geographic_grid
         provider_grid = coordinate_set.sample_grid(LIBRARY_GEOGRAPHIC_110KM)

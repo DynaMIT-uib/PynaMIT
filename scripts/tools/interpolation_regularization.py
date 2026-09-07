@@ -177,7 +177,9 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
         Nmax_values.append(Nmax)
 
         sh_basis = kompe.SHBasis(Nmax, Mmax, nmin)
-        field_space = pynamit.FieldSpace(sh_basis, field_type=field_type)
+        field_space = kompe.CoefficientSpace(
+            sh_basis, representation="helmholtz" if field_type == "tangential" else "scalar"
+        )
         input_spherical_transform = kompe.SphericalTransform(
             sh_basis,
             input_grid,
@@ -218,7 +220,7 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
             else input_spherical_transform.apply_scalar_regularization
         )
 
-        input_sh = pynamit.FieldCoefficients(field_space, analyze_input(input_grid_values))
+        input_sh = kompe.FieldCoefficients(field_space, analyze_input(input_grid_values))
 
         print(f"Interpolation with Nmax = {Nmax:d}, Mmax = {Mmax:d}:, reg lambda: {reg_lambda:e}")
 
@@ -242,7 +244,7 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
             print(f"   Relative grid error = {relative_grid_errors[-1]:e}")
 
         if SH_COMPARISON:
-            cs_interpolated_output_sh = pynamit.FieldCoefficients(
+            cs_interpolated_output_sh = kompe.FieldCoefficients(
                 field_space, analyze_output(interpolated_data)
             )
             relative_coeff_errors.append(

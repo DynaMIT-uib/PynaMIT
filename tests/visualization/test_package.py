@@ -156,17 +156,17 @@ def test_plot_data_loads_projected_input_package_without_output(tmp_path):
         enable_pfac_coupling=False,
         artifact_storage="netcdf",
     )
-    resistance_shape = simulation.data.schema.input_field_spaces["conductance"].coefficient_shape
+    resistance_shape = simulation.data.schema.input_field_spaces["conductance"].shape
     simulation.set_conductance(
         log_magnitude_coefficients=np.zeros(resistance_shape),
         log_ratio_coefficients=np.zeros(resistance_shape),
         time=0.0,
     )
 
-    boundary_jr_shape = simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
+    boundary_jr_shape = simulation.data.schema.input_field_spaces["boundary_jr"].shape
     simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
 
-    boundary_Br_shape = simulation.data.schema.input_field_spaces["boundary_Br"].coefficient_shape
+    boundary_Br_shape = simulation.data.schema.input_field_spaces["boundary_Br"].shape
     simulation.set_boundary_Br(boundary_Br_coefficients=np.zeros(boundary_Br_shape), time=0.0)
 
     view = plot_data.PlotData.from_directory(tmp_path)
@@ -198,13 +198,13 @@ def test_plot_data_loads_without_boundary_br(tmp_path):
         enable_pfac_coupling=False,
         artifact_storage="netcdf",
     )
-    resistance_shape = simulation.data.schema.input_field_spaces["conductance"].coefficient_shape
+    resistance_shape = simulation.data.schema.input_field_spaces["conductance"].shape
     simulation.set_conductance(
         log_magnitude_coefficients=np.zeros(resistance_shape),
         log_ratio_coefficients=np.zeros(resistance_shape),
         time=0.0,
     )
-    boundary_jr_shape = simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
+    boundary_jr_shape = simulation.data.schema.input_field_spaces["boundary_jr"].shape
     simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
     simulation.impose_equilibrium(time=0.0, save=True, quiet=True)
 
@@ -359,13 +359,13 @@ def test_plot_data_supports_equilibrium_only_output(tmp_path):
         enable_pfac_coupling=False,
         artifact_storage="netcdf",
     )
-    resistance_shape = simulation.data.schema.input_field_spaces["conductance"].coefficient_shape
+    resistance_shape = simulation.data.schema.input_field_spaces["conductance"].shape
     simulation.set_conductance(
         log_magnitude_coefficients=np.zeros(resistance_shape),
         log_ratio_coefficients=np.zeros(resistance_shape),
         time=0.0,
     )
-    boundary_jr_shape = simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
+    boundary_jr_shape = simulation.data.schema.input_field_spaces["boundary_jr"].shape
     simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
     simulation.impose_equilibrium(time=0.0, save=True, quiet=True)
     simulation.data.artifact_store.remove_artifact("dynamic")
@@ -394,7 +394,7 @@ def test_plot_data_aligns_inputs_by_time_not_index(tmp_path):
         enable_pfac_coupling=False,
         artifact_storage="netcdf",
     )
-    br_shape = simulation.data.schema.input_field_spaces["boundary_Br"].coefficient_shape
+    br_shape = simulation.data.schema.input_field_spaces["boundary_Br"].shape
     br_coefficients = np.zeros((3, *br_shape))
     br_coefficients[0] = 1.0
     br_coefficients[1] = 2.0
@@ -404,8 +404,7 @@ def test_plot_data_aligns_inputs_by_time_not_index(tmp_path):
     )
     output_spaces = simulation.data.schema.output_field_spaces["dynamic"]
     empty_output = {
-        variable: np.zeros(field_space.coefficient_shape)
-        for variable, field_space in output_spaces.items()
+        variable: np.zeros(field_space.shape) for variable, field_space in output_spaces.items()
     }
     for time in (0.0, 20.0):
         simulation.data.output_series.add_entry("dynamic", empty_output, time)
@@ -436,7 +435,7 @@ def test_plot_data_inspects_neutral_wind_electric_field_input(tmp_path):
         enable_pfac_coupling=False,
         artifact_storage="netcdf",
     )
-    coeff_length = simulation.data.schema.input_field_spaces["E_neutral_wind"].index_length
+    coeff_length = simulation.data.schema.input_field_spaces["E_neutral_wind"].coefficient_count
     cf_coeffs = np.zeros(coeff_length)
     df_coeffs = np.zeros(coeff_length)
     cf_coeffs[0] = 1.0e-3
@@ -466,13 +465,13 @@ def test_plot_data_keeps_model_and_geographic_evaluation_grids_separate(tmp_path
         enable_pfac_coupling=False,
         artifact_storage="netcdf",
     )
-    resistance_shape = simulation.data.schema.input_field_spaces["conductance"].coefficient_shape
+    resistance_shape = simulation.data.schema.input_field_spaces["conductance"].shape
     simulation.set_conductance(
         log_magnitude_coefficients=np.zeros(resistance_shape),
         log_ratio_coefficients=np.zeros(resistance_shape),
         time=0.0,
     )
-    boundary_jr_shape = simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
+    boundary_jr_shape = simulation.data.schema.input_field_spaces["boundary_jr"].shape
     simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
     simulation.impose_equilibrium(time=0.0, save=True, quiet=True)
 
@@ -508,7 +507,7 @@ def test_plot_data_reuses_earth_fixed_geographic_mapping(tmp_path):
         enable_pfac_coupling=False,
         artifact_storage="netcdf",
     )
-    boundary_jr_shape = simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
+    boundary_jr_shape = simulation.data.schema.input_field_spaces["boundary_jr"].shape
     simulation.set_boundary_jr(
         boundary_jr_coefficients=np.zeros((2, *boundary_jr_shape)), time=np.array([0.0, 3600.0])
     )
@@ -543,7 +542,7 @@ def test_kaiju_hemisphere_plot_coordinates_are_magnetic(tmp_path):
         enable_pfac_coupling=False,
         artifact_storage="netcdf",
     )
-    boundary_jr_shape = simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
+    boundary_jr_shape = simulation.data.schema.input_field_spaces["boundary_jr"].shape
     simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
 
     view = plot_data.PlotData.from_directory(tmp_path, nlat=6, nlon=8)
@@ -575,7 +574,7 @@ def test_geographic_input_vectors_are_rotated_to_geographic_components(tmp_path)
         enable_pfac_coupling=False,
         artifact_storage="netcdf",
     )
-    wind_shape = simulation.data.schema.input_field_spaces["u"].coefficient_shape
+    wind_shape = simulation.data.schema.input_field_spaces["u"].shape
     u_coefficients = np.stack(
         (np.linspace(0.0, 1.0, wind_shape[1]), np.linspace(1.0, 0.0, wind_shape[1]))
     )
@@ -609,7 +608,7 @@ def test_plot_data_rejects_unknown_display_coordinate_system(tmp_path):
         enable_pfac_coupling=False,
         artifact_storage="netcdf",
     )
-    boundary_jr_shape = simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
+    boundary_jr_shape = simulation.data.schema.input_field_spaces["boundary_jr"].shape
     simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
     view = plot_data.PlotData.from_directory(tmp_path)
 

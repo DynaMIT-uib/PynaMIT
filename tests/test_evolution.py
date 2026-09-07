@@ -47,7 +47,9 @@ class _FakeSimulation:
             output_series=output_series,
             artifact_store=SimpleNamespace(),
             schema=SimpleNamespace(
-                output_field_spaces={"dynamic": {"induced_Br": SimpleNamespace(index_length=1)}}
+                output_field_spaces={
+                    "dynamic": {"induced_Br": SimpleNamespace(coefficient_count=1)}
+                }
             ),
         )
 

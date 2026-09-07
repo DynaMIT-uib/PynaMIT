@@ -9,8 +9,8 @@ import numpy as np
 import pytest
 import xarray as xr
 from kompe import SHBasis
+from kompe.coefficients import CoefficientSpace
 
-from pynamit.fields import FieldSpace
 from pynamit.simulation.simulation import Simulation
 from pynamit.storage import ArtifactStore, FieldTimeSeries
 from tests import magnetic_potential_coordinate_array
@@ -40,12 +40,13 @@ def _first_data_chunk(store: Path, variable_name: str) -> Path:
 def _build_sample_timeseries() -> FieldTimeSeries:
     sh_basis = SHBasis(2, 1)
     return FieldTimeSeries(
-        {"sample": FieldSpace(sh_basis, field_type="scalar")}, {"sample": ("first", "second")}
+        {"sample": CoefficientSpace(sh_basis, representation="scalar")},
+        {"sample": ("first", "second")},
     )
 
 
 def _add_sample(ts: FieldTimeSeries, time: float, scale: float) -> None:
-    n_coeffs = ts.get_field_space("sample").index_length
+    n_coeffs = ts.get_field_space("sample").coefficient_count
     values = np.arange(n_coeffs, dtype=float) + scale
     ts.add_entry("sample", {"first": values, "second": -values}, time)
 
@@ -286,7 +287,7 @@ def test_timeseries_rewrites_zarr_for_same_time_replacement(tmp_path):
 
     assert calls == [("sample", None, 1), ("sample", None, 1)]
     loaded = store.load_dataset("sample")
-    n_coeffs = ts.get_field_space("sample").index_length
+    n_coeffs = ts.get_field_space("sample").coefficient_count
     np.testing.assert_allclose(
         loaded["SH_first"].values[0], np.arange(n_coeffs, dtype=float) + 10.0
     )

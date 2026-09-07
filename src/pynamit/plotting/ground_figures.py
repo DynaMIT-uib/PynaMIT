@@ -30,14 +30,8 @@ from pynamit.plotting.map_curves import (
     split_wrapped_curve,
 )
 from pynamit.plotting.plot_data import _coerce_figure_settings, get_plot_data
-from pynamit.results.time_series import (
-    compute_centered_difference_series_at_times,
-    compute_centered_difference_values_at_times,
-    get_time_index_median_cadence_seconds,
-    resample_series_to_times,
-    resample_values_to_times,
-    vector_magnitude_preserve_shape,
-)
+from pynamit.results.magnetic_signals import ground_signal_at_times, station_signal_at_times
+from pynamit.results.time_series import centered_difference_at_times, median_cadence_seconds
 
 
 class GroundFigureRenderer:
@@ -59,7 +53,7 @@ class GroundFigureRenderer:
         source_times = self._time_index + pd.to_timedelta(
             float(self.settings.simulation_time_offset_seconds), unit="s"
         )
-        dbdt_cadence_seconds = get_time_index_median_cadence_seconds(source_times)
+        dbdt_cadence_seconds = median_cadence_seconds(source_times)
         normalized_time = np.linspace(0.0, 1.0, len(target_times))
         lon, lat, station_labels, measured_values = self._curve_sites_and_measurements(
             target_times, dbdt_cadence_seconds=dbdt_cadence_seconds
@@ -233,7 +227,7 @@ class GroundFigureRenderer:
         source_times = self._time_index + pd.to_timedelta(
             float(self.settings.simulation_time_offset_seconds), unit="s"
         )
-        dbdt_cadence_seconds = get_time_index_median_cadence_seconds(source_times)
+        dbdt_cadence_seconds = median_cadence_seconds(source_times)
         target_times = self._ground_plot_times()
         measured = None
         if self.settings.include_station_data:
@@ -257,7 +251,7 @@ class GroundFigureRenderer:
                 values = measured.loc[x_start:x_end, component]
                 if self.settings.ground_quantity == "dbdt":
                     values = pd.Series(
-                        compute_centered_difference_series_at_times(
+                        centered_difference_at_times(
                             measured.index,
                             measured[component].to_numpy(dtype=float),
                             values.index,
@@ -285,14 +279,15 @@ class GroundFigureRenderer:
                         "This simulation has no equilibrium output. Disable Equilibrium "
                         "ground curves, or rerun with save_equilibria=True."
                     )
-                values = self._ground_values_at_times(
+                values = ground_signal_at_times(
                     component,
                     br_values,
                     bh_values,
                     source_times,
                     target_times,
                     quantity=self.settings.ground_quantity,
-                    dbdt_cadence_seconds=dbdt_cadence_seconds,
+                    cadence_seconds=dbdt_cadence_seconds,
+                    half_window_points=self.settings.dbdt_window_points,
                 )[0]
                 axis.plot(target_times, values, color=color, linestyle=linestyle, label=label)
             self._draw_reference_line_on_axis(axis, target_times)
@@ -354,8 +349,13 @@ class GroundFigureRenderer:
                 )
                 if measured is None:
                     continue
-                station_values = self._station_values_at_times(
-                    measured, target_times, dbdt_cadence_seconds=dbdt_cadence_seconds
+                station_values = station_signal_at_times(
+                    measured,
+                    target_times,
+                    component=self.settings.ground_component,
+                    quantity=self.settings.ground_quantity,
+                    cadence_seconds=dbdt_cadence_seconds,
+                    half_window_points=self.settings.dbdt_window_points,
                 )
                 if station_values.size == len(target_times) and np.isfinite(station_values[0]):
                     station_labels.append(station_code)
@@ -416,14 +416,15 @@ class GroundFigureRenderer:
                 {
                     "series_key": "dynamic",
                     "label": "Dynamic",
-                    "values": self._ground_values_at_times(
+                    "values": ground_signal_at_times(
                         self.settings.ground_component,
                         br_dynamic,
                         bh_dynamic,
                         source_times,
                         target_times,
                         quantity=self.settings.ground_quantity,
-                        dbdt_cadence_seconds=dbdt_cadence_seconds,
+                        cadence_seconds=dbdt_cadence_seconds,
+                        half_window_points=self.settings.dbdt_window_points,
                     ),
                     "color": "#D55E00",
                     "linewidth": 1.0,
@@ -441,14 +442,15 @@ class GroundFigureRenderer:
                 {
                     "series_key": "equilibrium",
                     "label": "Equilibrium",
-                    "values": self._ground_values_at_times(
+                    "values": ground_signal_at_times(
                         self.settings.ground_component,
                         br_equilibrium,
                         bh_equilibrium,
                         source_times,
                         target_times,
                         quantity=self.settings.ground_quantity,
-                        dbdt_cadence_seconds=dbdt_cadence_seconds,
+                        cadence_seconds=dbdt_cadence_seconds,
+                        half_window_points=self.settings.dbdt_window_points,
                     ),
                     "color": "#009E73",
                     "linewidth": 1.0,
@@ -467,38 +469,6 @@ class GroundFigureRenderer:
             station_data_directory=self.settings.station_data_directory,
         )
         return self._station_catalog_cache
-
-    def _station_values_at_times(self, measured, target_times, *, dbdt_cadence_seconds=None):
-        """Return measured station values sampled at target times."""
-        component = self._ground_component_base(self.settings.ground_component)
-        components = ["North", "East", "Down"] if component == "Magnitude" else [component]
-
-        sampled = []
-        for key in components:
-            if self.settings.ground_quantity == "dbdt":
-                sampled.append(
-                    compute_centered_difference_series_at_times(
-                        measured.index,
-                        measured[key].to_numpy(dtype=float),
-                        target_times,
-                        half_window_points=self.settings.dbdt_window_points,
-                        cadence_seconds=dbdt_cadence_seconds,
-                    )
-                )
-            else:
-                sampled.append(
-                    resample_series_to_times(
-                        measured.index, measured[key].to_numpy(dtype=float), target_times
-                    )
-                )
-        values = (
-            vector_magnitude_preserve_shape(np.vstack(sampled))
-            if component == "Magnitude"
-            else np.asarray(sampled[0], dtype=float)
-        )
-        if self._ground_component_uses_abs(self.settings.ground_component):
-            return np.abs(values)
-        return values
 
     def _ground_curve_station_sites(self, target_times):
         """Return the filtered station catalog."""
@@ -526,87 +496,6 @@ class GroundFigureRenderer:
             mlat, _ = main_field.geo_to_model_coordinates(lat_arr, lon_arr)
             return np.asarray(mlat, dtype=float)
         raise ValueError(f"Unsupported main_field kind for magnetic latitude: {main_field.kind!r}")
-
-    @staticmethod
-    def _ground_component_base(component):
-        """Strip absolute-value wrapper from a component name."""
-        component = str(component)
-        if component.startswith("Abs") and component[3:] in {"North", "East", "Down"}:
-            return component[3:]
-        return component
-
-    @staticmethod
-    def _ground_component_uses_abs(component):
-        """Return whether a component is absolute valued."""
-        component = str(component)
-        return component.startswith("Abs") and component[3:] in {"North", "East", "Down"}
-
-    def _ground_component_values(self, component, br_values, bh_values):
-        """Return one ground magnetic component in nT."""
-        base = self._ground_component_base(component)
-        if base == "North":
-            values = -np.asarray(bh_values[0], dtype=float) * 1e9
-        elif base == "East":
-            values = np.asarray(bh_values[1], dtype=float) * 1e9
-        elif base == "Down":
-            values = -np.asarray(br_values, dtype=float) * 1e9
-        elif base == "Magnitude":
-            values = vector_magnitude_preserve_shape(
-                [
-                    self._ground_component_values("North", br_values, bh_values),
-                    self._ground_component_values("East", br_values, bh_values),
-                    self._ground_component_values("Down", br_values, bh_values),
-                ]
-            )
-        else:
-            raise ValueError(f"Unsupported ground component: {component!r}")
-        return np.abs(values) if self._ground_component_uses_abs(component) else values
-
-    def _ground_values_at_times(
-        self,
-        component,
-        br_values,
-        bh_values,
-        source_times,
-        target_times,
-        *,
-        quantity="b",
-        dbdt_cadence_seconds=None,
-    ):
-        """Return a model ground component sampled at target times."""
-        source_index = pd.DatetimeIndex(source_times)
-        target_index = pd.DatetimeIndex(target_times)
-        if str(quantity) != "dbdt":
-            return resample_values_to_times(
-                source_index,
-                self._ground_component_values(component, br_values, bh_values),
-                target_index,
-            )
-        base = self._ground_component_base(component)
-        cadence = get_time_index_median_cadence_seconds(source_index)
-        if base == "Magnitude":
-            return vector_magnitude_preserve_shape(
-                [
-                    self._ground_values_at_times(
-                        sub_component,
-                        br_values,
-                        bh_values,
-                        source_index,
-                        target_index,
-                        quantity="dbdt",
-                        dbdt_cadence_seconds=dbdt_cadence_seconds,
-                    )
-                    for sub_component in ("North", "East", "Down")
-                ]
-            )
-        values = compute_centered_difference_values_at_times(
-            source_index,
-            self._ground_component_values(base, br_values, bh_values),
-            target_index,
-            half_window_points=self.settings.dbdt_window_points,
-            cadence_seconds=(cadence if dbdt_cadence_seconds is None else dbdt_cadence_seconds),
-        )
-        return np.abs(values) if self._ground_component_uses_abs(component) else values
 
     @staticmethod
     def _ground_value_scale(layers, *, fallback=10.0):

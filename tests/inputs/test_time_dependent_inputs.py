@@ -19,14 +19,14 @@ def test_prepared_coefficient_series_drives_a_simulation(tmp_path):
     )
 
     time = np.array([0.0, 0.05, 0.1])
-    conductance_shape = preparation.data.schema.input_field_spaces["conductance"].coefficient_shape
+    conductance_shape = preparation.data.schema.input_field_spaces["conductance"].shape
     log_magnitude = np.zeros((time.size, *conductance_shape))
     log_ratio = np.zeros_like(log_magnitude)
     preparation.set_conductance(
         log_magnitude_coefficients=log_magnitude, log_ratio_coefficients=log_ratio, time=time
     )
 
-    current_shape = preparation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
+    current_shape = preparation.data.schema.input_field_spaces["boundary_jr"].shape
     current_pattern = np.linspace(-1.0e-6, 1.0e-6, np.prod(current_shape)).reshape(current_shape)
     boundary_jr = np.stack((current_pattern, 1.5 * current_pattern, 2.0 * current_pattern))
     preparation.set_boundary_jr(boundary_jr_coefficients=boundary_jr, time=time)

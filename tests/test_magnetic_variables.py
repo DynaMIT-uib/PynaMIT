@@ -22,7 +22,7 @@ def test_physical_magnetic_coordinates_roundtrip(tmp_path, horizontal_basis_kind
     geometry = simulation.geometry
     rng = np.random.default_rng(20260729)
 
-    induced_poloidal_potential = rng.standard_normal(geometry.poloidal_basis.index_length)
+    induced_poloidal_potential = rng.standard_normal(geometry.poloidal_basis.coefficient_count)
     induced_Br = geometry.induced_poloidal_potential_to_Br_operator.matvec(
         induced_poloidal_potential
     )
@@ -34,7 +34,7 @@ def test_physical_magnetic_coordinates_roundtrip(tmp_path, horizontal_basis_kind
     )
 
     toroidal_potential = geometry.horizontal_basis.project_scalar_mean_free(
-        rng.standard_normal(geometry.horizontal_basis.index_length)
+        rng.standard_normal(geometry.horizontal_basis.coefficient_count)
     )
     boundary_jr = geometry.toroidal_potential_to_boundary_jr_operator.matvec(toroidal_potential)
     reconstructed_toroidal_potential = geometry.boundary_jr_to_toroidal_potential_operator.matvec(
@@ -89,6 +89,6 @@ def test_gap_response_has_physical_domain_and_codomain(tmp_path):
     assert stored.attrs["input_quantity"] == "boundary_jr_at_RI"
     assert stored.attrs["output_quantity"] == "unshielded_gap_Br_at_RI"
     assert stored.shape == (
-        simulation.geometry.poloidal_basis.index_length,
-        simulation.geometry.horizontal_basis.index_length,
+        simulation.geometry.poloidal_basis.coefficient_count,
+        simulation.geometry.horizontal_basis.coefficient_count,
     )

@@ -244,16 +244,21 @@ class _MageInputProjector:
             ionosphere_grid
         )
 
-    def project_step(self, h5_file: Any, step: int, input_time: float) -> None:
-        """Project every forcing field for one source time step."""
-        self._project_boundary_br(h5_file, step, input_time)
-        self._project_radial_current(h5_file, step, input_time)
-        SigmaP, SigmaH = self._project_conductance(h5_file, step, input_time)
-        self._project_wind_source(h5_file, step, input_time, SigmaP, SigmaH)
+    def project_step(
+        self, input_time: float, *, boundary_Br, boundary_jr, SigmaP, SigmaH, weighted_winds
+    ) -> None:
+        """Project one time step from SI-valued forcing arrays.
 
-    def _project_boundary_br(self, h5_file: Any, step: int, input_time: float) -> None:
+        Weighted winds are ordered Pedersen theta/phi, Hall theta/phi.
+        File reading and unit conversion belong to the calling workflow.
+        """
+        self._project_boundary_br(boundary_Br, input_time)
+        self._project_radial_current(boundary_jr, input_time)
+        self._project_conductance(SigmaP, SigmaH, input_time)
+        self._project_wind_source(weighted_winds, input_time, SigmaP, SigmaH)
+
+    def _project_boundary_br(self, delta_br, input_time: float) -> None:
         """Project magnetospheric inner-boundary radial field."""
-        delta_br = np.asarray(h5_file["delta_Br"][step], dtype=float).reshape(-1) * 1e-9
         if np.any(~np.isfinite(delta_br)):
             raise ValueError("Br input contains non-finite values.")
         _print_field_stats("  Delta Br [T]", delta_br)
@@ -266,9 +271,8 @@ class _MageInputProjector:
             reg_lambda=self._boundary_Br_lambda,
         )
 
-    def _project_radial_current(self, h5_file: Any, step: int, input_time: float) -> None:
+    def _project_radial_current(self, boundary_jr, input_time: float) -> None:
         """Project prepared outward radial current density."""
-        boundary_jr = np.asarray(h5_file["jr"][step], dtype=float).reshape(-1) * 1e-6
         if np.any(~np.isfinite(boundary_jr)):
             raise ValueError("Prepared radial current contains non-finite values.")
         _print_field_stats("  boundary jr [A/m^2]", boundary_jr)
@@ -281,12 +285,8 @@ class _MageInputProjector:
             reg_lambda=self._boundary_jr_lambda,
         )
 
-    def _project_conductance(
-        self, h5_file: Any, step: int, input_time: float
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """Project and return sampled Pedersen/Hall conductance."""
-        SigmaH = np.asarray(h5_file["SH"][step], dtype=float).reshape(-1)
-        SigmaP = np.asarray(h5_file["SP"][step], dtype=float).reshape(-1)
+    def _project_conductance(self, SigmaP, SigmaH, input_time: float) -> None:
+        """Project sampled Pedersen/Hall conductance."""
         if np.any(~np.isfinite(SigmaH)) or np.any(SigmaH < 0.0):
             raise ValueError("Hall conductance contains non-finite or negative values.")
         if np.any(~np.isfinite(SigmaP)) or np.any(SigmaP < 0.0):
@@ -304,7 +304,6 @@ class _MageInputProjector:
             sqrt_weights=self._ionosphere_sqrt_weights,
             reg_lambda=self._conductance_lambda,
         )
-        return SigmaP, SigmaH
 
     def _projected_resistance(self, input_time: float) -> tuple[np.ndarray, np.ndarray]:
         """Reconstruct fitted sheet resistance on the forcing grid."""
@@ -321,10 +320,10 @@ class _MageInputProjector:
         return resistance_from_log_conductance_coordinates(log_magnitude, log_ratio)
 
     def _project_wind_source(
-        self, h5_file: Any, step: int, input_time: float, SigmaP: np.ndarray, SigmaH: np.ndarray
+        self, weighted_winds, input_time: float, SigmaP: np.ndarray, SigmaH: np.ndarray
     ) -> None:
         """Project equator-safe E from the integrated wind current."""
-        u_p_theta, u_p_phi, u_h_theta, u_h_phi = _load_weighted_winds(h5_file, step)
+        u_p_theta, u_p_phi, u_h_theta, u_h_phi = weighted_winds
         u_p_theta = np.asarray(u_p_theta, dtype=float).reshape(-1)
         u_p_phi = np.asarray(u_p_phi, dtype=float).reshape(-1)
         _print_field_stats("  Pedersen-weighted wind speed [m/s]", np.hypot(u_p_theta, u_p_phi))
@@ -529,7 +528,16 @@ def prepare_inputs(
                     f"at t={input_time:g} s ({nominal_times[step].isoformat()})",
                     flush=True,
                 )
-                projector.project_step(file, step, input_time)
+                # External forcing uses nT and microampere/m^2. Cross
+                # that file/unit boundary before projecting SI arrays.
+                projector.project_step(
+                    input_time,
+                    boundary_Br=np.asarray(file["delta_Br"][step], dtype=float).reshape(-1) * 1e-9,
+                    boundary_jr=np.asarray(file["jr"][step], dtype=float).reshape(-1) * 1e-6,
+                    SigmaP=np.asarray(file["SP"][step], dtype=float).reshape(-1),
+                    SigmaH=np.asarray(file["SH"][step], dtype=float).reshape(-1),
+                    weighted_winds=_load_weighted_winds(file, step),
+                )
 
             source_tiegcm = file.attrs.get("tiegcm_nc", None)
             if isinstance(source_tiegcm, bytes):

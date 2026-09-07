@@ -11,6 +11,7 @@ from pynamit.simulation.evolution import (
     _TimeEvolution,
 )
 from pynamit.simulation.input_preparation import InputPreparation
+from pynamit.simulation.response import ElectrodynamicResponse
 from pynamit.storage import ArtifactStore
 
 
@@ -156,6 +157,7 @@ class Simulation(InputPreparation):
 
     def _open_simulation_runtime(self):
         """Initialize output and evolution state."""
+        self._response = None
         self.simulation_directory = self.data.simulation_directory
         self.outputs = self.data.output_series.datasets
         current_output = self.outputs.get("dynamic", self.outputs.get("equilibrium"))
@@ -178,7 +180,9 @@ class Simulation(InputPreparation):
     @property
     def response(self):
         """Return the lazily constructed electrodynamic response."""
-        return self._require_response()
+        if self._response is None:
+            self._response = ElectrodynamicResponse(self.geometry, self.config)
+        return self._response
 
     @classmethod
     def from_config(

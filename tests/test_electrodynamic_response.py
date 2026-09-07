@@ -46,7 +46,7 @@ def test_toroidal_potential_solvers_match_the_direct_physical_solution(
     response = simulation.response
     geometry = simulation.geometry
     boundary_jr = geometry.horizontal_basis.project_scalar_mean_free(
-        np.linspace(-1.0, 1.0, geometry.horizontal_basis.index_length)
+        np.linspace(-1.0, 1.0, geometry.horizontal_basis.coefficient_count)
     )
 
     problem = response._toroidal_potential_problem
@@ -114,7 +114,7 @@ def test_u_coeffs_to_E_coeffs_is_linear_map_on_jax():
     response = object.__new__(ElectrodynamicResponse)
     response.geometry = SimpleNamespace(
         horizontal_basis=SimpleNamespace(
-            index_length=n, project_scalar_mean_free=lambda coeffs: coeffs
+            coefficient_count=n, project_scalar_mean_free=lambda coeffs: coeffs
         ),
         helmholtz_analysis_operator=as_linear_map(
             jnp.asarray(helmholtz_analysis), input_shape=(2, 4), output_shape=(2, n)
@@ -163,7 +163,7 @@ def test_Q_eff_coeffs_to_E_coeffs_uses_resistance_tensor_operator():
     )
     response = object.__new__(ElectrodynamicResponse)
     response.geometry = SimpleNamespace(
-        horizontal_basis=SimpleNamespace(index_length=n),
+        horizontal_basis=SimpleNamespace(coefficient_count=n),
         model_grid=SimpleNamespace(size=n_grid),
         helmholtz_analysis_operator=as_linear_map(
             helmholtz_analysis, input_shape=(2, n_grid), output_shape=(2, n)
@@ -204,7 +204,7 @@ def test_induction_matrix_assembly_stays_on_jax():
 
     response = object.__new__(ElectrodynamicResponse)
     response.geometry = SimpleNamespace(
-        horizontal_basis=SimpleNamespace(index_length=n),
+        horizontal_basis=SimpleNamespace(coefficient_count=n),
         surface_to_poloidal_operator=as_linear_map(jnp.eye(n)),
         helmholtz_divergence_free_potential_operator=as_linear_map(
             jnp.asarray(divergence_free_potential), input_shape=(2, n), output_shape=(n,)
@@ -259,7 +259,7 @@ def test_equilibrium_operator_preserves_jax_matrix():
 
     response = object.__new__(ElectrodynamicResponse)
     response.geometry = SimpleNamespace(
-        poloidal_basis=SimpleNamespace(index_length=2),
+        poloidal_basis=SimpleNamespace(coefficient_count=2),
         surface_to_poloidal_operator=as_linear_map(jnp.eye(2)),
     )
     response._induced_poloidal_potential_feedback_operator = as_linear_map(-jnp.linalg.inv(matrix))
@@ -302,7 +302,7 @@ def test_equilibrium_operator_keeps_cross_space_bridge_structured():
     )
     response = object.__new__(ElectrodynamicResponse)
     response.geometry = SimpleNamespace(
-        poloidal_basis=SimpleNamespace(index_length=2),
+        poloidal_basis=SimpleNamespace(coefficient_count=2),
         surface_to_poloidal_operator=surface_operator,
     )
     response._induced_poloidal_potential_feedback_operator = as_linear_map(feedback_matrix)
@@ -333,7 +333,7 @@ def test_toroidal_potential_runtime_solve_uses_one_physical_rhs():
     response = object.__new__(ElectrodynamicResponse)
     response.geometry = SimpleNamespace(
         horizontal_basis=SimpleNamespace(
-            index_length=n, project_scalar_mean_free=lambda values: values
+            coefficient_count=n, project_scalar_mean_free=lambda values: values
         ),
         radial_current_constraint_operator=as_linear_map(radial_current_constraint),
         interhemispheric_electric_field_difference_operator=as_linear_map(
@@ -394,7 +394,7 @@ def test_induced_poloidal_potential_E_response_solves_only_poloidal_source_colum
 
     response = object.__new__(ElectrodynamicResponse)
     response.geometry = SimpleNamespace(
-        horizontal_basis=SimpleNamespace(index_length=n_surface),
+        horizontal_basis=SimpleNamespace(coefficient_count=n_surface),
         interhemispheric_electric_field_difference_operator=as_linear_map(
             difference, input_shape=(2, n_surface), output_shape=(n_constraint,)
         ),
@@ -439,7 +439,7 @@ def test_toroidal_potential_problem_uses_radial_current_constraint_operator_dire
     toroidal_potential_to_boundary_jr = np.diag(np.array([2.0, 3.0, 5.0]))
 
     class GeometryStub:
-        horizontal_basis = SimpleNamespace(index_length=n)
+        horizontal_basis = SimpleNamespace(coefficient_count=n)
         surface_gauge_operator = None
         radial_current_constraint_operator = as_linear_map(
             radial_current_constraint, input_shape=(n,), output_shape=(n,)
@@ -476,7 +476,7 @@ def test_interhemispheric_constraint_uses_geometry_operator_without_dense_proper
     toroidal_potential_to_E = np.arange(2 * n * n, dtype=float).reshape(2, n, n) / 20.0
 
     class GeometryStub:
-        horizontal_basis = SimpleNamespace(index_length=n)
+        horizontal_basis = SimpleNamespace(coefficient_count=n)
         interhemispheric_electric_field_difference_operator = as_linear_map(
             E_outer, input_shape=(2, n), output_shape=(2, n_ll)
         )
@@ -593,7 +593,7 @@ def test_model_operator_accessors_match_runtime_operator_chain():
 
     response = object.__new__(ElectrodynamicResponse)
     response.geometry = SimpleNamespace(
-        horizontal_basis=SimpleNamespace(index_length=n),
+        horizontal_basis=SimpleNamespace(coefficient_count=n),
         helmholtz_divergence_free_potential_operator=as_linear_map(
             divergence_free_potential, input_shape=(2, n), output_shape=(n,)
         ),
@@ -686,7 +686,7 @@ def test_model_matrix_accessors_accept_explicit_jax_backend():
     n = 2
     response = object.__new__(ElectrodynamicResponse)
     response.geometry = SimpleNamespace(
-        horizontal_basis=SimpleNamespace(index_length=n),
+        horizontal_basis=SimpleNamespace(coefficient_count=n),
         helmholtz_divergence_free_potential_operator=as_linear_map(
             np.arange(n * 2 * n, dtype=float).reshape(n, 2, n),
             input_shape=(2, n),

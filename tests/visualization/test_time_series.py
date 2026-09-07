@@ -7,21 +7,20 @@ import pandas as pd
 import pytest
 import xarray as xr
 
+from pynamit.results.peaks import (
+    first_event_peak_abs_value_and_time,
+    local_peak_abs_value_and_time,
+    prominent_peak_candidates,
+)
 from pynamit.results.time_series import (
-    compute_centered_difference_series_at_times,
-    compute_centered_difference_values_at_times,
+    centered_difference_at_times,
     compute_time_derivative_values,
     datetime_at_index,
     datetime_index_to_epoch_ns,
-    first_event_peak_abs_value_and_time,
-    get_time_index_median_cadence_seconds,
-    local_peak_abs_value_and_time,
-    prominent_peak_candidates,
-    resample_series_to_times,
-    resample_values_to_times,
+    median_cadence_seconds,
+    resample_to_times,
     time_index_from_dataset,
-    vector_magnitude_from_component_series,
-    vector_magnitude_preserve_shape,
+    vector_magnitude,
 )
 
 
@@ -105,7 +104,7 @@ def test_saved_field_time_lookup_handles_mixed_datetime_resolutions():
     assert _dataset_index_at_time(dataset, pd.Timestamp("2011-10-24T18:00:25")) == 1
 
 
-def test_resample_series_to_times_sorts_masks_duplicates_and_bounds():
+def test_resample_to_times_sorts_masks_duplicates_and_bounds():
     """Scalar resampling should match the notebook behavior."""
     index = pd.to_datetime(
         [
@@ -126,24 +125,47 @@ def test_resample_series_to_times_sorts_masks_duplicates_and_bounds():
         ]
     )
 
-    resampled = resample_series_to_times(index, values, target)
+    resampled = resample_to_times(index, values, target)
 
     np.testing.assert_allclose(resampled, np.array([np.nan, 10.0, 30.0, np.nan]))
 
 
-def test_resample_series_to_times_validates_length():
+def test_resample_to_times_preserves_precision_and_per_series_missing_samples():
+    """Retain nanosecond intervals and per-series duplicate policy."""
+    origin = np.datetime64("2020-01-01", "ns")
+    index = origin + np.array([2, 0, 0, 4]).astype("timedelta64[ns]")
+    target = origin + np.array([-1, 0, 1, 3, 5]).astype("timedelta64[ns]")
+    values = np.array([[[2, np.nan, 0, 4], [20, 0, 99, 40]]], dtype=float)
+
+    result = resample_to_times(index, values, target)
+
+    np.testing.assert_allclose(result, [[[np.nan, 0, 1, 3, np.nan], [np.nan, 0, 10, 30, np.nan]]])
+    assert median_cadence_seconds(origin + np.arange(3).astype("timedelta64[ns]")) == 1e-9
+
+
+@pytest.mark.parametrize("shape", [(0,), (2, 0), (0, 3)])
+def test_resample_to_times_retains_empty_axes(shape):
+    """Preserve empty batches and time axes."""
+    index = pd.date_range("2020-01-01", periods=shape[-1], freq="s")
+    target = pd.date_range("2020-01-01", periods=2, freq="s")
+    result = resample_to_times(index, np.empty(shape), target)
+    assert result.shape == shape[:-1] + (2,)
+    assert np.all(np.isnan(result))
+
+
+def test_resample_to_times_validates_length():
     """Length mismatches should fail close to the primitive."""
-    with pytest.raises(ValueError, match="same length"):
-        resample_series_to_times(pd.date_range("2020-01-01", periods=2), [1.0], [])
+    with pytest.raises(ValueError, match="last values axis"):
+        resample_to_times(pd.date_range("2020-01-01", periods=2), [1.0], [])
 
 
-def test_resample_values_to_times_preserves_leading_dimensions():
+def test_resample_to_times_preserves_leading_dimensions():
     """Value resampling preserves dimensions before the time axis."""
     index = pd.date_range("2020-01-01", periods=3, freq="10s")
     values = np.array([[[0.0, 10.0, 20.0], [0.0, 20.0, 40.0]]])
     target = pd.to_datetime(["2020-01-01T00:00:05", "2020-01-01T00:00:15"])
 
-    resampled = resample_values_to_times(index, values, target)
+    resampled = resample_to_times(index, values, target)
 
     assert resampled.shape == (1, 2, 2)
     np.testing.assert_allclose(resampled[0], np.array([[5.0, 15.0], [10.0, 30.0]]))
@@ -161,8 +183,8 @@ def test_time_index_median_cadence_uses_positive_steps():
         ]
     )
 
-    np.testing.assert_allclose(get_time_index_median_cadence_seconds(index), 15.0)
-    assert np.isnan(get_time_index_median_cadence_seconds(index[:1]))
+    np.testing.assert_allclose(median_cadence_seconds(index), 15.0)
+    assert np.isnan(median_cadence_seconds(index[:1]))
 
 
 def test_centered_difference_series_uses_interpolated_window():
@@ -172,9 +194,7 @@ def test_centered_difference_series_uses_interpolated_window():
     source_values = 2.0 * source_seconds
     target = pd.to_datetime(["2020-01-01T00:00:00", "2020-01-01T00:00:20"])
 
-    derivative = compute_centered_difference_series_at_times(
-        index, source_values, target, half_window_points=1
-    )
+    derivative = centered_difference_at_times(index, source_values, target, half_window_points=1)
 
     np.testing.assert_allclose(derivative, np.array([np.nan, 2.0]))
 
@@ -183,11 +203,9 @@ def test_centered_difference_series_rejects_invalid_numerical_settings():
     """Invalid difference settings are not silently repaired."""
     index = pd.date_range("2020-01-01", periods=3, freq="10s")
     with pytest.raises(ValueError, match="half_window_points"):
-        compute_centered_difference_series_at_times(index, np.arange(3), index, 0)
+        centered_difference_at_times(index, np.arange(3), index, 0)
     with pytest.raises(ValueError, match="cadence_seconds"):
-        compute_centered_difference_series_at_times(
-            index, np.arange(3), index, cadence_seconds=-1.0
-        )
+        centered_difference_at_times(index, np.arange(3), index, cadence_seconds=-1.0)
 
 
 def test_centered_difference_values_preserve_leading_dimensions():
@@ -198,7 +216,7 @@ def test_centered_difference_values_preserve_leading_dimensions():
     source_values = two_series[np.newaxis, np.newaxis]
     target = pd.to_datetime(["2020-01-01T00:00:20"])
 
-    derivative = compute_centered_difference_values_at_times(index, source_values, target)
+    derivative = centered_difference_at_times(index, source_values, target)
 
     assert derivative.shape == (1, 1, 2, 1)
     np.testing.assert_allclose(derivative[0, 0], np.array([[2.0], [-3.0]]))
@@ -297,9 +315,7 @@ def test_peak_helpers_reject_invalid_inputs_instead_of_guessing():
 
 def test_vector_magnitude_helpers_preserve_nan_only_columns():
     """Magnitude should ignore partial NaNs but keep all-NaN samples."""
-    magnitude = vector_magnitude_from_component_series(
-        [np.array([3.0, np.nan, np.nan]), np.array([4.0, 5.0, np.nan])]
-    )
+    magnitude = vector_magnitude([np.array([3.0, np.nan, np.nan]), np.array([4.0, 5.0, np.nan])])
 
     np.testing.assert_allclose(magnitude, np.array([5.0, 5.0, np.nan]))
 
@@ -309,17 +325,15 @@ def test_vector_magnitude_preserve_shape_keeps_grid_shape():
     first = np.array([[3.0, np.nan], [0.0, np.nan]])
     second = np.array([[4.0, 5.0], [0.0, np.nan]])
 
-    magnitude = vector_magnitude_preserve_shape([first, second])
+    magnitude = vector_magnitude([first, second])
 
     np.testing.assert_allclose(magnitude, np.array([[5.0, 5.0], [0.0, np.nan]]))
 
 
 def test_ground_dbdt_magnitude_differentiates_components_first():
     """Ground dB/dt magnitude is the magnitude of the dB/dt vector."""
-    from pynamit.plotting.ground_figures import GroundFigureRenderer
+    from pynamit.results.magnetic_signals import ground_signal_at_times
 
-    renderer = object.__new__(GroundFigureRenderer)
-    renderer.settings = SimpleNamespace(dbdt_window_points=1)
     source_times = pd.date_range("2020-01-01", periods=3, freq="1s")
     target_times = pd.DatetimeIndex([source_times[1]])
 
@@ -329,7 +343,7 @@ def test_ground_dbdt_magnitude_differentiates_components_first():
     br_values = -down * 1e-9
     bh_values = np.stack([-north * 1e-9, east * 1e-9])
 
-    magnitude = renderer._ground_values_at_times(
+    magnitude = ground_signal_at_times(
         "Magnitude", br_values, bh_values, source_times, target_times, quantity="dbdt"
     )
 
@@ -338,20 +352,16 @@ def test_ground_dbdt_magnitude_differentiates_components_first():
 
 def test_station_dbdt_uses_supplied_simulation_cadence():
     """Measured dB/dt should use the common comparison cadence."""
-    from pynamit.plotting.ground_figures import GroundFigureRenderer
+    from pynamit.results.magnetic_signals import station_signal_at_times
 
-    renderer = object.__new__(GroundFigureRenderer)
-    renderer.settings = SimpleNamespace(
-        ground_component="North", ground_quantity="dbdt", dbdt_window_points=1
-    )
     measured_times = pd.date_range("2020-01-01", periods=21, freq="1s")
     measured = pd.DataFrame(
         {"North": np.arange(21, dtype=float) ** 3, "East": np.zeros(21), "Down": np.zeros(21)},
         index=measured_times,
     )
 
-    values = renderer._station_values_at_times(
-        measured, pd.DatetimeIndex([measured_times[10]]), dbdt_cadence_seconds=10.0
+    values = station_signal_at_times(
+        measured, pd.DatetimeIndex([measured_times[10]]), quantity="dbdt", cadence_seconds=10.0
     )
 
     np.testing.assert_allclose(values, np.array([400.0]))

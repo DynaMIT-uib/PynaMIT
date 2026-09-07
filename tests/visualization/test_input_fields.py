@@ -13,7 +13,7 @@ def test_evaluate_projected_scalar_input_on_model_grid(tmp_path):
     simulation = pynamit.Simulation(
         simulation_directory=tmp_path, Nmax=2, Mmax=1, Ncs=8, enable_pfac_coupling=False
     )
-    coeffs = np.zeros(simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape)
+    coeffs = np.zeros(simulation.data.schema.input_field_spaces["boundary_jr"].shape)
     coeffs[0] = 1.0
     simulation.set_boundary_jr(boundary_jr_coefficients=coeffs, time=0.0)
 
@@ -28,7 +28,7 @@ def test_evaluate_projected_input_accepts_input_preparation(tmp_path):
     """Inspect inputs without constructing simulation geometry."""
     preparation = pynamit.InputPreparation(input_directory=tmp_path, Nmax=2, Mmax=1, Ncs=8)
     assert preparation._geometry is None
-    coeffs = np.zeros(preparation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape)
+    coeffs = np.zeros(preparation.data.schema.input_field_spaces["boundary_jr"].shape)
     coeffs[0] = 1.0
     preparation.set_boundary_jr(boundary_jr_coefficients=coeffs, time=0.0)
 
@@ -41,7 +41,7 @@ def test_evaluate_projected_input_accepts_input_preparation(tmp_path):
 def test_evaluate_projected_input_accepts_saved_results(tmp_path):
     """The array interface works after reopening prepared inputs."""
     preparation = pynamit.InputPreparation(input_directory=tmp_path, Nmax=2, Mmax=1, Ncs=8)
-    coeffs = np.zeros(preparation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape)
+    coeffs = np.zeros(preparation.data.schema.input_field_spaces["boundary_jr"].shape)
     preparation.set_boundary_jr(boundary_jr_coefficients=coeffs, time=0.0)
 
     results = pynamit.SimulationResults.from_directory(tmp_path)
@@ -66,7 +66,7 @@ def test_evaluate_projected_input_accepts_an_explicit_field_series(tmp_path):
     simulation = pynamit.Simulation(
         simulation_directory=tmp_path, Nmax=2, Mmax=1, Ncs=8, enable_pfac_coupling=False
     )
-    coeffs = np.zeros(simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape)
+    coeffs = np.zeros(simulation.data.schema.input_field_spaces["boundary_jr"].shape)
     coeffs[0] = 1.0
     simulation.set_boundary_jr(boundary_jr_coefficients=coeffs, time=0.0)
 
@@ -82,7 +82,7 @@ def test_evaluate_projected_input_corrects_explicit_transform_source(tmp_path):
     simulation = pynamit.Simulation(
         simulation_directory=tmp_path, Nmax=2, Mmax=1, Ncs=8, enable_pfac_coupling=False
     )
-    coeffs = np.zeros(simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape)
+    coeffs = np.zeros(simulation.data.schema.input_field_spaces["boundary_jr"].shape)
     coeffs[0] = 1.0
     simulation.set_boundary_jr(boundary_jr_coefficients=coeffs, time=0.0)
 
@@ -112,7 +112,7 @@ def test_evaluate_projected_conductance_returns_physical_conductance(tmp_path):
     simulation = pynamit.Simulation(
         simulation_directory=tmp_path, Nmax=2, Mmax=1, Ncs=8, enable_pfac_coupling=False
     )
-    coeff_shape = simulation.data.schema.input_field_spaces["conductance"].coefficient_shape
+    coeff_shape = simulation.data.schema.input_field_spaces["conductance"].shape
     log_magnitude = np.zeros(coeff_shape)
     log_ratio = np.zeros(coeff_shape)
     simulation.set_conductance(
@@ -142,7 +142,7 @@ def test_evaluate_projected_tangential_input_returns_components(tmp_path):
     simulation = pynamit.Simulation(
         simulation_directory=tmp_path, Nmax=2, Mmax=1, Ncs=8, enable_pfac_coupling=False
     )
-    coeff_length = simulation.data.schema.input_field_spaces["u"].index_length
+    coeff_length = simulation.data.schema.input_field_spaces["u"].coefficient_count
     cf_coeffs = np.zeros(coeff_length)
     df_coeffs = np.zeros(coeff_length)
     cf_coeffs[0] = 1.0

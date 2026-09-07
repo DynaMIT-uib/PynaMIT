@@ -13,7 +13,7 @@ from pynamit.coordinates import (
     longitude_to_local_time_hours,
     wrap_longitude_180,
 )
-from pynamit.geodesy import library_geographic_to_spherical_geo
+from pynamit.geographic_approximation import library_geographic_to_spherical_geo
 
 _VALID_LONGITUDE_KINDS = {"geographic", "magnetic"}
 _VALID_LOCAL_TIME_KINDS = {"solar", "magnetic"}
@@ -25,12 +25,6 @@ def regular_geographic_grid(nlat=60, nlon=100, lat_range=(-89.9, 89.9), lon_rang
     longitude = np.linspace(lon_range[0], lon_range[1], int(nlon))
     longitude, latitude = np.meshgrid(longitude, latitude)
     return latitude, longitude, SphericalGrid(lat=latitude, lon=longitude)
-
-
-def model_grid_from_geographic(main_field, latitude, longitude):
-    """Return model coordinates underlying a geographic grid."""
-    model_latitude, model_longitude = main_field.geo_to_model_coordinates(latitude, longitude)
-    return SphericalGrid(lat=model_latitude, lon=model_longitude)
 
 
 def _as_float_scalar(value, name):
@@ -283,7 +277,6 @@ __all__ = [
     "geographic_local_time_mask",
     "local_time_window_extent",
     "local_time_window_is_full",
-    "model_grid_from_geographic",
     "regular_geographic_grid",
     "wrap_longitudes",
 ]

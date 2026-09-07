@@ -161,7 +161,7 @@ def test_schema_mean_free_projection_is_operational_for_cs_potential_space():
     """Surface-potential metadata applies the CS mean-free gauge."""
     schema = build_simulation_schema(_settings(horizontal_basis_kind="CS"))
     field_space = schema.output_field_spaces["dynamic"]["Phi"]
-    coeffs = np.linspace(0.0, 1.0, field_space.index_length) + 5.0
+    coeffs = np.linspace(0.0, 1.0, field_space.coefficient_count) + 5.0
 
     projected = field_space.project_mean_free(coeffs)
 

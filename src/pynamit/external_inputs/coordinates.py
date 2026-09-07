@@ -13,7 +13,7 @@ import numpy as np
 from kompe.constants import EARTH_RADIUS_M
 
 from pynamit.coordinates import CENTERED_DIPOLE, GEOCENTRIC_GEOGRAPHIC
-from pynamit.geodesy import spherical_geo_to_library_geographic
+from pynamit.geographic_approximation import spherical_geo_to_library_geographic
 
 _COORDINATE_IDENTITY_VERSION = 3
 _COORDINATE_QUANTIZATION = "little_endian_float32"
@@ -238,7 +238,7 @@ LIBRARY_GEOGRAPHIC_110KM = CoordinateConvention(
 
 
 @dataclass(frozen=True)
-class SampleGrid:
+class SampleCoordinates:
     """Immutable ordered coordinates under one coordinate convention."""
 
     grid_id: str
@@ -276,7 +276,7 @@ class SampleGrid:
         return hash(self.coordinate_identity)
 
     @classmethod
-    def from_dict(cls, grid_id: str, payload: Mapping[str, Any]) -> SampleGrid:
+    def from_dict(cls, grid_id: str, payload: Mapping[str, Any]) -> SampleCoordinates:
         """Construct and verify a serialized sample grid."""
         grid = cls(
             grid_id=grid_id,
@@ -304,8 +304,8 @@ class SampleGrid:
 
 
 def _spherical_geo_to_library_110km(
-    geographic_grid: SampleGrid, target_convention: CoordinateConvention
-) -> SampleGrid:
+    geographic_grid: SampleCoordinates, target_convention: CoordinateConvention
+) -> SampleCoordinates:
     """Create a library grid using the spherical identity map."""
     altitude = target_convention.reference_surface.altitude_km
     if altitude is None:
@@ -314,7 +314,7 @@ def _spherical_geo_to_library_110km(
         geographic_grid.lat, geographic_grid.lon, altitude
     )
     target_short = target_convention.signature[:12]
-    return SampleGrid(
+    return SampleCoordinates(
         grid_id=f"{geographic_grid.grid_id}--request-{target_short}",
         coordinate_convention=target_convention,
         lat=latitude,
@@ -335,9 +335,9 @@ class ExternalInputCoordinates:
 
     def __init__(
         self,
-        geographic_grid: SampleGrid,
+        geographic_grid: SampleCoordinates,
         *,
-        model_grid: SampleGrid | None = None,
+        model_grid: SampleCoordinates | None = None,
         model_epoch: float | None = None,
     ):
         if geographic_grid.coordinate_convention != PYNAMIT_SPHERICAL_GEO_110KM:
@@ -367,7 +367,7 @@ class ExternalInputCoordinates:
         self.geographic_grid = geographic_grid
         self.model_grid = model_grid
         self.model_epoch = model_epoch
-        self._sample_grids: dict[str, SampleGrid] = {
+        self._sample_grids: dict[str, SampleCoordinates] = {
             geographic_grid.coordinate_convention.signature: geographic_grid,
             model_grid.coordinate_convention.signature: model_grid,
         }
@@ -384,7 +384,7 @@ class ExternalInputCoordinates:
     ) -> ExternalInputCoordinates:
         """Construct coordinate views from spherical-GEO positions."""
         return cls(
-            SampleGrid(
+            SampleCoordinates(
                 grid_id=grid_id,
                 coordinate_convention=PYNAMIT_SPHERICAL_GEO_110KM,
                 lat=lat,
@@ -420,7 +420,7 @@ class ExternalInputCoordinates:
                 "coordinate_system must be 'centered_dipole' or 'geocentric_geographic'."
             ) from exc
 
-        geographic_grid = SampleGrid(
+        geographic_grid = SampleCoordinates(
             grid_id=grid_id,
             coordinate_convention=PYNAMIT_SPHERICAL_GEO_110KM,
             lat=geographic_lat,
@@ -434,7 +434,7 @@ class ExternalInputCoordinates:
                 raise ValueError("Geographic model coordinates must match geographic samples.")
             model_grid = geographic_grid
         else:
-            model_grid = SampleGrid(
+            model_grid = SampleCoordinates(
                 grid_id=f"{grid_id}--model",
                 coordinate_convention=model_convention,
                 lat=lat,
@@ -451,7 +451,7 @@ class ExternalInputCoordinates:
             )
         return cls(geographic_grid, model_grid=model_grid, model_epoch=model_epoch)
 
-    def sample_grid(self, convention: CoordinateConvention) -> SampleGrid:
+    def sample_grid(self, convention: CoordinateConvention) -> SampleCoordinates:
         """Return coordinates under the requested convention."""
         cached = self._sample_grids.get(convention.signature)
         if cached is not None:

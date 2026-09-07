@@ -1,7 +1,7 @@
 """Simulation storage schema construction.
 
-This module centralizes the basis and ``FieldSpace`` choices used by
-``Simulation`` for persisted input and output time series.
+This module centralizes basis and ``CoefficientSpace`` choices for
+persisted simulation input and output time series.
 """
 
 from collections.abc import Mapping
@@ -14,8 +14,8 @@ from kompe import (
     SolidHarmonicOperators,
     SurfaceDifferentialBasis,
 )
+from kompe.coefficients import CoefficientSpace
 
-from pynamit.fields import FieldSpace
 from pynamit.simulation.config import PROJECTION_BASIS_KEYS, SimulationConfig
 
 INPUT_VARIABLES = {
@@ -131,8 +131,8 @@ class SimulationSchema:
     solid_harmonics: SolidHarmonicOperators
     input_variables: dict[str, tuple[str, ...]]
     output_variables: dict[str, tuple[str, ...]]
-    input_field_spaces: dict[str, FieldSpace]
-    output_field_spaces: dict[str, dict[str, FieldSpace]]
+    input_field_spaces: dict[str, CoefficientSpace]
+    output_field_spaces: dict[str, dict[str, CoefficientSpace]]
     input_projection_bases: dict[str, SurfaceDifferentialBasis]
 
 
@@ -140,7 +140,7 @@ def field_spaces_from_bases(
     bases: Mapping[str, ScalarBasis],
     field_types: Mapping[str, str],
     mean_free_by_key: Mapping[str, bool] | None = None,
-) -> dict[str, FieldSpace]:
+) -> dict[str, CoefficientSpace]:
     """Return field-space descriptors for time-series schemas."""
     if set(bases) != set(field_types):
         raise ValueError("Basis and field-type schemas must use the same keys.")
@@ -149,12 +149,14 @@ def field_spaces_from_bases(
 
     field_spaces = {}
     for key, basis in bases.items():
+        if field_types[key] not in {"scalar", "tangential"}:
+            raise ValueError(f"Unsupported field_type {field_types[key]!r} for {key!r}.")
         default_mean_free = (
             basis.omits_constant_mode() if isinstance(basis, SurfaceDifferentialBasis) else False
         )
-        field_spaces[key] = FieldSpace(
+        field_spaces[key] = CoefficientSpace(
             basis,
-            field_type=field_types[key],
+            representation="helmholtz" if field_types[key] == "tangential" else "scalar",
             mean_free=(default_mean_free if mean_free_by_key is None else mean_free_by_key[key]),
         )
     return field_spaces
@@ -196,11 +198,15 @@ def build_simulation_schema(config: SimulationConfig, *, operator_cache=None) ->
     input_field_spaces = field_spaces_from_bases(
         input_bases, INPUT_FIELD_TYPES, mean_free_by_key=input_mean_free
     )
-    poloidal_output_space = FieldSpace(mean_free_sh_basis, field_type="scalar", mean_free=True)
-    surface_output_space = FieldSpace(horizontal_basis, field_type="scalar", mean_free=True)
-    boundary_current_output_space = FieldSpace(
+    poloidal_output_space = CoefficientSpace(
+        mean_free_sh_basis, representation="scalar", mean_free=True
+    )
+    surface_output_space = CoefficientSpace(
+        horizontal_basis, representation="scalar", mean_free=True
+    )
+    boundary_current_output_space = CoefficientSpace(
         horizontal_basis,
-        field_type="scalar",
+        representation="scalar",
         # In CS space the discrete Laplacian's exact range is not
         # identical to the area-mean projector. Preserve the current
         # produced by the private toroidal potential exactly so it can

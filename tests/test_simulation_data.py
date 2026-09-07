@@ -49,16 +49,12 @@ def test_simulation_data_owns_schema_artifacts_and_field_series(tmp_path):
     assert data.config.boundary_jr_projection_basis == "CS"
     data.save_settings_if_missing()
     output_spaces = data.schema.output_field_spaces["dynamic"]
-    n_magnetic = output_spaces["induced_Br"].coefficient_length
-    n_surface = output_spaces["boundary_jr"].coefficient_length
+    n_magnetic = output_spaces["induced_Br"].size
+    n_surface = output_spaces["boundary_jr"].size
     data.save_boundary_jr_to_gap_Br_matrix_if_missing(np.zeros((n_magnetic, n_surface)))
     data.input_series.add_entry(
         "boundary_jr",
-        {
-            "boundary_jr": np.arange(
-                data.schema.input_field_spaces["boundary_jr"].coefficient_length
-            )
-        },
+        {"boundary_jr": np.arange(data.schema.input_field_spaces["boundary_jr"].size)},
         time=0.0,
     )
     data.input_series.save("boundary_jr", data.artifact_store)
@@ -176,13 +172,13 @@ def test_simulation_persists_only_active_gap_Br_response(
         enable_pfac_coupling=enable_pfac_coupling,
         artifact_storage="netcdf",
     )
-    resistance_shape = simulation.data.schema.input_field_spaces["conductance"].coefficient_shape
+    resistance_shape = simulation.data.schema.input_field_spaces["conductance"].shape
     simulation.set_conductance(
         log_magnitude_coefficients=np.zeros(resistance_shape),
         log_ratio_coefficients=np.zeros(resistance_shape),
         time=0.0,
     )
-    boundary_jr_shape = simulation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
+    boundary_jr_shape = simulation.data.schema.input_field_spaces["boundary_jr"].shape
     simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
 
     assert simulation.data.boundary_jr_to_gap_Br_matrix is None
@@ -213,8 +209,8 @@ def test_simulation_from_directory_uses_saved_configuration(tmp_path):
     assert reloaded.config.Mmax == original.config.Mmax
     assert reloaded.config.horizontal_basis_kind == "CS"
     assert reloaded.data.schema.horizontal_basis is not original.data.schema.horizontal_basis
-    assert reloaded.data.schema.horizontal_basis.index_length == (
-        original.data.schema.horizontal_basis.index_length
+    assert reloaded.data.schema.horizontal_basis.coefficient_count == (
+        original.data.schema.horizontal_basis.coefficient_count
     )
 
 

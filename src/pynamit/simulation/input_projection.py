@@ -10,6 +10,7 @@ from kompe.math import get_array_module
 from kompe.spherical_transform import SphericalTransform
 
 from pynamit.simulation.electrodynamics import ionospheric_closure
+from pynamit.simulation.response import ElectrodynamicResponse
 from pynamit.simulation.schema import INPUT_VARIABLES, WIND_FORCING_INPUTS
 
 if TYPE_CHECKING:
@@ -208,15 +209,15 @@ class _InputProjector:
             field_space = self.preparation.data.schema.input_field_spaces[key]
             xp = get_array_module(coefficients)
             coefficient_rows = xp.asarray(coefficients)
-            if coefficient_rows.shape == field_space.coefficient_shape:
-                coefficient_rows = coefficient_rows.reshape((1, *field_space.coefficient_shape))
+            if coefficient_rows.shape == field_space.shape:
+                coefficient_rows = coefficient_rows.reshape((1, *field_space.shape))
             elif (
-                coefficient_rows.ndim != len(field_space.coefficient_shape) + 1
-                or coefficient_rows.shape[1:] != field_space.coefficient_shape
+                coefficient_rows.ndim != len(field_space.shape) + 1
+                or coefficient_rows.shape[1:] != field_space.shape
             ):
                 raise ValueError(
-                    f"{coefficient_label} must have shape {field_space.coefficient_shape} "
-                    f"for one time or (time, {', '.join(map(str, field_space.coefficient_shape))})."
+                    f"{coefficient_label} must have shape {field_space.shape} "
+                    f"for one time or (time, {', '.join(map(str, field_space.shape))})."
                 )
             self.store_input_coefficients(key, {key: coefficient_rows}, time)
             return
@@ -270,7 +271,7 @@ class _InputProjector:
 
     def evaluate_Q_eff_from_neutral_wind(self, input_time, wind_coeff_rows):
         """Evaluate wind-equivalent Q_eff samples on the model grid."""
-        response = self.preparation._require_response()
+        response = ElectrodynamicResponse(self.preparation.geometry, self.preparation.config)
         grid = self.preparation.geometry.model_grid
         wind_representation = self.preparation.data.schema.input_field_spaces["u"].basis
         wind_synthesis = wind_representation.helmholtz_synthesis_operator(grid)
@@ -294,7 +295,7 @@ class _InputProjector:
         self, input_time, wind_coeff_rows, *, reg_lambda=None, tolerance=1e-15
     ):
         """Fit stored Q_eff coefficients to wind-driven E."""
-        response = self.preparation._require_response()
+        response = ElectrodynamicResponse(self.preparation.geometry, self.preparation.config)
         q_field_space = self.preparation.data.schema.input_field_spaces["Q_eff"]
         q_eff_synthesis_operator = q_field_space.basis.helmholtz_synthesis_operator(
             self.preparation.geometry.model_grid
@@ -342,7 +343,7 @@ class _InputProjector:
         input_grid = SphericalGrid(lat=lat, lon=lon, theta=theta, phi=phi)
         transform = self.projection_transform(key)
         field_space = self.preparation.data.schema.input_field_spaces[key]
-        if field_space.field_type == "scalar" and len(input_data) > 1:
+        if field_space.representation == "scalar" and len(input_data) > 1:
             # Batch related scalar variables into one analysis solve.
             normalized = {
                 var: transform.as_scalar_sample_rows(values, input_grid)
@@ -367,7 +368,7 @@ class _InputProjector:
             projected_data = {}
             project = (
                 transform.analyze_helmholtz_samples
-                if field_space.field_type == "tangential"
+                if field_space.representation == "helmholtz"
                 else transform.analyze_scalar_samples
             )
 

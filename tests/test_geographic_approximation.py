@@ -1,9 +1,9 @@
-"""Tests for the explicit spherical library-interface approximation."""
+"""Tests for the geographic library-interface approximation."""
 
 import numpy as np
 import pytest
 
-from pynamit.geodesy import (
+from pynamit.geographic_approximation import (
     library_geographic_to_spherical_geo,
     library_horizontal_to_spherical,
     spherical_geo_to_library_geographic,

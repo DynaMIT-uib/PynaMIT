@@ -16,7 +16,7 @@ from kompe.math import (
     diagonal_linear_map,
     get_array_module,
     identity_linear_map,
-    pointwise_matrix_linear_map,
+    pointwise_component_map,
     take_linear_map,
 )
 from kompe.spherical_transform import SphericalTransform, resolve_sqrt_weights
@@ -129,7 +129,10 @@ class SimulationGeometry:
         self._boundary_jr_to_gap_Br_matrix = None
         if matrix is None:
             return
-        expected_shape = (self.poloidal_basis.index_length, self.horizontal_basis.index_length)
+        expected_shape = (
+            self.poloidal_basis.coefficient_count,
+            self.horizontal_basis.coefficient_count,
+        )
         matrix = np.asarray(matrix)
         if matrix.shape != expected_shape:
             raise ValueError(
@@ -186,12 +189,12 @@ class SimulationGeometry:
         weights_source = self.horizontal_basis.scalar_mean_weights
         xp = get_array_module(weights_source)
         weights = xp.asarray(weights_source, dtype=float)
-        expected_shape = (self.horizontal_basis.index_length,)
+        expected_shape = (self.horizontal_basis.coefficient_count,)
         if weights.shape != expected_shape:
             raise ValueError(
                 f"Surface mean weights must have shape {expected_shape}; got {weights.shape}."
             )
-        normalized_mean = self.horizontal_basis.index_length**0.5 * weights
+        normalized_mean = self.horizontal_basis.coefficient_count**0.5 * weights
         return as_linear_map(
             normalized_mean.reshape(1, -1), input_shape=expected_shape, output_shape=(1,)
         )
@@ -208,13 +211,13 @@ class SimulationGeometry:
         identity remains structured rather than becoming a dense matrix.
         """
         if self.poloidal_basis.coefficients_are_compatible_with(self.horizontal_basis):
-            return identity_linear_map((self.horizontal_basis.index_length,))
+            return identity_linear_map((self.horizontal_basis.coefficient_count,))
         poloidal_synthesis = self.poloidal_transform.scalar_synthesis_array
         grid_to_poloidal_operator = dense_full_rank_least_squares_map(
             poloidal_synthesis,
             sqrt_weights=self.model_grid_sqrt_weights(),
             input_shape=(self.model_grid.size,),
-            output_shape=(self.poloidal_basis.index_length,),
+            output_shape=(self.poloidal_basis.coefficient_count,),
         )
         return grid_to_poloidal_operator @ self.horizontal_transform.scalar_synthesis_operator
 
@@ -244,8 +247,8 @@ class SimulationGeometry:
         """Map boundary radial current to unshielded gap ``Br(RI)``."""
         return as_linear_map(
             self.boundary_jr_to_gap_Br_matrix,
-            input_shape=(self.horizontal_basis.index_length,),
-            output_shape=(self.poloidal_basis.index_length,),
+            input_shape=(self.horizontal_basis.coefficient_count,),
+            output_shape=(self.poloidal_basis.coefficient_count,),
         )
 
     @property
@@ -364,7 +367,7 @@ class SimulationGeometry:
         xp = get_array_module(apex_values)
         apex = xp.asarray(apex_values)
         n_grid = int(grid.size)
-        apex_rotation = pointwise_matrix_linear_map(apex)
+        apex_rotation = pointwise_component_map(apex)
         if indices.size == n_grid and np.array_equal(indices, np.arange(n_grid)):
             return apex_rotation
 
@@ -427,7 +430,7 @@ class SimulationGeometry:
         """Construct the gap-Br map by radial integration."""
         if self.main_field.kind == "radial" or not self.enable_pfac_coupling:
             matrix = np.zeros(
-                (self.poloidal_basis.index_length, self.horizontal_basis.index_length)
+                (self.poloidal_basis.coefficient_count, self.horizontal_basis.coefficient_count)
             )
         else:
             build_matrix = partial(

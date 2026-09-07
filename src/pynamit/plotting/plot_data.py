@@ -14,21 +14,18 @@ from kompe.cache import BoundedCache
 
 from pynamit.coordinates import GEOCENTRIC_GEOGRAPHIC
 from pynamit.plotting.figure_settings import FigureSettings
-from pynamit.plotting.map_coordinates import (
-    MapCoordinateContext,
-    model_grid_from_geographic,
-    regular_geographic_grid,
-)
+from pynamit.plotting.map_coordinates import MapCoordinateContext, regular_geographic_grid
+from pynamit.results.field_evaluation import model_grid_from_geographic
 from pynamit.results.input_fields import evaluate_projected_input
 from pynamit.results.output_fields import (
     build_ground_magnetic_field_operators,
     build_output_evaluation_operators,
     build_sheet_current_operators,
+    evaluate_ground_magnetic_field,
     evaluate_output_coefficients,
 )
 from pynamit.results.simulation_results import SimulationResults
 from pynamit.results.time_series import datetime_at_index, time_index_from_dataset
-from pynamit.simulation.electrodynamics.ionospheric_closure import pedersen_geometry_tensor
 from pynamit.simulation.schema import SIMULATION_ARTIFACT_NAMES
 from pynamit.storage import ArtifactStore
 
@@ -487,28 +484,25 @@ class PlotData:
         if lat.size != lon.size:
             raise ValueError("site_lat and site_lon must have the same length.")
 
-        key = (tuple(np.round(lat, 8).tolist()), tuple(np.round(lon, 8).tolist()))
+        grid = SphericalGrid(lat=lat, lon=lon)
+        key = grid.signature
         cached = self._ground_magnetic_field_cache.get(key)
         if cached is not None:
             return cached
 
-        grid = SphericalGrid(lat=lat, lon=lon)
-        operators = build_ground_magnetic_field_operators(self.geometry, grid)
-
-        def evaluate(coefficients):
-            radial = np.asarray(operators["radial"].matmat(coefficients)).reshape(grid.size, -1)
-            tangential = np.asarray(operators["tangential"].matmat(coefficients)).reshape(
-                2, grid.size, -1
+        operators = build_ground_magnetic_field_operators(
+            self.geometry, grid, coordinate_system="geographic"
+        )
+        fields = {}
+        for stream in ("dynamic", "equilibrium"):
+            if stream not in self.results.datasets:
+                continue
+            evaluated = evaluate_ground_magnetic_field(
+                self.results, grid=grid, key=stream, operators=operators
             )
-            radial.setflags(write=False)
-            tangential.setflags(write=False)
-            return {"radial": radial, "tangential": tangential}
-
-        induced_Br = self.dataset_values("dynamic", "induced_Br").T
-        fields = {"dynamic": evaluate(induced_Br)}
-        if "equilibrium" in self.results.datasets:
-            equilibrium_induced_Br = self.dataset_values("equilibrium", "induced_Br").T
-            fields["equilibrium"] = evaluate(equilibrium_induced_Br)
+            fields[stream] = {name: np.asarray(values) for name, values in evaluated.items()}
+            for values in fields[stream].values():
+                values.setflags(write=False)
 
         self._ground_magnetic_field_cache.store(key, fields)
         return fields
@@ -537,18 +531,15 @@ class PlotData:
         if transform is None:
             raise RuntimeError("Saved output evaluation context is unavailable.")
         geometry = self.geometry
-        if output_evaluation_context is None:
-            output_evaluation_context = build_output_evaluation_operators(geometry, transform)
         needs_joule = "joule" in field_names
+        if output_evaluation_context is None or (
+            needs_joule and "pedersen_geometry" not in output_evaluation_context
+        ):
+            output_evaluation_context = build_output_evaluation_operators(
+                geometry, transform, include_joule=needs_joule
+            )
         if needs_joule and sheet_current_operators is None:
             sheet_current_operators = build_sheet_current_operators(geometry, transform)
-        if needs_joule and "pedersen_geometry" not in output_evaluation_context:
-            unit_br, unit_btheta, unit_bphi = geometry.main_field.unit_vector(
-                transform.grid, self.results.config.RI
-            )
-            output_evaluation_context["pedersen_geometry"] = pedersen_geometry_tensor(
-                unit_btheta, unit_bphi, unit_br
-            )
         if evaluation is None:
             self.output_evaluation_context = output_evaluation_context
             self.sheet_current_operators = sheet_current_operators

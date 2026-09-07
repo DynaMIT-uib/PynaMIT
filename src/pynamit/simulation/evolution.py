@@ -273,7 +273,9 @@ class _TimeEvolution:
             print("Initializing dynamic induced Br from zero.", flush=True)
         self.simulation.current_time = np.float64(0)
         return get_array_module().zeros(
-            self.simulation.data.schema.output_field_spaces["dynamic"]["induced_Br"].index_length
+            self.simulation.data.schema.output_field_spaces["dynamic"][
+                "induced_Br"
+            ].coefficient_count
         )
 
     def _saved_outputs_reach_target(self, options: _EvolutionOptions) -> bool:

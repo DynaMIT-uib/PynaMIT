@@ -8,7 +8,7 @@ from kompe.math import (
     LeastSquaresSolver,
     LinearMap,
     get_array_module,
-    pointwise_matrix_linear_map,
+    pointwise_component_map,
 )
 
 CONDUCTANCE_REFERENCE_S = 1.0
@@ -313,7 +313,7 @@ def wind_to_E_coeffs_operator(
     """Return the operator mapping neutral-wind coefficients to E."""
     return (
         helmholtz_analysis_operator
-        @ pointwise_matrix_linear_map(wind_to_E_grid)
+        @ pointwise_component_map(wind_to_E_grid)
         @ wind_synthesis_operator
     )
 
@@ -326,7 +326,7 @@ def tangential_current_to_E_coeffs_operator(
     """Map sheet-current coefficients to E coefficients."""
     return (
         helmholtz_analysis_operator
-        @ pointwise_matrix_linear_map(resistance_tensor)
+        @ pointwise_component_map(resistance_tensor)
         @ sheet_current_synthesis_operator
     )
 

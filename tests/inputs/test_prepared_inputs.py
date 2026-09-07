@@ -336,7 +336,7 @@ def test_available_prepared_inputs_follows_schema_order(tmp_path):
     preparation = pynamit.InputPreparation(
         input_directory=tmp_path, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf"
     )
-    shape = preparation.data.schema.input_field_spaces["boundary_jr"].coefficient_shape
+    shape = preparation.data.schema.input_field_spaces["boundary_jr"].shape
     preparation.set_boundary_jr(boundary_jr_coefficients=np.zeros(shape), time=0.0)
 
     assert available_prepared_inputs(tmp_path, artifact_storage="netcdf") == ("boundary_jr",)
@@ -476,7 +476,7 @@ def test_manual_input_preparation_writes_a_reusable_package(tmp_path):
         input_directory=input_directory, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf"
     )
     assert not hasattr(preparation, "simulation_directory")
-    shape = preparation.data.schema.input_field_spaces["conductance"].coefficient_shape
+    shape = preparation.data.schema.input_field_spaces["conductance"].shape
     preparation.set_conductance(
         log_magnitude_coefficients=np.zeros(shape),
         log_ratio_coefficients=np.zeros(shape),
@@ -624,7 +624,7 @@ def test_loading_prepared_inputs_transfers_simulation_ownership(tmp_path):
         artifact_storage="netcdf",
         **prepared.config.to_kwargs(),
     )
-    wind_shape = simulation.data.schema.input_field_spaces["u"].coefficient_shape
+    wind_shape = simulation.data.schema.input_field_spaces["u"].shape
     simulation.set_neutral_wind(u_coefficients=np.zeros(wind_shape), time=0.0)
     simulation.response.activate_inputs_at_time(simulation.data.input_series, 0.0)
 
