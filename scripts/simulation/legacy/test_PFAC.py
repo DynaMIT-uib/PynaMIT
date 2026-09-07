@@ -11,7 +11,7 @@ import pyamps
 import matplotlib.pyplot as plt
 from lompe import conductance
 import os
-from pynamit.plotting.diagnostics import plot_global_polar_map
+from pynamit.plotting.quicklook import plot_global_polar_map
 
 COMPARE_TO_SECS = True
 SIMULATE_DYNAMIC_RESPONSE = False
@@ -85,7 +85,6 @@ if SIMULATE_DYNAMIC_RESPONSE:
         plt_grid.lon,
         plt_grid.lat,
         Br.reshape(plt_grid.lat.shape),
-        returnplot=True,
         levels=Blevels,
         cmap="bwr",
         noon_longitude=lon0,
@@ -137,7 +136,6 @@ if SIMULATE_DYNAMIC_RESPONSE:
                 plt_grid.lat,
                 Br.reshape(plt_grid.lat.shape),
                 title=title,
-                returnplot=True,
                 levels=Blevels,
                 cmap="bwr",
                 noon_longitude=lon0,
@@ -175,7 +173,6 @@ if COMPARE_TO_SECS:
         plt_grid.lon,
         plt_grid.lat,
         Br_SECS.reshape(plt_grid.lat.shape),
-        returnplot=True,
         levels=Blevels,
         cmap="bwr",
         noon_longitude=lon0,

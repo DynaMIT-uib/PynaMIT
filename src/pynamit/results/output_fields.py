@@ -3,11 +3,14 @@
 import numpy as np
 from kompe import SphericalTransform
 from kompe.constants import EARTH_RADIUS_M, MU0
-from kompe.math import diagonal_linear_map, get_array_module, pointwise_component_map
+from kompe.math import (
+    as_linear_map,
+    diagonal_linear_map,
+    get_array_module,
+    pointwise_component_map,
+)
 
 from pynamit.results.field_evaluation import (
-    apply_coefficient_operator,
-    evaluate_sheet_current_from_operators,
     model_grid_from_geographic,
     model_to_geographic_tangential_array,
 )
@@ -197,6 +200,26 @@ def build_sheet_current_operators(geometry, transform):
     }
 
 
+def evaluate_sheet_current(
+    boundary_jr,
+    induced_Br,
+    *,
+    boundary_jr_to_JS,
+    induced_Br_to_JS,
+    boundary_Br=None,
+    boundary_Br_to_JS=None,
+):
+    """Evaluate sheet current from physical magnetic quantities."""
+    current = as_linear_map(boundary_jr_to_JS).matvec(boundary_jr) + as_linear_map(
+        induced_Br_to_JS
+    ).matvec(induced_Br)
+    if boundary_Br is not None:
+        if boundary_Br_to_JS is None:
+            raise ValueError("boundary_Br_to_JS is required when boundary_Br is provided.")
+        current += as_linear_map(boundary_Br_to_JS).matvec(boundary_Br)
+    return current.reshape(2, -1)
+
+
 def evaluate_output_coefficients(
     coefficients,
     transform,
@@ -239,16 +262,16 @@ def evaluate_output_coefficients(
     values = {}
 
     if "induced_Br" in requested:
-        values["induced_Br"] = apply_coefficient_operator(
-            operators["induced_Br_to_Br"], coefficients["induced_Br"]
+        values["induced_Br"] = as_linear_map(operators["induced_Br_to_Br"])(
+            coefficients["induced_Br"]
         )
     if "boundary_jr" in requested:
-        values["boundary_jr"] = apply_coefficient_operator(
-            operators["boundary_jr_to_jr"], coefficients["boundary_jr"]
+        values["boundary_jr"] = as_linear_map(operators["boundary_jr_to_jr"])(
+            coefficients["boundary_jr"]
         )
     if "equivalent_current_function" in requested:
-        values["equivalent_current_function"] = apply_coefficient_operator(
-            operators["induced_Br_to_Jeq"], coefficients["induced_Br"]
+        values["equivalent_current_function"] = as_linear_map(operators["induced_Br_to_Jeq"])(
+            coefficients["induced_Br"]
         )
 
     potential_fields = requested & {"Phi", "W"}
@@ -256,13 +279,11 @@ def evaluate_output_coefficients(
         radius = float(operators["RI"])
         horizontal_transform = operators["horizontal_transform"]
     if "Phi" in potential_fields:
-        values["Phi"] = radius * apply_coefficient_operator(
-            horizontal_transform.scalar_synthesis_operator, coefficients["Phi"]
+        values["Phi"] = radius * horizontal_transform.scalar_synthesis_operator(
+            coefficients["Phi"]
         )
     if "W" in potential_fields:
-        values["W"] = radius * apply_coefficient_operator(
-            horizontal_transform.scalar_synthesis_operator, coefficients["W"]
-        )
+        values["W"] = radius * horizontal_transform.scalar_synthesis_operator(coefficients["W"])
 
     electric_fields = requested & {"E_theta", "E_phi", "E_mag"}
     if electric_fields:
@@ -286,7 +307,7 @@ def evaluate_output_coefficients(
                     "geometry is required when sheet-current operators are not supplied."
                 )
             sheet_current_operators = build_sheet_current_operators(geometry, transform)
-        sheet_current = evaluate_sheet_current_from_operators(
+        sheet_current = evaluate_sheet_current(
             coefficients["boundary_jr"],
             coefficients["induced_Br"],
             boundary_jr_to_JS=sheet_current_operators["boundary_jr_to_JS"],
@@ -415,6 +436,7 @@ def evaluate_simulation_output(
 
 
 __all__ = [
+    "evaluate_sheet_current",
     "evaluate_ground_magnetic_field",
     "build_ground_magnetic_field_operators",
     "build_output_evaluation_operators",

@@ -26,7 +26,7 @@ from pynamit.storage import ArtifactStore, FieldTimeSeries
 from pynamit.storage.field_time_series import TIME_TOLERANCE_SECONDS
 
 SIMULATION_MANIFEST_FILENAME = "pynamit_simulation_manifest.json"
-_SIMULATION_MANIFEST_VERSION = 5
+_SIMULATION_MANIFEST_VERSION = 6
 
 _SIMULATION_SETTING_KEYS = (
     "RM",
@@ -183,13 +183,13 @@ def _validate_simulation_identity(
 
 
 def _stored_simulation_outputs_reach(
-    store: ArtifactStore, target_time: float, *, run_dynamic: bool, run_equilibrium: bool
+    store: ArtifactStore, target_time: float, *, run_dynamic: bool, sample_equilibrium: bool
 ) -> bool:
     """Return whether all requested persisted outputs reach a target."""
     requested_outputs = []
     if run_dynamic:
         requested_outputs.append("dynamic")
-    if run_equilibrium:
+    if sample_equilibrium:
         requested_outputs.append("equilibrium")
     if not requested_outputs:
         return False
@@ -266,7 +266,7 @@ def run_from_inputs(
     interhemispheric_coupling_latitude=50,
     initialize_from_equilibrium=True,
     run_dynamic=True,
-    run_equilibrium=True,
+    sample_equilibrium=True,
     integrator="euler",
     least_squares_solver=None,
     least_squares_preconditioner=None,
@@ -301,7 +301,7 @@ def run_from_inputs(
             "enable_pfac_coupling": enable_pfac_coupling,
             "enable_interhemispheric_coupling": enable_interhemispheric_coupling,
             "interhemispheric_coupling_latitude": interhemispheric_coupling_latitude,
-            "save_equilibria": run_equilibrium,
+            "save_equilibria": sample_equilibrium,
             "integrator": integrator,
             "least_squares_solver": least_squares_solver,
             "least_squares_preconditioner": least_squares_preconditioner,
@@ -338,7 +338,7 @@ def run_from_inputs(
         quiet=False,
         initialize_from_equilibrium=initialize_from_equilibrium,
         run_dynamic=run_dynamic,
-        run_equilibrium=run_equilibrium,
+        sample_equilibrium=sample_equilibrium,
     )
     final_time = options.target_time
     dt = float(options.dt)
@@ -346,7 +346,7 @@ def run_from_inputs(
     samples_per_write = options.samples_per_write
     initialize_from_equilibrium = options.initialize_from_equilibrium
     run_dynamic = options.run_dynamic
-    run_equilibrium = options.run_equilibrium
+    sample_equilibrium = options.sample_equilibrium
     time_evolution = {
         "final_time": final_time,
         "dt": dt,
@@ -354,7 +354,7 @@ def run_from_inputs(
         "samples_per_write": samples_per_write,
         "initialize_from_equilibrium": initialize_from_equilibrium,
         "run_dynamic": run_dynamic,
-        "run_equilibrium": run_equilibrium,
+        "sample_equilibrium": sample_equilibrium,
     }
     evolution_policy = {
         name: value for name, value in time_evolution.items() if name != "final_time"
@@ -386,7 +386,10 @@ def run_from_inputs(
         )
         _validate_stored_simulation_settings(simulation_store, config, simulation_directory)
         if skip_completed and _stored_simulation_outputs_reach(
-            simulation_store, final_time, run_dynamic=run_dynamic, run_equilibrium=run_equilibrium
+            simulation_store,
+            final_time,
+            run_dynamic=run_dynamic,
+            sample_equilibrium=sample_equilibrium,
         ):
             print(
                 f"Simulation output in {simulation_directory} already reaches "
@@ -429,7 +432,7 @@ def run_from_inputs(
         samples_per_write=samples_per_write,
         initialize_from_equilibrium=initialize_from_equilibrium,
         run_dynamic=run_dynamic,
-        run_equilibrium=run_equilibrium,
+        sample_equilibrium=sample_equilibrium,
     )
     return simulation
 

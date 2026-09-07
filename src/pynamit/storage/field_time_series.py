@@ -5,8 +5,8 @@ from collections.abc import Mapping
 import numpy as np
 import pandas as pd
 import xarray as xr
-from kompe.coefficients import CoefficientSpace, FieldCoefficients
-from kompe.math import to_numpy
+from kompe.coefficients import CoefficientSpace
+from kompe.math import get_array_module, to_numpy
 
 TIME_TOLERANCE_SECONDS = 1e-6
 
@@ -358,11 +358,36 @@ class FieldTimeSeries:
             The time point for the data.
         """
         time_value = self._time_value(time)
-        dataset = self._entry_dataset(key, data, time_value)
-        self._merge_entry_dataset(key, dataset, time_value)
+        rows = {
+            var: get_array_module(value).asarray(value)[None, ...] for var, value in data.items()
+        }
+        self.add_entries(key, rows, [time_value])
 
-    def _entry_dataset(self, key, data, time_value):
-        """Build one validated, time-indexed coefficient dataset."""
+    def add_entries(self, key, data, times):
+        """Add coefficient rows with a leading time axis.
+
+        Build metadata and transfer each variable to the CPU once per
+        batch. Unordered times are sorted; near-equal times replace
+        earlier entries in the supplied order, just as with add_entry.
+        """
+        times = np.asarray(times)
+        if times.ndim != 1 or times.size == 0 or times.dtype.kind == "b":
+            raise ValueError("times must be a non-empty 1-D numeric array.")
+        times = times.astype(float)
+        if not np.all(np.isfinite(times)):
+            raise ValueError("times must be finite.")
+        dataset = self._coefficient_dataset(key, data, times)
+        ordered_times = np.sort(times)
+        if np.any(np.diff(ordered_times) <= TIME_TOLERANCE_SECONDS):
+            # Tolerant equality is not transitive. Preserve insertion
+            # order for overlapping replacements within this batch.
+            for index in range(times.size):
+                self._merge_entries(key, dataset.isel(time=slice(index, index + 1)))
+        else:
+            self._merge_entries(key, dataset.sortby("time"))
+
+    def _coefficient_dataset(self, key, data, times):
+        """Build a validated, time-indexed coefficient batch."""
         expected_variables = set(self.variables[key])
         actual_variables = set(data)
         if actual_variables != expected_variables:
@@ -374,14 +399,20 @@ class FieldTimeSeries:
         data_vars = {}
         for var in data:
             field_space = self.get_field_space(key, var)
-            values = FieldCoefficients(field_space, data[var], name=f"{key}.{var}")
-            dimension = self._coefficient_layouts[key][var]["dimension"]
-            data_vars[self.get_data_var_name(key, var)] = (
-                ["time", dimension],
-                to_numpy(values.to_vector()).reshape((1, -1)),
+            xp = get_array_module(data[var])
+            rows = xp.asarray(data[var])
+            if rows.ndim < 2 or rows.shape[0] != times.size:
+                raise ValueError(f"{key}.{var} must have {times.size} coefficient rows.")
+            values = xp.stack(
+                [
+                    field_space.project_mean_free(row, name=f"{key}.{var}").reshape(-1)
+                    for row in rows
+                ]
             )
+            dimension = self._coefficient_layouts[key][var]["dimension"]
+            data_vars[self.get_data_var_name(key, var)] = (["time", dimension], to_numpy(values))
 
-        coords = xr.Coordinates({"time": [time_value]})
+        coords = xr.Coordinates({"time": times})
         indexes = {}
         for layout in self._coefficient_layouts[key].values():
             indexes.setdefault(layout["dimension"], layout["index"])
@@ -397,17 +428,18 @@ class FieldTimeSeries:
         coords = coords.assign(component_coordinates)
         return self._apply_metadata(key, xr.Dataset(data_vars=data_vars, coords=coords))
 
-    def _merge_entry_dataset(self, key, dataset, time_value):
-        """Insert or replace one entry while preserving sorted times."""
+    def _merge_entries(self, key, dataset):
+        """Merge a sorted batch with no near-equal internal times."""
         existing = self.datasets.get(key)
         if existing is None or existing.sizes.get("time", 0) == 0:
-            self.datasets[key] = dataset.sortby("time")
+            self.datasets[key] = dataset
             self._pending_start[key] = 0
             self._full_save_required[key] = False
             return
 
         time_coords = np.asarray(existing.time.values, dtype=float)
-        if time_value > float(time_coords[-1]) + TIME_TOLERANCE_SECONDS:
+        new_times = dataset.time.values
+        if new_times[0] > float(time_coords[-1]) + TIME_TOLERANCE_SECONDS:
             previous_size = int(existing.sizes.get("time", 0))
             self.datasets[key] = xr.concat([existing, dataset], dim="time")
             pending_start = self._pending_start.get(key, previous_size)
@@ -415,7 +447,11 @@ class FieldTimeSeries:
             self._full_save_required[key] = bool(self._full_save_required.get(key, False))
             return
 
-        replace = np.isclose(time_coords, time_value, rtol=0.0, atol=TIME_TOLERANCE_SECONDS)
+        positions = np.searchsorted(new_times, time_coords)
+        before = new_times[np.maximum(positions - 1, 0)]
+        after = new_times[np.minimum(positions, new_times.size - 1)]
+        replace = np.isclose(time_coords, before, rtol=0.0, atol=TIME_TOLERANCE_SECONDS)
+        replace |= np.isclose(time_coords, after, rtol=0.0, atol=TIME_TOLERANCE_SECONDS)
         retained = existing.isel(time=np.flatnonzero(~replace))
         self.datasets[key] = xr.concat([retained, dataset], dim="time").sortby("time")
         self._pending_start[key] = 0
@@ -436,46 +472,42 @@ class FieldTimeSeries:
         Returns
         -------
         dict or None
-            Dictionary containing the latest data for the specified
-            key, or None if no data is available.
+            Owned coefficient arrays, or None if this known stream
+            has no sample at or before the requested time. Unknown
+            stream keys raise KeyError.
         """
         time = self._time_value(time)
-        if np.any(self.datasets[key].time.values <= time + TIME_TOLERANCE_SECONDS):
-            current_data = {}
-
-            # Select latest data before the current time.
-            dataset_before = self.datasets[key].sel(
-                time=[time + TIME_TOLERANCE_SECONDS], method="ffill"
-            )
-            dataset_before_time = float(dataset_before.time.item())
-
-            for var in self.variables[key]:
-                current_data[var] = dataset_before[
-                    self.get_data_var_name(key, var)
-                ].values.reshape(-1)
-
-            # If requested, add linear interpolation correction.
-            if (
-                interpolation
-                and dataset_before_time < time - TIME_TOLERANCE_SECONDS
-                and np.any(self.datasets[key].time.values > time + TIME_TOLERANCE_SECONDS)
-            ):
-                dataset_after = self.datasets[key].sel(
-                    time=[time + TIME_TOLERANCE_SECONDS], method="bfill"
-                )
-                interpolation_fraction = (time - dataset_before_time) / (
-                    dataset_after.time.item() - dataset_before_time
-                )
-                for var in self.variables[key]:
-                    current_data[var] = current_data[var] + interpolation_fraction * (
-                        dataset_after[self.get_data_var_name(key, var)].values.reshape(-1)
-                        - dataset_before[self.get_data_var_name(key, var)].values.reshape(-1)
-                    )
-
-            return current_data
-        else:
-            # No data available for the specified time.
+        variables = self.variables[key]
+        dataset = self.datasets.get(key)
+        if dataset is None:
             return None
+
+        # Times are ordered at the insertion/loading boundary. Locate
+        # the bracket once for every variable, without copying xarray
+        # coordinates or scanning the complete time axis at each step.
+        times = dataset.time.values
+        before = np.searchsorted(times, time + TIME_TOLERANCE_SECONDS, side="right") - 1
+        if before < 0:
+            return None
+        before_time = float(times[before])
+        interpolate = (
+            interpolation
+            and before + 1 < times.size
+            and before_time < time - TIME_TOLERANCE_SECONDS
+        )
+        if interpolate:
+            fraction = (time - before_time) / (float(times[before + 1]) - before_time)
+
+        current_data = {}
+        for var in variables:
+            values = dataset[self.get_data_var_name(key, var)].values
+            previous = values[before].reshape(-1)
+            current_data[var] = (
+                previous + fraction * (values[before + 1].reshape(-1) - previous)
+                if interpolate
+                else previous.copy()
+            )
+        return current_data
 
     def save(self, key, store, *, print_info: bool = False):
         """Persist one stored series to disk.

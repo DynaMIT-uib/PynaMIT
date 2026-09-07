@@ -450,9 +450,10 @@ def test_prepare_and_run_from_inputs_smoke(tmp_path):
     simulation_manifest = json.loads(
         (simulation_directory / SIMULATION_MANIFEST_FILENAME).read_text(encoding="utf-8")
     )
-    assert simulation_manifest["version"] == 5
+    assert simulation_manifest["version"] == 6
     assert simulation_manifest["input_manifest"] == manifest
     assert simulation_manifest["time_evolution"]["steps_per_sample"] == 2
+    assert simulation_manifest["time_evolution"]["sample_equilibrium"] is True
 
     selected_simulation = run_from_inputs(
         input_directory,
@@ -580,7 +581,7 @@ def test_run_from_inputs_skips_completed_simulation_before_geometry(monkeypatch,
     [
         ({"final_time": -1.0}, "finite, non-negative"),
         ({"skip_completed": "yes"}, "skip_completed"),
-        ({"run_dynamic": False, "run_equilibrium": False}, "At least one"),
+        ({"run_dynamic": False, "sample_equilibrium": False}, "At least one"),
     ],
 )
 def test_run_from_inputs_validates_batch_options_before_skipping(tmp_path, kwargs, match):

@@ -201,7 +201,7 @@ def run_paper_simulation(settings: PaperSimulationSettings = SETTINGS) -> pynami
         interhemispheric_electric_field_weight=1e-5,
         initialize_from_equilibrium=False,
         run_dynamic=True,
-        run_equilibrium=False,
+        sample_equilibrium=False,
         toroidal_potential_regularization_lambda=settings.toroidal_potential_regularization_lambda,
         artifact_storage=settings.artifact_storage,
     )
@@ -225,7 +225,7 @@ def run_paper_simulation(settings: PaperSimulationSettings = SETTINGS) -> pynami
         samples_per_write=settings.samples_per_write,
         initialize_from_equilibrium=False,
         run_dynamic=True,
-        run_equilibrium=False,
+        sample_equilibrium=False,
     )
 
     manifest_path = Path(simulation.simulation_directory) / SIMULATION_MANIFEST_FILENAME

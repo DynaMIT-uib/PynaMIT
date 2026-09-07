@@ -1,4 +1,8 @@
-"""Ionospheric constitutive closure between motion, current, and E."""
+"""Ionospheric constitutive closure between motion, current, and E.
+
+Pointwise fields carry component axes first, then grid or time axes.
+Horizontal vectors have shape ``(2, ...)`` and tensors ``(2, 2, ...)``.
+"""
 
 from __future__ import annotations
 
@@ -171,16 +175,16 @@ def resistance_tensor_on_grid(etaP, etaH, pedersen_geometry, hall_geometry):
 
 
 def electric_field_on_grid(sheet_current, resistance_tensor, *, wind=None, wind_to_E=None):
-    """Apply the ionospheric closure directly on one grid."""
+    """Evaluate ``E = R J - u x B`` with theta/phi components first."""
     if (wind is None) != (wind_to_E is None):
         raise ValueError("wind and wind_to_E must be provided together.")
     xp = get_array_module(sheet_current, resistance_tensor, wind, wind_to_E)
     electric_field = xp.einsum(
-        "ijg,jg->ig", xp.asarray(resistance_tensor), xp.asarray(sheet_current), optimize=True
+        "ij...,j...->i...", xp.asarray(resistance_tensor), xp.asarray(sheet_current), optimize=True
     )
     if wind is not None:
         electric_field += xp.einsum(
-            "ijg,jg->ig", xp.asarray(wind_to_E), xp.asarray(wind), optimize=True
+            "ij...,j...->i...", xp.asarray(wind_to_E), xp.asarray(wind), optimize=True
         )
     return electric_field
 
@@ -215,19 +219,17 @@ def _current_from_weighted_winds(
         magnetic_field,
         magnetic_unit_vector,
     )
-    SigmaP = xp.asarray(SigmaP, dtype=float).reshape(-1)
-    SigmaH = xp.asarray(SigmaH, dtype=float).reshape(-1)
-    u_p_theta = xp.asarray(u_p_theta, dtype=float).reshape(-1)
-    u_p_phi = xp.asarray(u_p_phi, dtype=float).reshape(-1)
-    u_h_theta = xp.asarray(u_h_theta, dtype=float).reshape(-1)
-    u_h_phi = xp.asarray(u_h_phi, dtype=float).reshape(-1)
+    SigmaP = xp.asarray(SigmaP, dtype=float)
+    SigmaH = xp.asarray(SigmaH, dtype=float)
+    u_p_theta = xp.asarray(u_p_theta, dtype=float)
+    u_p_phi = xp.asarray(u_p_phi, dtype=float)
+    u_h_theta = xp.asarray(u_h_theta, dtype=float)
+    u_h_phi = xp.asarray(u_h_phi, dtype=float)
 
     b_r, b_theta, b_phi = (
-        xp.asarray(component, dtype=float).reshape(-1) for component in magnetic_unit_vector
+        xp.asarray(component, dtype=float) for component in magnetic_unit_vector
     )
-    B_r, B_theta, B_phi = (
-        xp.asarray(component, dtype=float).reshape(-1) for component in magnetic_field
-    )
+    B_r, B_theta, B_phi = (xp.asarray(component, dtype=float) for component in magnetic_field)
 
     zero = xp.zeros_like(u_p_theta)
     u_p_cross_B = _cross_spherical(zero, u_p_theta, u_p_phi, B_r, B_theta, B_phi)
@@ -267,7 +269,7 @@ def electric_field_from_weighted_winds(
     explicitly forming ``Q_eff``, whose infinite-parallel-conductance
     expression divides by the radial direction cosine and is singular
     at the dip equator. Returned components follow PynaMIT's
-    ``E_neutral_wind`` convention.
+    ``E_neutral_wind`` convention and retain the broadcast sample shape.
     """
     q_r, q_theta, q_phi = _current_from_weighted_winds(
         SigmaP=SigmaP,
@@ -280,10 +282,10 @@ def electric_field_from_weighted_winds(
         magnetic_unit_vector=magnetic_unit_vector,
     )
     xp = get_array_module(q_r, q_theta, q_phi, etaP, etaH)
-    etaP = xp.asarray(etaP, dtype=float).reshape(-1)
-    etaH = xp.asarray(etaH, dtype=float).reshape(-1)
+    etaP = xp.asarray(etaP, dtype=float)
+    etaH = xp.asarray(etaH, dtype=float)
     b_r, b_theta, b_phi = (
-        xp.asarray(component, dtype=float).reshape(-1) for component in magnetic_unit_vector
+        xp.asarray(component, dtype=float) for component in magnetic_unit_vector
     )
 
     q_dot_b = q_r * b_r + q_theta * b_theta + q_phi * b_phi
@@ -303,7 +305,7 @@ def joule_heating_from_current(sheet_current, etaP, pedersen_geometry):
     etaP = xp.asarray(etaP)
     pedersen_geometry = xp.asarray(pedersen_geometry)
     return etaP * xp.einsum(
-        "ig,ijg,jg->g", sheet_current, pedersen_geometry, sheet_current, optimize=True
+        "i...,ij...,j...->...", sheet_current, pedersen_geometry, sheet_current, optimize=True
     )
 
 
@@ -335,10 +337,12 @@ def Q_eff_on_grid_from_wind(wind_on_grid, wind_to_E_grid, resistance_tensor):
     """Return the effective sheet current equivalent to neutral wind."""
     xp = get_array_module(wind_on_grid, wind_to_E_grid, resistance_tensor)
     E_wind_on_grid = xp.einsum(
-        "abg,bg->ag", xp.asarray(wind_to_E_grid), xp.asarray(wind_on_grid), optimize=True
+        "ab...,b...->a...", xp.asarray(wind_to_E_grid), xp.asarray(wind_on_grid), optimize=True
     )
-    point_resistance = xp.moveaxis(xp.asarray(resistance_tensor), -1, 0)
-    return xp.linalg.solve(point_resistance, E_wind_on_grid.T[..., None])[..., 0].T
+    point_resistance = xp.moveaxis(xp.asarray(resistance_tensor), (0, 1), (-2, -1))
+    point_E = xp.moveaxis(E_wind_on_grid, 0, -1)
+    point_current = xp.linalg.solve(point_resistance, point_E[..., None])[..., 0]
+    return xp.moveaxis(point_current, -1, 0)
 
 
 def build_Q_eff_coefficient_solver(
@@ -355,11 +359,7 @@ def build_Q_eff_coefficient_solver(
     if not np.isfinite(weight) or weight < 0.0:
         raise ValueError("reg_lambda must be finite and non-negative.")
 
-    problem = LeastSquaresProblem(
-        A=Q_eff_to_E_operator,
-        solution_shape=Q_eff_to_E_operator.input_shape,
-        data_shapes=Q_eff_to_E_operator.output_shape,
-    )
+    problem = LeastSquaresProblem(Q_eff_to_E_operator)
     solver = LeastSquaresSolver(solver="lsmr", tolerance=tolerance)
     damping = weight**0.5
 

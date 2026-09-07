@@ -278,7 +278,7 @@ class _InputProjector:
         Q_eff_values = []
         for time_value, wind_coeffs in zip(input_time, wind_coeff_rows, strict=True):
             response.activate_inputs_at_time(self.preparation.data.input_series, time_value)
-            wind_on_grid = wind_synthesis.matvec(wind_coeffs).reshape((2, grid.size))
+            wind_on_grid = wind_synthesis(wind_coeffs)
             Q_eff_values.append(
                 ionospheric_closure.Q_eff_on_grid_from_wind(
                     wind_on_grid,
@@ -305,7 +305,7 @@ class _InputProjector:
         solve_Q_eff = None
         for time_value, wind_coeffs in zip(input_time, wind_coeff_rows, strict=True):
             response.activate_inputs_at_time(self.preparation.data.input_series, time_value)
-            E_wind_coeffs = response.u_coeffs_to_E_coeffs_operator.matvec(wind_coeffs)
+            E_wind_coeffs = response.u_coeffs_to_E_coeffs_operator(wind_coeffs)
             resistance_tensor = response.resistance_tensor_on_grid
             if resistance_tensor is not cached_resistance_tensor:
                 cached_resistance_tensor = resistance_tensor
@@ -388,12 +388,7 @@ class _InputProjector:
 
     def _store_input_rows(self, key: str, projected_data: dict[str, Any], input_time) -> None:
         """Store and persist coefficient rows for one input."""
-        for time_index in range(input_time.size):
-            self.preparation.data.input_series.add_entry(
-                key,
-                {var: projected_data[var][time_index] for var in projected_data},
-                input_time[time_index],
-            )
+        self.preparation.data.input_series.add_entries(key, projected_data, input_time)
         self.preparation.data.input_series.save(key, self.preparation.data.artifact_store)
 
     def store_input_coefficients(self, key: str, input_data: dict[str, Any], time) -> None:

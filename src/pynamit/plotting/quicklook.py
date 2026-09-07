@@ -27,9 +27,12 @@ def plot_global_polar_map(
     lon,
     lat,
     data,
+    *,
     noon_longitude=0,
     scatter=False,
     hemisphere_min_abs_latitude=DEFAULT_HEMISPHERE_MIN_ABS_LATITUDE,
+    title=None,
+    coordinate_context=None,
     **kwargs,
 ):
     """Create global and polar map panels for field data.
@@ -46,21 +49,22 @@ def plot_global_polar_map(
         Longitude of local noon meridian.
     scatter : bool, optional
         If True, plot data as scatter points.
+    title : str, optional
+        Title above the global panel.
+    coordinate_context : MapCoordinateContext, optional
+        Explicit map frame; otherwise constructed from noon_longitude.
     **kwargs : dict
-        Additional arguments, such as title, save, returnplot, and
-        arguments passed to scatter or contourf.
+        Arguments passed to scatter or contourf.
 
     Returns
     -------
-    tuple, optional
-        (figure, axes) if `returnplot` is ``True``.
+    tuple
+        Figure, north and south polar plots, and global axis. The figure
+        stays open for editing; callers use fig.savefig(), plt.show(),
+        or plt.close(fig) when desired.
     """
     fig = plt.figure(figsize=(10, 10))
 
-    title = kwargs.pop("title", None)
-    save = kwargs.pop("save", None)
-    returnplot = kwargs.pop("returnplot", False)
-    coordinate_context = kwargs.pop("coordinate_context", None)
     if coordinate_context is None:
         coordinate_context = MapCoordinateContext.from_noon_longitude(noon_longitude)
 
@@ -97,15 +101,7 @@ def plot_global_polar_map(
 
     plt.tight_layout()
 
-    if returnplot:
-        return (fig, north_axis, south_axis, global_axis)
-
-    if save is not None:
-        plt.savefig(save)
-    else:
-        plt.show()
-
-    plt.close()
+    return fig, north_axis, south_axis, global_axis
 
 
 def plot_output_quicklook(

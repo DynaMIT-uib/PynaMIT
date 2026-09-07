@@ -44,17 +44,17 @@ class SimulationData:
     @classmethod
     def open(
         cls,
-        settings: Any,
+        settings: Any = None,
         *,
         simulation_directory=None,
         artifact_storage="auto",
         operator_cache=None,
         print_info=False,
     ) -> "SimulationData":
-        """Open or create persisted simulation data."""
-        config = SimulationConfig.from_settings(settings)
-        settings_dataset = config.to_dataset()
-
+        """Open data using explicit or saved settings."""
+        config = None if settings is None else SimulationConfig.from_settings(settings)
+        if settings is None and simulation_directory is None:
+            raise ValueError("A simulation directory is required when settings are omitted.")
         if simulation_directory is None:
             simulation_directory = ArtifactStore.create_temporary_directory()
 
@@ -71,13 +71,16 @@ class SimulationData:
                     f"{stored_version!r}; expected {SIMULATION_SCHEMA_VERSION}. "
                     "Create a new simulation directory for the physical magnetic-variable schema."
                 )
-            normalized_stored_settings = SimulationConfig.from_settings(
-                stored_settings
-            ).to_dataset()
-            if not settings_dataset.identical(normalized_stored_settings):
+        if config is None:
+            if stored_settings is None:
                 raise ValueError(
-                    "Mismatch between Simulation object arguments and settings on file."
+                    f"No saved 'settings' dataset exists at {artifact_store.directory!r}"
                 )
+            config = SimulationConfig.from_settings(stored_settings)
+        elif stored_settings is not None and not config.to_dataset().identical(
+            SimulationConfig.from_settings(stored_settings).to_dataset()
+        ):
+            raise ValueError("Mismatch between Simulation object arguments and settings on file.")
 
         boundary_jr_to_gap_Br_matrix = artifact_store.load_dataarray(
             "gap_Br_response", print_info=print_info

@@ -33,7 +33,7 @@ def run_example(
     use_boundary_jr=True,
     initialize_from_equilibrium=True,
     run_dynamic=True,
-    run_equilibrium=True,
+    sample_equilibrium=True,
     boundary_jr_projection_basis=None,
     boundary_Br_projection_basis=None,
     conductance_projection_basis=None,
@@ -111,7 +111,7 @@ def run_example(
         Whether to initialize a new dynamic solution from equilibrium.
     run_dynamic : bool, optional
         Whether to run and save the time-dependent inductive solution.
-    run_equilibrium : bool, optional
+    sample_equilibrium : bool, optional
         Whether to calculate and save the instantaneous equilibrium
         solution.
     boundary_jr_projection_basis : {'SH', 'CS'}, optional
@@ -250,7 +250,7 @@ def run_example(
         interhemispheric_coupling_latitude=interhemispheric_coupling_latitude,
         initialize_from_equilibrium=initialize_from_equilibrium,
         run_dynamic=run_dynamic,
-        run_equilibrium=run_equilibrium,
+        sample_equilibrium=sample_equilibrium,
         integrator=integrator,
         least_squares_solver=least_squares_solver,
         least_squares_preconditioner=least_squares_preconditioner,

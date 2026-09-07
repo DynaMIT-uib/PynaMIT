@@ -17,6 +17,7 @@ from pynamit.simulation.electrodynamics.ionospheric_closure import (
     conductance_from_log_coordinates,
     conductance_to_log_coordinates,
     conductance_to_resistance,
+    electric_field_from_weighted_winds,
     electric_field_on_grid,
     hall_geometry_tensor,
     joule_heating_from_current,
@@ -252,6 +253,63 @@ def test_Q_eff_inverts_wind_electric_field_through_resistance():
     reconstructed = np.einsum("abg,bg->ag", resistance, Q_eff)
 
     np.testing.assert_allclose(reconstructed, E_wind)
+
+
+@pytest.mark.parametrize("sample_shape", [(), (4,), (2, 3), (2, 3, 4)])
+def test_pointwise_closure_retains_grid_and_time_axes(sample_shape):
+    """Ohm's law, wind equivalence, and Joule work share one layout."""
+    rng = np.random.default_rng(12)
+    current = rng.normal(size=(2,) + sample_shape)
+    wind = rng.normal(size=(2,) + sample_shape)
+    b = rng.normal(size=(3,) + sample_shape)
+    b[0] += 5.0
+    b /= np.linalg.norm(b, axis=0)
+    pedersen = pedersen_geometry_tensor(b[1], b[2], b[0])
+    hall = hall_geometry_tensor(b[0])
+    etaP = np.full(sample_shape, 2.0)
+    etaH = np.full(sample_shape, 3.0)
+    resistance = resistance_tensor_on_grid(etaP, etaH, pedersen, hall)
+    wind_to_E = rng.normal(size=(2, 2) + sample_shape)
+
+    expected_wind_E = np.einsum("ij...,j...->i...", wind_to_E, wind)
+    resistive_E = np.einsum("ij...,j...->i...", resistance, current)
+    actual_E = electric_field_on_grid(current, resistance, wind=wind, wind_to_E=wind_to_E)
+    np.testing.assert_allclose(actual_E, resistive_E + expected_wind_E)
+    assert actual_E.shape == (2,) + sample_shape
+
+    Q_eff = Q_eff_on_grid_from_wind(wind, wind_to_E, resistance)
+    assert Q_eff.shape == (2,) + sample_shape
+    np.testing.assert_allclose(electric_field_on_grid(Q_eff, resistance), expected_wind_E)
+    heating = joule_heating_from_current(current, etaP, pedersen)
+    assert heating.shape == sample_shape
+    np.testing.assert_allclose(heating, np.sum(current * resistive_E, axis=0), rtol=1e-13)
+
+
+@pytest.mark.parametrize("sample_shape", [(), (4,), (2, 3)])
+def test_weighted_winds_preserve_sample_axes_and_broadcast_conductance(sample_shape):
+    """A height-independent wind gives -u cross B on any sample grid."""
+    rng = np.random.default_rng(17)
+    wind = rng.normal(size=(2,) + sample_shape)
+    magnetic_field = rng.normal(size=(3,) + sample_shape)
+    magnetic_unit_vector = magnetic_field / np.linalg.norm(magnetic_field, axis=0)
+    etaP, etaH = conductance_to_resistance(4.0, 3.0)
+
+    E_theta, E_phi = electric_field_from_weighted_winds(
+        SigmaP=4.0,
+        SigmaH=3.0,
+        u_p_theta=wind[0],
+        u_p_phi=wind[1],
+        u_h_theta=wind[0],
+        u_h_phi=wind[1],
+        magnetic_field=magnetic_field,
+        magnetic_unit_vector=magnetic_unit_vector,
+        etaP=etaP,
+        etaH=etaH,
+    )
+
+    assert E_theta.shape == E_phi.shape == sample_shape
+    np.testing.assert_allclose(E_theta, -wind[1] * magnetic_field[0], rtol=1e-13)
+    np.testing.assert_allclose(E_phi, wind[0] * magnetic_field[0], rtol=1e-13)
 
 
 def test_Q_eff_coefficient_solve_recovers_exact_response():

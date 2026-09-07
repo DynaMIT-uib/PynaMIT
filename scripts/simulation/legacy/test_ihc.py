@@ -12,7 +12,7 @@ from lompe import conductance
 import pyhwm2014  # https://github.com/rilma/pyHWM14
 import cartopy.crs as ccrs
 import os
-from pynamit.plotting.diagnostics import plot_global_polar_map
+from pynamit.plotting.quicklook import plot_global_polar_map
 
 PLOT_WIND = False  # True to make a plot of the wind field
 SIMULATE = True
@@ -212,7 +212,6 @@ if SIMULATE:
                 plt_grid.lat,
                 Br.reshape(plt_grid.lat.shape),
                 title=title,
-                returnplot=True,
                 levels=Blevels,
                 cmap="bwr",
                 noon_longitude=lon0,
@@ -235,7 +234,6 @@ else:
         plt_grid.lon,
         plt_grid.lat,
         Br.reshape(plt_grid.lat.shape),
-        returnplot=True,
         levels=Blevels,
         cmap="bwr",
         noon_longitude=lon0,

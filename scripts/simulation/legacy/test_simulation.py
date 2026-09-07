@@ -10,7 +10,7 @@ import os
 import pyamps
 import matplotlib.pyplot as plt
 from lompe import conductance
-from pynamit.plotting.diagnostics import plot_global_polar_map
+from pynamit.plotting.quicklook import plot_global_polar_map
 
 reload(pynamit)
 
@@ -128,7 +128,6 @@ while True:
             plt_grid.lat,
             Br.reshape(plt_grid.lat.shape),
             title=title,
-            returnplot=True,
             levels=Blevels,
             cmap="bwr",
             noon_longitude=lon0,

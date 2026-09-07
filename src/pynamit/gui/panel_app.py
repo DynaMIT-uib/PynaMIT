@@ -214,7 +214,9 @@ class PynamitGUI:
             name="Boundary shielding", value=False, width=150
         )
         self.sim_run_dynamic = pn.widgets.Checkbox(name="Dynamic", value=True, width=110)
-        self.sim_run_equilibrium = pn.widgets.Checkbox(name="Equilibrium", value=True, width=130)
+        self.sim_sample_equilibrium = pn.widgets.Checkbox(
+            name="Equilibrium", value=True, width=130
+        )
         self.sim_interhemispheric_coupling_latitude = pn.widgets.FloatInput(
             name="Coupling latitude", value=50.0, width=140
         )
@@ -700,7 +702,7 @@ class PynamitGUI:
                     self.sim_interhemispheric_coupling_latitude.value
                 ),
                 run_dynamic=bool(self.sim_run_dynamic.value),
-                run_equilibrium=bool(self.sim_run_equilibrium.value),
+                sample_equilibrium=bool(self.sim_sample_equilibrium.value),
                 integrator=self.sim_integrator.value,
                 magnetic_boundary_shielding=bool(self.sim_magnetic_boundary_shielding.value),
             )
@@ -957,7 +959,7 @@ class PynamitGUI:
                 self.sim_enable_interhemispheric_coupling,
                 self.sim_magnetic_boundary_shielding,
                 self.sim_run_dynamic,
-                self.sim_run_equilibrium,
+                self.sim_sample_equilibrium,
                 self.sim_interhemispheric_coupling_latitude,
             ),
             self._control_row(

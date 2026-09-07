@@ -50,7 +50,7 @@ class SimulationSweep:
     integrator: str = "exponential"
     toroidal_potential_regularization_lambda: float = 0.0
     initialize_from_equilibrium: bool = True
-    run_equilibrium: bool = True
+    sample_equilibrium: bool = True
     artifact_storage: str = "auto"
 
 
@@ -198,7 +198,7 @@ def main(settings: SimulationSweep = SETTINGS) -> None:
             magnetic_boundary_shielding=settings.magnetic_boundary_shielding,
             initialize_from_equilibrium=settings.initialize_from_equilibrium,
             run_dynamic=True,
-            run_equilibrium=settings.run_equilibrium,
+            sample_equilibrium=settings.sample_equilibrium,
             integrator=settings.integrator,
             toroidal_potential_regularization_lambda=settings.toroidal_potential_regularization_lambda,
             artifact_storage=settings.artifact_storage,

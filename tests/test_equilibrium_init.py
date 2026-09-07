@@ -175,7 +175,7 @@ def test_impose_equilibrium_matches_initialize_from_equilibrium(tmp_path, monkey
         )
 
 
-def test_evolve_to_time_can_run_equilibrium_without_dynamic_output(tmp_path):
+def test_evolve_to_time_can_sample_equilibrium_without_dynamic_output(tmp_path):
     """Equilibrium output can run without dynamic evolution."""
     simulation = run_example(
         final_time=0.1,
@@ -189,7 +189,7 @@ def test_evolve_to_time_can_run_equilibrium_without_dynamic_output(tmp_path):
         use_wind=False,
         initialize_from_equilibrium=False,
         run_dynamic=False,
-        run_equilibrium=True,
+        sample_equilibrium=True,
         simulation_directory=str(tmp_path / "equilibrium-only"),
         artifact_storage="netcdf",
     )
@@ -222,7 +222,7 @@ def test_evolve_to_time_can_run_dynamic_output_without_equilibrium(tmp_path):
         use_wind=False,
         initialize_from_equilibrium=False,
         run_dynamic=True,
-        run_equilibrium=False,
+        sample_equilibrium=False,
         simulation_directory=str(tmp_path / "inductive-only"),
         artifact_storage="netcdf",
     )
@@ -255,19 +255,19 @@ def test_evolve_to_time_split_modes_match_combined_numerically(tmp_path):
     combined = run_example(
         **common_kwargs,
         run_dynamic=True,
-        run_equilibrium=True,
+        sample_equilibrium=True,
         simulation_directory=str(tmp_path / "combined"),
     )
     inductive = run_example(
         **common_kwargs,
         run_dynamic=True,
-        run_equilibrium=False,
+        sample_equilibrium=False,
         simulation_directory=str(tmp_path / "dynamic"),
     )
     equilibrium = run_example(
         **common_kwargs,
         run_dynamic=False,
-        run_equilibrium=True,
+        sample_equilibrium=True,
         simulation_directory=str(tmp_path / "equilibrium"),
     )
 

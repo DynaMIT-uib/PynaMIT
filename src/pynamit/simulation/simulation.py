@@ -12,7 +12,6 @@ from pynamit.simulation.evolution import (
 )
 from pynamit.simulation.input_preparation import InputPreparation
 from pynamit.simulation.response import ElectrodynamicResponse
-from pynamit.storage import ArtifactStore
 
 
 class Simulation(InputPreparation):
@@ -26,6 +25,7 @@ class Simulation(InputPreparation):
     def __init__(
         self,
         simulation_directory=None,
+        *,
         Nmax=20,
         Mmax=20,
         Ncs=30,
@@ -209,28 +209,23 @@ class Simulation(InputPreparation):
         return simulation
 
     @classmethod
-    def from_directory(cls, simulation_directory, **kwargs):
-        """Construct a simulation from one simulation directory."""
-        simulation_directory = ArtifactStore.require_artifact_directory(
-            simulation_directory, ("settings",)
+    def from_directory(
+        cls,
+        simulation_directory,
+        *,
+        artifact_storage="auto",
+        operator_cache_directory=None,
+        backend="auto",
+    ):
+        """Reopen a trajectory with its saved physical configuration."""
+        simulation = super().from_directory(
+            simulation_directory,
+            artifact_storage=artifact_storage,
+            operator_cache_directory=operator_cache_directory,
+            backend=backend,
         )
-        artifact_storage = kwargs.get("artifact_storage", "auto")
-        settings = ArtifactStore(
-            simulation_directory, preferred_dataset_storage=artifact_storage
-        ).load_dataset("settings")
-
-        stored_config = SimulationConfig.from_settings(settings)
-        config_values = stored_config.to_kwargs()
-        config_overrides = {
-            name: value
-            for name, value in kwargs.items()
-            if name in config_values and value is not None
-        }
-        config = SimulationConfig(**{**config_values, **config_overrides})
-        runtime_kwargs = {
-            name: value for name, value in kwargs.items() if name not in config_values
-        }
-        return cls.from_config(config, simulation_directory=simulation_directory, **runtime_kwargs)
+        simulation._open_simulation_runtime()
+        return simulation
 
     def evolve_to_time(
         self,
@@ -241,7 +236,7 @@ class Simulation(InputPreparation):
         quiet=False,
         initialize_from_equilibrium=True,
         run_dynamic=True,
-        run_equilibrium=None,
+        sample_equilibrium=None,
     ):
         """Evolve the inductive solution to ``t`` seconds after ``t0``.
 
@@ -257,7 +252,7 @@ class Simulation(InputPreparation):
             quiet=quiet,
             initialize_from_equilibrium=initialize_from_equilibrium,
             run_dynamic=run_dynamic,
-            run_equilibrium=run_equilibrium,
+            sample_equilibrium=sample_equilibrium,
         )
 
     def impose_equilibrium(self, time=None, interpolation=True, save=True, quiet=False):

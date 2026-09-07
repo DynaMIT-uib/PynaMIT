@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 from kompe import SphericalGrid
-from kompe.math import as_linear_map, get_array_module
+from kompe.math import get_array_module
 
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     conductance_from_log_coordinates,
@@ -32,12 +32,6 @@ def model_to_geographic_tangential_array(main_field, grid):
         grid.lat, grid.lon, east=ones, north=zeros
     )
     return np.array([[-north_from_theta, -north_from_phi], [east_from_theta, east_from_phi]])
-
-
-def apply_coefficient_operator(operator, coefficients):
-    """Apply a linear operator to one flattened coefficient field."""
-    xp = get_array_module(coefficients)
-    return as_linear_map(operator).matvec(xp.asarray(coefficients).reshape(-1))
 
 
 def evaluate_conductance_values(log_magnitude, log_ratio):
@@ -90,29 +84,7 @@ def evaluate_wind_coefficients(transform, coeffs, *, include_magnitude=True):
     return values
 
 
-def evaluate_sheet_current_from_operators(
-    boundary_jr,
-    induced_Br,
-    *,
-    boundary_jr_to_JS,
-    induced_Br_to_JS,
-    boundary_Br=None,
-    boundary_Br_to_JS=None,
-):
-    """Evaluate sheet current from physical magnetic quantities."""
-    current = apply_coefficient_operator(
-        boundary_jr_to_JS, boundary_jr
-    ) + apply_coefficient_operator(induced_Br_to_JS, induced_Br)
-    if boundary_Br is not None:
-        if boundary_Br_to_JS is None:
-            raise ValueError("boundary_Br_to_JS is required when boundary_Br is provided.")
-        current += apply_coefficient_operator(boundary_Br_to_JS, boundary_Br)
-    return current.reshape(2, -1)
-
-
 __all__ = [
-    "apply_coefficient_operator",
-    "evaluate_sheet_current_from_operators",
     "evaluate_conductance_coefficients",
     "evaluate_conductance_values",
     "evaluate_tangential_coefficients",

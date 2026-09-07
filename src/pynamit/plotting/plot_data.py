@@ -13,7 +13,7 @@ from kompe import SphericalGrid, SphericalTransform
 from kompe.cache import BoundedCache
 
 from pynamit.coordinates import GEOCENTRIC_GEOGRAPHIC
-from pynamit.plotting.figure_settings import FigureSettings
+from pynamit.plotting.figure_settings import as_figure_settings
 from pynamit.plotting.map_coordinates import MapCoordinateContext, regular_geographic_grid
 from pynamit.results.field_evaluation import model_grid_from_geographic
 from pynamit.results.input_fields import evaluate_projected_input
@@ -633,13 +633,6 @@ def format_figure_time(timestamp):
         return str(timestamp)
 
 
-def _coerce_figure_settings(settings):
-    """Return a :class:`FigureSettings` instance."""
-    if isinstance(settings, FigureSettings):
-        return settings
-    return FigureSettings.from_dict(settings)
-
-
 def clear_plot_data_cache():
     """Clear cached plotting data."""
     _PLOT_DATA_CACHE.clear()
@@ -682,7 +675,7 @@ def _artifact_fingerprint(simulation_directory):
 
 def get_plot_data(settings):
     """Return cached plotting data for one simulation directory."""
-    settings = _coerce_figure_settings(settings)
+    settings = as_figure_settings(settings)
     simulation_directory = str(Path(settings.simulation_directory).expanduser().resolve())
     key = (simulation_directory, 60, 100)
     fingerprint = _artifact_fingerprint(simulation_directory)

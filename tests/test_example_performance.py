@@ -55,7 +55,7 @@ run_example(
     enable_interhemispheric_coupling=True,
     use_wind=True,
     initialize_from_equilibrium=False,
-    run_equilibrium=False,
+    sample_equilibrium=False,
     artifact_storage="netcdf",
 )
 print(f"PYNAMIT_EXAMPLE_SECONDS={time.perf_counter() - start:.6f}", flush=True)

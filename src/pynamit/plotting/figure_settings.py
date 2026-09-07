@@ -39,6 +39,11 @@ COLOR_SCALE_MODE_OPTIONS = {"manual", "percentile"}
 _PLOT_DEFAULT_FILENAME = "pynamit_plot_defaults.json"
 
 
+def as_figure_settings(settings):
+    """Return figure settings, parsing dictionaries at the boundary."""
+    return settings if isinstance(settings, FigureSettings) else FigureSettings.from_dict(settings)
+
+
 @dataclass
 class FigureSettings:
     """Settings for one PynaMIT figure."""
@@ -277,6 +282,7 @@ def publication_script(settings, *, output_path="figure.png"):
 
 
 __all__ = [
+    "as_figure_settings",
     "MAP_FILL_OPTIONS",
     "MAP_LINE_OPTIONS",
     "PLOT_TYPE_OPTIONS",

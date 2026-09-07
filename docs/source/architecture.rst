@@ -118,6 +118,27 @@ keyword overrides that actually checked agreement with stored values. Use
 When changing a setting with dependent defaults, supply those dependent choices
 explicitly or reset them to ``None`` to derive them again.
 
+``InputPreparation`` and ``Simulation`` accept only their directory as a
+positional constructor argument; scientific choices remain explicit keywords,
+as in ``Simulation("simulation", Nmax=20, Mmax=20)``. Their
+``from_directory`` methods retain the saved physical configuration and accept
+only ``artifact_storage``, ``operator_cache_directory``, and ``backend``.
+``SimulationData.open`` owns the single settings read and schema check for
+reopening. It still checks configuration agreement when explicit settings are
+provided by a new-object constructor or ``from_config``.
+
+``results.output_fields.evaluate_sheet_current`` lives beside its operator
+builders. Shared input/output component and conductance evaluation remains in
+``results.field_evaluation``. Figure-settings conversion belongs in
+``plotting.figure_settings``, not the plotting-data loader.
+
+``plot_global_polar_map`` always returns its figure, north/south polar plots,
+and global axis without showing, saving, or closing them. ``title`` and
+``coordinate_context`` are explicit keyword arguments; remaining keywords go
+to Matplotlib. Callers control figure lifetime with ``fig.savefig(...)``,
+``plt.show()``, and ``plt.close(fig)``; the former ``returnplot`` and ``save``
+options are removed.
+
 ``SimulationGeometry`` receives ``solid_harmonics`` explicitly from the schema.
 The poloidal radial representation is independent of the horizontal surface
 representation; geometry does not infer one from the other in the SH case.
@@ -159,7 +180,6 @@ The top-level packages separate reusable scientific and infrastructural
 concepts from the PynaMIT simulation model::
 
     pynamit/
-      fields.py              coefficient-space metadata and owned values
       coordinates.py         generic longitude and local-time conversions
       geomagnetism/          background fields and magnetic coordinates
         main_field.py        background-field models and magnetic mapping
@@ -269,11 +289,14 @@ tensor helper module contains only
 contractions and pseudoinverses that still operate on multidimensional arrays;
 do not add parallel wrappers for operations already expressed by
 ``LinearMap``.
-Creating an explicit map is also an execution decision. The response layer does
-this only for runtime maps where dense multiplication is advantageous; plotting
-and export code should otherwise retain structured maps until explicit values
-are actually needed. Runtime preparation materializes the existing map and
-reuses it; it does not create another map around the same array.
+``operator(values)`` applies the map's declared input/output shapes and retains
+trailing batch axes. Physics code need not flatten fields or repeat the map's
+output shape. ``@``, ``matvec``, and ``matmat`` retain flat linear-algebra semantics.
+Creating an explicit map is also an execution decision. The response layer
+prepares compact maps once, when their cached operator is first constructed;
+large CS surface maps remain structured. Inspection and evolution use that same
+operator, without a second set of runtime aliases or caches. Plotting and export
+code should otherwise retain structured maps until explicit values are needed.
 When a rectangular map must become explicit, materialization probes the
 smaller side: input columns for tall maps and adjoint output rows for wide
 maps. This is important for rectangular surface-to-poloidal and
@@ -615,7 +638,7 @@ instead of mirroring individual coefficient names:
   The private poloidal and toroidal potentials
   appear here only as convenient operator coordinates.
 * ``electrodynamics.ionospheric_closure`` applies the height-integrated
-  Ohm-law closure. It maps physical Hall/Pedersen conductance or resistance
+  Ohm-law closure. It maps physical Pedersen/Hall conductance or resistance
   into the canonical log-conductance coordinates, reconstructs the resistance
   tensor, and maps neutral motion or sheet current through the magnetic
   geometry to ``E``. Results evaluation uses the same direct log-to-resistance
@@ -623,7 +646,9 @@ instead of mirroring individual coefficient names:
   components would underflow. It owns both the direct grid law
   ``E = R JS - u x B`` and the coefficient-operator compositions used by
   ``ElectrodynamicResponse``. It also owns the Pedersen/Hall geometry tensors
-  and collisional Joule-heating kernel. Joule heating is the Pedersen
+  and collisional Joule-heating kernel. Pointwise vectors and tensors keep
+  their component axes first, followed by grid or time axes; these kernels
+  do not require callers to flatten sampled fields. Joule heating is the Pedersen
   dissipation ``etaP * J.T @ P @ J``; ``J dot E`` is electromagnetic work and
   is not generally the same quantity when neutral motion contributes to the
   closure. Its functions remain numerical kernels; iteration over input times
@@ -814,6 +839,15 @@ time-stepping equations belong in
 ``electrodynamics.induction``, closure-dependent operator caches belong in
 ``ElectrodynamicResponse``, and artifact details belong in ``SimulationData``.
 
+``sample_equilibrium`` controls instantaneous equilibrium calculations at
+output times, independently of dynamic evolution. It replaces the ambiguous
+``run_equilibrium`` keyword in simulation, prepared-input, example, and GUI
+workflows. The prepared-input workflow manifest is version 6 and stores this
+name in its evolution policy. Older workflow manifests fail the explicit
+version check; saved field data and the simulation-settings schema are
+unchanged and remain accessible through ``Simulation.from_directory`` and
+``SimulationResults.from_directory``.
+
 Imposing an equilibrium always updates the in-memory ``dynamic`` stream; its
 ``save`` option controls only whether that live checkpoint is persisted.
 Imposition before a later active checkpoint is rejected because retaining both
@@ -841,6 +875,13 @@ maintain. Time values are finite scalar coordinates. Near-equal floating
 checkpoint labels replace one another with the declared absolute tolerance so
 roundoff cannot create duplicate logical times.
 
+``FieldTimeSeries.add_entries(key, data, times)`` stores a complete batch
+with time on the leading axis. Input preparation uses this boundary to
+construct xarray metadata once and transfer each variable to the CPU once,
+while retaining the coefficient space's gauge projection. ``add_entry``
+uses the same path for one checkpoint. Overlapping times within a batch
+retain insertion-order replacement semantics; ordinary batches merge once.
+
 Coefficient time series have two intentional representations. In memory, each
 coefficient dimension carries its schema ``MultiIndex``. A group with one
 coefficient space keeps the compact ``i`` dimension; a mixed group, such as CS
@@ -856,6 +897,14 @@ equality. ``FieldTimeSeries.get_entry()`` is stateless. The former
 ``get_entry_if_changed()`` is removed because change history belongs to the
 consumer. ``simulation.inputs`` always exposes the current input series,
 including after loading a different prepared package.
+
+Time lookup uses binary search over the sorted coordinates validated at
+insertion and loading. One bracket serves all variables in the stream;
+selection returns independent coefficient arrays, not a second xarray dataset.
+A known stream without a sample yet returns ``None``; an unknown stream key
+is an error. Response activation uses this same missing-data contract.
+It retains the owned selection as its comparison snapshot without copying
+those CPU arrays again.
 
 An ``ArtifactStore`` instance is bound to one resolved artifact directory and one preferred
 storage policy. Create another instance for another simulation instead of retargeting

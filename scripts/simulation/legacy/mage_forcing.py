@@ -11,7 +11,7 @@ import os
 import cartopy.crs as ccrs
 from polplot import Polarplot
 import matplotlib.pyplot as plt
-from pynamit.plotting.diagnostics import plot_global_polar_map
+from pynamit.plotting.quicklook import plot_global_polar_map
 
 
 RE = 6381e3
@@ -121,7 +121,9 @@ for step in range(0, nstep):
 
         lat = 90 - theta
         lon = phi
-        plot_global_polar_map(lon, lat, delta_Br, cmap=plt.cm.bwr, extend="both")
+        fig, _, _, _ = plot_global_polar_map(lon, lat, delta_Br, cmap=plt.cm.bwr, extend="both")
+        plt.show()
+        plt.close(fig)
 
     Br_field = kompe.FieldCoefficients(
         state_field_space, Br_spherical_transform.analyze_scalar(delta_Br.flatten())
@@ -134,7 +136,7 @@ for step in range(0, nstep):
     conductance_plt_evaluator = kompe.SphericalTransform(conductance_field_space.basis, plt_grid)
 
     if PLOT_BR:
-        plot_global_polar_map(
+        fig, _, _, _ = plot_global_polar_map(
             plt_lon,
             plt_lat,
             plt_evaluator.synthesize_scalar(Br_field).reshape(plt_lon.shape),
@@ -142,6 +144,8 @@ for step in range(0, nstep):
             extend="both",
             title="Br at 1.5 RI",
         )
+        plt.show()
+        plt.close(fig)
     # Shift from 1.5 RI to 1.0 RI.
     # This is now done inside state, assuming that Br is at RM.
 
@@ -323,7 +327,7 @@ for step in range(0, nstep):
     simulation.set_input_state_variables()
 
     if PLOT_JR:
-        plot_global_polar_map(
+        fig, _, _, _ = plot_global_polar_map(
             plt_lon,
             plt_lat,
             kompe.SphericalTransform(simulation.response.jr.field_space.basis, plt_grid)
@@ -333,9 +337,11 @@ for step in range(0, nstep):
             extend="both",
             title="jr",
         )
+        plt.show()
+        plt.close(fig)
 
     if PLOT_CONDUCTANCE:
-        plot_global_polar_map(
+        fig, _, _, _ = plot_global_polar_map(
             plt_lon,
             plt_lat,
             conductance_plt_evaluator.synthesize_scalar(simulation.response.etaP).reshape(
@@ -345,8 +351,10 @@ for step in range(0, nstep):
             extend="both",
             title="etaP",
         )
+        plt.show()
+        plt.close(fig)
 
-        plot_global_polar_map(
+        fig, _, _, _ = plot_global_polar_map(
             plt_lon,
             plt_lat,
             conductance_plt_evaluator.synthesize_scalar(simulation.response.etaH).reshape(
@@ -356,6 +364,8 @@ for step in range(0, nstep):
             extend="both",
             title="etaH",
         )
+        plt.show()
+        plt.close(fig)
 
     minlat = 35
 

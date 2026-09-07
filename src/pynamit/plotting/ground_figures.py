@@ -15,6 +15,7 @@ from pynamit.magnetometers import (
     load_local_iaga2002_station_data,
     load_station_catalog,
 )
+from pynamit.plotting.figure_settings import as_figure_settings
 from pynamit.plotting.map_coordinates import (
     MapCoordinateContext,
     geographic_local_time_mask,
@@ -29,7 +30,7 @@ from pynamit.plotting.map_curves import (
     reference_aligned_curve_centers,
     split_wrapped_curve,
 )
-from pynamit.plotting.plot_data import _coerce_figure_settings, get_plot_data
+from pynamit.plotting.plot_data import get_plot_data
 from pynamit.results.magnetic_signals import ground_signal_at_times, station_signal_at_times
 from pynamit.results.time_series import centered_difference_at_times, median_cadence_seconds
 
@@ -38,7 +39,7 @@ class GroundFigureRenderer:
     """Render ground magnetic figures."""
 
     def __init__(self, settings, plot_data=None):
-        self.settings = _coerce_figure_settings(settings)
+        self.settings = as_figure_settings(settings)
         self.plot_data = get_plot_data(self.settings) if plot_data is None else plot_data
         self._station_catalog_cache = None
 

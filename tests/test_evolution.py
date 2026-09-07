@@ -84,7 +84,7 @@ def test_evolution_rejects_invalid_sample_intervals(value):
         ({"t": 1.0, "dt": False}, "dt"),
         ({"t": 1.0, "quiet": "false"}, "quiet"),
         ({"t": 1.0, "run_dynamic": 1}, "run_dynamic"),
-        ({"t": 1.0, "run_equilibrium": "true"}, "run_equilibrium"),
+        ({"t": 1.0, "sample_equilibrium": "true"}, "sample_equilibrium"),
     ],
 )
 def test_evolution_rejects_ambiguous_runtime_option_types(kwargs, match):
@@ -104,7 +104,7 @@ def test_evolution_rejects_backfill_from_later_checkpoint():
     )
 
     with pytest.raises(ValueError, match="precedes the active checkpoint"):
-        _TimeEvolution(simulation).evolve_to_time(5.0, run_equilibrium=True, quiet=True)
+        _TimeEvolution(simulation).evolve_to_time(5.0, sample_equilibrium=True, quiet=True)
 
 
 def test_evolution_records_and_saves_exact_off_grid_target(monkeypatch):
@@ -130,7 +130,7 @@ def test_evolution_records_and_saves_exact_off_grid_target(monkeypatch):
         steps_per_sample=10,
         samples_per_write=10,
         initialize_from_equilibrium=False,
-        run_equilibrium=False,
+        sample_equilibrium=False,
         quiet=True,
     )
 

@@ -9,14 +9,15 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 
 from pynamit.plotting.field_comparison_figures import FieldComparisonRenderer
+from pynamit.plotting.figure_settings import as_figure_settings
 from pynamit.plotting.ground_figures import GroundFigureRenderer
 from pynamit.plotting.input_driver_figures import InputDriverRenderer
-from pynamit.plotting.plot_data import _coerce_figure_settings, get_plot_data
+from pynamit.plotting.plot_data import get_plot_data
 
 
 def render_figure(settings, plot_data=None):
     """Render a figure from :class:`pynamit.plotting.FigureSettings`."""
-    settings = _coerce_figure_settings(settings)
+    settings = as_figure_settings(settings)
     if settings.plot_type in {"global", "hemispheres"}:
         return FieldComparisonRenderer(settings, plot_data=plot_data).render()
     if settings.plot_type == "input_summary":
@@ -30,7 +31,7 @@ def render_figure(settings, plot_data=None):
 
 def save_movie(settings, output_path, *, fps=None, dpi=None):
     """Render the inclusive ``time_range`` as an animated GIF."""
-    settings = _coerce_figure_settings(settings)
+    settings = as_figure_settings(settings)
     if fps is not None or dpi is not None:
         settings = replace(
             settings,

@@ -119,12 +119,13 @@ class ElectrodynamicResponse:
                 )
             resistance_tensor = self.resistance_tensor_on_grid
             xp = get_array_module(resistance_tensor)
-            self._Q_eff_to_E_coeffs_operator_cache = (
+            self._Q_eff_to_E_coeffs_operator_cache = self._prepare_repeated_E_operator(
                 ionospheric_closure.tangential_current_to_E_coeffs_operator(
                     self.geometry.helmholtz_analysis_operator,
                     xp.asarray(resistance_tensor),
                     self._Q_eff_synthesis_operator_cache,
-                )
+                ),
+                compact_input=False,
             )
         return self._Q_eff_to_E_coeffs_operator_cache
 
@@ -155,10 +156,6 @@ class ElectrodynamicResponse:
         self._toroidal_potential_to_E_coeffs_operator_cache: LinearMap | None = None
         self._boundary_Br_to_E_coeffs_operator_cache: LinearMap | None = None
         self._Q_eff_to_E_coeffs_operator_cache: LinearMap | None = None
-        self._runtime_induced_Br_to_E_coeffs_cache: LinearMap | None = None
-        self._runtime_toroidal_potential_to_E_coeffs_cache: LinearMap | None = None
-        self._runtime_boundary_Br_to_E_coeffs_cache: LinearMap | None = None
-        self._runtime_Q_eff_to_E_coeffs_cache: LinearMap | None = None
         self._interhemispheric_electric_field_constraint_cache: LinearMap | None = None
         self._induced_poloidal_potential_feedback_operator: LinearMap | None = None
         self._induced_poloidal_potential_to_W_operator_cache: LinearMap | None = None
@@ -272,9 +269,10 @@ class ElectrodynamicResponse:
     def induced_Br_to_E_coeffs_operator(self) -> LinearMap:
         """Map physical induced ``Br(RI)`` coefficients to E."""
         if self._induced_Br_to_E_coeffs_operator_cache is None:
-            self._induced_Br_to_E_coeffs_operator_cache = (
+            self._induced_Br_to_E_coeffs_operator_cache = self._prepare_repeated_E_operator(
                 self.induced_poloidal_potential_to_E_coeffs_operator
-                @ self.geometry.induced_Br_to_poloidal_potential_operator
+                @ self.geometry.induced_Br_to_poloidal_potential_operator,
+                compact_input=True,
             )
         return self._induced_Br_to_E_coeffs_operator_cache
 
@@ -283,8 +281,11 @@ class ElectrodynamicResponse:
         """Map private toroidal-potential coefficients to E."""
         if self._toroidal_potential_to_E_coeffs_operator_cache is None:
             self._toroidal_potential_to_E_coeffs_operator_cache = (
-                self._sheet_current_source_to_E_coeffs_operator(
-                    self.geometry.toroidal_potential_to_gridded_JS_operator()
+                self._prepare_repeated_E_operator(
+                    self._sheet_current_source_to_E_coeffs_operator(
+                        self.geometry.toroidal_potential_to_gridded_JS_operator()
+                    ),
+                    compact_input=False,
                 )
             )
         return self._toroidal_potential_to_E_coeffs_operator_cache
@@ -296,58 +297,19 @@ class ElectrodynamicResponse:
             boundary_Br_to_JS = self.geometry.boundary_Br_to_gridded_JS_operator()
             if boundary_Br_to_JS is None:
                 return None
-            self._boundary_Br_to_E_coeffs_operator_cache = (
-                self._sheet_current_source_to_E_coeffs_operator(boundary_Br_to_JS)
+            self._boundary_Br_to_E_coeffs_operator_cache = self._prepare_repeated_E_operator(
+                self._sheet_current_source_to_E_coeffs_operator(boundary_Br_to_JS),
+                compact_input=True,
             )
         return self._boundary_Br_to_E_coeffs_operator_cache
 
-    def _prepare_repeated_E_operator(
-        self, op: LinearMap | None, *, compact_input: bool
-    ) -> LinearMap | None:
+    def _prepare_repeated_E_operator(self, op: LinearMap, *, compact_input: bool) -> LinearMap:
         """Use an explicit array when it reduces repeated work."""
-        if op is None:
-            return None
         spaces_coincide = self.geometry.horizontal_basis is self.geometry.poloidal_basis
         if not (compact_input or spaces_coincide) or op.is_diagonal:
             return op
         op.to_matrix()
         return op
-
-    @property
-    def _runtime_induced_Br_to_E_coeffs(self) -> LinearMap:
-        """Runtime map from physical induced Br to E coefficients."""
-        if self._runtime_induced_Br_to_E_coeffs_cache is None:
-            self._runtime_induced_Br_to_E_coeffs_cache = self._prepare_repeated_E_operator(
-                self.induced_Br_to_E_coeffs_operator, compact_input=True
-            )
-        return self._runtime_induced_Br_to_E_coeffs_cache
-
-    @property
-    def _runtime_toroidal_potential_to_E_coeffs(self) -> LinearMap:
-        """Runtime map from toroidal potential to E coefficients."""
-        if self._runtime_toroidal_potential_to_E_coeffs_cache is None:
-            self._runtime_toroidal_potential_to_E_coeffs_cache = self._prepare_repeated_E_operator(
-                self.toroidal_potential_to_E_coeffs_operator, compact_input=False
-            )
-        return self._runtime_toroidal_potential_to_E_coeffs_cache
-
-    @property
-    def _runtime_boundary_Br_to_E_coeffs(self) -> LinearMap | None:
-        """Runtime map from Br coefficients to E coefficients."""
-        if self._runtime_boundary_Br_to_E_coeffs_cache is None:
-            self._runtime_boundary_Br_to_E_coeffs_cache = self._prepare_repeated_E_operator(
-                self.boundary_Br_to_E_coeffs_operator, compact_input=True
-            )
-        return self._runtime_boundary_Br_to_E_coeffs_cache
-
-    @property
-    def _runtime_Q_eff_to_E_coeffs(self) -> LinearMap | None:
-        """Runtime map from effective-current coefficients to E."""
-        if self._runtime_Q_eff_to_E_coeffs_cache is None:
-            self._runtime_Q_eff_to_E_coeffs_cache = self._prepare_repeated_E_operator(
-                self.Q_eff_to_E_coeffs_operator, compact_input=False
-            )
-        return self._runtime_Q_eff_to_E_coeffs_cache
 
     @property
     def _interhemispheric_electric_field_constraint(self) -> LinearMap | None:
@@ -366,32 +328,25 @@ class ElectrodynamicResponse:
         """Return the toroidal-potential least-squares problem."""
         if self._toroidal_potential_problem_cache is None:
             logger.info("Defining new toroidal-potential least-squares problem.")
-            operators, data_shapes = [], []
-
             # Boundary radial current must match the prescribed field.
-            radial_current_operator = (
+            operators = [
                 self.geometry.radial_current_constraint_operator
                 @ self.geometry.toroidal_potential_to_boundary_jr_operator
-            )
-            operators.append(radial_current_operator)
-            data_shapes.append(radial_current_operator.output_shape)
+            ]
 
             # E-field must map at low latitudes.
             if self.config.enable_interhemispheric_coupling:
                 electric_field_constraint = self._interhemispheric_electric_field_constraint
                 if electric_field_constraint is not None:
-                    electric_field_operator = (
+                    operators.append(
                         self.config.interhemispheric_electric_field_weight
                         * electric_field_constraint
                     )
-                    operators.append(electric_field_operator)
-                    data_shapes.append(electric_field_operator.output_shape)
 
             # CS potentials include one constant gauge. Constrain that
             # coefficient direction exactly instead of regularizing it.
             if self.geometry.surface_gauge_operator is not None:
                 operators.append(self.geometry.surface_gauge_operator)
-                data_shapes.append(self.geometry.surface_gauge_operator.output_shape)
 
             # Add Tikhonov regularization if lambda is set.
             reg_ops, reg_weights = [], []
@@ -401,11 +356,7 @@ class ElectrodynamicResponse:
                 reg_weights.append(self.config.toroidal_potential_regularization_lambda)
 
             self._toroidal_potential_problem_cache = LeastSquaresProblem(
-                A=operators,
-                solution_shape=self.geometry.horizontal_basis.coefficient_count,
-                data_shapes=data_shapes,
-                regularization_operators=reg_ops,
-                regularization_strengths=reg_weights,
+                A=operators, regularization_operators=reg_ops, regularization_strengths=reg_weights
             )
         return self._toroidal_potential_problem_cache
 
@@ -616,11 +567,7 @@ class ElectrodynamicResponse:
         device arrays and response caches.
         """
         for key, variables in input_series.variables.items():
-            current = (
-                input_series.get_entry(key, time, interpolation)
-                if key in input_series.datasets
-                else None
-            )
+            current = input_series.get_entry(key, time, interpolation)
             previous = self._active_input_entries.get(key)
             field_space = input_series.get_field_space(key)
             space_changed = previous is None or previous[0] != field_space.signature
@@ -634,10 +581,7 @@ class ElectrodynamicResponse:
                     for var in variables
                 ):
                     continue
-                self._active_input_entries[key] = (
-                    field_space.signature,
-                    {var: np.array(current[var], copy=True) for var in variables},
-                )
+                self._active_input_entries[key] = (field_space.signature, current)
 
             for variable in variables:
                 setattr(
@@ -666,18 +610,10 @@ class ElectrodynamicResponse:
             elif key == "Q_eff" and (space_changed or current is None):
                 self._Q_eff_synthesis_operator_cache = None
                 self._Q_eff_to_E_coeffs_operator_cache = None
-                self._runtime_Q_eff_to_E_coeffs_cache = None
             elif key == "E_neutral_wind" and (space_changed or current is None):
                 self._E_neutral_wind_to_E_coeffs_operator_cache = None
 
     # ----- Response Calculation -----
-
-    @staticmethod
-    def _apply_operator(op: LinearMap, coeffs: Any, output_shape: tuple[int, ...]) -> Any:
-        """Apply a required response operator and restore its shape."""
-        array_module = op.array_module(coeffs)
-        coeffs_arr = array_module.asarray(coeffs)
-        return op.matvec(coeffs_arr.reshape(-1)).reshape(output_shape)
 
     def _solve_electric_closure(
         self, driving_E: Any, boundary_jr_coeffs: Any | None
@@ -685,12 +621,10 @@ class ElectrodynamicResponse:
         """Complete E and return the resulting boundary current."""
         driving_E = self.geometry.horizontal_basis.project_helmholtz_mean_free(driving_E)
         toroidal_potential = self._solve_for_toroidal_potential(boundary_jr_coeffs, driving_E)
-        E_from_toroidal_potential = self._apply_operator(
-            self._runtime_toroidal_potential_to_E_coeffs,
-            toroidal_potential,
-            (2, self.geometry.horizontal_basis.coefficient_count),
+        E_from_toroidal_potential = self.toroidal_potential_to_E_coeffs_operator(
+            toroidal_potential
         )
-        solved_boundary_jr = self.geometry.toroidal_potential_to_boundary_jr_operator.matvec(
+        solved_boundary_jr = self.geometry.toroidal_potential_to_boundary_jr_operator(
             toroidal_potential
         )
         return (
@@ -719,23 +653,13 @@ class ElectrodynamicResponse:
         xp = get_array_module(*active_arrays)
         driving_E = xp.zeros(E_shape)
         if self.u is not None:
-            driving_E += self._apply_operator(
-                self.u_coeffs_to_E_coeffs_operator, xp.asarray(self.u.array), E_shape
-            )
+            driving_E += self.u_coeffs_to_E_coeffs_operator(self.u.array)
         if self.E_neutral_wind is not None:
-            driving_E += self._apply_operator(
-                self.E_neutral_wind_to_E_coeffs_operator,
-                xp.asarray(self.E_neutral_wind.array),
-                E_shape,
-            )
+            driving_E += self.E_neutral_wind_to_E_coeffs_operator(self.E_neutral_wind.array)
         if self.boundary_Br is not None:
-            driving_E += self._apply_operator(
-                self._runtime_boundary_Br_to_E_coeffs, xp.asarray(self.boundary_Br.array), E_shape
-            )
+            driving_E += self.boundary_Br_to_E_coeffs_operator(self.boundary_Br.array)
         if self.Q_eff is not None:
-            driving_E += self._apply_operator(
-                self._runtime_Q_eff_to_E_coeffs, xp.asarray(self.Q_eff.array), E_shape
-            )
+            driving_E += self.Q_eff_to_E_coeffs_operator(self.Q_eff.array)
 
         boundary_jr_coeffs = (
             None if self.boundary_jr is None else xp.asarray(self.boundary_jr.array)
@@ -744,11 +668,7 @@ class ElectrodynamicResponse:
 
     def solve_induced_response(self, induced_Br: Any) -> tuple[Any, Any]:
         """Return E and boundary-jr responses caused by induced Br."""
-        xp = get_array_module(induced_Br)
-        E_shape = (2, self.geometry.horizontal_basis.coefficient_count)
-        driving_E = self._apply_operator(
-            self._runtime_induced_Br_to_E_coeffs, xp.asarray(induced_Br), E_shape
-        )
+        driving_E = self.induced_Br_to_E_coeffs_operator(induced_Br)
         return self._solve_electric_closure(driving_E, None)
 
     # ----- Induction Operators -----

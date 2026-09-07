@@ -47,7 +47,7 @@ class _EvolutionOptions:
     quiet: bool
     initialize_from_equilibrium: bool
     run_dynamic: bool
-    run_equilibrium: bool
+    sample_equilibrium: bool
 
     @classmethod
     def from_values(
@@ -61,7 +61,7 @@ class _EvolutionOptions:
         quiet,
         initialize_from_equilibrium,
         run_dynamic,
-        run_equilibrium,
+        sample_equilibrium,
     ):
         """Normalize and validate evolution arguments."""
         if isinstance(t, (bool, np.bool_)):
@@ -76,13 +76,13 @@ class _EvolutionOptions:
             raise ValueError("dt must be finite and greater than zero.")
 
         run_dynamic = _boolean_option(run_dynamic, name="run_dynamic")
-        if run_equilibrium is None:
-            run_equilibrium = config.save_equilibria
+        if sample_equilibrium is None:
+            sample_equilibrium = config.save_equilibria
         else:
-            run_equilibrium = _boolean_option(run_equilibrium, name="run_equilibrium")
+            sample_equilibrium = _boolean_option(sample_equilibrium, name="sample_equilibrium")
 
-        if not run_dynamic and not run_equilibrium:
-            raise ValueError("At least one of run_dynamic or run_equilibrium must be True.")
+        if not run_dynamic and not sample_equilibrium:
+            raise ValueError("At least one of run_dynamic or sample_equilibrium must be True.")
 
         steps_per_sample = _positive_integer(steps_per_sample, name="steps_per_sample")
         samples_per_write = _positive_integer(samples_per_write, name="samples_per_write")
@@ -97,7 +97,7 @@ class _EvolutionOptions:
                 initialize_from_equilibrium, name="initialize_from_equilibrium"
             ),
             run_dynamic=run_dynamic,
-            run_equilibrium=run_equilibrium,
+            sample_equilibrium=sample_equilibrium,
         )
 
     @property
@@ -129,7 +129,7 @@ class _TimeEvolution:
         quiet=False,
         initialize_from_equilibrium=True,
         run_dynamic=True,
-        run_equilibrium=None,
+        sample_equilibrium=None,
     ) -> None:
         """Evolve the associated simulation to a target time."""
         options = _EvolutionOptions.from_values(
@@ -141,7 +141,7 @@ class _TimeEvolution:
             quiet=quiet,
             initialize_from_equilibrium=initialize_from_equilibrium,
             run_dynamic=run_dynamic,
-            run_equilibrium=run_equilibrium,
+            sample_equilibrium=sample_equilibrium,
         )
         dynamic_induced_Br = self._initialize_induced_Br(options)
 
@@ -283,7 +283,7 @@ class _TimeEvolution:
         requested_outputs = []
         if options.run_dynamic:
             requested_outputs.append("dynamic")
-        if options.run_equilibrium:
+        if options.sample_equilibrium:
             requested_outputs.append("equilibrium")
         return bool(requested_outputs) and all(
             self._output_dataset_reaches(dataset_key, options.target_time)
@@ -322,18 +322,32 @@ class _TimeEvolution:
             should_save_sample = is_final_step or (
                 is_sample_step and step % options.save_step_interval == 0
             )
-            equilibrium_induced_Br = self._equilibrium_for_step(
-                options, is_sample_step, is_final_step, E_coeffs_noninductive
+            needs_equilibrium = (
+                options.run_dynamic
+                and self.simulation.config.integrator == "exponential"
+                and not is_final_step
+            ) or (options.sample_equilibrium and is_sample_step)
+            equilibrium_induced_Br = (
+                induction.equilibrium_induced_Br(self.simulation.response, E_coeffs_noninductive)
+                if needs_equilibrium
+                else None
             )
 
             if is_sample_step:
-                self._sample_outputs(
-                    options,
-                    dynamic_induced_Br,
-                    equilibrium_induced_Br,
-                    E_coeffs_noninductive,
-                    boundary_jr_noninductive,
-                )
+                if options.run_dynamic:
+                    self._record_output_snapshot(
+                        "dynamic",
+                        dynamic_induced_Br,
+                        E_coeffs_noninductive,
+                        boundary_jr_noninductive,
+                    )
+                if options.sample_equilibrium:
+                    self._record_output_snapshot(
+                        "equilibrium",
+                        equilibrium_induced_Br,
+                        E_coeffs_noninductive,
+                        boundary_jr_noninductive,
+                    )
                 if should_save_sample:
                     self._save_sample_outputs(options)
 
@@ -384,19 +398,6 @@ class _TimeEvolution:
             flush=True,
         )
 
-    def _equilibrium_for_step(self, options, is_sample_step, is_final_step, E_coeffs_noninductive):
-        """Return equilibrium coefficients when needed."""
-        needs_equilibrium = (
-            options.run_dynamic
-            and self.simulation.config.integrator == "exponential"
-            and not is_final_step
-        ) or (options.run_equilibrium and is_sample_step)
-
-        if not needs_equilibrium:
-            return None
-
-        return induction.equilibrium_induced_Br(self.simulation.response, E_coeffs_noninductive)
-
     def _exponential_propagator_for_step(self, dt):
         """Return the cached propagator for this closure and step."""
         if self.simulation.config.integrator != "exponential":
@@ -415,27 +416,6 @@ class _TimeEvolution:
                 )
             )
         return self._cached_exponential_propagator
-
-    def _sample_outputs(
-        self,
-        options: _EvolutionOptions,
-        dynamic_induced_Br,
-        equilibrium_induced_Br,
-        E_coeffs_noninductive,
-        boundary_jr_noninductive,
-    ) -> None:
-        """Add enabled outputs for the current loop time."""
-        if options.run_dynamic:
-            self._record_output_snapshot(
-                "dynamic", dynamic_induced_Br, E_coeffs_noninductive, boundary_jr_noninductive
-            )
-        if options.run_equilibrium:
-            self._record_output_snapshot(
-                "equilibrium",
-                equilibrium_induced_Br,
-                E_coeffs_noninductive,
-                boundary_jr_noninductive,
-            )
 
     def _record_output_snapshot(
         self, key, induced_Br, E_coeffs_noninductive, boundary_jr_noninductive
@@ -474,7 +454,7 @@ class _TimeEvolution:
             self.simulation.data.output_series.save("dynamic", self.simulation.data.artifact_store)
             saved_outputs.append("dynamic")
 
-        if options.run_equilibrium:
+        if options.sample_equilibrium:
             self.simulation.data.output_series.save(
                 "equilibrium", self.simulation.data.artifact_store
             )

@@ -9,7 +9,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pyhwm2014  # https://github.com/rilma/pyHWM14
 
-import pynamit
 from pynamit.coordinates import decimal_year
 from pynamit.external_inputs import get_conductance_inputs
 from pynamit.external_inputs.coordinates import ExternalInputCoordinates

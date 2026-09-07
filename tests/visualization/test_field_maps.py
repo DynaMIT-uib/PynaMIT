@@ -4,16 +4,15 @@ import numpy as np
 import pytest
 import scipy.sparse
 from kompe import GlobalCSBasis, SHBasis, SphericalTransform
-from kompe.math import as_linear_map
+from kompe.math import as_linear_map, identity_linear_map
 
 from pynamit.results.field_evaluation import (
     evaluate_conductance_coefficients,
     evaluate_conductance_values,
-    evaluate_sheet_current_from_operators,
     evaluate_tangential_coefficients,
     evaluate_wind_coefficients,
 )
-from pynamit.results.output_fields import evaluate_output_coefficients
+from pynamit.results.output_fields import evaluate_output_coefficients, evaluate_sheet_current
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     conductance_to_log_coordinates,
     conductance_to_resistance,
@@ -91,7 +90,7 @@ def test_tangential_and_wind_coefficients_share_component_convention():
 
 def test_JS_map_accepts_sparse_operators():
     """Visualization field maps use the shared LinearMap adapter."""
-    current = evaluate_sheet_current_from_operators(
+    current = evaluate_sheet_current(
         boundary_jr=np.array([1.0, 2.0]),
         induced_Br=np.array([3.0, 4.0]),
         boundary_jr_to_JS=scipy.sparse.csr_matrix(np.eye(4, 2)),
@@ -101,9 +100,22 @@ def test_JS_map_accepts_sparse_operators():
     np.testing.assert_allclose(current, np.array([[7.0, 10.0], [0.0, 0.0]]))
 
 
+def test_JS_evaluation_does_not_mutate_input_coefficients():
+    """Summing sources preserves input coefficients."""
+    coefficients = np.arange(4.0)
+    identity = identity_linear_map((4,))
+
+    current = evaluate_sheet_current(
+        coefficients, coefficients, boundary_jr_to_JS=identity, induced_Br_to_JS=identity
+    )
+
+    np.testing.assert_array_equal(coefficients, np.arange(4.0))
+    np.testing.assert_array_equal(current, (2 * coefficients).reshape(2, 2))
+
+
 def test_JS_map_includes_optional_boundary_field():
     """Boundary Br contributes through the same current-map adapter."""
-    current = evaluate_sheet_current_from_operators(
+    current = evaluate_sheet_current(
         boundary_jr=np.array([1.0, 2.0]),
         induced_Br=np.array([3.0, 4.0]),
         boundary_jr_to_JS=np.eye(4, 2),
@@ -142,7 +154,7 @@ def test_field_map_evaluation_preserves_jax_arrays(backend, data_source):
 
     coefficients = jnp.array([0.1, -0.2])
     values = evaluate_conductance_values(coefficients, coefficients)
-    current = evaluate_sheet_current_from_operators(
+    current = evaluate_sheet_current(
         coefficients, coefficients, boundary_jr_to_JS=jnp.eye(4, 2), induced_Br_to_JS=jnp.eye(4, 2)
     )
 

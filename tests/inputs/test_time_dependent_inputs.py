@@ -39,7 +39,7 @@ def test_prepared_coefficient_series_drives_a_simulation(tmp_path):
         dt=0.05,
         samples_per_write=1,
         initialize_from_equilibrium=False,
-        run_equilibrium=False,
+        sample_equilibrium=False,
         artifact_storage="netcdf",
     )
 

@@ -12,7 +12,6 @@ from pynamit.simulation.input_manifest import write_input_manifest
 from pynamit.simulation.input_projection import _InputProjector
 from pynamit.simulation.schema import INPUT_DATASET_KEYS, WIND_FORCING_INPUTS
 from pynamit.simulation.simulation_data import SimulationData
-from pynamit.storage import ArtifactStore
 
 
 class InputPreparation:
@@ -46,6 +45,7 @@ class InputPreparation:
     def __init__(
         self,
         input_directory=None,
+        *,
         Nmax=20,
         Mmax=20,
         Ncs=30,
@@ -261,26 +261,27 @@ class InputPreparation:
         return preparation
 
     @classmethod
-    def from_directory(cls, input_directory, **kwargs):
-        """Open an existing prepared-input directory."""
-        input_directory = ArtifactStore.require_artifact_directory(input_directory, ("settings",))
-        artifact_storage = kwargs.get("artifact_storage", "auto")
-        settings = ArtifactStore(
-            input_directory, preferred_dataset_storage=artifact_storage
-        ).load_dataset("settings")
+    def from_directory(
+        cls,
+        input_directory,
+        *,
+        artifact_storage="auto",
+        operator_cache_directory=None,
+        backend="auto",
+    ):
+        """Reopen saved inputs, retaining their physical configuration.
 
-        stored_config = SimulationConfig.from_settings(settings)
-        config_values = stored_config.to_kwargs()
-        config_overrides = {
-            name: value
-            for name, value in kwargs.items()
-            if name in config_values and value is not None
-        }
-        config = SimulationConfig(**{**config_values, **config_overrides})
-        runtime_kwargs = {
-            name: value for name, value in kwargs.items() if name not in config_values
-        }
-        return cls.from_config(config, input_directory=input_directory, **runtime_kwargs)
+        Only storage, cache, and backend preferences can change.
+        """
+        preparation = cls.__new__(cls)
+        preparation._open_input_preparation(
+            None,
+            directory=input_directory,
+            artifact_storage=artifact_storage,
+            operator_cache_directory=operator_cache_directory,
+            backend=backend,
+        )
+        return preparation
 
     def write_manifest(self, *, source="manual", notes=(), metadata=None):
         """Write the manifest for this reusable input package."""

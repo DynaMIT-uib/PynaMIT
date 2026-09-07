@@ -33,6 +33,17 @@ def test_public_simulation_name_is_canonical():
     assert not hasattr(pynamit, "Dynamics")
 
 
+def test_invalid_settings_fail_before_creating_a_directory(monkeypatch):
+    """Configuration validation precedes persistence side effects."""
+
+    def unexpected_directory():
+        pytest.fail("Invalid settings must not create a temporary directory.")
+
+    monkeypatch.setattr(ArtifactStore, "create_temporary_directory", unexpected_directory)
+    with pytest.raises(ValueError, match="Nmax"):
+        SimulationData.open({"Nmax": -1})
+
+
 def test_simulation_data_owns_schema_artifacts_and_field_series(tmp_path):
     """SimulationData creates and reloads persisted simulation state."""
     simulation_directory = tmp_path / "simulation"
@@ -199,9 +210,7 @@ def test_simulation_from_directory_uses_saved_configuration(tmp_path):
         artifact_storage="netcdf",
     )
 
-    reloaded = Simulation.from_directory(
-        str(simulation_directory), horizontal_basis_kind=None, artifact_storage="netcdf"
-    )
+    reloaded = Simulation.from_directory(str(simulation_directory), artifact_storage="netcdf")
 
     assert reloaded.config.Nmax == original.config.Nmax
     assert not hasattr(reloaded, "run_data")
@@ -214,8 +223,10 @@ def test_simulation_from_directory_uses_saved_configuration(tmp_path):
     )
 
 
-def test_simulation_from_directory_rejects_conflicting_override(tmp_path):
-    """Explicit restart overrides must match saved settings."""
+@pytest.mark.parametrize("constructor", [pynamit.InputPreparation, Simulation])
+@pytest.mark.parametrize("override", [None, 2, 3])
+def test_from_directory_has_no_physical_overrides(tmp_path, constructor, override):
+    """Reopening does not offer physical settings it cannot change."""
     simulation_directory = tmp_path / "simulation"
     Simulation(
         simulation_directory=str(simulation_directory),
@@ -226,5 +237,42 @@ def test_simulation_from_directory_rejects_conflicting_override(tmp_path):
         artifact_storage="netcdf",
     )
 
-    with pytest.raises(ValueError, match="Mismatch"):
-        Simulation.from_directory(str(simulation_directory), Nmax=3, artifact_storage="netcdf")
+    with pytest.raises(TypeError, match="Nmax"):
+        constructor.from_directory(simulation_directory, Nmax=override, artifact_storage="netcdf")
+
+
+@pytest.mark.parametrize("constructor", [pynamit.InputPreparation, Simulation])
+def test_from_directory_reads_settings_once(tmp_path, monkeypatch, constructor):
+    """The shared data owner loads and validates saved settings once."""
+    original = constructor(tmp_path, Nmax=2, Mmax=1, Ncs=4, artifact_storage="netcdf")
+    load_dataset = ArtifactStore.load_dataset
+    settings_reads = []
+
+    def counted_load(store, key, **kwargs):
+        if key == "settings":
+            settings_reads.append(key)
+        return load_dataset(store, key, **kwargs)
+
+    monkeypatch.setattr(ArtifactStore, "load_dataset", counted_load)
+    reopened = constructor.from_directory(tmp_path, artifact_storage="netcdf")
+    assert type(reopened) is constructor
+    assert settings_reads == ["settings"]
+    assert reopened.config.to_dataset().identical(original.config.to_dataset())
+    assert reopened._geometry is None
+    assert hasattr(reopened, "_time_evolution") == (constructor is Simulation)
+
+
+@pytest.mark.parametrize("constructor", [pynamit.InputPreparation, Simulation])
+def test_reopening_requires_saved_settings_without_creating_files(tmp_path, constructor):
+    """Reopening a missing directory must not create files."""
+    missing = tmp_path / "missing"
+    with pytest.raises(ValueError, match="No saved 'settings'"):
+        constructor.from_directory(missing)
+    assert not missing.exists()
+
+
+@pytest.mark.parametrize("constructor", [pynamit.InputPreparation, Simulation])
+def test_physical_constructor_options_are_keyword_only(tmp_path, constructor):
+    """Keep a script's numerical choices visible beside their values."""
+    with pytest.raises(TypeError, match="positional"):
+        constructor(tmp_path, 2)

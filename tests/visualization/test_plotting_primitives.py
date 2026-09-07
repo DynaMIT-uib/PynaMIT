@@ -44,6 +44,51 @@ from pynamit.plotting.map_curves import (
 from pynamit.storage import ArtifactStore
 
 
+@pytest.mark.parametrize("scatter", [False, True])
+def test_quicklook_returns_editable_figures_without_displaying(tmp_path, monkeypatch, scatter):
+    """Quicklook figures remain available for editing and saving."""
+    import matplotlib.pyplot as plt
+
+    from pynamit.plotting.quicklook import plot_global_polar_map
+
+    def unexpected_display(*args, **kwargs):
+        pytest.fail("Plot construction must not show or save a figure.")
+
+    monkeypatch.setattr(plt, "show", unexpected_display)
+    monkeypatch.setattr(plt, "savefig", unexpected_display)
+    lon, lat = np.meshgrid(np.linspace(-170, 170, 12), [-80, -65, -30, 30, 65, 80])
+    values = np.cos(np.deg2rad(lat)) * np.sin(np.deg2rad(lon))
+    # A model-coordinate map intentionally has no geographic coastlines.
+    context = MapCoordinateContext.from_noon_longitude(30)
+    fig, north, south, global_axis = plot_global_polar_map(
+        lon,
+        lat,
+        values,
+        scatter=scatter,
+        title="Field",
+        coordinate_context=context,
+        cmap="viridis",
+    )
+    try:
+        assert plt.fignum_exists(fig.number)
+        assert global_axis.get_title() == "Field"
+        assert all(axis.figure is fig for axis in (north.ax, south.ax, global_axis))
+        global_axis.set_title("Edited field")
+        fig.savefig(tmp_path / "quicklook.png")
+        assert (tmp_path / "quicklook.png").stat().st_size > 0
+    finally:
+        plt.close(fig)
+
+
+def test_figure_settings_normalization_preserves_existing_instances():
+    """Settings conversion belongs to the configuration boundary."""
+    from pynamit.plotting.figure_settings import FigureSettings, as_figure_settings
+
+    settings = FigureSettings(plot_type="global")
+    assert as_figure_settings(settings) is settings
+    assert as_figure_settings({"plot_type": "global"}) == settings
+
+
 def test_local_time_longitude_helpers_are_vectorized():
     """Longitude helpers support scalar and vector inputs."""
     reference_time = dt.datetime(2011, 10, 24, 18, 30)

@@ -68,31 +68,51 @@ def test_toroidal_potential_solvers_match_the_direct_physical_solution(
     )
 
 
-@pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
-def test_apply_operator_keeps_linear_map_on_jax():
-    """Response application should use LinearMap directly."""
-    import jax.numpy as jnp
-
-    previous_backend = get_backend()
-    matrix = np.array([[1.0, 2.0], [3.0, 5.0]])
-    coeffs = jnp.asarray([7.0, 11.0])
-    operator = einsum_linear_map(
-        component_tensors=[matrix],
-        einsum_string_dense="ij->ij",
-        einsum_string_matvec="ij,j->i",
-        einsum_string_rmatvec="i,ij->j",
-        output_shape=(2,),
-        input_shape=(2,),
+@pytest.mark.parametrize("horizontal_basis_kind", ["SH", "CS"])
+def test_response_prepares_one_canonical_operator(
+    tmp_path, monkeypatch, backend, horizontal_basis_kind
+):
+    """Compile compact maps once; keep CS maps structured."""
+    simulation = Simulation(
+        simulation_directory=tmp_path,
+        Nmax=2,
+        Mmax=1,
+        Ncs=4,
+        main_field_kind="radial",
+        enable_pfac_coupling=False,
+        horizontal_basis_kind=horizontal_basis_kind,
+        artifact_storage="netcdf",
+        backend=backend,
     )
+    space = simulation.data.schema.input_field_spaces["conductance"]
+    simulation.set_conductance(
+        log_magnitude_coefficients=np.zeros(space.shape),
+        log_ratio_coefficients=np.zeros(space.shape),
+        time=0.0,
+    )
+    response = simulation.response
+    response.activate_inputs_at_time(simulation.data.input_series, 0.0)
+    materialized = []
+    original_to_matrix = LinearMap.to_matrix
 
-    try:
-        set_backend("jax")
-        result = ElectrodynamicResponse._apply_operator(operator, coeffs, (2,))
-    finally:
-        set_backend(previous_backend)
+    def to_matrix(operator, **kwargs):
+        materialized.append(operator)
+        return original_to_matrix(operator, **kwargs)
 
-    assert "jax" in type(result).__module__
-    np.testing.assert_allclose(np.asarray(result), matrix @ np.asarray(coeffs))
+    monkeypatch.setattr(LinearMap, "to_matrix", to_matrix)
+    induced = response.induced_Br_to_E_coeffs_operator
+    toroidal = response.toroidal_potential_to_E_coeffs_operator
+    xp = get_array_module()
+    induced(xp.ones(induced.input_shape))
+    toroidal(xp.ones(toroidal.input_shape))
+
+    assert response.induced_Br_to_E_coeffs_operator is induced
+    assert response.toroidal_potential_to_E_coeffs_operator is toroidal
+    assert sum(operator is induced for operator in materialized) == 1
+    assert sum(operator is toroidal for operator in materialized) == (
+        horizontal_basis_kind == "SH"
+    )
+    assert bool(toroidal._dense_cache) == (horizontal_basis_kind == "SH")
 
 
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX is not installed.")
@@ -131,7 +151,7 @@ def test_u_coeffs_to_E_coeffs_is_linear_map_on_jax():
     try:
         set_backend("jax")
         operator = response.u_coeffs_to_E_coeffs_operator
-        result = ElectrodynamicResponse._apply_operator(operator, jnp.asarray(coeffs), (2, n))
+        result = operator(jnp.asarray(coeffs))
     finally:
         set_backend(previous_backend)
 
@@ -164,6 +184,7 @@ def test_Q_eff_coeffs_to_E_coeffs_uses_resistance_tensor_operator():
     response = object.__new__(ElectrodynamicResponse)
     response.geometry = SimpleNamespace(
         horizontal_basis=SimpleNamespace(coefficient_count=n),
+        poloidal_basis=None,
         model_grid=SimpleNamespace(size=n_grid),
         helmholtz_analysis_operator=as_linear_map(
             helmholtz_analysis, input_shape=(2, n_grid), output_shape=(2, n)
@@ -175,7 +196,7 @@ def test_Q_eff_coeffs_to_E_coeffs_uses_resistance_tensor_operator():
     response._resistance_tensor_on_grid = M_total
 
     operator = response.Q_eff_to_E_coeffs_operator
-    result = ElectrodynamicResponse._apply_operator(operator, coeffs, (2, n))
+    result = operator(coeffs)
 
     assert isinstance(operator, LinearMap)
     assert operator.output_shape == (2, n)
@@ -226,7 +247,6 @@ def test_induction_matrix_assembly_stays_on_jax():
         output_shape=(2, n),
         input_shape=(n,),
     )
-    response._runtime_toroidal_potential_to_E_coeffs_cache = None
     response._boundary_jr_to_toroidal_potential_operator = None
     response._driving_E_to_toroidal_potential_operator = as_linear_map(
         jnp.asarray(driving_E_to_toroidal_potential), input_shape=(2, n), output_shape=(n,)
@@ -617,7 +637,6 @@ def test_model_operator_accessors_match_runtime_operator_chain():
         output_shape=(2, n),
         input_shape=(n,),
     )
-    response._runtime_toroidal_potential_to_E_coeffs_cache = None
     response._boundary_Br_to_E_coeffs_operator_cache = None
     response._boundary_jr_to_toroidal_potential_operator = as_linear_map(
         boundary_jr_to_toroidal_potential, input_shape=(n,), output_shape=(n,)
@@ -651,10 +670,9 @@ def test_model_operator_accessors_match_runtime_operator_chain():
     response._induced_Br_to_W_operator_cache = as_linear_map(expected_W["induced_Br"])
 
     response.geometry.poloidal_basis = response.geometry.horizontal_basis
-    runtime_toroidal_potential_to_E = response._runtime_toroidal_potential_to_E_coeffs
+    runtime_toroidal_potential_to_E = response.toroidal_potential_to_E_coeffs_operator
     assert isinstance(runtime_toroidal_potential_to_E, LinearMap)
     assert runtime_toroidal_potential_to_E is response.toroidal_potential_to_E_coeffs_operator
-    assert runtime_toroidal_potential_to_E is response._runtime_toroidal_potential_to_E_coeffs
     np.testing.assert_allclose(
         runtime_toroidal_potential_to_E.matvec(np.arange(n, dtype=float)),
         toroidal_potential_to_E_matrix @ np.arange(n, dtype=float),

@@ -397,7 +397,7 @@ def test_identical_conductance_history_retains_closure_caches(tmp_path):
     assert response.log_conductance_magnitude is first_coefficients
 
 
-def test_response_detects_small_edits_to_live_input_datasets(tmp_path):
+def test_response_detects_small_edits_to_live_input_datasets(tmp_path, monkeypatch):
     """Selection snapshots detect small edits to live input arrays."""
     simulation = _small_simulation(tmp_path)
     shape = simulation.data.schema.input_field_spaces["conductance"].shape
@@ -406,7 +406,16 @@ def test_response_detects_small_edits_to_live_input_datasets(tmp_path):
     )
     response = simulation.response
     series = simulation.data.input_series
+    selected = {}
+    get_entry = series.get_entry
+
+    def capture_entry(key, *args, **kwargs):
+        selected[key] = get_entry(key, *args, **kwargs)
+        return selected[key]
+
+    monkeypatch.setattr(series, "get_entry", capture_entry)
     response.activate_inputs_at_time(series, 0.0)
+    assert response._active_input_entries["conductance"][1] is selected["conductance"]
     first = response.log_conductance_magnitude
     fingerprint = response.conductance_fingerprint
 

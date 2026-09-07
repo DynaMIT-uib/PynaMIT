@@ -152,7 +152,7 @@ def test_mage_projection_validates_sweep_before_projecting(monkeypatch, tmp_path
 def test_mage_run_defaults_to_initialize_from_equilibrium_and_output():
     """MAGE starts from and records instantaneous equilibrium."""
     assert MAGE_SIMULATION_SETTINGS.initialize_from_equilibrium is True
-    assert MAGE_SIMULATION_SETTINGS.run_equilibrium is True
+    assert MAGE_SIMULATION_SETTINGS.sample_equilibrium is True
     assert MAGE_SIMULATION_SETTINGS.magnetic_boundary_shielding is False
     assert MAGE_SIMULATION_SETTINGS.final_time is None
 

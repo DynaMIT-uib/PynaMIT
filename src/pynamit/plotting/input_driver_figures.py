@@ -11,17 +11,18 @@ from pynamit.plotting.contours import (
     percentile_contour_levels,
     set_contour_edges_to_face,
 )
+from pynamit.plotting.figure_settings import as_figure_settings
 from pynamit.plotting.figure_styles import INPUT_SUMMARY_KWARGS
 from pynamit.plotting.hemisphere import hemisphere_masks_for_latitude, make_hemisphere_polarplot
 from pynamit.plotting.map_axes import style_global_axis
-from pynamit.plotting.plot_data import _coerce_figure_settings, format_figure_time, get_plot_data
+from pynamit.plotting.plot_data import format_figure_time, get_plot_data
 
 
 class InputDriverRenderer:
     """Render projected input drivers on the saved simulation grid."""
 
     def __init__(self, settings, plot_data=None):
-        self.settings = _coerce_figure_settings(settings)
+        self.settings = as_figure_settings(settings)
         self.plot_data = get_plot_data(self.settings) if plot_data is None else plot_data
 
     def render(self):
