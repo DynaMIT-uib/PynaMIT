@@ -13,9 +13,14 @@ operators.
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
+from kompe import SphericalGrid, SphericalTransform
 from kompe.constants import MU0
-from kompe.math import diagonal_linear_map, get_array_module
+from kompe.math import diagonal_linear_map, get_array_module, pointwise_matrix_linear_map
+
+logger = logging.getLogger(__name__)
 
 
 def _coefficient_scale(values):
@@ -108,6 +113,93 @@ def boundary_Br_to_gridded_JS_operator(solid_harmonics, transform, *, radius, bo
     return external_Br_to_gridded_JS_operator(solid_harmonics, transform) @ continued_Br
 
 
+def boundary_jr_to_gap_Br_matrix(
+    main_field,
+    horizontal_basis,
+    poloidal_transform,
+    solid_harmonics,
+    *,
+    ionosphere_radius,
+    integration_radii,
+    boundary_radius=None,
+):
+    """Integrate the gap field produced by ionospheric radial current.
+
+    Map horizontal ``jr(RI)`` coefficients to poloidal ``Br(RI)``
+    coefficients using midpoint shell quadrature (radii in metres).
+    Field-aligned continuation gives each shell's horizontal current;
+    its shielding potential determines the incident gap field.
+
+    This one-time construction returns a NumPy matrix for reuse and
+    storage. Intermediate shell maps are materialized on the CPU and
+    are excluded from the persistent basis-evaluation cache.
+    """
+    model_grid = poloidal_transform.grid
+    poloidal_basis = solid_harmonics.basis
+    shielding_potential_response = np.zeros(
+        (poloidal_basis.index_length, horizontal_basis.index_length)
+    )
+    integration_radii = np.asarray(integration_radii)
+    radial_step_widths = np.diff(integration_radii)
+    radial_midpoints = integration_radii[:-1] + 0.5 * radial_step_widths
+    gridded_JS_to_poloidal = poloidal_transform.rhat_cross_gradient_analysis_operator(
+        coefficient_scale=(
+            -np.asarray(solid_harmonics.poloidal_to_normalized_potential_jump_factors) / MU0
+        )
+    )
+    if boundary_radius is None:
+        boundary_response_factor = -1.0
+    else:
+        # Regular/irregular images enforce Br(boundary_radius) = 0.
+        outer_regular_to_ionosphere = np.asarray(
+            solid_harmonics.regular_reference_shift_factors(boundary_radius, ionosphere_radius)
+        )
+        boundary_response_factor = -np.asarray(
+            shielded_induced_poloidal_scale(solid_harmonics, boundary_radius, ionosphere_radius)
+        )
+
+    for i, (radius, width) in enumerate(zip(radial_midpoints, radial_step_widths, strict=True)):
+        logger.debug(
+            "Gap-field integration step %d/%d (r=%s)", i + 1, radial_midpoints.size, radius
+        )
+        theta_footpoint, phi_footpoint = main_field.map_along_field_lines(
+            r_dest=ionosphere_radius, r=radius, theta=model_grid.theta, phi=model_grid.phi
+        )
+        footpoint_grid = SphericalGrid(theta=theta_footpoint, phi=phi_footpoint)
+        _, shell_Btheta, shell_Bphi = main_field.evaluate(model_grid, radius)
+        footpoint_Br = main_field.evaluate(footpoint_grid, ionosphere_radius)[0]
+        footpoint_transform = SphericalTransform(
+            horizontal_basis, footpoint_grid, use_persistent_evaluation_cache=False
+        )
+        jr_to_gridded_JS = pointwise_matrix_linear_map(
+            np.array([shell_Btheta / footpoint_Br, shell_Bphi / footpoint_Br]).reshape(
+                2, 1, model_grid.size
+            )
+        )
+
+        poloidal_scale = np.array(
+            solid_harmonics.regular_reference_shift_factors(radius, ionosphere_radius), copy=True
+        )
+        if boundary_radius is not None:
+            poloidal_scale -= outer_regular_to_ionosphere * np.asarray(
+                solid_harmonics.irregular_reference_shift_factors(radius, boundary_radius)
+            )
+        poloidal_scale *= boundary_response_factor
+        shell_response = (
+            diagonal_linear_map(poloidal_scale)
+            @ gridded_JS_to_poloidal
+            @ jr_to_gridded_JS
+            @ footpoint_transform.scalar_synthesis_operator
+        )
+        shielding_potential_response += width * np.asarray(
+            shell_response.to_matrix(backend="numpy")
+        )
+
+    # Shielding gives kappa = -D^-1 b_gap, hence b_gap = -D kappa.
+    degree_factor = np.asarray(poloidal_basis.n * (poloidal_basis.n + 1), dtype=float)
+    return -degree_factor[:, None] * shielding_potential_response
+
+
 def toroidal_potential_to_gridded_JS_operator(
     solid_harmonics,
     horizontal_transform,
@@ -160,6 +252,7 @@ __all__ = [
     "boundary_Br_to_gridded_JS_operator",
     "boundary_Br_to_ionosphere_external_Br_scale",
     "boundary_jr_to_gridded_JS_operator",
+    "boundary_jr_to_gap_Br_matrix",
     "external_Br_to_gridded_JS_operator",
     "induced_Br_to_gridded_JS_operator",
     "poloidal_potential_to_gridded_JS_operator",

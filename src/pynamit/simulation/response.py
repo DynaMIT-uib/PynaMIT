@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import numpy as np
 from kompe.math import (
     ArrayBackend,
     LeastSquaresProblem,
@@ -67,9 +68,13 @@ class ElectrodynamicResponse:
         self.boundary_jr: FieldCoefficients | None = None
         self.log_conductance_magnitude: FieldCoefficients | None = None
         self.log_hall_to_pedersen_ratio: FieldCoefficients | None = None
+        # Each response owns its selection history. CPU snapshots
+        # let unchanged inputs avoid another device transfer.
+        self._active_input_entries: dict[str, tuple[Any, dict[str, np.ndarray]]] = {}
 
         # Initialize closure-dependent caches.
         self._invalidate_closure_caches()
+        self._invalidate_toroidal_solver()
 
     def __repr__(self):
         """Summarize inputs without materializing operators."""
@@ -162,14 +167,18 @@ class ElectrodynamicResponse:
             LinearMap | None
         ) = None
         self._noninductive_W_to_equilibrium_induced_Br_operator: LinearMap | None = None
-        self._boundary_jr_to_toroidal_potential_operator: LinearMap | None = None
         self._driving_E_to_toroidal_potential_operator: LinearMap | None = None
         self._driving_E_to_total_E_operator: LinearMap | None = None
         self._driving_E_to_W_operator: LinearMap | None = None
+
+    def _invalidate_toroidal_solver(self, *, keep_preconditioner=False) -> None:
+        """Discard the fit when its constraint operators change."""
+        self._boundary_jr_to_toroidal_potential_operator: LinearMap | None = None
         self._toroidal_potential_problem_cache: LeastSquaresProblem | None = None
         self._toroidal_potential_response_solver_cache = None
-        self._toroidal_potential_preconditioner_cache: LinearMap | None = None
-        self._toroidal_potential_preconditioner_ready = False
+        if not keep_preconditioner:
+            self._toroidal_potential_preconditioner_cache: LinearMap | None = None
+            self._toroidal_potential_preconditioner_ready = False
 
     # ----- Cached Physical Properties (dependent on resistance) -----
 
@@ -301,9 +310,8 @@ class ElectrodynamicResponse:
         spaces_coincide = self.geometry.horizontal_basis is self.geometry.poloidal_basis
         if not (compact_input or spaces_coincide) or op.is_diagonal:
             return op
-        return as_linear_map(
-            op.to_array(), input_shape=op.input_shape, output_shape=op.output_shape
-        )
+        op.to_matrix()
+        return op
 
     @property
     def _runtime_induced_Br_to_E_coeffs(self) -> LinearMap:
@@ -601,47 +609,66 @@ class ElectrodynamicResponse:
     def activate_inputs_at_time(
         self, input_series: Any, time: float, interpolation: bool = False
     ) -> None:
-        """Update inputs active at the requested simulation time."""
-        previous_conductance_fingerprint = (
-            None
-            if (self.log_conductance_magnitude is None or self.log_hall_to_pedersen_ratio is None)
-            else self.conductance_fingerprint
-        )
-        active_conductance_fingerprint = None
-        for key in input_series.datasets:
-            updated_input = input_series.get_entry_if_changed(key, time, interpolation)
-            if updated_input is None:
-                continue
+        """Select inputs and invalidate their dependent operators.
 
+        Selection may move backward or use a replaced input package.
+        Absent fields are cleared; unchanged coefficients retain their
+        device arrays and response caches.
+        """
+        for key, variables in input_series.variables.items():
+            current = (
+                input_series.get_entry(key, time, interpolation)
+                if key in input_series.datasets
+                else None
+            )
+            previous = self._active_input_entries.get(key)
             field_space = input_series.get_field_space(key)
-            if key == "conductance":
-                active_conductance_fingerprint = self._fingerprint_conductance(
-                    field_space,
-                    updated_input["log_conductance_magnitude"],
-                    updated_input["log_hall_to_pedersen_ratio"],
+            space_changed = previous is None or previous[0] != field_space.signature
+            if current is None:
+                if previous is None:
+                    continue
+                del self._active_input_entries[key]
+            else:
+                if not space_changed and all(
+                    np.array_equal(current[var], previous[1][var], equal_nan=True)
+                    for var in variables
+                ):
+                    continue
+                self._active_input_entries[key] = (
+                    field_space.signature,
+                    {var: np.array(current[var], copy=True) for var in variables},
                 )
-            for variable, coefficients in updated_input.items():
+
+            for variable in variables:
                 setattr(
                     self,
                     variable,
-                    FieldCoefficients(field_space, coeffs=coefficients, name=variable),
+                    None
+                    if current is None
+                    else FieldCoefficients(field_space, coeffs=current[variable], name=variable),
                 )
 
-        if active_conductance_fingerprint is not None:
-            self._conductance_fingerprint_cache = active_conductance_fingerprint
-            if active_conductance_fingerprint == previous_conductance_fingerprint:
-                logger.info("Conductance coefficients unchanged: retaining closure caches.")
-                return
-
-            logger.info("Conductance updated: invalidating closure caches and problem definition.")
-            preconditioner_to_keep = self._toroidal_potential_preconditioner_cache
-            preconditioner_ready_to_keep = self._toroidal_potential_preconditioner_ready
-            self._invalidate_closure_caches()
-            self._conductance_fingerprint_cache = active_conductance_fingerprint
-            if self.config.reuse_preconditioner and preconditioner_ready_to_keep:
-                logger.info("...reusing preconditioner due to configuration.")
-                self._toroidal_potential_preconditioner_cache = preconditioner_to_keep
-                self._toroidal_potential_preconditioner_ready = True
+            if key == "conductance":
+                logger.info("Conductance changed: invalidating resistance-dependent response.")
+                self._invalidate_closure_caches()
+                # Without conjugate E constraints, the toroidal fit
+                # depends on magnetic geometry, not conductance.
+                if self.geometry.interhemispheric_electric_field_difference_operator is not None:
+                    self._invalidate_toroidal_solver(
+                        keep_preconditioner=self.config.reuse_preconditioner
+                    )
+                if current is not None:
+                    self._conductance_fingerprint_cache = self._fingerprint_conductance(
+                        field_space,
+                        current["log_conductance_magnitude"],
+                        current["log_hall_to_pedersen_ratio"],
+                    )
+            elif key == "Q_eff" and (space_changed or current is None):
+                self._Q_eff_synthesis_operator_cache = None
+                self._Q_eff_to_E_coeffs_operator_cache = None
+                self._runtime_Q_eff_to_E_coeffs_cache = None
+            elif key == "E_neutral_wind" and (space_changed or current is None):
+                self._E_neutral_wind_to_E_coeffs_operator_cache = None
 
     # ----- Response Calculation -----
 

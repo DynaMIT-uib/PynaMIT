@@ -36,8 +36,6 @@ class InputPreparation:
         Grid on which sampled input fields are projected.
     main_field : pynamit.geomagnetism.MainField
         Background magnetic field used to interpret physical inputs.
-    inputs : dict
-        Projected input datasets, keyed by stream name.
     geometry : SimulationGeometry
         Full simulation geometry. Constructed only when first accessed;
         ordinary input projection does not require it.
@@ -186,7 +184,6 @@ class InputPreparation:
         )
         self.config = self.data.config
         self.input_directory = self.data.simulation_directory
-        self.inputs = self.data.input_series.datasets
         active_wind_forcings = sorted(WIND_FORCING_INPUTS.intersection(self.inputs))
         if len(active_wind_forcings) > 1:
             representations = ", ".join(repr(name) for name in active_wind_forcings)
@@ -205,6 +202,11 @@ class InputPreparation:
         self.current_time = np.float64(0)
 
         self.data.save_settings_if_missing()
+
+    @property
+    def inputs(self):
+        """Return projected input datasets, keyed by stream name."""
+        return self.data.input_series.datasets
 
     def __repr__(self):
         """Summarize projected inputs for interactive sessions."""

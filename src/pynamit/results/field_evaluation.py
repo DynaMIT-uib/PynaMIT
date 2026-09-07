@@ -6,7 +6,7 @@ from kompe.math import as_linear_map, get_array_module
 
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     conductance_from_log_coordinates,
-    conductance_to_resistance,
+    resistance_from_log_conductance_coordinates,
 )
 
 
@@ -22,7 +22,7 @@ def evaluate_conductance_values(log_magnitude, log_ratio):
     log_magnitude = xp.asarray(log_magnitude, dtype=float)
     log_ratio = xp.asarray(log_ratio, dtype=float)
     SigmaP, SigmaH = conductance_from_log_coordinates(log_magnitude, log_ratio)
-    etaP, etaH = conductance_to_resistance(SigmaP, SigmaH)
+    etaP, etaH = resistance_from_log_conductance_coordinates(log_magnitude, log_ratio)
     return {
         "log_conductance_magnitude": log_magnitude,
         "log_hall_to_pedersen_ratio": log_ratio,

@@ -626,6 +626,7 @@ def test_loading_prepared_inputs_transfers_simulation_ownership(tmp_path):
     )
     wind_shape = simulation.data.schema.input_field_spaces["u"].coefficient_shape
     simulation.set_neutral_wind(u_coefficients=np.zeros(wind_shape), time=0.0)
+    simulation.response.activate_inputs_at_time(simulation.data.input_series, 0.0)
 
     loaded = load_prepared_inputs_into_simulation(
         simulation, input_directory, artifact_storage="netcdf", enabled_inputs=("conductance",)
@@ -633,6 +634,11 @@ def test_loading_prepared_inputs_transfers_simulation_ownership(tmp_path):
 
     assert loaded == ["conductance"]
     assert set(simulation.data.input_series.datasets) == {"conductance"}
+    assert simulation.inputs is simulation.data.input_series.datasets
+    assert set(simulation.inputs) == {"conductance"}
+    simulation.response.activate_inputs_at_time(simulation.data.input_series, 0.0)
+    assert simulation.response.u is None
+    assert simulation.response.log_conductance_magnitude is not None
     assert (simulation_directory / "conductance.ncdf").exists()
     assert not (simulation_directory / "u.ncdf").exists()
     assert (

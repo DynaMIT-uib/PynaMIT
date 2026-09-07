@@ -233,7 +233,8 @@ do not add parallel wrappers for operations already expressed by
 Creating an explicit map is also an execution decision. The response layer does
 this only for runtime maps where dense multiplication is advantageous; plotting
 and export code should otherwise retain structured maps until explicit values
-are actually needed.
+are actually needed. Runtime preparation materializes the existing map and
+reuses it; it does not create another map around the same array.
 When a rectangular map must become explicit, materialization probes the
 smaller side: input columns for tall maps and adjoint output rows for wide
 maps. This is important for rectangular surface-to-poloidal and
@@ -568,13 +569,19 @@ instead of mirroring individual coefficient names:
   ``induced_Br``, ``boundary_Br``, and ``boundary_jr`` quantities to the
   derived horizontal sheet current ``JS``. Solid harmonics own generic radial
   continuation; this module owns the particular potential jump and shielding
-  relations used by PynaMIT. The private poloidal and toroidal potentials
+  relations used by PynaMIT, including radial shell integration of the gap
+  field created by field-aligned current. That integral composes field-line
+  mapping, current conversion, and solid-harmonic response in one function;
+  ``SimulationGeometry`` owns reuse and cache identity of the resulting matrix.
+  The private poloidal and toroidal potentials
   appear here only as convenient operator coordinates.
 * ``electrodynamics.ionospheric_closure`` applies the height-integrated
   Ohm-law closure. It maps physical Hall/Pedersen conductance or resistance
   into the canonical log-conductance coordinates, reconstructs the resistance
   tensor, and maps neutral motion or sheet current through the magnetic
-  geometry to ``E``. It owns both the direct grid law
+  geometry to ``E``. Results evaluation uses the same direct log-to-resistance
+  conversion, preserving resistance values when intermediate conductance
+  components would underflow. It owns both the direct grid law
   ``E = R JS - u x B`` and the coefficient-operator compositions used by
   ``ElectrodynamicResponse``. It also owns the Pedersen/Hall geometry tensors
   and collisional Joule-heating kernel. Joule heating is the Pedersen
@@ -694,9 +701,20 @@ reciprocal resistance magnitude and unchanged Hall/Pedersen ratio directly
 onto the same canonical log coordinates, without constructing intermediate
 conductance components. The response synthesizes the two log fields once per
 active input, reconstructs the resistance tensor on the model grid, and
-caches the current closure-dependent operators. An exact fingerprint of the
-canonical coefficients determines whether those caches remain valid after an
-input update.
+caches the current closure-dependent operators. Each response owns CPU
+snapshots of its selected input coefficients and compares them exactly before
+transferring changed fields to the numerical backend. The conductance
+fingerprint identifies the active closure for evolution and persisted caches.
+Two responses can read one input series independently. Selecting an earlier
+time or replacing the input package clears fields that are no longer present.
+
+Conductance changes invalidate resistance-dependent operators. The toroidal
+fit, its prepared solver, and its boundary-current response are retained when
+there is no interhemispheric electric-field constraint: their operators depend
+only on magnetic geometry. With that constraint enabled they are rebuilt;
+``reuse_preconditioner`` may retain the preconditioner as configured. New
+couplings should place their cached quantities with the physical inputs that
+determine them in ``response.py``.
 
 The shared surface convention is
 ``F = -grad(phi) + rhat x grad(psi)``. Stored ``Phi`` and ``W`` are the
@@ -794,8 +812,11 @@ Loading validates every column and reconstructs the in-memory indexes before
 exposing the series.
 
 The time tolerance is a time-coordinate policy measured in seconds. It is
-shared with evolution checkpoint decisions but is distinct from the relative
-tolerance used to decide whether coefficient values changed.
+shared with evolution checkpoint decisions; coefficient changes use exact
+equality. ``FieldTimeSeries.get_entry()`` is stateless. The former
+``get_entry_if_changed()`` is removed because change history belongs to the
+consumer. ``simulation.inputs`` always exposes the current input series,
+including after loading a different prepared package.
 
 An ``ArtifactStore`` instance is bound to one resolved artifact directory and one preferred
 storage policy. Create another instance for another simulation instead of retargeting

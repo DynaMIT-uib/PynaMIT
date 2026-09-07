@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 import scipy.sparse
+from kompe import GlobalCSBasis, SHBasis, SphericalTransform
 from kompe.math import as_linear_map
 
 from pynamit.results.field_evaluation import (
@@ -14,7 +15,6 @@ from pynamit.results.field_evaluation import (
 )
 from pynamit.results.output_fields import evaluate_output_coefficients
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
-    conductance_from_log_coordinates,
     conductance_to_log_coordinates,
     conductance_to_resistance,
 )
@@ -22,10 +22,6 @@ from pynamit.simulation.electrodynamics.ionospheric_closure import (
 
 class ScalingTransform:
     """Small transform stub for field-map tests."""
-
-    def synthesize_scalar(self, coeffs):
-        """Return deterministic scalar grid values."""
-        return 2.0 * np.asarray(coeffs)
 
     def synthesize_helmholtz(self, coeffs):
         """Return deterministic tangential grid values."""
@@ -48,22 +44,31 @@ def test_conductance_values_include_resistance_and_conductance():
     np.testing.assert_allclose(values["SigmaH"], hall)
 
 
-def test_conductance_coefficients_use_transform_before_conversion():
-    """Synthesize both canonical fields before physical conversion."""
-    log_magnitude_coeffs = np.array([0.1, 0.2])
-    log_ratio_coeffs = np.array([-0.3, 0.4])
-    values = evaluate_conductance_coefficients(
-        ScalingTransform(), log_magnitude_coeffs, log_ratio_coeffs
+@pytest.mark.parametrize("basis_kind", ["SH", "CS"])
+def test_conductance_coefficients_use_transform_before_conversion(basis_kind):
+    """Physical values follow synthesis on SH and native CS grids."""
+    cs_basis = GlobalCSBasis(4)
+    basis = SHBasis(2, 2, mean_free=False) if basis_kind == "SH" else cs_basis
+    transform = SphericalTransform(basis, cs_basis.native_grid)
+    log_magnitude_coeffs = np.linspace(-0.1, 0.2, basis.index_length)
+    log_ratio_coeffs = np.linspace(-0.3, 0.4, basis.index_length)
+    expected = evaluate_conductance_values(
+        transform.synthesize_scalar(log_magnitude_coeffs),
+        transform.synthesize_scalar(log_ratio_coeffs),
     )
-    expected_log_magnitude = 2.0 * log_magnitude_coeffs
-    expected_log_ratio = 2.0 * log_ratio_coeffs
-    SigmaP, SigmaH = conductance_from_log_coordinates(expected_log_magnitude, expected_log_ratio)
-    etaP, etaH = conductance_to_resistance(SigmaP, SigmaH)
+    values = evaluate_conductance_coefficients(transform, log_magnitude_coeffs, log_ratio_coeffs)
 
-    np.testing.assert_allclose(values["etaP"], etaP)
-    np.testing.assert_allclose(values["etaH"], etaH)
-    np.testing.assert_allclose(values["SigmaP"], SigmaP)
-    np.testing.assert_allclose(values["SigmaH"], SigmaH)
+    for name, expected_values in expected.items():
+        np.testing.assert_allclose(values[name], expected_values)
+
+
+def test_resistance_evaluation_retains_values_lost_in_intermediate_conductance():
+    """Direct evaluation survives intermediate conductance underflow."""
+    values = evaluate_conductance_values(np.array([-700.0]), np.array([400.0]))
+
+    assert values["SigmaP"][0] == 0.0
+    np.testing.assert_allclose(values["etaP"], np.exp(300.0))
+    np.testing.assert_allclose(values["etaH"], np.exp(700.0))
 
 
 def test_tangential_and_wind_coefficients_share_component_convention():

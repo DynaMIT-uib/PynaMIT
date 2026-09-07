@@ -1,6 +1,7 @@
 """Tests for direct input-basis coefficient setters."""
 
 import numpy as np
+import pytest
 from kompe.constants import EARTH_RADIUS_M
 
 from pynamit.fields import FieldCoefficients
@@ -8,6 +9,7 @@ from pynamit.simulation.electrodynamics.ionospheric_closure import (
     conductance_to_log_coordinates,
     resistance_to_log_conductance_coordinates,
 )
+from pynamit.simulation.response import ElectrodynamicResponse
 from pynamit.simulation.simulation import Simulation
 
 
@@ -360,10 +362,110 @@ def test_identical_conductance_history_retains_closure_caches(tmp_path):
     sentinel = object()
     response._induced_poloidal_potential_feedback_operator = sentinel
     first_fingerprint = response.conductance_fingerprint
+    first_coefficients = response.log_conductance_magnitude
     response.activate_inputs_at_time(simulation.data.input_series, time=1.0)
 
     assert response.conductance_fingerprint == first_fingerprint
     assert response._induced_poloidal_potential_feedback_operator is sentinel
+    assert response.log_conductance_magnitude is first_coefficients
+
+
+def test_response_detects_small_edits_to_live_input_datasets(tmp_path):
+    """Selection snapshots detect small edits to live input arrays."""
+    simulation = _small_simulation(tmp_path)
+    shape = simulation.data.schema.input_field_spaces["conductance"].coefficient_shape
+    simulation.set_conductance(
+        log_magnitude_coefficients=np.zeros(shape), log_ratio_coefficients=np.zeros(shape)
+    )
+    response = simulation.response
+    series = simulation.data.input_series
+    response.activate_inputs_at_time(series, 0.0)
+    first = response.log_conductance_magnitude
+    fingerprint = response.conductance_fingerprint
+
+    simulation.inputs["conductance"]["SH_log_conductance_magnitude"].values[0, 0] = 1e-12
+    response.activate_inputs_at_time(series, 0.0)
+
+    assert response.log_conductance_magnitude is not first
+    assert response.conductance_fingerprint != fingerprint
+    np.testing.assert_array_equal(first.array, np.zeros(shape))
+    assert response.log_conductance_magnitude.array[0] == 1e-12
+
+
+def test_responses_select_shared_inputs_independently(tmp_path):
+    """One response must not consume another's input update."""
+    simulation = _small_simulation(tmp_path)
+    shape = simulation.data.schema.input_field_spaces["conductance"].coefficient_shape
+    simulation.set_conductance(
+        log_magnitude_coefficients=np.zeros(shape), log_ratio_coefficients=np.zeros(shape)
+    )
+    first = simulation.response
+    second = ElectrodynamicResponse(simulation.geometry, simulation.config)
+    series = simulation.data.input_series
+    first.activate_inputs_at_time(series, 0.0)
+    second.activate_inputs_at_time(series, 0.0)
+
+    assert second.log_conductance_magnitude is not None
+    assert second.conductance_fingerprint == first.conductance_fingerprint
+    np.testing.assert_allclose(second.resistance_tensor_on_grid, first.resistance_tensor_on_grid)
+
+
+def test_response_drops_inputs_unavailable_at_selected_time(tmp_path):
+    """Backward selection must not retain a future forcing."""
+    simulation = _small_simulation(tmp_path)
+    shape = simulation.data.schema.input_field_spaces["u"].coefficient_shape
+    simulation.set_neutral_wind(u_coefficients=np.ones(shape), time=1.0)
+    response = simulation.response
+    response.activate_inputs_at_time(simulation.data.input_series, 1.0)
+    assert response.u is not None
+
+    response.activate_inputs_at_time(simulation.data.input_series, 0.0)
+    assert response.u is None
+    response.activate_inputs_at_time(simulation.data.input_series, 1.0)
+    assert response.u is not None
+    simulation.inputs.pop("u")
+    response.activate_inputs_at_time(simulation.data.input_series, 1.0)
+    assert response.u is None
+
+
+@pytest.mark.parametrize("coupled", [False, True])
+@pytest.mark.parametrize("reuse_preconditioner", [False, True])
+def test_conductance_invalidates_only_dependent_response_state(
+    tmp_path, coupled, reuse_preconditioner
+):
+    """A current-only toroidal fit is independent of conductance."""
+    simulation = _small_simulation(
+        tmp_path,
+        enable_interhemispheric_coupling=coupled,
+        reuse_preconditioner=reuse_preconditioner,
+    )
+    shape = simulation.data.schema.input_field_spaces["conductance"].coefficient_shape
+    simulation.set_conductance(
+        log_magnitude_coefficients=np.stack([np.zeros(shape), np.full(shape, 0.01)]),
+        log_ratio_coefficients=np.zeros((2, *shape)),
+        time=[0.0, 1.0],
+    )
+    response = simulation.response
+    series = simulation.data.input_series
+    response.activate_inputs_at_time(series, 0.0)
+    problem = response._toroidal_potential_problem
+    resistance = response.resistance_tensor_on_grid
+    fingerprint = response.conductance_fingerprint
+    # Test ownership without constructing an expensive preconditioner.
+    preconditioner = object()
+    response._toroidal_potential_preconditioner_cache = preconditioner
+    response._toroidal_potential_preconditioner_ready = True
+    response.activate_inputs_at_time(series, 1.0)
+
+    assert response.conductance_fingerprint != fingerprint
+    assert response.resistance_tensor_on_grid is not resistance
+    assert (response._toroidal_potential_problem is problem) == (not coupled)
+    assert (response._toroidal_potential_preconditioner_cache is preconditioner) == (
+        not coupled or reuse_preconditioner
+    )
+    fresh = ElectrodynamicResponse(simulation.geometry, simulation.config)
+    fresh.activate_inputs_at_time(series, 1.0)
+    np.testing.assert_allclose(response.resistance_tensor_on_grid, fresh.resistance_tensor_on_grid)
 
 
 def test_conductance_activation_fingerprints_stored_coefficients(tmp_path, monkeypatch):
@@ -382,6 +484,44 @@ def test_conductance_activation_fingerprints_stored_coefficients(tmp_path, monke
     simulation.response.activate_inputs_at_time(simulation.data.input_series, time=0.0)
 
     assert simulation.response.conductance_fingerprint
+
+
+@pytest.mark.parametrize("coupled", [False, True])
+def test_changed_conductance_response_matches_fresh_solve(tmp_path, coupled, monkeypatch):
+    """Reused solvers match the response from a fresh model."""
+    simulation = _small_simulation(tmp_path, enable_interhemispheric_coupling=coupled)
+    grid = simulation.model_grid
+    simulation.set_conductance(
+        pedersen=np.stack([np.full(grid.size, 2.0), np.full(grid.size, 3.0)]),
+        hall=np.ones((2, grid.size)),
+        lat=grid.lat,
+        lon=grid.lon,
+        time=[0.0, 1.0],
+    )
+    space = simulation.data.schema.input_field_spaces["boundary_jr"]
+    simulation.set_boundary_jr(
+        boundary_jr_coefficients=np.linspace(-1e-6, 1e-6, space.coefficient_length)
+    )
+    response = simulation.response
+    build_solver = response._toroidal_potential_solver.build_response_solver
+    builds = []
+
+    def record_build(problem, **kwargs):
+        builds.append(problem)
+        return build_solver(problem, **kwargs)
+
+    monkeypatch.setattr(response._toroidal_potential_solver, "build_response_solver", record_build)
+    series = simulation.data.input_series
+    response.activate_inputs_at_time(series, 0.0)
+    response.solve_noninductive_response()
+    response.activate_inputs_at_time(series, 1.0)
+    actual = response.solve_noninductive_response()
+    assert len(builds) == (2 if coupled else 1)
+
+    fresh = ElectrodynamicResponse(simulation.geometry, simulation.config)
+    fresh.activate_inputs_at_time(series, 1.0)
+    for values, expected in zip(actual, fresh.solve_noninductive_response(), strict=True):
+        np.testing.assert_allclose(values, expected, rtol=1e-11, atol=1e-13)
 
 
 def test_set_conductance_cs_basis_remaps_non_model_grid(tmp_path):

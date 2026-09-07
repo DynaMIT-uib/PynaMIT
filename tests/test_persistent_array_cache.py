@@ -10,6 +10,7 @@ from kompe.math import array_fingerprint, content_fingerprint
 from kompe.spherical_transform import SphericalTransform
 
 import pynamit
+from pynamit.simulation.electrodynamics import magnetic_boundary
 from pynamit.storage import PersistentArrayCache
 
 
@@ -168,8 +169,8 @@ def test_gap_Br_cache_excludes_transient_shell_evaluations(tmp_path, monkeypatch
 
     second = pynamit.Simulation(simulation_directory=tmp_path / "second", **simulation_kwargs)
     monkeypatch.setattr(
-        second.geometry,
-        "_compute_boundary_jr_to_gap_Br_matrix",
-        lambda: pytest.fail("persisted gap-Br response was rebuilt"),
+        magnetic_boundary,
+        "boundary_jr_to_gap_Br_matrix",
+        lambda *args, **kwargs: pytest.fail("persisted gap-Br response was rebuilt"),
     )
     np.testing.assert_array_equal(second.geometry.boundary_jr_to_gap_Br_matrix, expected)

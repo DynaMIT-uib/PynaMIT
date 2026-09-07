@@ -653,6 +653,7 @@ def test_model_operator_accessors_match_runtime_operator_chain():
     response.geometry.poloidal_basis = response.geometry.horizontal_basis
     runtime_toroidal_potential_to_E = response._runtime_toroidal_potential_to_E_coeffs
     assert isinstance(runtime_toroidal_potential_to_E, LinearMap)
+    assert runtime_toroidal_potential_to_E is response.toroidal_potential_to_E_coeffs_operator
     assert runtime_toroidal_potential_to_E is response._runtime_toroidal_potential_to_E_coeffs
     np.testing.assert_allclose(
         runtime_toroidal_potential_to_E.matvec(np.arange(n, dtype=float)),

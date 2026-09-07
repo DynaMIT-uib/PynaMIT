@@ -37,7 +37,6 @@ class FieldTimeSeries:
 
         # Initialize in-memory series and persistence bookkeeping.
         self.datasets = {}
-        self._previous_entries = {}
         self._pending_start: dict[str, int] = {}
         self._full_save_required: dict[str, bool] = {}
         self._storage_kinds: dict[str, str] = {}
@@ -414,43 +413,6 @@ class FieldTimeSeries:
         self.datasets[key] = xr.concat([retained, dataset], dim="time").sortby("time")
         self._pending_start[key] = 0
         self._full_save_required[key] = True
-
-    def get_entry_if_changed(self, key, time, interpolation=False):
-        """Select time series data corresponding to the specified time.
-
-        Parameters
-        ----------
-        key : str
-            Key for the time series.
-        time : float
-            Current time for which to select data.
-        interpolation : bool, optional
-            Whether to use linear interpolation.
-
-        Returns
-        -------
-        dict or None
-            Dictionary containing the latest data for the specified
-            key, or None if no new data is available.
-        """
-        current_data = self.get_entry(key, time, interpolation=interpolation)
-
-        if current_data is not None:
-            previous_keys = [(key, var) for var in self.variables[key]]
-            has_previous = all(item in self._previous_entries for item in previous_keys)
-            changed = not has_previous or not all(
-                np.array_equal(
-                    current_data[var], self._previous_entries[(key, var)], equal_nan=True
-                )
-                for var in self.variables[key]
-            )
-            if changed:
-                for var in self.variables[key]:
-                    self._previous_entries[(key, var)] = np.array(current_data[var], copy=True)
-                return current_data
-
-        # No new data available.
-        return None
 
     def get_entry(self, key, time, interpolation=False):
         """Select time series data corresponding to the specified time.

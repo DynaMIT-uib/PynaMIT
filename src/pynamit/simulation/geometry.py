@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import logging
-from functools import cached_property
+from functools import cached_property, partial
 from typing import Any
 
 import numpy as np
@@ -27,7 +26,6 @@ from pynamit.geomagnetism import MainField
 from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.electrodynamics import ionospheric_closure, magnetic_boundary
 
-logger = logging.getLogger(__name__)
 _BOUNDARY_JR_TO_GAP_BR_CACHE_VERSION = 1
 
 
@@ -425,60 +423,29 @@ class SimulationGeometry:
             self._build_boundary_jr_to_gap_Br_matrix()
         return self._boundary_jr_to_gap_Br_matrix
 
-    def _gap_Br_integrand_at_radius(
-        self,
-        radius,
-        gridded_JS_to_poloidal_operator,
-        outer_regular_to_ionosphere,
-        boundary_response_factor,
-    ):
-        """Return one shell's shielding-potential response."""
-        theta_footpoint, phi_footpoint = self.main_field.map_along_field_lines(
-            r_dest=self.RI, r=radius, theta=self.model_grid.theta, phi=self.model_grid.phi
-        )
-        footpoint_grid = SphericalGrid(theta=theta_footpoint, phi=phi_footpoint)
-        _, shell_Btheta, shell_Bphi = self.main_field.evaluate(self.model_grid, radius)
-        footpoint_Br = self.main_field.evaluate(footpoint_grid, self.RI)[0]
-        footpoint_transform = SphericalTransform(
-            self.horizontal_basis, footpoint_grid, use_persistent_evaluation_cache=False
-        )
-
-        jr_to_gridded_JS = pointwise_matrix_linear_map(
-            np.array([shell_Btheta / footpoint_Br, shell_Bphi / footpoint_Br]).reshape(
-                2, 1, self.model_grid.size
-            )
-        )
-
-        poloidal_scale = np.array(
-            self.solid_harmonics.regular_reference_shift_factors(radius, self.RI), copy=True
-        )
-        if self.RM is not None:
-            poloidal_scale -= outer_regular_to_ionosphere * np.asarray(
-                self.solid_harmonics.irregular_reference_shift_factors(radius, self.RM)
-            )
-
-        poloidal_scale *= boundary_response_factor
-        integrand_operator = (
-            diagonal_linear_map(poloidal_scale)
-            @ gridded_JS_to_poloidal_operator
-            @ jr_to_gridded_JS
-            @ footpoint_transform.scalar_synthesis_operator
-        )
-        return np.asarray(integrand_operator.to_matrix(backend="numpy"))
-
     def _build_boundary_jr_to_gap_Br_matrix(self) -> None:
         """Construct the gap-Br map by radial integration."""
         if self.main_field.kind == "radial" or not self.enable_pfac_coupling:
             matrix = np.zeros(
                 (self.poloidal_basis.index_length, self.horizontal_basis.index_length)
             )
-        elif self.operator_cache is None:
-            matrix = self._compute_boundary_jr_to_gap_Br_matrix()
         else:
-            matrix = self.operator_cache.get_or_create(
-                "gap_Br_response",
-                self._boundary_jr_to_gap_Br_cache_identity(),
-                self._compute_boundary_jr_to_gap_Br_matrix,
+            build_matrix = partial(
+                magnetic_boundary.boundary_jr_to_gap_Br_matrix,
+                self.main_field,
+                self.horizontal_basis,
+                self.poloidal_transform,
+                self.solid_harmonics,
+                ionosphere_radius=self.RI,
+                integration_radii=self.fac_integration_radii,
+                boundary_radius=self.RM,
+            )
+            matrix = (
+                build_matrix()
+                if self.operator_cache is None
+                else self.operator_cache.get_or_create(
+                    "gap_Br_response", self._boundary_jr_to_gap_Br_cache_identity(), build_matrix
+                )
             )
         matrix.flags.writeable = False
         self._boundary_jr_to_gap_Br_matrix = matrix
@@ -505,62 +472,6 @@ class SimulationGeometry:
             "integration_radii": array_fingerprint(self.fac_integration_radii),
             "area_weighted_least_squares": self.area_weighted_least_squares,
         }
-
-    def _compute_boundary_jr_to_gap_Br_matrix(self) -> np.ndarray:
-        """Compute the physical gap-field response from shell maps."""
-        shielding_potential_response = np.zeros(
-            (self.poloidal_basis.index_length, self.horizontal_basis.index_length)
-        )
-        integration_radii = np.asarray(self.fac_integration_radii)
-        radial_step_widths = np.diff(integration_radii)
-        radial_midpoints = integration_radii[:-1] + 0.5 * radial_step_widths
-        gridded_JS_to_poloidal_operator = (
-            self.poloidal_transform.rhat_cross_gradient_analysis_operator(
-                coefficient_scale=(
-                    -np.asarray(self.solid_harmonics.poloidal_to_normalized_potential_jump_factors)
-                    / MU0
-                )
-            )
-        )
-        if self.RM is None:
-            outer_regular_to_ionosphere = None
-            boundary_response_factor = -1.0
-        else:
-            # Sum the regular/irregular image response that enforces
-            # Br(RM) = 0.
-            outer_regular_to_ionosphere = np.asarray(
-                self.solid_harmonics.regular_reference_shift_factors(self.RM, self.RI)
-            )
-            ionosphere_irregular_to_outer = np.asarray(
-                self.solid_harmonics.irregular_reference_shift_factors(self.RI, self.RM)
-            )
-            boundary_response_factor = -1.0 / (
-                1.0 - outer_regular_to_ionosphere * ionosphere_irregular_to_outer
-            )
-
-        for i, radial_midpoint in enumerate(radial_midpoints):
-            logger.debug(
-                "Gap-field integration step %d/%d (rk=%s)",
-                i + 1,
-                radial_midpoints.size,
-                radial_midpoint,
-            )
-            gap_Br_integrand = self._gap_Br_integrand_at_radius(
-                radial_midpoint,
-                gridded_JS_to_poloidal_operator,
-                outer_regular_to_ionosphere,
-                boundary_response_factor,
-            )
-            shielding_potential_response += radial_step_widths[i] * gap_Br_integrand
-
-        # The integrated response above is the poloidal coefficient of
-        # the ionospheric shielding field. If b_gap is the unshielded
-        # external radial field incident from the gap, shielding gives
-        # kappa = -D^-1 b_gap, hence b_gap = -D kappa.
-        degree_factor = np.asarray(
-            self.poloidal_basis.n * (self.poloidal_basis.n + 1), dtype=float
-        )
-        return -degree_factor[:, None] * shielding_potential_response
 
     def boundary_Br_to_gridded_JS_operator(
         self,
