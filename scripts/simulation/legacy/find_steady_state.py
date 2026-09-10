@@ -1,5 +1,6 @@
 """Find the steady state solution."""
 
+from kompe import SphericalGrid
 import numpy as np
 import pynamit
 from lompe import conductance
@@ -48,9 +49,7 @@ conductance_lon = simulation.geometry.model_grid.lon
 hall, pedersen = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, date, starlight=1, dipole=False
 )
-simulation.set_conductance(
-    pedersen=pedersen, hall=hall, lat=conductance_lat, lon=conductance_lon, reg_lambda=0.001
-)
+simulation.set_conductance(pedersen=pedersen, hall=hall, reg_lambda=0.001, grid=SphericalGrid(lat=conductance_lat, lon=conductance_lon))
 
 print(datetime.datetime.now(), "setting jr")
 # Get and set jr input.
@@ -63,7 +62,7 @@ _, noon_longitude, _ = apx.apex2geo(0, noon_mlon, (RI - RE) * 1e-3)  # fix this
 a = pyamps.AMPS(400, 5, -5, d.tilt(date), 100, minlat=50)
 jr = a.get_upward_current(mlat=mlat, mlt=mlt) * 1e-6
 jr[np.abs(jr_lat) < 50] = 0  # filter low latitude jr
-simulation.set_boundary_jr(jr, lat=jr_lat, lon=jr_lon)
+simulation.set_boundary_jr(jr, grid=SphericalGrid(lat=jr_lat, lon=jr_lon))
 
 print(datetime.datetime.now(), "setting wind")
 # Get and set wind input.
@@ -83,14 +82,7 @@ hwm14Obj = pyhwm2014.HWM142D(
 u_theta, u_phi = (-hwm14Obj.Vwind.flatten(), hwm14Obj.Uwind.flatten())
 u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing="ij")
 
-simulation.set_neutral_wind(
-    u_theta=u_theta,
-    u_phi=u_phi,
-    lat=u_lat,
-    lon=u_lon,
-    sqrt_weights=np.tile(np.sqrt(np.sin(np.deg2rad(90 - u_lat.flatten()))), (2, 1)),
-    reg_lambda=0.001,
-)
+simulation.set_neutral_wind(u_theta=u_theta, u_phi=u_phi, sqrt_weights=np.tile(np.sqrt(np.sin(np.deg2rad(90 - u_lat.flatten()))), (2, 1)), reg_lambda=0.001, grid=SphericalGrid(lat=u_lat, lon=u_lon))
 
 print(datetime.datetime.now(), "calculating steady state")
 simulation.evolve_to_time(0)
@@ -104,5 +96,5 @@ simulation.evolve_to_time(0)  # Save simulation object with new m_ind
 
 # fig, ax = plt.subplots()
 # ax.plot(mv)
-# ax.plot(simulation.data.output_series['state'].SH_m_ind.values[-1, :])
+# ax.plot(simulation.results.output_series['state'].SH_m_ind.values[-1, :])
 # plt.show()

@@ -214,6 +214,18 @@ def test_mage_run_resolves_every_projected_resolution(monkeypatch, tmp_path):
         resolutions_directory / "N40_M40_Ncs40" / "simulations" / "exponential",
     ]
 
+    from pynamit.plotting import FigureSettings
+
+    directory = calls[0][1]["simulation_directory"]
+    defaults = FigureSettings.from_simulation_directory(directory)
+    assert defaults.plot_type == "ground_curve_map"
+    assert defaults.simulation_time_offset_seconds == 30
+    assert defaults.reference_time_of_day_utc == "18:31:00"
+    defaults.simulation_time_offset_seconds = 0
+    defaults.save_defaults()
+    run_mage_simulations(settings)
+    assert FigureSettings.from_simulation_directory(directory).simulation_time_offset_seconds == 0
+
 
 def test_mage_run_validates_full_sweep_before_starting(monkeypatch, tmp_path):
     """A missing later projection cannot partially execute a sweep."""

@@ -6,6 +6,7 @@ import dipole
 import numpy as np
 import pyamps
 import pyhwm2014  # https://github.com/rilma/pyHWM14
+from kompe import SphericalGrid
 
 import pynamit
 from pynamit.external_inputs import get_conductance_inputs
@@ -51,7 +52,7 @@ coordinates = ExternalInputCoordinates.from_model_coordinates(
     grid_id="figlayout-model-grid",
 )
 pedersen, hall, _, _ = get_conductance_inputs(date, coordinates=coordinates, kp=Kp, starlight=1.0)
-simulation.set_conductance(pedersen=pedersen, hall=hall, lat=model_grid.lat, lon=model_grid.lon)
+simulation.inputs.set_conductance(pedersen=pedersen, hall=hall, grid=model_grid)
 
 amps = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50)
 jr = (
@@ -59,7 +60,7 @@ jr = (
     * 1e-6
 )
 jr[np.abs(model_grid.lat) < 50] = 0
-simulation.set_boundary_jr(jr, lat=model_grid.lat, lon=model_grid.lon)
+simulation.inputs.set_boundary_jr(jr, grid=model_grid)
 
 hwm14 = pyhwm2014.HWM142D(
     alt=110.0,
@@ -76,15 +77,17 @@ hwm14 = pyhwm2014.HWM142D(
 u_theta = -hwm14.Vwind.flatten() * WIND_FACTOR
 u_phi = hwm14.Uwind.flatten() * WIND_FACTOR
 u_lat, u_lon = np.meshgrid(hwm14.glatbins, hwm14.glonbins, indexing="ij")
-simulation.set_neutral_wind(
+simulation.inputs.set_neutral_wind(
     u_theta=u_theta,
     u_phi=u_phi,
-    lat=u_lat,
-    lon=u_lon,
     sqrt_weights=np.tile(np.sqrt(np.sin(np.deg2rad(90 - u_lat.flatten()))), (2, 1)),
+    grid=SphericalGrid(lat=u_lat, lon=u_lon),
 )
 
-simulation.impose_equilibrium(time=0.0, save=True, quiet=True)
+simulation.set_state(
+    simulation.equilibrium_coefficients(time=0.0, interpolation=True)["induced_Br"], time=0.0
+)
+simulation.record_state(save=True)
 plot_output_quicklook(
     simulation, title="Output diagnostic summary", filename=None, noon_longitude=noon_longitude
 )

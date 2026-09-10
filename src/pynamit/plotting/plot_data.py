@@ -18,11 +18,10 @@ from pynamit.plotting.map_coordinates import MapCoordinateContext, regular_geogr
 from pynamit.results.field_evaluation import model_grid_from_geographic
 from pynamit.results.input_fields import evaluate_projected_input
 from pynamit.results.output_fields import (
+    OutputEvaluation,
     build_ground_magnetic_field_operators,
-    build_output_evaluation_operators,
-    build_sheet_current_operators,
     evaluate_ground_magnetic_field,
-    evaluate_output_coefficients,
+    evaluate_simulation_output,
 )
 from pynamit.results.simulation_results import SimulationResults
 from pynamit.results.time_series import datetime_at_index, time_index_from_dataset
@@ -78,17 +77,15 @@ def _time_datasets(datasets):
 
 
 def _build_input_transforms(
-    schema, datasets, scalar_grid, vector_grid, transform_cache=None, *, keys=INPUT_ARTIFACT_KEYS
+    schema, scalar_grid, vector_grid, transform_cache=None, *, keys=INPUT_ARTIFACT_KEYS
 ):
     """Build input transforms for the requested display grids."""
     transform_cache = {} if transform_cache is None else transform_cache
     transforms = {}
     for key in keys:
-        if key not in datasets:
-            transforms[key] = None
-            continue
-        target_grid = vector_grid if key in TANGENTIAL_INPUT_KEYS else scalar_grid
-        basis = schema.input_field_spaces[key].basis
+        space = schema.input_field_spaces[key]
+        target_grid = vector_grid if space.representation == "helmholtz" else scalar_grid
+        basis = space.basis
         cache_key = (basis.signature, target_grid.signature)
         if cache_key not in transform_cache:
             transform_cache[cache_key] = SphericalTransform(basis, target_grid)
@@ -104,126 +101,64 @@ class _GeographicEvaluation:
     vector_grid: object
     output_transform: SphericalTransform | None
     input_transforms: dict[str, SphericalTransform | None] = field(default_factory=dict)
-    output_evaluation_context: dict[str, object] | None = None
-    sheet_current_operators: dict[str, object] | None = None
+    output_evaluation: OutputEvaluation | None = None
 
 
-def _dataset_index_at_time(dataset, timestamp, *, start_time=None):
-    """Return the latest dataset index at or before ``timestamp``."""
-    times = time_index_from_dataset(dataset, start_time=start_time)
-    if times.empty:
-        raise ValueError("No time coordinates are available.")
-
-    target = pd.Timestamp(timestamp)
-    if target.tz is not None:
-        target = target.tz_convert(None)
-    position = int(times.searchsorted(target, side="right") - 1)
-    return max(0, min(position, len(times) - 1))
-
-
-def evaluate_output_fields_at_index(
-    index,
-    results,
-    transform,
-    conductance_transform,
-    output_evaluation_context,
-    sheet_current_operators,
-    *,
-    target_time=None,
-    start_time=None,
-    field_names=None,
-):
-    """Evaluate dynamic and equilibrium fields at one saved index."""
+def evaluate_output_fields_at_time(time, results, evaluation, *, field_names=None):
+    """Evaluate display fields at model seconds after t0."""
+    transform = evaluation.transform
     datasets = results.datasets
     field_names = _normalize_output_field_names(field_names)
     output_keys = [key for key in ("dynamic", "equilibrium") if key in datasets]
     if not output_keys:
         raise ValueError("No saved dynamic or equilibrium output is available.")
-    reference_key = output_keys[0]
-    reference_dataset = datasets[reference_key]
-    if target_time is None:
-        target_time = datetime_at_index(
-            reference_dataset.time.values, index, start_time=start_time
-        )
-
-    boundary_Br = None
-    if "joule" in field_names and "boundary_Br" in datasets:
-        boundary_Br_var = results.data_var_name("boundary_Br", "boundary_Br")
-        boundary_Br_index = _dataset_index_at_time(
-            datasets["boundary_Br"], target_time, start_time=start_time
-        )
-        boundary_Br = datasets["boundary_Br"][boundary_Br_var].isel(time=boundary_Br_index).values
-    etaP = None
-    if "joule" in field_names and "conductance" in datasets:
-        simulation_time = (pd.Timestamp(target_time) - pd.Timestamp(start_time)).total_seconds()
-        conductance = evaluate_projected_input(
-            results, "conductance", simulation_time, transform=conductance_transform
-        )
-        etaP = conductance["etaP"]
-
     physical_fields = {_DISPLAY_OUTPUT_TO_PHYSICAL[name] for name in field_names}
-    if etaP is None:
-        physical_fields.discard("joule_heating")
-    required_coefficients = set(physical_fields & {"Phi", "W"})
-    if physical_fields & {"induced_Br", "equivalent_current_function", "joule_heating"}:
-        required_coefficients.add("induced_Br")
-    if physical_fields & {"boundary_jr", "joule_heating"}:
-        required_coefficients.add("boundary_jr")
+    # Missing display data are NaN, not a future input/output sample.
+    if (
+        "joule_heating" in physical_fields
+        and results.load_input_series("conductance").get_entry("conductance", time, variables=())
+        is None
+    ):
+        physical_fields.remove("joule_heating")
 
     result = {}
-    for dataset_key in output_keys:
-        dataset = datasets[dataset_key]
-        output_index = (
-            index
-            if dataset_key == reference_key
-            else _dataset_index_at_time(dataset, target_time, start_time=start_time)
-        )
-        coefficients = {
-            name: np.asarray(
-                dataset[results.data_var_name(dataset_key, name)].isel(time=output_index).values
+    for key in output_keys:
+        entry = results.output_series.get_entry(key, time, variables=())
+        evaluated = (
+            {}
+            if entry is None
+            else evaluate_simulation_output(
+                results, time, key=key, evaluation=evaluation, field_names=physical_fields
             )
-            for name in required_coefficients
-        }
-        evaluated = evaluate_output_coefficients(
-            coefficients,
-            transform,
-            field_names=physical_fields,
-            operators=output_evaluation_context,
-            sheet_current_operators=sheet_current_operators,
-            boundary_Br=boundary_Br,
-            etaP=etaP,
-            pedersen_geometry=output_evaluation_context.get("pedersen_geometry"),
         )
         fields = {
-            name: np.asarray(evaluated[physical_name]).reshape(-1)
+            name: (
+                np.asarray(evaluated[physical_name]).reshape(-1)
+                if physical_name in evaluated
+                else np.full(transform.grid.size, np.nan)
+            )
             for name, physical_name in _DISPLAY_OUTPUT_TO_PHYSICAL.items()
-            if name in field_names and physical_name in evaluated
+            if name in field_names
         }
         for name in field_names & {"Phi", "W"}:
-            fields[name] = fields[name] * 1e-3
-        if "joule" in field_names and etaP is None:
-            fields["joule"] = np.full(transform.grid.size, np.nan)
-        result[dataset_key] = fields
+            fields[name] = fields[name] * 1e-3  # SI volts to display kilovolts.
+        result[key] = fields
     return result
 
 
-def evaluate_input_fields_at_time(
-    timestamp, results, input_transforms, scalar_shape, vector_shape, *, start_time=None
-):
-    """Evaluate projected input drivers at one physical time."""
+def evaluate_input_fields_at_time(time, results, input_transforms, scalar_shape, vector_shape):
+    """Evaluate projected input drivers at model seconds after t0."""
     datasets = results.datasets
-    simulation_time = (pd.Timestamp(timestamp) - pd.Timestamp(start_time)).total_seconds()
 
     def evaluate(key):
         if key not in datasets:
             return {}
-        times = np.asarray(datasets[key].time.values, dtype=float)
-        if not np.any(times <= simulation_time):
+        if results.load_input_series(key).get_entry(key, time, variables=()) is None:
             return {}
         return evaluate_projected_input(
             results,
             key,
-            simulation_time,
+            time,
             transform=input_transforms[key],
             include_derived=key == "conductance",
         )
@@ -267,12 +202,11 @@ class PlotData:
     wind_lon: np.ndarray
     output_transform: SphericalTransform | None
     input_transforms: dict[str, SphericalTransform | None]
-    output_evaluation_context: dict[str, object] | None
-    sheet_current_operators: dict[str, object] | None
+    output_evaluation: OutputEvaluation | None
     _geographic_evaluation: _GeographicEvaluation | None = field(
         default=None, init=False, repr=False, compare=False
     )
-    _ground_magnetic_field_cache: BoundedCache = field(
+    _ground_magnetic_operator_cache: BoundedCache = field(
         default_factory=lambda: BoundedCache(16), init=False, repr=False, compare=False
     )
 
@@ -281,30 +215,35 @@ class PlotData:
         cls, simulation_directory, *, nlat=60, nlon=100, wind_nlat=19, wind_nlon=37
     ) -> PlotData:
         """Load artifacts needed by map and input-driver figures."""
-        results = SimulationResults.from_directory(
-            simulation_directory,
-            optional_datasets=INPUT_ARTIFACT_KEYS + ("dynamic", "equilibrium"),
+        results = SimulationResults.from_directory(simulation_directory)
+        return cls.from_results(
+            results, nlat=nlat, nlon=nlon, wind_nlat=wind_nlat, wind_nlon=wind_nlon
         )
+
+    @classmethod
+    def from_results(cls, results, *, nlat=60, nlon=100, wind_nlat=19, wind_nlon=37):
+        """Evaluate live or saved histories without copying datasets.
+
+        Adding samples or editing coefficients remains visible. Only
+        geometry-dependent operators are cached, not evaluated fields.
+        """
+        results.load_input_series()
+        results.load_output_series()
         schema = results.schema
-        has_model_output = any(key in results.datasets for key in ("dynamic", "equilibrium"))
         output_basis = schema.output_field_spaces["dynamic"]["boundary_jr"].basis
         lat, lon, grid = regular_geographic_grid(nlat=nlat, nlon=nlon)
         wind_lat, wind_lon, wind_grid = regular_geographic_grid(
             nlat=wind_nlat, nlon=wind_nlon, lat_range=(-75.0, 75.0), lon_range=(-180.0, 180.0)
         )
-        output_transform = SphericalTransform(output_basis, grid) if has_model_output else None
-        transform_cache = {}
-        if output_transform is not None:
-            transform_cache[(output_basis.signature, grid.signature)] = output_transform
-        input_transforms = _build_input_transforms(
-            schema, results.datasets, grid, wind_grid, transform_cache
-        )
+        output_transform = SphericalTransform(output_basis, grid)
+        transform_cache = {(output_basis.signature, grid.signature): output_transform}
+        input_transforms = _build_input_transforms(schema, grid, wind_grid, transform_cache)
 
         time_datasets = _time_datasets(results.datasets)
         if not time_datasets:
             raise ValueError(
                 "No saved input or output time series exists in "
-                f"{results.artifact_store.directory}. "
+                f"{results.simulation_directory!r}. "
                 "Expected at least one of dynamic, boundary_Br, boundary_jr, "
                 "conductance, u, Q_eff, or E_neutral_wind."
             )
@@ -317,8 +256,7 @@ class PlotData:
             wind_lon=wind_lon,
             output_transform=output_transform,
             input_transforms=input_transforms,
-            output_evaluation_context=None,
-            sheet_current_operators=None,
+            output_evaluation=None,
         )
 
     @property
@@ -416,7 +354,6 @@ class PlotData:
             evaluation.input_transforms.update(
                 _build_input_transforms(
                     self.results.schema,
-                    self.results.datasets,
                     evaluation.scalar_grid,
                     evaluation.vector_grid,
                     keys=missing,
@@ -486,13 +423,12 @@ class PlotData:
 
         grid = SphericalGrid(lat=lat, lon=lon)
         key = grid.signature
-        cached = self._ground_magnetic_field_cache.get(key)
-        if cached is not None:
-            return cached
-
-        operators = build_ground_magnetic_field_operators(
-            self.geometry, grid, coordinate_system="geographic"
-        )
+        operators = self._ground_magnetic_operator_cache.get(key)
+        if operators is None:
+            operators = build_ground_magnetic_field_operators(
+                self.geometry, grid, coordinate_system="geographic"
+            )
+            self._ground_magnetic_operator_cache.store(key, operators)
         fields = {}
         for stream in ("dynamic", "equilibrium"):
             if stream not in self.results.datasets:
@@ -504,65 +440,28 @@ class PlotData:
             for values in fields[stream].values():
                 values.setflags(write=False)
 
-        self._ground_magnetic_field_cache.store(key, fields)
         return fields
 
     def output_fields(self, index, *, field_names=None, coordinate_system="model"):
         """Return flat output fields in the requested coordinates."""
         field_names = _normalize_output_field_names(field_names)
         coordinate_system = _normalize_display_coordinate_system(coordinate_system)
-        timestamp = self.timestamp_at_index(index)
+        time = float(self._time_dataset().time.values[index])
         if not self.has_model_output:
             raise ValueError(
                 "This directory contains projected inputs but no saved model output. "
                 "Choose 'Input drivers' or run a simulation first."
             )
         if coordinate_system == "geographic":
-            evaluation = self._get_geographic_evaluation()
-            transform = self._geographic_output_transform(evaluation)
-            output_evaluation_context = evaluation.output_evaluation_context
-            sheet_current_operators = evaluation.sheet_current_operators
+            context = self._get_geographic_evaluation()
+            transform = self._geographic_output_transform(context)
         else:
-            evaluation = None
+            context = self
             transform = self.output_transform
-            output_evaluation_context = self.output_evaluation_context
-            sheet_current_operators = self.sheet_current_operators
-
-        if transform is None:
-            raise RuntimeError("Saved output evaluation context is unavailable.")
-        geometry = self.geometry
-        needs_joule = "joule" in field_names
-        if output_evaluation_context is None or (
-            needs_joule and "pedersen_geometry" not in output_evaluation_context
-        ):
-            output_evaluation_context = build_output_evaluation_operators(
-                geometry, transform, include_joule=needs_joule
-            )
-        if needs_joule and sheet_current_operators is None:
-            sheet_current_operators = build_sheet_current_operators(geometry, transform)
-        if evaluation is None:
-            self.output_evaluation_context = output_evaluation_context
-            self.sheet_current_operators = sheet_current_operators
-        else:
-            evaluation.output_evaluation_context = output_evaluation_context
-            evaluation.sheet_current_operators = sheet_current_operators
-        conductance_transform = self.input_transforms.get("conductance") if needs_joule else None
-        if evaluation is not None:
-            conductance_transform = (
-                self._geographic_input_transforms(evaluation, keys=("conductance",))["conductance"]
-                if needs_joule
-                else None
-            )
-        return evaluate_output_fields_at_index(
-            index,
-            self.results,
-            transform,
-            conductance_transform,
-            output_evaluation_context,
-            sheet_current_operators,
-            target_time=timestamp,
-            start_time=self.results.config.t0,
-            field_names=field_names,
+        if context.output_evaluation is None:
+            context.output_evaluation = OutputEvaluation(self.geometry, transform=transform)
+        return evaluate_output_fields_at_time(
+            time, self.results, context.output_evaluation, field_names=field_names
         )
 
     def output_plot_data(self, index, *, field_names=None, coordinate_system="model"):
@@ -579,11 +478,11 @@ class PlotData:
     def input_plot_data(self, index, *, coordinate_system="model"):
         """Return input-driver fields in the requested coordinates."""
         return self.input_plot_data_at_time(
-            self.timestamp_at_index(index), coordinate_system=coordinate_system
+            float(self._time_dataset().time.values[index]), coordinate_system=coordinate_system
         )
 
-    def input_plot_data_at_time(self, timestamp, *, coordinate_system="model"):
-        """Return time-selected inputs in the requested coordinates."""
+    def input_plot_data_at_time(self, time, *, coordinate_system="model"):
+        """Return inputs at model seconds after t0."""
         coordinate_system = _normalize_display_coordinate_system(coordinate_system)
         evaluation = (
             self._get_geographic_evaluation() if coordinate_system == "geographic" else None
@@ -594,12 +493,7 @@ class PlotData:
             else self.input_transforms
         )
         fields = evaluate_input_fields_at_time(
-            timestamp,
-            self.results,
-            input_transforms,
-            self.lat.shape,
-            self.wind_lat.shape,
-            start_time=self.results.config.t0,
+            time, self.results, input_transforms, self.lat.shape, self.wind_lat.shape
         )
         if evaluation is None:
             return fields
@@ -691,7 +585,7 @@ __all__ = [
     "PlotData",
     "clear_plot_data_cache",
     "evaluate_input_fields_at_time",
-    "evaluate_output_fields_at_index",
+    "evaluate_output_fields_at_time",
     "format_figure_time",
     "get_plot_data",
 ]

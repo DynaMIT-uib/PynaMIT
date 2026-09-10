@@ -120,10 +120,6 @@ class InputDriverRenderer:
         return kwargs
 
     @staticmethod
-    def _has_finite(values):
-        return np.any(np.isfinite(values))
-
-    @staticmethod
     def _mark_missing(axis, message):
         axis.text(
             0.5,
@@ -206,7 +202,7 @@ class InputDriverRenderer:
             magnetic_latitude, self.settings.hemisphere_min_abs_latitude
         )
         jr_display = fields["jr"] * jr_kwargs.get("scale", 1.0)
-        if not self._has_finite(jr_display):
+        if not np.any(np.isfinite(jr_display)):
             for pax in (pax_jr_n, pax_jr_s):
                 self._mark_missing(pax.ax, "Input jr not stored")
             pax_jr_n.ax.set_title(r"Input $j_r$ north", fontsize=11)
@@ -268,7 +264,7 @@ class InputDriverRenderer:
                 bottom_labels=bottom_labels,
             )
             plot_kwargs = input_kwargs[kwargs_key]
-            if not self._has_finite(fields[field_key]):
+            if not np.any(np.isfinite(fields[field_key])):
                 self._mark_missing(axis, missing_message)
                 axis.set_title(title, fontsize=11)
                 continue

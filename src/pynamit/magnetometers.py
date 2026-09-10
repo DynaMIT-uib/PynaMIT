@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 from kompe.cache import BoundedCache
 
-from pynamit.results.time_series import centered_difference_at_times, resample_to_times
+from pynamit.results.time_series import resample_to_times, time_derivative_at_times
 
 _STATION_FILE_CACHE = BoundedCache(512)
 
@@ -300,7 +300,7 @@ def station_has_complete_nonzero_components_at_times(
         return False
     for column in mag_cols:
         if plot_dbdt:
-            values = centered_difference_at_times(
+            values = time_derivative_at_times(
                 measured_time_index,
                 mag_df_full[column].to_numpy(dtype=float),
                 target_index,

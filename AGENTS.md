@@ -23,7 +23,10 @@ Write simulation code for scientists who read, modify, and explore it interactiv
 - Keep the ordinary IPython workflow short and inspectable: prepare inputs, construct and
   evolve a `Simulation`, and inspect live or saved results. `InputPreparation`, `Simulation`,
   and `SimulationResults` should retain distinct, useful roles; specialized machinery should
-  not enter the common path.
+  not enter the common path. Prepared inputs own their histories independently of results;
+  spatial geometry should not retain a full experiment's time and solver controls. Let actual
+  numerical objects define in-memory calculations, and check file-format restrictions when
+  persisting them rather than silently reconstructing different mathematics.
 - Prefer a direct sequence of ordinary Python statements. A helper should express a reused
   scientific concept, isolate a genuinely difficult boundary, or make an equation clearer.
   Delete forwarding-only and single-use helpers when inlining is easier to follow.
@@ -57,7 +60,10 @@ Write simulation code for scientists who read, modify, and explore it interactiv
 - Test physical identities, coordinate and unit conventions, numerical equivalence, and
   complete researcher-facing workflows. Exercise portable numerical paths with both NumPy and
   JAX; keep native-provider equivalence and performance checks focused instead of multiplying
-  the full simulation suite.
+  the full simulation suite. For numerical changes, include independent identities or
+  manufactured solutions rather than only comparisons to the previous implementation.
+  Keep tests with the package that owns the scientific contract; test current behavior,
+  not the historical names of removed APIs.
 
 Preserve scientific behavior and numerical performance, and run the relevant tests after
 changes.

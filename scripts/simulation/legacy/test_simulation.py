@@ -1,5 +1,6 @@
 """Script for running and debugging PynaMIT simulation."""
 
+from kompe import SphericalGrid
 from importlib import reload
 import kompe
 import pynamit
@@ -62,7 +63,7 @@ hall, pedersen = conductance.hardy_EUV(
     starlight=1,
     dipole=True,
 )
-simulation.set_conductance(pedersen=pedersen, hall=hall, lat=conductance_lat, lon=conductance_lon)
+simulation.set_conductance(pedersen=pedersen, hall=hall, grid=SphericalGrid(lat=conductance_lat, lon=conductance_lon))
 
 # Get and set jr input.
 jr_lat = simulation.geometry.model_grid.lat
@@ -70,7 +71,7 @@ jr_lon = simulation.geometry.model_grid.lon
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50)
 jr = a.get_upward_current(mlat=jr_lat, mlt=d.mlon2mlt(jr_lon, date)) * 1e-6
 jr[np.abs(jr_lat) < 50] = 0  # filter low latitude jr
-simulation.set_boundary_jr(jr, lat=jr_lat, lon=jr_lon)
+simulation.set_boundary_jr(jr, grid=SphericalGrid(lat=jr_lat, lon=jr_lon))
 
 simulation.update_conductance()
 simulation.update_jr()
@@ -88,7 +89,7 @@ simulation.response.update_E()
 # sS =  (2 * snm.n.T + 1) / (4 * np.pi * RI**2)
 # Ginv = (
 #     simulation.Gnum.T * np.vstack((cS, sS))
-#     * simulation.data.schema.cs_basis.unit_area
+#     * simulation.results.geometry.cs_basis.unit_area
 # )
 # gg = Ginv.dot(simulation.Gnum)
 

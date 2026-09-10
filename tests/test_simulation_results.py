@@ -1,13 +1,13 @@
-"""Tests for persisted simulation data plumbing."""
+"""Shared result ownership, persistence, and restart contracts."""
 
 import numpy as np
 import pytest
 import xarray as xr
 
 import pynamit
+from pynamit.results.simulation_results import SimulationResults
 from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.simulation import Simulation
-from pynamit.simulation.simulation_data import SimulationData
 from pynamit.storage import ArtifactStore
 
 
@@ -41,24 +41,24 @@ def test_invalid_settings_fail_before_creating_a_directory(monkeypatch):
 
     monkeypatch.setattr(ArtifactStore, "create_temporary_directory", unexpected_directory)
     with pytest.raises(ValueError, match="Nmax"):
-        SimulationData.open({"Nmax": -1})
+        SimulationResults.open({"Nmax": -1})
 
 
-def test_simulation_data_owns_schema_artifacts_and_field_series(tmp_path):
-    """SimulationData creates and reloads persisted simulation state."""
+def test_simulation_results_owns_schema_artifacts_and_field_series(tmp_path):
+    """The shared owner creates and reloads persisted histories."""
     simulation_directory = tmp_path / "simulation"
     settings = _settings(horizontal_basis_kind="CS", area_weighted_least_squares=1)
-    data = SimulationData.open(
+    data = SimulationResults.open(
         settings, simulation_directory=simulation_directory, artifact_storage="netcdf"
     )
 
     assert data.simulation_directory == str(simulation_directory.resolve())
     assert not hasattr(data, "run_directory")
-    assert data.settings_saved is False
+    assert data.inputs.settings_saved is False
     assert data.boundary_jr_to_gap_Br_matrix is None
     assert data.config.horizontal_basis_kind == "CS"
-    assert data.config.boundary_jr_projection_basis == "CS"
-    data.save_settings_if_missing()
+    assert data.config.boundary_jr_remapping == "CS"
+    data.inputs.save_settings_if_missing()
     output_spaces = data.schema.output_field_spaces["dynamic"]
     n_magnetic = output_spaces["induced_Br"].size
     n_surface = output_spaces["boundary_jr"].size
@@ -72,11 +72,11 @@ def test_simulation_data_owns_schema_artifacts_and_field_series(tmp_path):
     data.output_series.add_entry("dynamic", _output_payload(n_magnetic, n_surface), time=0.0)
     data.output_series.save("dynamic", data.artifact_store)
 
-    reloaded = SimulationData.open(
+    reloaded = SimulationResults.open(
         settings, simulation_directory=simulation_directory, artifact_storage="netcdf"
     )
 
-    assert reloaded.settings_saved is True
+    assert reloaded.inputs.settings_saved is True
     assert reloaded.boundary_jr_to_gap_Br_matrix is not None
     assert reloaded.boundary_jr_to_gap_Br_matrix.dims == ("poloidal_i", "surface_i")
     assert "boundary_jr" in reloaded.input_series.datasets
@@ -89,33 +89,33 @@ def test_simulation_data_owns_schema_artifacts_and_field_series(tmp_path):
     )
 
 
-def test_simulation_data_reuses_validated_config(tmp_path):
+def test_simulation_results_reuses_validated_config(tmp_path):
     """The runtime shares one immutable validated configuration."""
     config = SimulationConfig(Nmax=2, Mmax=1, Ncs=8, enable_pfac_coupling=False)
 
-    data = SimulationData.open(
+    data = SimulationResults.open(
         config, simulation_directory=tmp_path / "simulation", artifact_storage="netcdf"
     )
 
     assert data.config is config
 
 
-def test_simulation_data_rejects_saved_settings_mismatch(tmp_path):
+def test_simulation_results_rejects_saved_settings_mismatch(tmp_path):
     """Saved settings guard against restarting with new args."""
     simulation_directory = tmp_path / "simulation"
     settings = _settings(Nmax=3)
-    data = SimulationData.open(
+    data = SimulationResults.open(
         settings, simulation_directory=simulation_directory, artifact_storage="netcdf"
     )
-    data.save_settings_if_missing()
+    data.inputs.save_settings_if_missing()
 
     with pytest.raises(ValueError, match="Mismatch"):
-        SimulationData.open(
+        SimulationResults.open(
             _settings(Nmax=4), simulation_directory=simulation_directory, artifact_storage="netcdf"
         )
 
 
-def test_simulation_data_rejects_legacy_magnetic_schema(tmp_path):
+def test_simulation_results_rejects_legacy_magnetic_schema(tmp_path):
     """Legacy data cannot be misread as physical magnetic variables."""
     simulation_directory = tmp_path / "simulation"
     legacy_settings = _settings()
@@ -124,7 +124,7 @@ def test_simulation_data_rejects_legacy_magnetic_schema(tmp_path):
     )
 
     with pytest.raises(ValueError, match="uses schema"):
-        SimulationData.open(
+        SimulationResults.open(
             legacy_settings, simulation_directory=simulation_directory, artifact_storage="netcdf"
         )
 
@@ -140,15 +140,15 @@ def test_simulation_exposes_interactive_views_without_copying_data(tmp_path):
         artifact_storage="netcdf",
     )
 
-    assert simulation._geometry is None
+    assert "surface_to_poloidal_operator" not in simulation.inputs.geometry.__dict__
     assert simulation._response is None
-    assert simulation.config is simulation.data.config
-    assert simulation.geometry.horizontal_basis is simulation.data.schema.horizontal_basis
+    assert simulation.config is simulation.results.config
+    assert simulation.geometry.horizontal_basis is simulation.results.geometry.horizontal_basis
     assert simulation.response.geometry is simulation.geometry
-    assert simulation.simulation_directory == simulation.data.simulation_directory
+    assert simulation.simulation_directory == simulation.results.simulation_directory
     assert simulation.model_grid is simulation.geometry.model_grid
-    assert simulation.inputs is simulation.data.input_series.datasets
-    assert simulation.outputs is simulation.data.output_series.datasets
+    assert simulation.inputs.datasets is simulation.results.input_series.datasets
+    assert simulation.outputs is simulation.results.output_series.datasets
     assert repr(simulation).startswith("Simulation(Nmax=2, Mmax=1, Ncs=8, current_time=0")
     for redundant_name in (
         "settings",
@@ -165,7 +165,7 @@ def test_simulation_exposes_interactive_views_without_copying_data(tmp_path):
     ):
         assert not hasattr(simulation, redundant_name)
     assert simulation.main_field is simulation.geometry.main_field
-    assert simulation.data.boundary_jr_to_gap_Br_matrix is None
+    assert simulation.results.boundary_jr_to_gap_Br_matrix is None
 
 
 @pytest.mark.parametrize(
@@ -183,18 +183,24 @@ def test_simulation_persists_only_active_gap_Br_response(
         enable_pfac_coupling=enable_pfac_coupling,
         artifact_storage="netcdf",
     )
-    resistance_shape = simulation.data.schema.input_field_spaces["conductance"].shape
-    simulation.set_conductance(
-        log_magnitude_coefficients=np.zeros(resistance_shape),
-        log_ratio_coefficients=np.zeros(resistance_shape),
+    resistance_shape = simulation.results.schema.input_field_spaces["conductance"].shape
+    simulation.inputs.set_coefficients(
+        "conductance",
+        {
+            "log_conductance_magnitude": np.zeros(resistance_shape),
+            "log_hall_to_pedersen_ratio": np.zeros(resistance_shape),
+        },
         time=0.0,
     )
-    boundary_jr_shape = simulation.data.schema.input_field_spaces["boundary_jr"].shape
-    simulation.set_boundary_jr(boundary_jr_coefficients=np.zeros(boundary_jr_shape), time=0.0)
+    boundary_jr_shape = simulation.results.schema.input_field_spaces["boundary_jr"].shape
+    simulation.inputs.set_coefficients("boundary_jr", np.zeros(boundary_jr_shape), time=0.0)
 
-    assert simulation.data.boundary_jr_to_gap_Br_matrix is None
-    simulation.impose_equilibrium(time=0.0, quiet=True)
-    assert (simulation.data.boundary_jr_to_gap_Br_matrix is not None) is expected_persisted
+    assert simulation.results.boundary_jr_to_gap_Br_matrix is None
+    simulation.set_state(
+        simulation.equilibrium_coefficients(time=0.0, interpolation=True)["induced_Br"], time=0.0
+    )
+    simulation.record_state(save=True)
+    assert (simulation.results.boundary_jr_to_gap_Br_matrix is not None) is expected_persisted
 
 
 def test_simulation_from_directory_uses_saved_configuration(tmp_path):
@@ -217,9 +223,12 @@ def test_simulation_from_directory_uses_saved_configuration(tmp_path):
     assert not hasattr(reloaded, "run_directory")
     assert reloaded.config.Mmax == original.config.Mmax
     assert reloaded.config.horizontal_basis_kind == "CS"
-    assert reloaded.data.schema.horizontal_basis is not original.data.schema.horizontal_basis
-    assert reloaded.data.schema.horizontal_basis.coefficient_count == (
-        original.data.schema.horizontal_basis.coefficient_count
+    assert (
+        reloaded.results.geometry.horizontal_basis
+        is not original.results.geometry.horizontal_basis
+    )
+    assert reloaded.results.geometry.horizontal_basis.coefficient_count == (
+        original.results.geometry.horizontal_basis.coefficient_count
     )
 
 
@@ -258,7 +267,8 @@ def test_from_directory_reads_settings_once(tmp_path, monkeypatch, constructor):
     assert type(reopened) is constructor
     assert settings_reads == ["settings"]
     assert reopened.config.to_dataset().identical(original.config.to_dataset())
-    assert reopened._geometry is None
+    preparation = reopened.inputs if constructor is Simulation else reopened
+    assert "surface_to_poloidal_operator" not in preparation.geometry.__dict__
     assert hasattr(reopened, "_time_evolution") == (constructor is Simulation)
 
 

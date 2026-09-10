@@ -73,11 +73,11 @@ def prepare_example_inputs(
     use_wind=False,
     use_Q_eff=False,
     use_boundary_jr=True,
-    boundary_jr_projection_basis=None,
-    boundary_Br_projection_basis=None,
-    conductance_projection_basis=None,
-    u_projection_basis=None,
-    Q_eff_projection_basis=None,
+    boundary_jr_remapping=None,
+    boundary_Br_remapping=None,
+    conductance_basis=None,
+    u_remapping=None,
+    Q_eff_remapping=None,
     boundary_jr_lambda=None,
     conductance_lambda=None,
     u_lambda=None,
@@ -85,6 +85,9 @@ def prepare_example_inputs(
     artifact_storage="auto",
     horizontal_basis_kind="SH",
     area_weighted_least_squares=False,
+    least_squares_solver=None,
+    least_squares_tolerance=1e-15,
+    least_squares_preconditioner=None,
 ):
     """Prepare empirical inputs for one event.
 
@@ -113,13 +116,16 @@ def prepare_example_inputs(
         main_field_epoch=main_field_epoch,
         main_field_B0=main_field_B0,
         t0=event_time.isoformat(sep=" "),
-        boundary_jr_projection_basis=boundary_jr_projection_basis,
-        boundary_Br_projection_basis=boundary_Br_projection_basis,
-        conductance_projection_basis=conductance_projection_basis,
-        u_projection_basis=u_projection_basis,
-        Q_eff_projection_basis=Q_eff_projection_basis,
+        boundary_jr_remapping=boundary_jr_remapping,
+        boundary_Br_remapping=boundary_Br_remapping,
+        conductance_basis=conductance_basis,
+        u_remapping=u_remapping,
+        Q_eff_remapping=Q_eff_remapping,
         horizontal_basis_kind=horizontal_basis_kind,
         area_weighted_least_squares=area_weighted_least_squares,
+        least_squares_solver=least_squares_solver,
+        least_squares_tolerance=least_squares_tolerance,
+        least_squares_preconditioner=least_squares_preconditioner,
         artifact_storage=artifact_storage,
     )
 
@@ -153,7 +159,7 @@ def prepare_example_inputs(
         "Conductance adapter", external_coordinates, conductance_lat, conductance_lon
     )
     preparation.set_conductance(
-        pedersen=pedersen, hall=hall, lat=model_lat, lon=model_lon, reg_lambda=conductance_lambda
+        pedersen=pedersen, hall=hall, reg_lambda=conductance_lambda, grid=preparation.model_grid
     )
 
     if use_boundary_jr:
@@ -169,7 +175,7 @@ def prepare_example_inputs(
         )
         _require_geographic_grid("AMPS boundary-jr adapter", external_coordinates, jr_lat, jr_lon)
         preparation.set_boundary_jr(
-            boundary_jr, lat=model_lat, lon=model_lon, reg_lambda=boundary_jr_lambda
+            boundary_jr, reg_lambda=boundary_jr_lambda, grid=preparation.model_grid
         )
 
     if use_wind:
@@ -183,20 +189,18 @@ def prepare_example_inputs(
             preparation.set_Q_eff_from_neutral_wind(
                 u_theta=u_theta,
                 u_phi=u_phi,
-                lat=model_lat,
-                lon=model_lon,
                 sqrt_weights=weights,
                 wind_reg_lambda=u_lambda,
                 Q_eff_reg_lambda=Q_eff_lambda,
+                grid=preparation.model_grid,
             )
         else:
             preparation.set_neutral_wind(
                 u_theta=u_theta,
                 u_phi=u_phi,
-                lat=model_lat,
-                lon=model_lon,
                 sqrt_weights=weights,
                 reg_lambda=u_lambda,
+                grid=preparation.model_grid,
             )
 
     notes = []

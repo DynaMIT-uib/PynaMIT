@@ -41,12 +41,12 @@ jobs:
           python -c "from kompe.math import get_backend; print('Kompe backend:', get_backend())"
 
       - name: Install PynaMIT
-        run: python -m pip install .
+        run: python -m pip install ".[test,gui,zarr]"
 
       - name: Check code
         run: |
           ruff check .
-          ruff format --check src tests scripts
+          ruff format --check .
 
       - name: Build documentation
         run: sphinx-build -W --keep-going -b html docs/source docs/build
@@ -79,7 +79,7 @@ jobs:
           python -c "from kompe.math import get_backend; print('Kompe backend:', get_backend())"
 
       - name: Install PynaMIT
-        run: python -m pip install .
+        run: python -m pip install ".[test,gui,zarr]"
 
       - name: Verify native input models are absent
         run: |
@@ -121,7 +121,7 @@ jobs:
 
       - name: Install PynaMIT and native input models
         run: |
-          python -m pip install . -r requirements/pip-input-models.txt
+          python -m pip install ".[test,gui,zarr]" -r requirements/pip-input-models.txt
           # pyHWM2014 currently declares a nonexistent ``timeutil`` dependency.
           python -m pip install --no-deps \
             "pyhwm2014 @ git+https://github.com/rilma/pyHWM14.git@main"

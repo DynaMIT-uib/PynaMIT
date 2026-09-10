@@ -6,9 +6,10 @@ import datetime as dt
 from typing import Any
 
 import numpy as np
+from kompe import SphericalGrid
 from kompe.constants import EARTH_RADIUS_M
 
-from pynamit.coordinates import parse_utc_datetime
+from pynamit.coordinates import parse_utc_datetime, wrap_longitude_180
 
 # Prepared-forcing identity and coordinate conventions
 IONOSPHERE_RADIUS_M = 6.5e6
@@ -88,6 +89,33 @@ DATASET_UNITS = {
     "boundary_radius": "m",
     "boundary_solid_angle": "sr",
 }
+
+
+def read_ionosphere_grid(h5_file: Any) -> SphericalGrid:
+    """Read the regular TIEGCM grid and its relative area measure.
+
+    Prepared ionospheric values retain TIEGCM's tensor-product latitude
+    and longitude axes. Uniform angular spacing gives dA proportional
+    to sin(theta); the common spacing factor cancels in relative fits
+    and normalized diagnostic averages. Verify that sampling contract
+    here, rather than letting a generic point grid guess its measure.
+    """
+    latitude = np.asarray(h5_file["ionosphere_lat"][:], dtype=float)
+    longitude = wrap_longitude_180(h5_file["ionosphere_lon"][:])
+    if latitude.ndim != 2 or longitude.shape != latitude.shape or min(latitude.shape) < 2:
+        raise ValueError("Prepared TIEGCM coordinates must form a latitude/longitude grid.")
+    latitude_axis = latitude[:, 0]
+    longitude_axis = np.unwrap(np.deg2rad(longitude[0]))
+    steps = (np.diff(latitude_axis), np.diff(longitude_axis))
+    if (
+        not np.allclose(latitude, latitude[:, :1])
+        or not np.allclose(longitude, longitude[:1, :])
+        or any(step[0] == 0 or not np.allclose(step, step[0]) for step in steps)
+    ):
+        raise ValueError("Prepared TIEGCM coordinates must have uniform angular spacing.")
+    return SphericalGrid(
+        lat=latitude, lon=longitude, area_weights=np.sin(np.deg2rad(90.0 - latitude))
+    )
 
 
 def forcing_times(raw_times: Any) -> tuple[list[dt.datetime], np.ndarray]:

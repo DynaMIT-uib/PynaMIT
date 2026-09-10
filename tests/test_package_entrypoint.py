@@ -1,28 +1,29 @@
 """Package entry-point behavior."""
 
-import importlib.util
 import runpy
 
 import pynamit
-import pynamit.simulation as simulation_api
 import pynamit.workflows as workflows
 from pynamit.workflows import example as example_workflow
 from pynamit.workflows import prepared_inputs as prepared_input_workflow
 
 
-def test_simulation_package_has_an_explicit_public_api():
-    """The simulation package exports only its stable entry points."""
-    assert simulation_api.__all__ == ["InputPreparation", "Simulation", "SimulationConfig"]
-    assert simulation_api.InputPreparation is pynamit.InputPreparation
-    assert simulation_api.Simulation is pynamit.Simulation
-    assert simulation_api.SimulationConfig is pynamit.SimulationConfig
-    assert hasattr(pynamit, "SimulationResults")
-    assert not hasattr(pynamit, "RunResults")
-    assert not hasattr(simulation_api, "RunData")
-    assert not hasattr(simulation_api, "_InputProjector")
-    assert not hasattr(simulation_api, "_TimeEvolution")
-    assert not hasattr(simulation_api.Simulation, "set_jr")
-    assert not hasattr(simulation_api.Simulation, "set_u")
+def test_package_exports_the_researcher_workflow():
+    """The top-level API directly exposes the workflow classes."""
+    from pynamit.results.simulation_results import SimulationResults
+    from pynamit.simulation.config import SimulationConfig
+    from pynamit.simulation.geometry import SimulationGeometry
+    from pynamit.simulation.input_preparation import InputPreparation
+    from pynamit.simulation.simulation import Simulation
+
+    for cls in (
+        InputPreparation,
+        Simulation,
+        SimulationConfig,
+        SimulationGeometry,
+        SimulationResults,
+    ):
+        assert getattr(pynamit, cls.__name__) is cls
 
 
 def test_simulation_workflow_names_are_short_and_explicit():
@@ -36,15 +37,6 @@ def test_simulation_workflow_names_are_short_and_explicit():
         "load_prepared_inputs_into_simulation",
         "run_from_inputs",
     ]
-    assert not hasattr(workflows, "prepare_inputs")
-    assert not hasattr(workflows, "run_pynamit")
-    assert not hasattr(prepared_input_workflow, "prepare_pynamit_inputs")
-    assert not hasattr(prepared_input_workflow, "run_pynamit_from_inputs")
-    assert not hasattr(prepared_input_workflow, "INPUT_MANIFEST_FILENAME")
-    assert not hasattr(prepared_input_workflow, "write_input_manifest")
-    assert not hasattr(pynamit, "BasisEvaluator")
-    assert importlib.util.find_spec("pynamit.workflows.standard") is None
-    assert importlib.util.find_spec("pynamit.simulation.run_data") is None
 
 
 def test_main_module_import_is_inert(monkeypatch):

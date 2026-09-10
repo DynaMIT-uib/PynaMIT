@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from kompe import SphericalGrid
 from kompe.constants import EARTH_RADIUS_M
 
 import pynamit
@@ -53,6 +54,7 @@ class PaperSimulationSettings:
     simulation_time: float = 480.0
     interhemispheric_coupling_latitude: float = 45.0
     dt: float = 5e-4
+    output_interval: float = 5e-4
     samples_per_write: int = 200
     conductance_lambda: float = 0.001
     wind_lambda: float = 0.001
@@ -82,7 +84,7 @@ def _json_value(value: Any) -> Any:
 
 def _prepared_input_datasets(preparation: pynamit.InputPreparation) -> list[str]:
     """Return projected input artifacts present in ``preparation``."""
-    artifacts = preparation.data.artifact_store.scan_artifacts(INPUT_DATASET_KEYS)
+    artifacts = preparation.artifact_store.scan_artifacts(INPUT_DATASET_KEYS)
     return [key for key in INPUT_DATASET_KEYS if key in artifacts]
 
 
@@ -122,9 +124,8 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
     preparation.set_conductance(
         pedersen=pedersen,
         hall=hall,
-        lat=source_lat,
-        lon=source_lon,
         reg_lambda=settings.conductance_lambda,
+        grid=SphericalGrid(lat=source_lat, lon=source_lon),
     )
 
     dipole_model = dipole.Dipole(preparation.main_field.epoch)
@@ -140,7 +141,9 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
         minlat=50.0,
     )
     preparation.set_boundary_jr(
-        boundary_jr, lat=source_lat, lon=source_lon, reg_lambda=settings.boundary_jr_lambda
+        boundary_jr,
+        reg_lambda=settings.boundary_jr_lambda,
+        grid=SphericalGrid(lat=source_lat, lon=source_lon),
     )
 
     wind = get_wind_inputs(settings.date, lat=source_lat, lon=source_lon, ap=(-1, 35))
@@ -148,15 +151,14 @@ def prepare_paper_inputs(settings: PaperSimulationSettings = SETTINGS) -> Path:
     preparation.set_neutral_wind(
         u_theta=u_theta,
         u_phi=u_phi,
-        lat=source_lat,
-        lon=source_lon,
         sqrt_weights=sqrt_weights,
         reg_lambda=settings.wind_lambda,
+        grid=SphericalGrid(lat=source_lat, lon=source_lon),
     )
 
     write_input_manifest(
         input_directory,
-        preparation.data.config,
+        preparation.config,
         input_datasets=_prepared_input_datasets(preparation),
         source="scripts.simulation.pynamit_paper_simulation",
         notes=[
@@ -190,6 +192,7 @@ def run_paper_simulation(settings: PaperSimulationSettings = SETTINGS) -> pynami
         enabled_inputs=("conductance", "u"),
         final_time=settings.simulation_time,
         dt=settings.dt,
+        output_interval=settings.output_interval,
         samples_per_write=settings.samples_per_write,
         main_field_kind="igrf",
         fac_integration_radii=dipole_fac_integration_radii(
@@ -207,7 +210,8 @@ def run_paper_simulation(settings: PaperSimulationSettings = SETTINGS) -> pynami
     )
 
     print("Imposing wind/conductance equilibrium before enabling jr", flush=True)
-    simulation.impose_equilibrium()
+    simulation.set_state(simulation.equilibrium_coefficients(interpolation=True)["induced_Br"])
+    simulation.record_state(save=True)
 
     loaded_inputs = load_prepared_inputs_into_simulation(
         simulation,
@@ -221,10 +225,9 @@ def run_paper_simulation(settings: PaperSimulationSettings = SETTINGS) -> pynami
     simulation.evolve_to_time(
         final_time,
         dt=settings.dt,
-        steps_per_sample=1,
+        output_interval=settings.output_interval,
         samples_per_write=settings.samples_per_write,
         initialize_from_equilibrium=False,
-        run_dynamic=True,
         sample_equilibrium=False,
     )
 

@@ -1,5 +1,6 @@
 """Simulate oscillations for the PynaMIT paper."""
 
+from kompe import SphericalGrid
 import numpy as np
 import pynamit
 from lompe import conductance
@@ -60,7 +61,10 @@ hall, pedersen = conductance.hardy_EUV(
 )
 
 simulation.set_conductance(
-    pedersen=pedersen, hall=hall, lat=conductance_lat, lon=conductance_lon, reg_lambda=0.001
+    pedersen=pedersen,
+    hall=hall,
+    reg_lambda=0.001,
+    grid=SphericalGrid(lat=conductance_lat, lon=conductance_lon),
 )
 
 # Get and set jr input.
@@ -75,7 +79,7 @@ a = pyamps.AMPS(400, 5, -5, d.tilt(date), 100, minlat=50)
 jr = a.get_upward_current(mlat=mlat, mlt=mlt) * 1e-6
 jr[np.abs(jr_lat) < 50] = 0  # Filter low latitude jr
 
-simulation.set_boundary_jr(jr, lat=jr_lat, lon=jr_lon)
+simulation.set_boundary_jr(jr, grid=SphericalGrid(lat=jr_lat, lon=jr_lon))
 
 # Get and set wind input.
 print(datetime.datetime.now(), "setting wind", flush=True)
@@ -98,10 +102,9 @@ u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing="ij")
 simulation.set_neutral_wind(
     u_theta=u_theta,
     u_phi=u_phi,
-    lat=u_lat,
-    lon=u_lon,
     sqrt_weights=np.tile(np.sqrt(np.sin(np.deg2rad(90 - u_lat.flatten()))), (2, 1)),
     reg_lambda=0.001,
+    grid=SphericalGrid(lat=u_lat, lon=u_lon),
 )
 
 
@@ -126,9 +129,8 @@ for period in PERIODS:
     print(datetime.datetime.now(), "Setting scaled jr value", flush=True)
     simulation.set_boundary_jr(
         boundary_jr=scaled_jr_values,
-        lat=jr_lat,
-        lon=jr_lon,
         time=last_simulation_time + time_values,
+        grid=SphericalGrid(lat=jr_lat, lon=jr_lon),
     )
 
     print(
@@ -136,7 +138,8 @@ for period in PERIODS:
         "Imposing steady state before simulating period {} s".format(period),
         flush=True,
     )
-    simulation.impose_equilibrium()
+    simulation.set_state(simulation.equilibrium_coefficients(interpolation=True)["induced_Br"])
+    simulation.record_state(save=True)
 
     print(datetime.datetime.now(), "Starting simulation", flush=True)
     simulation.evolve_to_time(last_simulation_time + simulation_duration)  # , dt = 5e-3)

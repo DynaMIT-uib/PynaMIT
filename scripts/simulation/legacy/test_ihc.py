@@ -1,17 +1,20 @@
 """Script to check if the interhemispheric connection works."""
 
-from importlib import reload
-import kompe
-import pynamit
-import dipole
-import numpy as np
 import datetime
-import pyamps
-import matplotlib.pyplot as plt
-from lompe import conductance
-import pyhwm2014  # https://github.com/rilma/pyHWM14
-import cartopy.crs as ccrs
 import os
+from importlib import reload
+
+import cartopy.crs as ccrs
+import dipole
+import kompe
+import matplotlib.pyplot as plt
+import numpy as np
+import pyamps
+import pyhwm2014  # https://github.com/rilma/pyHWM14
+from kompe import SphericalGrid
+from lompe import conductance
+
+import pynamit
 from pynamit.plotting.quicklook import plot_global_polar_map
 
 PLOT_WIND = False  # True to make a plot of the wind field
@@ -72,7 +75,9 @@ conductance_lon = simulation.geometry.model_grid.lon
 hall, pedersen = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, date, starlight=1, dipole=True
 )
-simulation.set_conductance(pedersen=pedersen, hall=hall, lat=conductance_lat, lon=conductance_lon)
+simulation.set_conductance(
+    pedersen=pedersen, hall=hall, grid=SphericalGrid(lat=conductance_lat, lon=conductance_lon)
+)
 
 # Get and set jr input.
 jr_lat = simulation.geometry.model_grid.lat
@@ -80,7 +85,7 @@ jr_lon = simulation.geometry.model_grid.lon
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50)
 jr = a.get_upward_current(mlat=jr_lat, mlt=d.mlon2mlt(jr_lon, date)) * 1e-6
 jr[np.abs(jr_lat) < 50] = 0  # filter low latitude jr
-simulation.set_boundary_jr(jr, lat=jr_lat, lon=jr_lon)
+simulation.set_boundary_jr(jr, grid=SphericalGrid(lat=jr_lat, lon=jr_lon))
 
 # Get and set wind input.
 hwm14Obj = pyhwm2014.HWM142D(
@@ -101,9 +106,8 @@ u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing="ij")
 simulation.set_neutral_wind(
     u_theta=u_theta,
     u_phi=u_phi,
-    lat=u_lat,
-    lon=u_lon,
     sqrt_weights=np.tile(np.sqrt(np.sin(np.deg2rad(90 - u_lat.flatten()))), (2, 1)),
+    grid=SphericalGrid(lat=u_lat, lon=u_lon),
 )
 
 simulation.update_conductance()
@@ -133,12 +137,10 @@ if PLOT_WIND:
         simulation.geometry.horizontal_basis, representation="scalar"
     )
 
-    u_theta_sh = kompe.FieldCoefficients(
-        scalar_state_space, u_spherical_transform.analyze_scalar(u_theta)
+    u_theta_sh = scalar_state_space.project_mean_free(
+        u_spherical_transform.analyze_scalar(u_theta)
     )
-    u_phi_sh = kompe.FieldCoefficients(
-        scalar_state_space, u_spherical_transform.analyze_scalar(u_phi)
-    )
+    u_phi_sh = scalar_state_space.project_mean_free(u_spherical_transform.analyze_scalar(u_phi))
 
     u_theta_int = simulation.geometry.horizontal_transform.synthesize_scalar(u_theta_sh)
     u_phi_int = simulation.geometry.horizontal_transform.synthesize_scalar(u_phi_sh)
@@ -205,7 +207,7 @@ if SIMULATE:
             )
             fn = os.path.join(fig_directory, "new_" + str(filecount).zfill(3) + ".png")
             filecount += 1
-            title = "t = {:.3} s".format(time)
+            title = f"t = {time:.3} s"
             Br = simulation.response.get_Br(plt_state_evaluator)
             fig, paxn, paxs, axg = plot_global_polar_map(
                 plt_grid.lon,

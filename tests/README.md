@@ -7,9 +7,16 @@ such as “unit” and “integration”:
 - `inputs/` covers empirical providers, input contracts, projection, and
   prepared input packages.
 - `mage/` covers MAGE forcing preparation, projection, and runnable scripts.
-- `visualization/` covers result inspection and plotting.
+- `visualization/` covers result inspection and plotting, with separate
+  modules for field evaluation, renderers, settings, movie/script exports,
+  and the GUI.
 - The root contains the core simulation, field, geometry, storage, and backend
   tests.
+
+Install the complete test environment as described in
+[CONTRIBUTING.md](../CONTRIBUTING.md). Selection hooks and runtime isolation
+live together in `conftest.py`. Pure spherical and linear-algebra contracts
+belong in Kompe's tests, not duplicated here.
 
 The normal suite runs on NumPy and, when installed, JAX using the bundled input
 snapshot. Native Lompe, PyAMPS, and HWM validation is deliberately focused:

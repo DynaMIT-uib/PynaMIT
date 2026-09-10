@@ -6,12 +6,12 @@ documentation:
 https://www.sphinx-doc.org/en/master/usage/configuration.html
 """
 
-import os
 import sys
+from pathlib import Path
 
 # Import the checkout being documented without requiring an editable
 # install.
-sys.path.insert(0, os.path.abspath("../../src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 # Set project information.
 project = "PynaMIT"
@@ -28,15 +28,21 @@ nitpicky = True
 nitpick_ignore = [
     ("py:class", "collections.abc.Mapping"),
     ("py:class", "InputPreparation"),
-    ("py:class", "SimulationData"),
+    ("py:class", "SimulationResults"),
     ("py:class", "SimulationGeometry"),
     ("py:class", "ndarray"),
     ("py:class", "optional"),
     ("py:class", "numpy.ndarray"),
+    ("py:class", "ArrayLike"),
     ("py:class", "kompe.SphericalGrid"),
     ("py:class", "kompe.basis.ScalarBasis"),
     ("py:class", "kompe.math.LeastSquaresProblem"),
     ("py:class", "kompe.SurfaceDifferentialBasis"),
+    # Kompe types shown in geometry signatures have separate API docs.
+    ("py:class", "kompe.basis.SurfaceDifferentialBasis"),
+    ("py:class", "kompe.cubed_sphere.global_basis.GlobalCSBasis"),
+    ("py:class", "kompe.spherical_harmonics.solid_harmonics.SolidHarmonicOperators"),
+    ("py:class", "kompe.math.linear_map.LinearMap"),
     ("py:class", "kompe.spherical_transform.SphericalTransform"),
     ("py:class", "kompe.cache.PersistentArrayCache"),
     ("py:class", "pynamit.storage.artifact_store.ArtifactStore"),

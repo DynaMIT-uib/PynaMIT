@@ -98,6 +98,11 @@ class MainField:
     by the Kaiju field/source adapters, not simulation-state coordinate
     systems. For IGRF, geodetic height is approximated as
     ``h = r - EARTH_RADIUS_M``.
+
+    Treat model parameters as fixed after construction. Create a new
+    ``MainField`` for a different epoch, magnitude, or model; provider
+    objects and cached evaluations are initialized for those parameters.
+    ``clear_cache()`` discards evaluations, not the model configuration.
     """
 
     def __init__(self, kind="dipole", epoch=2020, ionosphere_height_km=0.0, B0=None):
@@ -539,7 +544,8 @@ class MainField:
     def inclination_sine(self, r, theta, phi):
         """Calculate sine of the inclination angle.
 
-        Defined as the angle of the magnetic field with nadir.
+        Inclination is measured from the horizontal plane, positive
+        downward: ``sin(I) = -Br / |B|``.
         Broadcasting rules apply.
 
         Parameters
@@ -592,6 +598,10 @@ class MainField:
         - IGRF: Uses apex coordinates.
         - Dipole: Uses analytic dipole field line equation.
         - Radial: Angular coordinates unchanged.
+
+        A dipole point exactly at its apex has two equatorward branches.
+        Mapping it to a different radius requires a hemisphere and is
+        therefore rejected; start on the intended side of the equator.
         """
         r, theta, phi = np.broadcast_arrays(r, theta, phi)
 
@@ -601,6 +611,8 @@ class MainField:
             phi_out = phi
         elif self.kind == "kaiju_dipole":
             magnetic_latitude, magnetic_longitude = self._mag_transform.geo2mag(90.0 - theta, phi)
+            if np.any((magnetic_latitude == 0.0) & (r_dest != r)):
+                raise ValueError("Mapping a dipole apex to another radius requires a hemisphere.")
             hemisphere = np.sign(magnetic_latitude)
             unsigned_magnetic_latitude = 90.0 - np.rad2deg(
                 np.arcsin(np.cos(np.deg2rad(magnetic_latitude)) * np.sqrt(r_dest / r))
@@ -612,6 +624,8 @@ class MainField:
             theta_out = 90.0 - latitude_out
         elif self.kind == "dipole":
             # Map from r to r_dest for dipole field.
+            if np.any((theta == 90.0) & (r_dest != r)):
+                raise ValueError("Mapping a dipole apex to another radius requires a hemisphere.")
             hemisphere = np.sign(90 - theta)
             unsigned_magnetic_latitude = 90 - np.rad2deg(
                 np.arcsin(np.sin(np.deg2rad(theta)) * np.sqrt(r_dest / r))

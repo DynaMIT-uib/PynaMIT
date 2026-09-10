@@ -89,6 +89,40 @@ def test_figure_settings_normalization_preserves_existing_instances():
     assert as_figure_settings({"plot_type": "global"}) == settings
 
 
+def test_output_quicklook_evaluates_unrecorded_live_state(monkeypatch):
+    """Live plots need no saved rows and remain editable."""
+    import matplotlib.pyplot as plt
+
+    from pynamit import Simulation
+    from pynamit.plotting import quicklook
+
+    simulation = Simulation(
+        Nmax=1, Mmax=1, Ncs=4, main_field_kind="radial", enable_pfac_coupling=False
+    )
+    grid = simulation.model_grid
+    simulation.inputs.set_conductance(
+        pedersen=np.full(grid.size, 5.0), hall=np.full(grid.size, 3.0), grid=grid
+    )
+    simulation.set_state(
+        np.full(simulation.geometry.poloidal_basis.coefficient_count, 1e-9), time=0.5
+    )
+
+    def unexpected_display(*args, **kwargs):
+        pytest.fail("Quicklook must return an editable figure, not display it.")
+
+    monkeypatch.setattr(plt, "show", unexpected_display)
+    # Coastline downloads are unrelated to live-state evaluation.
+    monkeypatch.setattr(quicklook, "style_global_axis", lambda *args, **kwargs: None)
+    fig = quicklook.plot_output_quicklook(simulation, noon_longitude=0)
+    try:
+        assert plt.fignum_exists(fig.number)
+        assert len(fig.axes) == 7
+        assert not simulation.outputs
+        assert simulation.current_time == 0.5
+    finally:
+        plt.close(fig)
+
+
 def test_local_time_longitude_helpers_are_vectorized():
     """Longitude helpers support scalar and vector inputs."""
     reference_time = dt.datetime(2011, 10, 24, 18, 30)

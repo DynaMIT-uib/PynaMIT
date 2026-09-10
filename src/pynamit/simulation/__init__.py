@@ -1,7 +1,5 @@
-"""Public simulation API."""
+"""Simulation implementation; researcher-facing classes live in pynamit.
 
-from pynamit.simulation.config import SimulationConfig
-from pynamit.simulation.input_preparation import InputPreparation
-from pynamit.simulation.simulation import Simulation
-
-__all__ = ["InputPreparation", "Simulation", "SimulationConfig"]
+Keep this namespace free of eager workflow imports. Geometry, schema,
+and physical equations are also used by saved-result evaluation.
+"""

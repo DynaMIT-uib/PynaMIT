@@ -31,9 +31,9 @@ def test_equilibrium_init(regression_approx):
         interhemispheric_coupling_latitude=50,
         use_wind=True,
         initialize_from_equilibrium=True,
-        boundary_jr_projection_basis="SH",
-        conductance_projection_basis="SH",
-        u_projection_basis="SH",
+        boundary_jr_remapping="direct",
+        conductance_basis="SH",
+        u_remapping="direct",
     )
 
     # Assert.
@@ -55,7 +55,7 @@ def test_equilibrium_init(regression_approx):
     assert actual_n_coeffs == expected_n_coeffs
 
 
-def test_impose_equilibrium_at_current_time(tmp_path, monkeypatch):
+def test_setting_and_recording_equilibrium_at_current_time(tmp_path, monkeypatch):
     """Imposed equilibrium should overwrite the live dynamic output."""
     monkeypatch.chdir(tmp_path)
 
@@ -71,15 +71,17 @@ def test_impose_equilibrium_at_current_time(tmp_path, monkeypatch):
         interhemispheric_coupling_latitude=50,
         use_wind=True,
         initialize_from_equilibrium=False,
-        boundary_jr_projection_basis="SH",
-        conductance_projection_basis="SH",
-        u_projection_basis="SH",
+        boundary_jr_remapping="direct",
+        conductance_basis="SH",
+        u_remapping="direct",
     )
 
-    equilibrium_induced_Br = simulation.impose_equilibrium(quiet=True)
+    equilibrium_induced_Br = simulation.equilibrium_coefficients(interpolation=True)["induced_Br"]
+    simulation.set_state(equilibrium_induced_Br)
+    simulation.record_state(save=True)
 
-    dynamic_entry = simulation.data.output_series.get_entry("dynamic", simulation.current_time)
-    equilibrium_entry = simulation.data.output_series.get_entry(
+    dynamic_entry = simulation.results.output_series.get_entry("dynamic", simulation.current_time)
+    equilibrium_entry = simulation.results.output_series.get_entry(
         "equilibrium", simulation.current_time
     )
 
@@ -91,7 +93,7 @@ def test_impose_equilibrium_at_current_time(tmp_path, monkeypatch):
     )
 
 
-def test_impose_equilibrium_updates_memory_without_persisting(tmp_path):
+def test_recording_equilibrium_without_persisting(tmp_path):
     """The save option controls disk persistence, not live output."""
     simulation = run_example(
         final_time=0.0,
@@ -103,19 +105,23 @@ def test_impose_equilibrium_updates_memory_without_persisting(tmp_path):
         simulation_directory=tmp_path / "run",
         artifact_storage="netcdf",
     )
-    simulation.data.artifact_store.remove_artifact("dynamic")
-    simulation.data.artifact_store.remove_artifact("equilibrium")
-    simulation.data.output_series.datasets.clear()
+    simulation.results.artifact_store.remove_artifact("dynamic")
+    simulation.results.artifact_store.remove_artifact("equilibrium")
+    simulation.results.output_series.datasets.clear()
 
-    equilibrium_induced_Br = simulation.impose_equilibrium(time=0.0, save=False, quiet=True)
+    equilibrium_induced_Br = simulation.equilibrium_coefficients(time=0.0, interpolation=True)[
+        "induced_Br"
+    ]
+    simulation.set_state(equilibrium_induced_Br, time=0.0)
+    simulation.record_state(save=False)
 
-    dynamic_entry = simulation.data.output_series.get_entry("dynamic", 0.0)
+    dynamic_entry = simulation.results.output_series.get_entry("dynamic", 0.0)
     np.testing.assert_allclose(dynamic_entry["induced_Br"], equilibrium_induced_Br)
-    assert simulation.data.artifact_store.get_dataset_storage_kind("dynamic") is None
-    assert simulation.data.artifact_store.get_dataset_storage_kind("equilibrium") is None
+    assert simulation.results.artifact_store.get_dataset_storage_kind("dynamic") is None
+    assert simulation.results.artifact_store.get_dataset_storage_kind("equilibrium") is None
 
 
-def test_impose_equilibrium_rejects_an_earlier_trajectory_time(tmp_path):
+def test_setting_equilibrium_rejects_an_earlier_trajectory_time(tmp_path):
     """Imposition cannot leave later checkpoints on another branch."""
     simulation = run_example(
         final_time=0.1,
@@ -129,11 +135,15 @@ def test_impose_equilibrium_rejects_an_earlier_trajectory_time(tmp_path):
         artifact_storage="netcdf",
     )
 
-    with pytest.raises(ValueError, match="before the active checkpoint"):
-        simulation.impose_equilibrium(time=0.0, quiet=True)
+    with pytest.raises(ValueError, match="precedes recorded dynamic output"):
+        simulation.set_state(
+            simulation.equilibrium_coefficients(time=0.0, interpolation=True)["induced_Br"],
+            time=0.0,
+        )
+        simulation.record_state(save=True)
 
 
-def test_impose_equilibrium_matches_initialize_from_equilibrium(tmp_path, monkeypatch):
+def test_explicit_equilibrium_matches_automatic_initialization(tmp_path, monkeypatch):
     """Explicit equilibrium should match initialized equilibrium."""
     common_kwargs = dict(
         final_time=0.0,
@@ -146,9 +156,9 @@ def test_impose_equilibrium_matches_initialize_from_equilibrium(tmp_path, monkey
         enable_interhemispheric_coupling=True,
         interhemispheric_coupling_latitude=50,
         use_wind=True,
-        boundary_jr_projection_basis="SH",
-        conductance_projection_basis="SH",
-        u_projection_basis="SH",
+        boundary_jr_remapping="direct",
+        conductance_basis="SH",
+        u_remapping="direct",
     )
 
     init_dir = tmp_path / "initialized"
@@ -160,12 +170,13 @@ def test_impose_equilibrium_matches_initialize_from_equilibrium(tmp_path, monkey
     imposed_dir.mkdir()
     monkeypatch.chdir(imposed_dir)
     imposed = run_example(**common_kwargs, initialize_from_equilibrium=False)
-    imposed.impose_equilibrium(quiet=True)
+    imposed.set_state(imposed.equilibrium_coefficients(interpolation=True)["induced_Br"])
+    imposed.record_state(save=True)
 
-    initialized_entry = initialized.data.output_series.get_entry(
+    initialized_entry = initialized.results.output_series.get_entry(
         "dynamic", initialized.current_time
     )
-    imposed_entry = imposed.data.output_series.get_entry("dynamic", imposed.current_time)
+    imposed_entry = imposed.results.output_series.get_entry("dynamic", imposed.current_time)
 
     for key in ("induced_Br", "boundary_jr", "Phi", "W"):
         # Phi and W vanish at exact equilibrium, so independently
@@ -180,6 +191,7 @@ def test_evolve_to_time_can_sample_equilibrium_without_dynamic_output(tmp_path):
     simulation = run_example(
         final_time=0.1,
         dt=0.05,
+        output_interval=0.05,
         samples_per_write=1,
         Nmax=4,
         Mmax=3,
@@ -194,18 +206,17 @@ def test_evolve_to_time_can_sample_equilibrium_without_dynamic_output(tmp_path):
         artifact_storage="netcdf",
     )
 
-    assert "dynamic" not in simulation.data.output_series.datasets
-    assert "equilibrium" in simulation.data.output_series.datasets
+    assert "dynamic" not in simulation.results.output_series.datasets
+    assert "equilibrium" in simulation.results.output_series.datasets
     np.testing.assert_allclose(
-        simulation.data.output_series.datasets["equilibrium"].time.values, [0.0, 0.05, 0.1]
+        simulation.results.output_series.datasets["equilibrium"].time.values, [0.0, 0.05, 0.1]
     )
     assert not (tmp_path / "equilibrium-only" / "dynamic.ncdf").exists()
     assert (tmp_path / "equilibrium-only" / "equilibrium.ncdf").is_file()
 
-    reloaded = Simulation.from_directory(
-        tmp_path / "equilibrium-only", artifact_storage="netcdf", backend="numpy"
-    )
-    assert reloaded.current_time == pytest.approx(0.1)
+    reloaded = Simulation.from_directory(tmp_path / "equilibrium-only", artifact_storage="netcdf")
+    assert simulation.current_time == reloaded.current_time == 0.0
+    assert simulation.induced_Br is reloaded.induced_Br is None
 
 
 def test_evolve_to_time_can_run_dynamic_output_without_equilibrium(tmp_path):
@@ -213,6 +224,7 @@ def test_evolve_to_time_can_run_dynamic_output_without_equilibrium(tmp_path):
     simulation = run_example(
         final_time=0.1,
         dt=0.05,
+        output_interval=0.05,
         samples_per_write=1,
         Nmax=4,
         Mmax=3,
@@ -227,10 +239,10 @@ def test_evolve_to_time_can_run_dynamic_output_without_equilibrium(tmp_path):
         artifact_storage="netcdf",
     )
 
-    assert "dynamic" in simulation.data.output_series.datasets
-    assert "equilibrium" not in simulation.data.output_series.datasets
+    assert "dynamic" in simulation.results.output_series.datasets
+    assert "equilibrium" not in simulation.results.output_series.datasets
     np.testing.assert_allclose(
-        simulation.data.output_series.datasets["dynamic"].time.values, [0.0, 0.05, 0.1]
+        simulation.results.output_series.datasets["dynamic"].time.values, [0.0, 0.05, 0.1]
     )
     assert (tmp_path / "inductive-only" / "dynamic.ncdf").is_file()
     assert not (tmp_path / "inductive-only" / "equilibrium.ncdf").exists()
@@ -241,6 +253,7 @@ def test_evolve_to_time_split_modes_match_combined_numerically(tmp_path):
     common_kwargs = dict(
         final_time=0.1,
         dt=0.05,
+        output_interval=0.05,
         samples_per_write=1,
         Nmax=4,
         Mmax=3,
@@ -271,10 +284,10 @@ def test_evolve_to_time_split_modes_match_combined_numerically(tmp_path):
         simulation_directory=str(tmp_path / "equilibrium"),
     )
 
-    dynamic_combined = combined.data.output_series.datasets["dynamic"]
-    dynamic_split = inductive.data.output_series.datasets["dynamic"]
-    equilibrium_combined = combined.data.output_series.datasets["equilibrium"]
-    equilibrium_split = equilibrium.data.output_series.datasets["equilibrium"]
+    dynamic_combined = combined.results.output_series.datasets["dynamic"]
+    dynamic_split = inductive.results.output_series.datasets["dynamic"]
+    equilibrium_combined = combined.results.output_series.datasets["equilibrium"]
+    equilibrium_split = equilibrium.results.output_series.datasets["equilibrium"]
 
     np.testing.assert_allclose(dynamic_split.time.values, dynamic_combined.time.values)
     np.testing.assert_allclose(equilibrium_split.time.values, equilibrium_combined.time.values)

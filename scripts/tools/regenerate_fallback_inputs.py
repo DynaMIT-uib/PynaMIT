@@ -9,6 +9,7 @@ from pathlib import Path
 
 import numpy as np
 from kompe.constants import EARTH_RADIUS_M
+from kompe.math import set_backend
 from tests.example_scenario import (
     AMPS_MIN_LATITUDE_DEG,
     DIPOLE_TILT_DEG,
@@ -105,6 +106,7 @@ def main() -> None:
         )
 
     set_input_source("native")
+    set_backend("numpy")
     grids = {}
     datasets: dict[str, dict[str, ProviderSnapshot]] = {
         provider_key: {} for provider_key in PROVIDER_SPECS
@@ -123,7 +125,6 @@ def main() -> None:
                 main_field_epoch=spec.main_field_epoch,
                 t0=EVENT_TIME.isoformat(sep=" "),
                 enable_pfac_coupling=False,
-                backend="numpy",
             )
             model_lat = np.asarray(simulation.model_grid.lat)
             model_lon = np.asarray(simulation.model_grid.lon)

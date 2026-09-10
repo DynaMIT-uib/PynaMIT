@@ -16,7 +16,7 @@ def test_2d_dipole_pfac_hc_exp(regression_approx):
     # Act.
     simulation = run_example(
         final_time=0.1,
-        dt=0.1,
+        output_interval=0.1,
         Nmax=10,
         Mmax=8,
         Ncs=18,

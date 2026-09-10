@@ -12,6 +12,8 @@ from kompe.math import (
     LeastSquaresSolver,
     LinearMap,
     get_array_module,
+    get_default_least_squares_solver,
+    identity_linear_map,
     pointwise_component_map,
 )
 
@@ -37,8 +39,8 @@ def _invert_pedersen_hall_pair(pedersen, hall):
     # A zero tensor has no inverse and naturally produces NaN.
     scaled_pedersen = pedersen / scale
     scaled_hall = hall / scale
-    denominator = scale * (scaled_pedersen**2 + scaled_hall**2)
-    return scaled_pedersen / denominator, scaled_hall / denominator
+    denominator = scaled_pedersen**2 + scaled_hall**2
+    return (scaled_pedersen / denominator) / scale, (scaled_hall / denominator) / scale
 
 
 def conductance_to_resistance(SigmaP, SigmaH):
@@ -66,13 +68,14 @@ def conductance_to_log_coordinates(
         xp.asarray(SigmaP, dtype=float), xp.asarray(SigmaH, dtype=float)
     )
     reference_conductance = _validate_reference_conductance(reference_conductance)
-    if bool(xp.any(~xp.isfinite(SigmaP))) or bool(xp.any(SigmaP <= 0.0)):
+    if bool(xp.any(~xp.isfinite(SigmaP) | (SigmaP <= 0.0))):
         raise ValueError("Pedersen conductance must be finite and strictly positive.")
-    if bool(xp.any(~xp.isfinite(SigmaH))) or bool(xp.any(SigmaH <= 0.0)):
+    if bool(xp.any(~xp.isfinite(SigmaH) | (SigmaH <= 0.0))):
         raise ValueError("Hall conductance must be finite and strictly positive.")
 
-    magnitude = xp.hypot(SigmaP, SigmaH)
-    return (xp.log(magnitude) - xp.log(reference_conductance), xp.log(SigmaH) - xp.log(SigmaP))
+    log_pedersen, log_hall = xp.log(SigmaP), xp.log(SigmaH)
+    log_magnitude = 0.5 * xp.logaddexp(2.0 * log_pedersen, 2.0 * log_hall)
+    return log_magnitude - xp.log(reference_conductance), log_hall - log_pedersen
 
 
 def resistance_to_log_conductance_coordinates(
@@ -87,13 +90,14 @@ def resistance_to_log_conductance_coordinates(
     xp = get_array_module(etaP, etaH)
     etaP, etaH = xp.broadcast_arrays(xp.asarray(etaP, dtype=float), xp.asarray(etaH, dtype=float))
     reference_conductance = _validate_reference_conductance(reference_conductance)
-    if bool(xp.any(~xp.isfinite(etaP))) or bool(xp.any(etaP <= 0.0)):
+    if bool(xp.any(~xp.isfinite(etaP) | (etaP <= 0.0))):
         raise ValueError("Pedersen resistance must be finite and strictly positive.")
-    if bool(xp.any(~xp.isfinite(etaH))) or bool(xp.any(etaH <= 0.0)):
+    if bool(xp.any(~xp.isfinite(etaH) | (etaH <= 0.0))):
         raise ValueError("Hall resistance must be finite and strictly positive.")
 
-    magnitude = xp.hypot(etaP, etaH)
-    return (-xp.log(magnitude) - xp.log(reference_conductance), xp.log(etaH) - xp.log(etaP))
+    log_pedersen, log_hall = xp.log(etaP), xp.log(etaH)
+    log_magnitude = 0.5 * xp.logaddexp(2.0 * log_pedersen, 2.0 * log_hall)
+    return -log_magnitude - xp.log(reference_conductance), log_hall - log_pedersen
 
 
 def conductance_from_log_coordinates(
@@ -206,8 +210,10 @@ def _current_from_weighted_winds(
     ``u_p`` and ``u_h`` are the separate conductivity-weighted column
     means. With the thin-sheet approximation that the main field is
     constant through the dynamo region, multiplying them by ``SigmaP``
-    and ``SigmaH`` reconstructs the wind moments in Appendix A,
-    Eqs. (A3)-(A4), of Laundal et al. (2025).
+    and ``SigmaH`` reconstructs the wind moments. The Hall source is
+    ``SigmaH * b x (u_h x B)``, following the conductivity convention
+    in Laundal et al. (2025), Eq. (A1). The reversed cross product
+    printed in Eq. (A4) is inconsistent with that convention.
     """
     xp = get_array_module(
         SigmaP,
@@ -265,9 +271,11 @@ def electric_field_from_weighted_winds(
     projected onto the spherical sheet.
 
     This is algebraically equivalent to applying the thin-sheet
-    resistance tensor to ``-Q_eff`` away from the dip equator. It avoids
-    explicitly forming ``Q_eff``, whose infinite-parallel-conductance
-    expression divides by the radial direction cosine and is singular
+    resistance tensor to PynaMIT's ``Q_eff`` away from the dip equator.
+    That sign is opposite to the effective current in Appendix A.
+    The direct calculation avoids forming ``Q_eff``. Its limiting
+    infinite-parallel-conductance expression divides by the radial
+    direction cosine and is singular
     at the dip equator. Returned components follow PynaMIT's
     ``E_neutral_wind`` convention and retain the broadcast sample shape.
     """
@@ -299,7 +307,15 @@ def electric_field_from_weighted_winds(
 
 
 def joule_heating_from_current(sheet_current, etaP, pedersen_geometry):
-    """Return collisional Joule heating ``etaP * J.T @ P @ J``."""
+    """Return sheet-model frictional heating in W/m².
+
+    The dissipation is ``etaP * J.T @ P @ J``.
+
+    This is exact for the effective single-wind sheet. With independent
+    conductivity-weighted winds it is a sheet diagnostic, not the full
+    height integral of ``sigmaP * |E + u(z) x B|²``. That integral also
+    requires second moments of the wind, which are not stored.
+    """
     xp = get_array_module(sheet_current, etaP, pedersen_geometry)
     sheet_current = xp.asarray(sheet_current)
     etaP = xp.asarray(etaP)
@@ -346,35 +362,55 @@ def Q_eff_on_grid_from_wind(wind_on_grid, wind_to_E_grid, resistance_tensor):
 
 
 def build_Q_eff_coefficient_solver(
-    Q_eff_to_E_operator: LinearMap, *, reg_lambda=None, tolerance=1e-15
+    Q_eff_to_E_operator: LinearMap, *, solver=None, reg_lambda=None, gauge_constraints=None
 ):
-    """Build a matrix-free solver for wind-equivalent coefficients.
+    """Prepare the selected fit for wind-equivalent coefficients.
 
     The fitted objective is ``||R Q_eff - E_wind||²`` plus
     ``reg_lambda * ||Q_eff||²`` when regularization is requested.
-    LSMR applies this penalty through damping, without augmented rows.
+    The penalty is absolute, not the scale-balanced smoothness penalty
+    used for sampled-field projection. Optional ``gauge_constraints``
+    impose exact zero-mean conditions on the unregularized potentials.
+    No penalty rows are needed to fix the offset. A nonzero
+    penalty determines that offset through the coefficient norm; the
+    input field space normalizes the stored gauge after fitting.
+    ``solver`` is a reusable ``LeastSquaresSolver``; when omitted, the
+    Kompe default algorithm is used. Iterative choices stay matrix-free.
     The returned solver accepts trailing right-hand-side axes.
     """
     weight = 0.0 if reg_lambda is None else float(reg_lambda)
     if not np.isfinite(weight) or weight < 0.0:
         raise ValueError("reg_lambda must be finite and non-negative.")
 
-    problem = LeastSquaresProblem(Q_eff_to_E_operator)
-    solver = LeastSquaresSolver(solver="lsmr", tolerance=tolerance)
-    damping = weight**0.5
-
-    def solve_E_wind(E_wind_coeffs):
-        return solver.solve(problem, E_wind_coeffs, damp=damping)
-
-    return solve_E_wind
+    if solver is None:
+        solver = LeastSquaresSolver(method=get_default_least_squares_solver())
+    penalty = (
+        None
+        if weight == 0.0
+        else weight**0.5 * identity_linear_map(Q_eff_to_E_operator.input_shape)
+    )
+    problem = LeastSquaresProblem(
+        Q_eff_to_E_operator,
+        regularization=penalty,
+        constraints=gauge_constraints if penalty is None else None,
+    )
+    return solver.prepare(problem)
 
 
 def solve_Q_eff_coefficients(
-    Q_eff_to_E_operator: LinearMap, E_wind_coeffs, *, reg_lambda=None, tolerance=1e-15
+    Q_eff_to_E_operator: LinearMap,
+    E_wind_coeffs,
+    *,
+    solver=None,
+    reg_lambda=None,
+    gauge_constraints=None,
 ):
     """Fit wind-equivalent coefficients through the structured map."""
     solve = build_Q_eff_coefficient_solver(
-        Q_eff_to_E_operator, reg_lambda=reg_lambda, tolerance=tolerance
+        Q_eff_to_E_operator,
+        solver=solver,
+        reg_lambda=reg_lambda,
+        gauge_constraints=gauge_constraints,
     )
     return solve(E_wind_coeffs)
 

@@ -99,7 +99,7 @@ def _capture_preparation(monkeypatch, *, source: str, directory, main_field_kind
         patch.setattr(example_inputs_module, "get_boundary_jr_inputs", capture_jr)
         patch.setattr(example_inputs_module, "get_wind_inputs", capture_wind)
         set_input_source(source)
-        simulation = prepare_example_inputs(
+        preparation = prepare_example_inputs(
             directory,
             Nmax=4,
             Mmax=4,
@@ -112,30 +112,30 @@ def _capture_preparation(monkeypatch, *, source: str, directory, main_field_kind
 
     if set(captured) != set(_INPUT_KEYS):
         raise RuntimeError(f"Preparation captured {sorted(captured)}, expected {_INPUT_KEYS}.")
-    return simulation, captured
+    return preparation, captured
 
 
-def _coefficient_entries(simulation) -> dict[str, dict[str, np.ndarray]]:
+def _coefficient_entries(preparation) -> dict[str, dict[str, np.ndarray]]:
     """Return stored coefficient rows for all compared inputs."""
     result = {}
     for key in _INPUT_KEYS:
-        entry = simulation.data.input_series.get_entry(key, 0.0, interpolation=False)
+        entry = preparation.input_series.get_entry(key, 0.0, interpolation=False)
         if entry is None:
-            raise RuntimeError(f"Prepared simulation has no {key!r} entry at t=0.")
+            raise RuntimeError(f"Prepared preparation has no {key!r} entry at t=0.")
         result[key] = {name: np.asarray(values) for name, values in entry.items()}
     return result
 
 
-def _synthesized_values(simulation) -> dict[str, dict[str, np.ndarray]]:
-    """Evaluate compared inputs on the simulation model grid."""
+def _synthesized_values(preparation) -> dict[str, dict[str, np.ndarray]]:
+    """Evaluate compared inputs on the preparation model grid."""
     return {
         key: {
             name: np.asarray(values)
             for name, values in evaluate_projected_input(
-                simulation,
+                preparation,
                 key,
                 0.0,
-                grid=simulation.geometry.model_grid,
+                grid=preparation.geometry.model_grid,
                 interpolation=False,
                 include_derived=True,
             ).items()
@@ -179,14 +179,14 @@ def test_native_and_fallback_inputs_match_through_projection(
     del backend, data_source
     previous_source = get_input_source()
     try:
-        native_simulation, native_raw = _capture_preparation(
+        native_preparation, native_raw = _capture_preparation(
             monkeypatch,
             source="native",
             directory=tmp_path / "native",
             main_field_kind=main_field_kind,
             ncs=ncs,
         )
-        fallback_simulation, fallback_raw = _capture_preparation(
+        fallback_preparation, fallback_raw = _capture_preparation(
             monkeypatch,
             source="fallback",
             directory=tmp_path / "fallback",
@@ -247,10 +247,10 @@ def test_native_and_fallback_inputs_match_through_projection(
     _assert_close("canonical:log_magnitude", native_log[0], fallback_log[0])
     _assert_close("canonical:log_ratio", native_log[1], fallback_log[1])
 
-    native_coefficients = _coefficient_entries(native_simulation)
-    fallback_coefficients = _coefficient_entries(fallback_simulation)
-    native_synthesized = _synthesized_values(native_simulation)
-    fallback_synthesized = _synthesized_values(fallback_simulation)
+    native_coefficients = _coefficient_entries(native_preparation)
+    fallback_coefficients = _coefficient_entries(fallback_preparation)
+    native_synthesized = _synthesized_values(native_preparation)
+    fallback_synthesized = _synthesized_values(fallback_preparation)
     for key in _INPUT_KEYS:
         _assert_mappings_close(
             f"coefficients:{key}", native_coefficients[key], fallback_coefficients[key]

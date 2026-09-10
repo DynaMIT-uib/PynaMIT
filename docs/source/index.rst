@@ -14,6 +14,11 @@ input, response term, or analysis.
    api
    sphere_operators
    architecture
+   numerical_model
+   equation_verification
+   input_workflows
+   results_and_storage
+   exponential_blocks
 
 Indices and tables
 ==================

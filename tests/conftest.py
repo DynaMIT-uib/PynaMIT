@@ -1,4 +1,4 @@
-"""Pytest parametrisation for array and input backends."""
+"""Backend selection, native-input markers, and isolated test state."""
 
 from __future__ import annotations
 
@@ -127,8 +127,8 @@ def _build_combinations(
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     """Parametrise tests from available backends and data sources."""
-    backends: list[str] = getattr(metafunc.config, "_pynamit_backend_list", ["numpy"])
-    sources: list[str] = getattr(metafunc.config, "_pynamit_data_sources", ["fallback"])
+    backends: list[str] = metafunc.config._pynamit_backend_list
+    sources: list[str] = metafunc.config._pynamit_data_sources
 
     def _is_parametrized(arg: str) -> bool:
         for marker in metafunc.definition.iter_markers("parametrize"):
@@ -179,12 +179,17 @@ def data_source(request: pytest.FixtureRequest) -> str:
 def configure_runtime(request: pytest.FixtureRequest, backend: str, data_source: str):
     """Fixture to configure backend and data source for each test."""
     previous_backend = get_backend()
-    previous_backend_env = os.environ.get("KOMPE_USE_JAX")
     previous_source = get_input_source()
-    previous_source_env = os.environ.get("PYNAMIT_INPUT_SOURCE")
-    previous_solver_env = os.environ.get(LEAST_SQUARES_SOLVER_ENV)
-    previous_mplconfig = os.environ.get("MPLCONFIGDIR")
-    previous_xdg_cache = os.environ.get("XDG_CACHE_HOME")
+    previous_environment = {
+        name: os.environ.get(name)
+        for name in (
+            "KOMPE_USE_JAX",
+            "PYNAMIT_INPUT_SOURCE",
+            LEAST_SQUARES_SOLVER_ENV,
+            "MPLCONFIGDIR",
+            "XDG_CACHE_HOME",
+        )
+    }
 
     with tempfile.TemporaryDirectory(prefix="pynamit-test-cache-") as cache_root:
         mplconfig_dir = os.path.join(cache_root, "matplotlib")
@@ -208,26 +213,11 @@ def configure_runtime(request: pytest.FixtureRequest, backend: str, data_source:
         finally:
             set_backend(previous_backend)
             set_input_source(previous_source)
-            if previous_backend_env is None:
-                os.environ.pop("KOMPE_USE_JAX", None)
-            else:
-                os.environ["KOMPE_USE_JAX"] = previous_backend_env
-            if previous_source_env is None:
-                os.environ.pop("PYNAMIT_INPUT_SOURCE", None)
-            else:
-                os.environ["PYNAMIT_INPUT_SOURCE"] = previous_source_env
-            if previous_solver_env is None:
-                os.environ.pop(LEAST_SQUARES_SOLVER_ENV, None)
-            else:
-                os.environ[LEAST_SQUARES_SOLVER_ENV] = previous_solver_env
-            if previous_mplconfig is None:
-                os.environ.pop("MPLCONFIGDIR", None)
-            else:
-                os.environ["MPLCONFIGDIR"] = previous_mplconfig
-            if previous_xdg_cache is None:
-                os.environ.pop("XDG_CACHE_HOME", None)
-            else:
-                os.environ["XDG_CACHE_HOME"] = previous_xdg_cache
+            for name, value in previous_environment.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
 
 
 @pytest.fixture(autouse=True)
@@ -265,3 +255,24 @@ def regression_approx(regression_rtol: float):
     from functools import partial
 
     return partial(pytest.approx, rel=regression_rtol, abs=0.0)
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Modify to skip based on environment capabilities."""
+    skip_jax_marker = None if JAX_AVAILABLE else pytest.mark.skip(reason="Requires JAX runtime.")
+    requested_sources = config.getoption("pynamit_data_sources")
+    native_selected = requested_sources is None or "native" in requested_sources
+    if not native_selected:
+        skip_native_marker = pytest.mark.skip(
+            reason="Native-input tests are excluded by --data-source fallback."
+        )
+    elif not native_inputs_available():
+        skip_native_marker = pytest.mark.skip(reason="Requires native input datasets.")
+    else:
+        skip_native_marker = None
+
+    for item in items:
+        if skip_jax_marker is not None and item.get_closest_marker("requires_jax"):
+            item.add_marker(skip_jax_marker)
+        if skip_native_marker is not None and item.get_closest_marker("requires_native_inputs"):
+            item.add_marker(skip_native_marker)

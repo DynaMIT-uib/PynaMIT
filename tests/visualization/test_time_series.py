@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import xarray as xr
+from kompe.math import get_array_module
 
 from pynamit.results.peaks import (
     first_event_peak_abs_value_and_time,
@@ -13,12 +14,12 @@ from pynamit.results.peaks import (
     prominent_peak_candidates,
 )
 from pynamit.results.time_series import (
-    centered_difference_at_times,
-    compute_time_derivative_values,
     datetime_at_index,
     datetime_index_to_epoch_ns,
     median_cadence_seconds,
     resample_to_times,
+    time_derivative,
+    time_derivative_at_times,
     time_index_from_dataset,
     vector_magnitude,
 )
@@ -85,23 +86,6 @@ def test_saved_timestamp_indexing_does_not_clip_or_truncate(time_dtype):
             datetime_at_index(times, index, start_time=start_time)
     with pytest.raises(IndexError):
         datetime_at_index(times[:0], 0, start_time=start_time)
-
-
-def test_saved_field_time_lookup_handles_mixed_datetime_resolutions():
-    """Dataset lookup must normalize datetime resolutions."""
-    from pynamit.plotting.plot_data import _dataset_index_at_time
-
-    dataset = xr.Dataset(
-        coords={
-            "time": np.array(
-                ["2011-10-24T18:00:10", "2011-10-24T18:00:20", "2011-10-24T18:00:30"],
-                dtype="datetime64[us]",
-            )
-        }
-    )
-
-    assert _dataset_index_at_time(dataset, pd.Timestamp("2011-10-24T18:00:20")) == 1
-    assert _dataset_index_at_time(dataset, pd.Timestamp("2011-10-24T18:00:25")) == 1
 
 
 def test_resample_to_times_sorts_masks_duplicates_and_bounds():
@@ -194,7 +178,7 @@ def test_centered_difference_series_uses_interpolated_window():
     source_values = 2.0 * source_seconds
     target = pd.to_datetime(["2020-01-01T00:00:00", "2020-01-01T00:00:20"])
 
-    derivative = centered_difference_at_times(index, source_values, target, half_window_points=1)
+    derivative = time_derivative_at_times(index, source_values, target, half_window_points=1)
 
     np.testing.assert_allclose(derivative, np.array([np.nan, 2.0]))
 
@@ -203,9 +187,9 @@ def test_centered_difference_series_rejects_invalid_numerical_settings():
     """Invalid difference settings are not silently repaired."""
     index = pd.date_range("2020-01-01", periods=3, freq="10s")
     with pytest.raises(ValueError, match="half_window_points"):
-        centered_difference_at_times(index, np.arange(3), index, 0)
+        time_derivative_at_times(index, np.arange(3), index, 0)
     with pytest.raises(ValueError, match="cadence_seconds"):
-        centered_difference_at_times(index, np.arange(3), index, cadence_seconds=-1.0)
+        time_derivative_at_times(index, np.arange(3), index, cadence_seconds=-1.0)
 
 
 def test_centered_difference_values_preserve_leading_dimensions():
@@ -216,13 +200,13 @@ def test_centered_difference_values_preserve_leading_dimensions():
     source_values = two_series[np.newaxis, np.newaxis]
     target = pd.to_datetime(["2020-01-01T00:00:20"])
 
-    derivative = centered_difference_at_times(index, source_values, target)
+    derivative = time_derivative_at_times(index, source_values, target)
 
     assert derivative.shape == (1, 1, 2, 1)
     np.testing.assert_allclose(derivative[0, 0], np.array([[2.0], [-3.0]]))
 
 
-def test_compute_time_derivative_values_preserves_shape():
+def test_time_derivative_preserves_shape():
     """Same-grid derivatives should keep edge samples undefined."""
     index = pd.date_range("2020-01-01", periods=5, freq="10s")
     source_seconds = np.arange(5, dtype=float) * 10.0
@@ -233,7 +217,7 @@ def test_compute_time_derivative_values_preserves_shape():
         ]
     )
 
-    derivative = compute_time_derivative_values(values, index, half_window_points=1)
+    derivative = time_derivative(index, values, half_window_points=1)
 
     assert derivative.shape == values.shape
     np.testing.assert_allclose(
@@ -243,16 +227,32 @@ def test_compute_time_derivative_values_preserves_shape():
     assert np.all(np.isnan(derivative[..., [0, -1]]))
 
 
-def test_compute_time_derivative_values_rejects_invalid_time_axis():
+def test_time_derivative_rejects_invalid_time_axis():
     """Invalid time axes fail at the data boundary."""
     invalid_index = pd.to_datetime(
         ["2020-01-01T00:00:00", "2020-01-01T00:00:10", "2020-01-01T00:00:05"]
     )
 
     with pytest.raises(ValueError, match="strictly increasing"):
-        compute_time_derivative_values(np.ones((2, 3)), invalid_index)
+        time_derivative(invalid_index, np.ones((2, 3)))
     with pytest.raises(ValueError, match="must match"):
-        compute_time_derivative_values(np.ones((2, 4)), invalid_index)
+        time_derivative(invalid_index, np.ones((2, 4)))
+
+
+def test_time_derivative_preserves_nanosecond_spacing_and_backend():
+    """Subtract the epoch before converting nanosecond spacings."""
+    xp = get_array_module()
+    offsets_ns = np.array([0, 1, 4, 5, 8, 10])
+    index = pd.Timestamp("2020-01-01") + pd.to_timedelta(offsets_ns, unit="ns")
+    seconds = offsets_ns * 1e-9
+    values = xp.asarray(np.stack([seconds**2, -3 * seconds]))
+
+    derivative = time_derivative(index, values)
+
+    np.testing.assert_allclose(derivative[0, 1:-1], 2 * seconds[1:-1], rtol=1e-12, atol=1e-20)
+    np.testing.assert_allclose(derivative[1, 1:-1], -3, rtol=1e-12)
+    assert isinstance(derivative, xp.ndarray)
+    assert np.all(np.isnan(derivative[..., [0, -1]]))
 
 
 @pytest.mark.parametrize("scale", [1.0, 1e-310])

@@ -32,9 +32,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
         nargs="?",
         default=None,
         help=(
-            "Simulation or projected-input directory to inspect. Defaults to the current "
-            "directory when it contains PynaMIT artifacts, otherwise common local "
-            "simulation directories are tried."
+            "Simulation or projected-input directory to inspect. When omitted, use "
+            "PYNAMIT_SIMULATION_DIR or artifacts in the current directory; otherwise "
+            "start without loading data."
         ),
     )
     parser.add_argument("--port", type=int, default=5006, help="Port for the Panel server.")
@@ -77,7 +77,11 @@ def main(argv: list[str] | None = None) -> None:
     simulation_directory = (
         Path(args.simulation_directory).expanduser() if args.simulation_directory else None
     )
-    app = build_gui(simulation_directory=simulation_directory)
+
+    # Each browser session owns its widgets and figure state.
+    def app():
+        return build_gui(simulation_directory=simulation_directory)
+
     serve_kwargs = {
         "address": args.address,
         "port": int(args.port),
@@ -90,7 +94,7 @@ def main(argv: list[str] | None = None) -> None:
     label = (
         simulation_directory
         if simulation_directory is not None
-        else "auto-detected simulation directory"
+        else "PYNAMIT_SIMULATION_DIR or the current directory"
     )
     print(f"Serving PynaMIT GUI for {label} at http://{args.address}:{args.port}{route}")
     pn.serve({route: app}, **serve_kwargs)

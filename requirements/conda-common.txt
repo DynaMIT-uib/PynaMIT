@@ -12,7 +12,7 @@ pandas
 ppigrf
 scipy
 xarray
-zarr
+zarr>=3.2
 
 # plotting
 cartopy

@@ -9,9 +9,63 @@ import xarray as xr
 from kompe.constants import EARTH_RADIUS_M
 from kompe.math import LEAST_SQUARES_SOLVER_ENV
 
+from pynamit import Simulation
 from pynamit.coordinates import decimal_year
-from pynamit.simulation import Simulation
 from pynamit.simulation.config import SimulationConfig, dipole_fac_integration_radii
+
+
+@pytest.mark.parametrize("factory", ["simulation", "inputs", "geometry", "config"])
+def test_construction_respects_session_backend_without_changing_environment(
+    backend, monkeypatch, factory
+):
+    """Workflow construction leaves the process configuration alone."""
+    import os
+
+    from kompe.math import get_array_module, get_backend
+
+    from pynamit import InputPreparation, SimulationGeometry
+
+    monkeypatch.delenv("KOMPE_USE_JAX", raising=False)
+    settings = dict(Nmax=2, Mmax=1, Ncs=4, main_field_kind="radial")
+    if factory == "simulation":
+        item = Simulation(**settings)
+    elif factory == "inputs":
+        item = InputPreparation(**settings)
+    elif factory == "geometry":
+        geometry = SimulationGeometry.from_config(SimulationConfig(**settings))
+        item = Simulation.from_geometry(geometry)
+    else:
+        item = Simulation.from_config(SimulationConfig(**settings))
+    assert get_backend() == backend
+    assert "KOMPE_USE_JAX" not in os.environ
+    assert item.geometry.backend == backend
+    assert isinstance(
+        item.geometry.horizontal_transform.scalar_synthesis_array, get_array_module().ndarray
+    )
+
+
+def test_fit_tolerance_rejects_boolean_values():
+    """Boolean settings are not a numeric accuracy request."""
+    with pytest.raises(TypeError, match="least_squares_tolerance"):
+        SimulationConfig(least_squares_tolerance=True)
+
+
+def test_saved_projection_settings_preserve_basis_and_remapping():
+    """Reopen artifacts with their original numerical choices."""
+    saved = {
+        "horizontal_basis_kind": "SH",
+        "conductance_projection_basis": "CS",
+        "boundary_jr_projection_basis": "CS",
+        "boundary_Br_projection_basis": "SH",
+        "u_projection_basis": "SH",
+    }
+    config = SimulationConfig.from_settings(saved)
+    assert config.conductance_basis == "CS"
+    assert config.boundary_jr_remapping == "CS"
+    assert config.boundary_Br_remapping == "direct"
+    assert config.u_remapping == "direct"
+    for name, value in saved.items():
+        assert config.to_attrs()[name] == value
 
 
 def test_simulation_constructs_from_normalized_config(tmp_path):
@@ -21,11 +75,11 @@ def test_simulation_constructs_from_normalized_config(tmp_path):
     )
 
     simulation = Simulation.from_config(
-        config, simulation_directory=tmp_path, artifact_storage="netcdf", backend="numpy"
+        config, simulation_directory=tmp_path, artifact_storage="netcdf"
     )
 
     assert simulation.config.to_dataset().identical(config.to_dataset())
-    assert simulation.data.simulation_directory == str(tmp_path)
+    assert simulation.results.simulation_directory == str(tmp_path)
 
 
 def test_simulation_from_config_requires_normalized_config():
@@ -46,17 +100,15 @@ def test_operator_cache_is_a_nonphysical_runtime_preference(tmp_path):
         simulation_directory=simulation_directory,
         artifact_storage="netcdf",
         operator_cache_directory=first_cache,
-        backend="numpy",
     )
     assert original.operator_cache.directory == first_cache.resolve()
-    _ = original.response
+    _ = original.geometry.horizontal_transform.scalar_synthesis_array
     assert list(first_cache.rglob("*.npy"))
 
     reloaded = Simulation.from_directory(
         simulation_directory,
         artifact_storage="netcdf",
         operator_cache_directory=tmp_path / "second-cache",
-        backend="numpy",
     )
 
     assert reloaded.config.to_dataset().identical(original.config.to_dataset())
@@ -65,15 +117,15 @@ def test_operator_cache_is_a_nonphysical_runtime_preference(tmp_path):
 
 def test_simulation_config_normalizes_projection_defaults():
     """Projection settings inherit from basis and wind route."""
-    config = SimulationConfig(u_projection_basis="CS")
+    config = SimulationConfig(u_remapping="CS")
 
     assert config.horizontal_basis_kind == "SH"
-    assert config.boundary_jr_projection_basis == "SH"
-    assert config.boundary_Br_projection_basis == "SH"
-    assert config.conductance_projection_basis == "SH"
-    assert config.u_projection_basis == "CS"
-    assert config.Q_eff_projection_basis == "CS"
-    assert config.E_neutral_wind_projection_basis == "SH"
+    assert config.boundary_jr_remapping == "direct"
+    assert config.boundary_Br_remapping == "direct"
+    assert config.conductance_basis == "SH"
+    assert config.u_remapping == "CS"
+    assert config.Q_eff_remapping == "CS"
+    assert config.E_neutral_wind_remapping == "direct"
 
 
 def test_simulation_config_cs_mode_requires_cs_horizontal_projection_routes():
@@ -81,23 +133,21 @@ def test_simulation_config_cs_mode_requires_cs_horizontal_projection_routes():
     config = SimulationConfig(horizontal_basis_kind="cs")
 
     assert config.horizontal_basis_kind == "CS"
-    assert config.boundary_jr_projection_basis == "CS"
-    assert config.boundary_Br_projection_basis == "CS"
-    assert config.conductance_projection_basis == "CS"
-    assert config.u_projection_basis == "CS"
-    assert config.Q_eff_projection_basis == "CS"
-    assert config.E_neutral_wind_projection_basis == "CS"
+    assert config.boundary_jr_remapping == "CS"
+    assert config.boundary_Br_remapping == "CS"
+    assert config.conductance_basis == "CS"
+    assert config.u_remapping == "CS"
+    assert config.Q_eff_remapping == "CS"
+    assert config.E_neutral_wind_remapping == "CS"
 
-    with pytest.raises(ValueError, match="boundary_jr_projection_basis"):
-        SimulationConfig(horizontal_basis_kind="CS", boundary_jr_projection_basis="SH")
+    with pytest.raises(ValueError, match="boundary_jr_remapping"):
+        SimulationConfig(horizontal_basis_kind="CS", boundary_jr_remapping="direct")
 
     mixed = SimulationConfig(
-        horizontal_basis_kind="CS",
-        boundary_Br_projection_basis="SH",
-        conductance_projection_basis="SH",
+        horizontal_basis_kind="CS", boundary_Br_remapping="direct", conductance_basis="SH"
     )
-    assert mixed.boundary_Br_projection_basis == "SH"
-    assert mixed.conductance_projection_basis == "SH"
+    assert mixed.boundary_Br_remapping == "direct"
+    assert mixed.conductance_basis == "SH"
 
 
 def test_simulation_config_chooses_solver_default_for_horizontal_basis(monkeypatch):
@@ -119,6 +169,7 @@ def test_simulation_config_dataset_roundtrip_preserves_stored_sentinels():
         enable_pfac_coupling=False,
         area_weighted_least_squares=True,
         least_squares_solver="lsmr",
+        least_squares_tolerance=1e-9,
         least_squares_preconditioner="pinv",
         reuse_preconditioner=True,
         toroidal_potential_regularization_lambda=1e-3,
@@ -136,6 +187,7 @@ def test_simulation_config_dataset_roundtrip_preserves_stored_sentinels():
     assert not restored.enable_pfac_coupling
     assert restored.area_weighted_least_squares
     assert restored.least_squares_solver == "lsmr"
+    assert restored.least_squares_tolerance == 1e-9
     assert restored.least_squares_preconditioner == "pinv"
     assert restored.reuse_preconditioner
     assert restored.toroidal_potential_regularization_lambda == pytest.approx(1e-3)
@@ -153,7 +205,7 @@ def test_simulation_config_from_minimal_settings_accepts_missing_defaults():
     assert config.least_squares_preconditioner is None
     assert config.Ncs == 4
     assert config.horizontal_basis_kind == "SH"
-    assert config.conductance_projection_basis == "SH"
+    assert config.conductance_basis == "SH"
 
 
 def test_simulation_config_preserves_decimal_main_field_epoch():
@@ -341,6 +393,9 @@ def test_simulation_config_derives_missing_fac_grid_from_loaded_radii():
         ({"main_field_kind": "igrf", "main_field_B0": 3e-5}, "main_field_B0"),
         ({"integrator": "leapfrog"}, "integrator"),
         ({"least_squares_solver": "inverse"}, "least_squares_solver"),
+        ({"least_squares_tolerance": -1.0}, "least_squares_tolerance"),
+        ({"least_squares_tolerance": np.nan}, "least_squares_tolerance"),
+        ({"least_squares_tolerance": np.inf}, "least_squares_tolerance"),
         ({"least_squares_preconditioner": "ilu"}, "least_squares_preconditioner"),
         (
             {"toroidal_potential_regularization_lambda": np.nan},

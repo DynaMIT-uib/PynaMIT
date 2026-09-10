@@ -1,6 +1,8 @@
 """Time-series storage for field coefficients."""
 
 from collections.abc import Mapping
+from heapq import merge
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -8,11 +10,25 @@ import xarray as xr
 from kompe.coefficients import CoefficientSpace
 from kompe.math import get_array_module, to_numpy
 
-TIME_TOLERANCE_SECONDS = 1e-6
+
+def time_roundoff(time):
+    """Return four float64 rounding units, not a physical time window.
+
+    Relative simulation clocks can reach the same instant by different
+    arithmetic, such as 0.3 and 3 * 0.1. Matching these representations
+    must not merge distinct microsecond samples or anticipate input
+    changes by a fixed physical duration.
+    """
+    return 4 * np.spacing(np.abs(np.asarray(time, dtype=float)))
 
 
 class FieldTimeSeries:
-    """Persist and select time-indexed field coefficients."""
+    """Persist and select time-indexed field coefficients.
+
+    Appends grow coefficient arrays geometrically. ``datasets`` exposes
+    editable xarray views of occupied rows, not spare capacity.
+    Use ``dataset.copy(deep=True)`` for an independent snapshot.
+    """
 
     def __init__(self, field_spaces, variables, *, variable_attrs=None, time_origin=None):
         """Initialize named coefficient series from their field spaces.
@@ -36,11 +52,15 @@ class FieldTimeSeries:
 
         # Initialize in-memory series and persistence bookkeeping.
         self.datasets = {}
+        self._append_buffers = {}
         self._pending_start: dict[str, int] = {}
         self._full_save_required: dict[str, bool] = {}
-        self._storage_kinds: dict[str, str] = {}
+        self._saved_paths: dict[str, Path | None] = {}
 
         self._coefficient_layouts = self._build_coefficient_layouts()
+        self._coefficient_coordinates = {
+            key: self._build_coefficient_coordinates(key) for key in self.variables
+        }
 
     def _normalize_variable_attrs(self, variable_attrs):
         """Return complete copied variable-attribute mappings."""
@@ -163,6 +183,22 @@ class FieldTimeSeries:
                     ),
                 }
         return layouts
+
+    def _build_coefficient_coordinates(self, key):
+        """Construct coefficient indexes once, independently of time."""
+        coords = xr.Coordinates()
+        indexes = {}
+        for layout in self._coefficient_layouts[key].values():
+            indexes.setdefault(layout["dimension"], layout["index"])
+        for dimension, index in indexes.items():
+            coords = coords.merge(xr.Coordinates.from_pandas_multiindex(index, dim=dimension))
+        components = {}
+        for layout in self._coefficient_layouts[key].values():
+            if layout["component_name"] is not None:
+                components.setdefault(
+                    layout["component_name"], (layout["dimension"], layout["component_values"])
+                )
+        return coords.assign(components)
 
     def _apply_metadata(self, key, dataset):
         """Attach physical metadata while preserving stored values."""
@@ -314,7 +350,6 @@ class FieldTimeSeries:
         key : str
             The key identifying which time-series to load.
         """
-        storage_kind = store.get_dataset_storage_kind(key)
         dataset = store.load_dataset(key)
 
         if dataset is not None:
@@ -337,10 +372,10 @@ class FieldTimeSeries:
             }
             restored = restored.assign_coords(missing_components)
             self.datasets[key] = self._apply_metadata(key, restored)
+            self._append_buffers.pop(key, None)
             self._pending_start[key] = int(self.datasets[key].sizes.get("time", 0))
             self._full_save_required[key] = False
-            if storage_kind is not None:
-                self._storage_kinds[key] = storage_kind
+            self._saved_paths[key] = store.existing_artifact_path(key)
 
     def add_entry(self, key, data, time):
         """Add entry to the time-series.
@@ -367,7 +402,7 @@ class FieldTimeSeries:
         """Add coefficient rows with a leading time axis.
 
         Build metadata and transfer each variable to the CPU once per
-        batch. Unordered times are sorted; near-equal times replace
+        batch. Unordered times are sorted; roundoff-equal times replace
         earlier entries in the supplied order, just as with add_entry.
         """
         times = np.asarray(times)
@@ -376,18 +411,34 @@ class FieldTimeSeries:
         times = times.astype(float)
         if not np.all(np.isfinite(times)):
             raise ValueError("times must be finite.")
-        dataset = self._coefficient_dataset(key, data, times)
+        data_vars = self._coefficient_rows(key, data, times)
+        existing = self.datasets.get(key)
+        if (
+            existing is not None
+            and existing.sizes.get("time", 0)
+            and times[0] > existing.time.values[-1] + time_roundoff(existing.time.values[-1])
+            and np.all(np.diff(times) > time_roundoff(times[1:]))
+        ):
+            previous_size = existing.sizes["time"]
+            self.datasets[key] = self._append_rows(key, existing, data_vars, times)
+            self._pending_start[key] = min(
+                self._pending_start.get(key, previous_size), previous_size
+            )
+            return
+
+        coords = self._coefficient_coordinates[key].assign(time=times)
+        dataset = self._apply_metadata(key, xr.Dataset(data_vars=data_vars, coords=coords))
         ordered_times = np.sort(times)
-        if np.any(np.diff(ordered_times) <= TIME_TOLERANCE_SECONDS):
+        if np.any(np.diff(ordered_times) <= time_roundoff(ordered_times[1:])):
             # Tolerant equality is not transitive. Preserve insertion
             # order for overlapping replacements within this batch.
             for index in range(times.size):
                 self._merge_entries(key, dataset.isel(time=slice(index, index + 1)))
         else:
-            self._merge_entries(key, dataset.sortby("time"))
+            self._merge_entries(key, dataset.isel(time=np.argsort(times)))
 
-    def _coefficient_dataset(self, key, data, times):
-        """Build a validated, time-indexed coefficient batch."""
+    def _coefficient_rows(self, key, data, times):
+        """Validate rows and transfer them to owned CPU arrays."""
         expected_variables = set(self.variables[key])
         actual_variables = set(data)
         if actual_variables != expected_variables:
@@ -403,35 +454,24 @@ class FieldTimeSeries:
             rows = xp.asarray(data[var])
             if rows.ndim < 2 or rows.shape[0] != times.size:
                 raise ValueError(f"{key}.{var} must have {times.size} coefficient rows.")
-            values = xp.stack(
-                [
-                    field_space.project_mean_free(row, name=f"{key}.{var}").reshape(-1)
-                    for row in rows
-                ]
-            )
+            # Numerical field axes lead; persisted time rows lead.
+            values = rows.reshape(times.size, field_space.size).T
+            values = field_space.project_mean_free(values, name=f"{key}.{var}")
+            values = values.reshape(field_space.size, times.size).T
             dimension = self._coefficient_layouts[key][var]["dimension"]
-            data_vars[self.get_data_var_name(key, var)] = (["time", dimension], to_numpy(values))
+            # Own the CPU rows even when normalization is an identity.
+            data_vars[self.get_data_var_name(key, var)] = (
+                ["time", dimension],
+                np.array(to_numpy(values), copy=True),
+            )
 
-        coords = xr.Coordinates({"time": times})
-        indexes = {}
-        for layout in self._coefficient_layouts[key].values():
-            indexes.setdefault(layout["dimension"], layout["index"])
-        for dimension, index in indexes.items():
-            coords = coords.merge(xr.Coordinates.from_pandas_multiindex(index, dim=dimension))
-        component_coordinates = {}
-        for layout in self._coefficient_layouts[key].values():
-            component_name = layout["component_name"]
-            if component_name is not None:
-                component_coordinates.setdefault(
-                    component_name, (layout["dimension"], layout["component_values"])
-                )
-        coords = coords.assign(component_coordinates)
-        return self._apply_metadata(key, xr.Dataset(data_vars=data_vars, coords=coords))
+        return data_vars
 
     def _merge_entries(self, key, dataset):
         """Merge a sorted batch with no near-equal internal times."""
         existing = self.datasets.get(key)
         if existing is None or existing.sizes.get("time", 0) == 0:
+            self._append_buffers.pop(key, None)
             self.datasets[key] = dataset
             self._pending_start[key] = 0
             self._full_save_required[key] = False
@@ -439,112 +479,282 @@ class FieldTimeSeries:
 
         time_coords = np.asarray(existing.time.values, dtype=float)
         new_times = dataset.time.values
-        if new_times[0] > float(time_coords[-1]) + TIME_TOLERANCE_SECONDS:
-            previous_size = int(existing.sizes.get("time", 0))
-            self.datasets[key] = xr.concat([existing, dataset], dim="time")
-            pending_start = self._pending_start.get(key, previous_size)
-            self._pending_start[key] = min(pending_start, previous_size)
-            self._full_save_required[key] = bool(self._full_save_required.get(key, False))
-            return
-
         positions = np.searchsorted(new_times, time_coords)
         before = new_times[np.maximum(positions - 1, 0)]
         after = new_times[np.minimum(positions, new_times.size - 1)]
-        replace = np.isclose(time_coords, before, rtol=0.0, atol=TIME_TOLERANCE_SECONDS)
-        replace |= np.isclose(time_coords, after, rtol=0.0, atol=TIME_TOLERANCE_SECONDS)
+        replace = np.abs(time_coords - before) <= time_roundoff(
+            np.maximum(np.abs(time_coords), np.abs(before))
+        )
+        replace |= np.abs(time_coords - after) <= time_roundoff(
+            np.maximum(np.abs(time_coords), np.abs(after))
+        )
         retained = existing.isel(time=np.flatnonzero(~replace))
-        self.datasets[key] = xr.concat([retained, dataset], dim="time").sortby("time")
+        combined = xr.concat([retained, dataset], dim="time", coords="minimal", join="exact")
+        self.datasets[key] = combined.isel(time=np.argsort(combined.time.values))
+        self._append_buffers.pop(key, None)
         self._pending_start[key] = 0
         self._full_save_required[key] = True
 
-    def get_entry(self, key, time, interpolation=False):
-        """Select time series data corresponding to the specified time.
+    def _append_rows(self, key, existing, rows, new_times):
+        """Append rows without copying the history on every write.
 
-        Parameters
-        ----------
-        key : str
-            Key for the time series.
-        time : float
-            Current time for which to select data.
-        interpolation : bool, optional
-            Whether to use linear interpolation.
-
-        Returns
-        -------
-        dict or None
-            Owned coefficient arrays, or None if this known stream
-            has no sample at or before the requested time. Unknown
-            stream keys raise KeyError.
+        Double capacity when reallocating; otherwise copy only new rows.
+        The exposed array identifies each live view. Replaced xarray
+        variables are copied back before appending, so interactive edits
+        remain authoritative rather than being hidden by a stale buffer.
         """
-        time = self._time_value(time)
-        variables = self.variables[key]
+        for dimension, layout in {
+            layout["dimension"]: layout for layout in self._coefficient_layouts[key].values()
+        }.items():
+            if not existing.get_index(dimension).equals(layout["index"]):
+                raise ValueError("Coefficient indexes must match the field space when appending.")
+        buffers = self._append_buffers.setdefault(key, {})
+        previous_size = existing.sizes["time"]
+        size = previous_size + new_times.size
+        variables = {}
+        for name in existing.data_vars:
+            variable = existing.variables[name]
+            previous = variable.values
+            _, values = rows[name]
+            dtype = np.result_type(previous.dtype, values.dtype)
+            buffer, exposed = buffers.get(name, (None, None))
+            if buffer is None or buffer.shape[0] < size or buffer.dtype != dtype:
+                capacity = max(size, 2 * previous_size)
+                buffer = np.empty((capacity,) + previous.shape[1:], dtype=dtype)
+                np.copyto(buffer[:previous_size], previous)
+            elif previous is not exposed:
+                np.copyto(buffer[:previous_size], previous)
+            buffer[previous_size:size] = values
+            view = buffer[:size]
+            variables[name] = xr.Variable(
+                variable.dims, view, attrs=variable.attrs, encoding=variable.encoding
+            )
+            buffers[name] = (buffer, view)
+        # Keep ordinary xarray time indexes; reserve spare capacity only
+        # for the much larger coefficient arrays.
+        times = np.concatenate([existing.time.values, new_times])
+        time = xr.Variable(
+            ("time",), times, attrs=existing.time.attrs, encoding=existing.time.encoding
+        )
+        coords = existing.coords.drop_vars("time").assign(time=time)
+        return xr.Dataset(variables, coords=coords, attrs=existing.attrs)
+
+    def get_entry(self, key, time, interpolation=False, *, variables=None, fill_value=None):
+        """Select coefficients at one time or a non-empty time array.
+
+        Owned arrays have ``CoefficientSpace.shape`` followed by a time
+        axis for 1-D queries. Query order and repeats are retained.
+        Only requested rows are loaded from lazy storage.
+
+        Held values are right-continuous, matching float64 timestamp
+        roundoff. Interpolation is optional; the final value is held
+        after the final sample. Neither mode borrows a future value:
+        return None if any requested time precedes the first sample,
+        or fill those columns with an explicit ``fill_value``.
+        Unknown stream/variable names raise KeyError.
+
+        ``variables`` selects variables (None means all). An empty
+        sequence checks availability without loading coefficients.
+        ``fill_value=0`` suits a source defined as zero before onset;
+        this is not an implicit missing-data policy.
+        """
+        batch = np.ndim(time) != 0
+        if batch:
+            time = np.asarray(time)
+            if time.ndim != 1 or not time.size or time.dtype.kind not in "fiu":
+                raise ValueError("time must be a scalar or non-empty numeric 1-D array.")
+            time = time.astype(float, copy=False)
+            if not np.all(np.isfinite(time)):
+                raise ValueError("time must contain only finite values.")
+        else:
+            time = self._time_value(time)
+        known_variables = self.variables[key]
+        variables = known_variables if variables is None else tuple(variables)
+        unknown = set(variables) - set(known_variables)
+        if unknown:
+            raise KeyError(f"Unknown variables in {key!r}: {sorted(unknown)}.")
+        batch_shape = (time.size,) if batch else ()
         dataset = self.datasets.get(key)
         if dataset is None:
-            return None
+            return (
+                None
+                if fill_value is None
+                else {
+                    var: np.full(self.get_field_space(key, var).shape + batch_shape, fill_value)
+                    for var in variables
+                }
+            )
 
-        # Times are ordered at the insertion/loading boundary. Locate
-        # the bracket once for every variable, without copying xarray
-        # coordinates or scanning the complete time axis at each step.
         times = dataset.time.values
-        before = np.searchsorted(times, time + TIME_TOLERANCE_SECONDS, side="right") - 1
-        if before < 0:
+        before = np.searchsorted(times, time + time_roundoff(time), side="right") - 1
+        missing = before < 0
+        has_missing = np.any(missing) if batch else missing
+        if has_missing and fill_value is None:
             return None
-        before_time = float(times[before])
-        interpolate = (
-            interpolation
-            and before + 1 < times.size
-            and before_time < time - TIME_TOLERANCE_SECONDS
-        )
-        if interpolate:
-            fraction = (time - before_time) / (float(times[before + 1]) - before_time)
+        if has_missing and (np.all(missing) if batch else True):
+            return {
+                var: np.full(self.get_field_space(key, var).shape + batch_shape, fill_value)
+                for var in variables
+            }
+
+        # Share brackets across variables and read unique rows only.
+        # Scalar sampling stays a single slice, also during evolution.
+        if batch:
+            before = np.maximum(before, 0)
+            after = np.minimum(before + 1, times.size - 1)
+            interpolate = (
+                interpolation
+                & (after > before)
+                & (times[before] < time - time_roundoff(time))
+                & ~missing
+            )
+            following = np.where(interpolate, after, before)
+            selected, inverse = np.unique(np.concatenate([before, following]), return_inverse=True)
+            previous_rows, next_rows = inverse.reshape(2, -1)
+            has_interpolation = np.any(interpolate)
+            fraction = np.zeros(time.size)
+            fraction[interpolate] = (time[interpolate] - times[before[interpolate]]) / (
+                times[after[interpolate]] - times[before[interpolate]]
+            )
+        else:
+            before_time = float(times[before])
+            interpolate = (
+                interpolation
+                and before + 1 < times.size
+                and before_time < time - time_roundoff(time)
+            )
+            selected = slice(before, before + (2 if interpolate else 1))
+            if interpolate:
+                fraction = (time - before_time) / (float(times[before + 1]) - before_time)
 
         current_data = {}
         for var in variables:
-            values = dataset[self.get_data_var_name(key, var)].values
-            previous = values[before].reshape(-1)
-            current_data[var] = (
-                previous + fraction * (values[before + 1].reshape(-1) - previous)
-                if interpolate
-                else previous.copy()
-            )
+            values = dataset.variables[self.get_data_var_name(key, var)][selected].values
+            shape = self.get_field_space(key, var).shape
+            if batch:
+                current = values[previous_rows]
+                if has_interpolation:
+                    scale = fraction.astype(np.result_type(current.dtype, 0.0), copy=False)
+                    current = current + scale[:, None] * (values[next_rows] - current)
+                if has_missing:
+                    current = np.where(missing[:, None], fill_value, current)
+                current_data[var] = current.T.reshape(shape + batch_shape).copy()
+            else:
+                previous = values[0].reshape(shape)
+                current_data[var] = (
+                    previous + fraction * (values[1].reshape(shape) - previous)
+                    if interpolate
+                    else previous.copy()
+                )
         return current_data
 
-    def save(self, key, store, *, print_info: bool = False):
-        """Persist one stored series to disk.
+    def iter_intervals(self, start, stop, *, previous=None):
+        """Yield ``(left, right, entries)`` for constant held inputs.
+
+        Entries map every known stream to owned coefficient arrays,
+        or None before its first record. Adjacent rows are read once,
+        lazily; identical records do not split an interval. Unchanged
+        entries retain object identity, including against an optional
+        previous selection from this same series. Treat yielded arrays
+        as read-only. A new iterator sees edits to the live datasets.
+        Do not edit streams while consuming an iterator.
+
+        Intervals are left-closed and right-open. A final zero-length
+        interval at ``stop`` supplies inputs for endpoint diagnostics,
+        including changes exactly at stop. Times differing only by
+        float64 roundoff share a boundary, as in get_entry.
+        """
+        start, stop = self._time_value(start), self._time_value(stop)
+        if abs(stop - start) <= time_roundoff(start):
+            stop = start
+        if stop < start:
+            raise ValueError("stop must be at or after start.")
+        previous = {} if previous is None else previous
+
+        def changes(key):
+            dataset = self.datasets.get(key)
+            if dataset is None:
+                yield start, key, None
+                return
+            times = dataset.time.values
+            first = int(np.searchsorted(times, start + time_roundoff(start), side="right")) - 1
+            last = int(np.searchsorted(times, stop + time_roundoff(stop), side="right"))
+            old = previous.get(key)
+            if first < 0:
+                yield start, key, None
+                old = None
+            for index in range(max(first, 0), last):
+                values = {
+                    name: dataset.variables[self.get_data_var_name(key, name)][
+                        index
+                    ].values.reshape(self.get_field_space(key, name).shape)
+                    for name in self.variables[key]
+                }
+                same = old is not None and all(
+                    np.array_equal(value, old[name], equal_nan=True)
+                    for name, value in values.items()
+                )
+                if not same:
+                    old = {name: value.copy() for name, value in values.items()}
+                if index == first or not same:
+                    time = start if index == first else float(times[index])
+                    if abs(time - stop) <= time_roundoff(stop):
+                        time = stop
+                    yield time, key, old
+
+        events = merge(*(changes(key) for key in self.variables), key=lambda event: event[0])
+        left, entries = start, {}
+        for time, key, values in events:
+            if time > left + time_roundoff(left):
+                yield left, time, entries
+                entries = entries.copy()
+                left = time
+            entries[key] = values
+        yield left, stop, entries
+        if left < stop:
+            yield stop, stop, entries
+
+    def save(self, key, store, *, incremental: bool = True, print_info: bool = False):
+        """Persist one complete series to the destination store.
+
+        Append and no-change optimizations apply only to the last
+        saved or loaded artifact. A different destination receives
+        the full series, preserving its existing format or using the
+        destination store's preferred format for a new artifact.
+        Set ``incremental=False`` to include direct edits to live
+        datasets that did not pass through ``add_entry``.
 
         Parameters
         ----------
         key : str
             The key identifying which time-series to save.
+        store : ArtifactStore
+            Destination for the named time-series artifact.
         """
+        dataset = self.datasets[key]
+        time_size = int(dataset.sizes.get("time", 0))
+        pending_start = int(self._pending_start.get(key, 0))
+        full_save_required = not incremental or bool(self._full_save_required.get(key, False))
+        existing_storage_kind = store.get_dataset_storage_kind(key)
+        target_storage_kind = (
+            existing_storage_kind
+            if existing_storage_kind is not None
+            else store.default_dataset_storage_kind()
+        )
+        same_artifact = existing_storage_kind is not None and store.existing_artifact_path(
+            key
+        ) == self._saved_paths.get(key)
+
+        if same_artifact and not full_save_required and pending_start >= time_size:
+            return
+
         index_dimensions = sorted(
             {layout["dimension"] for layout in self._coefficient_layouts[key].values()}
         )
-        dataset = self.datasets[key].reset_index(index_dimensions)
-        time_size = int(dataset.sizes.get("time", 0))
-        pending_start = int(self._pending_start.get(key, 0))
-        full_save_required = bool(self._full_save_required.get(key, False))
-        existing_storage_kind = store.get_dataset_storage_kind(key)
-        target_storage_kind = self._storage_kinds.get(key)
-
-        if target_storage_kind is None:
-            target_storage_kind = (
-                existing_storage_kind
-                if existing_storage_kind is not None
-                else store.default_dataset_storage_kind()
-            )
-
+        dataset = dataset.reset_index(index_dimensions)
         if (
-            existing_storage_kind is not None
-            and not full_save_required
-            and pending_start >= time_size
-        ):
-            self._storage_kinds[key] = existing_storage_kind
-            return
-
-        if (
-            target_storage_kind == "zarr"
-            and existing_storage_kind == "zarr"
+            same_artifact
+            and target_storage_kind == "zarr"
             and not full_save_required
             and 0 < pending_start < time_size
         ):
@@ -557,7 +767,4 @@ class FieldTimeSeries:
 
         self._pending_start[key] = time_size
         self._full_save_required[key] = False
-        actual_storage_kind = store.get_dataset_storage_kind(key)
-        self._storage_kinds[key] = (
-            target_storage_kind if actual_storage_kind is None else actual_storage_kind
-        )
+        self._saved_paths[key] = store.existing_artifact_path(key)

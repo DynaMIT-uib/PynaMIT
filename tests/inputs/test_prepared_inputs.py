@@ -5,6 +5,7 @@ import shutil
 
 import numpy as np
 import pytest
+import xarray as xr
 from kompe.constants import EARTH_RADIUS_M
 from tests import example_scenario
 
@@ -41,6 +42,62 @@ from pynamit.workflows.prepared_inputs import (
 )
 
 prepare_example_inputs = example_scenario.prepare_example_inputs
+
+
+def test_saved_fit_policy_is_inherited_or_explicitly_overridden(tmp_path):
+    """Saved inputs and response fits retain their solver settings."""
+    preparation = pynamit.InputPreparation(
+        tmp_path / "inputs",
+        Nmax=2,
+        Mmax=1,
+        Ncs=4,
+        main_field_kind="radial",
+        least_squares_solver="lsmr",
+        least_squares_tolerance=1e-9,
+        least_squares_preconditioner="jacobi",
+        artifact_storage="netcdf",
+    )
+    preparation.set_coefficients(
+        "boundary_jr", np.zeros(preparation.schema.input_field_spaces["boundary_jr"].shape)
+    )
+    conductance_shape = preparation.schema.input_field_spaces["conductance"].shape
+    preparation.set_coefficients(
+        "conductance",
+        {
+            "log_conductance_magnitude": np.zeros(conductance_shape),
+            "log_hall_to_pedersen_ratio": np.zeros(conductance_shape),
+        },
+    )
+    preparation.write_manifest(source="test")
+    for name, overrides in (
+        ("inherited", {}),
+        (
+            "overridden",
+            {
+                "least_squares_solver": "svd",
+                "least_squares_tolerance": 1e-8,
+                "least_squares_preconditioner": "none",
+            },
+        ),
+    ):
+        simulation = run_from_inputs(
+            preparation.input_directory,
+            simulation_directory=tmp_path / name,
+            final_time=0.0,
+            run_dynamic=True,
+            sample_equilibrium=False,
+            initialize_from_equilibrium=False,
+            **overrides,
+        )
+        expected_algorithm = overrides.get("least_squares_solver", "lsmr")
+        expected_tolerance = overrides.get("least_squares_tolerance", 1e-9)
+        assert simulation.config.least_squares_solver == expected_algorithm
+        assert simulation.config.least_squares_tolerance == expected_tolerance
+        assert simulation.config.least_squares_preconditioner == (
+            "jacobi" if name == "inherited" else None
+        )
+        saved = SimulationConfig.from_settings(simulation.results.settings)
+        assert saved.least_squares_tolerance == expected_tolerance
 
 
 def test_geographic_wind_is_rotated_into_model_coordinates():
@@ -108,17 +165,17 @@ def test_default_inputs_share_one_provider_coordinate_cache(tmp_path, monkeypatc
             None,
         )
 
-    def capture_set_conductance(self, *, lat, lon, **kwargs):
-        captured["conductance_storage"] = (np.asarray(lat).copy(), np.asarray(lon).copy())
-        return original_set_conductance(self, lat=lat, lon=lon, **kwargs)
+    def capture_set_conductance(self, *, grid, **kwargs):
+        captured["conductance_storage"] = (grid.lat.copy(), grid.lon.copy())
+        return original_set_conductance(self, grid=grid, **kwargs)
 
-    def capture_set_boundary_jr(self, *args, lat, lon, **kwargs):
-        captured["boundary_jr_storage"] = (np.asarray(lat).copy(), np.asarray(lon).copy())
-        return original_set_boundary_jr(self, *args, lat=lat, lon=lon, **kwargs)
+    def capture_set_boundary_jr(self, *args, grid, **kwargs):
+        captured["boundary_jr_storage"] = (grid.lat.copy(), grid.lon.copy())
+        return original_set_boundary_jr(self, *args, grid=grid, **kwargs)
 
-    def capture_set_neutral_wind(self, *args, lat, lon, **kwargs):
-        captured["wind_storage"] = (np.asarray(lat).copy(), np.asarray(lon).copy())
-        return original_set_neutral_wind(self, *args, lat=lat, lon=lon, **kwargs)
+    def capture_set_neutral_wind(self, *args, grid, **kwargs):
+        captured["wind_storage"] = (grid.lat.copy(), grid.lon.copy())
+        return original_set_neutral_wind(self, *args, grid=grid, **kwargs)
 
     monkeypatch.setattr(example_inputs_module, "get_conductance_inputs", fake_conductance)
     monkeypatch.setattr(example_inputs_module, "get_boundary_jr_inputs", fake_boundary_jr)
@@ -171,7 +228,7 @@ def test_default_inputs_share_one_provider_coordinate_cache(tmp_path, monkeypatc
     for name in ("conductance_storage", "boundary_jr_storage", "wind_storage"):
         np.testing.assert_allclose(captured[name][0], model_grid.lat)
         np.testing.assert_allclose(captured[name][1], model_grid.lon)
-    assert prepared._geometry is None
+    assert "surface_to_poloidal_operator" not in prepared.geometry.__dict__
 
 
 def test_adapter_cannot_return_another_geographic_grid(tmp_path, monkeypatch):
@@ -336,8 +393,8 @@ def test_available_prepared_inputs_follows_schema_order(tmp_path):
     preparation = pynamit.InputPreparation(
         input_directory=tmp_path, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf"
     )
-    shape = preparation.data.schema.input_field_spaces["boundary_jr"].shape
-    preparation.set_boundary_jr(boundary_jr_coefficients=np.zeros(shape), time=0.0)
+    shape = preparation.schema.input_field_spaces["boundary_jr"].shape
+    preparation.set_coefficients("boundary_jr", np.zeros(shape), time=0.0)
 
     assert available_prepared_inputs(tmp_path, artifact_storage="netcdf") == ("boundary_jr",)
 
@@ -408,7 +465,7 @@ def test_prepare_and_run_from_inputs_smoke(tmp_path):
     prepared = prepare_example_inputs(
         input_directory, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf"
     )
-    assert prepared.data.simulation_directory == str(input_directory.resolve())
+    assert prepared.input_directory == str(input_directory.resolve())
     assert prepared.config.t0 == "2001-05-12 21:45:00"
     assert prepared.config.main_field_epoch == pytest.approx(
         decimal_year(example_scenario.EVENT_TIME)
@@ -436,23 +493,23 @@ def test_prepare_and_run_from_inputs_smoke(tmp_path):
         final_time=0.0,
         dt=0.01,
         RM=2 * EARTH_RADIUS_M,
-        steps_per_sample=2,
+        output_interval=0.02,
         samples_per_write=1,
         artifact_storage="netcdf",
     )
 
-    assert simulation.data.simulation_directory == str(simulation_directory.resolve())
+    assert simulation.results.simulation_directory == str(simulation_directory.resolve())
     assert simulation.config.fac_integration_radii[-1] == pytest.approx(simulation.config.RM)
-    assert "dynamic" in simulation.data.output_series.datasets
-    assert "conductance" in simulation.data.input_series.datasets
+    assert "dynamic" in simulation.results.output_series.datasets
+    assert "conductance" in simulation.results.input_series.datasets
     assert (simulation_directory / "conductance.ncdf").exists()
     assert (simulation_directory / SIMULATION_MANIFEST_FILENAME).exists()
     simulation_manifest = json.loads(
         (simulation_directory / SIMULATION_MANIFEST_FILENAME).read_text(encoding="utf-8")
     )
-    assert simulation_manifest["version"] == 6
+    assert simulation_manifest["version"] == 7
     assert simulation_manifest["input_manifest"] == manifest
-    assert simulation_manifest["time_evolution"]["steps_per_sample"] == 2
+    assert simulation_manifest["time_evolution"]["output_interval"] == 0.02
     assert simulation_manifest["time_evolution"]["sample_equilibrium"] is True
 
     selected_simulation = run_from_inputs(
@@ -466,7 +523,7 @@ def test_prepare_and_run_from_inputs_smoke(tmp_path):
         artifact_storage="netcdf",
     )
 
-    assert set(selected_simulation.data.input_series.datasets) == {"conductance"}
+    assert set(selected_simulation.results.input_series.datasets) == {"conductance"}
     assert not (selected_simulation_directory / "boundary_jr.ncdf").exists()
 
 
@@ -477,10 +534,13 @@ def test_manual_input_preparation_writes_a_reusable_package(tmp_path):
         input_directory=input_directory, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf"
     )
     assert not hasattr(preparation, "simulation_directory")
-    shape = preparation.data.schema.input_field_spaces["conductance"].shape
-    preparation.set_conductance(
-        log_magnitude_coefficients=np.zeros(shape),
-        log_ratio_coefficients=np.zeros(shape),
+    shape = preparation.schema.input_field_spaces["conductance"].shape
+    preparation.set_coefficients(
+        "conductance",
+        {
+            "log_conductance_magnitude": np.zeros(shape),
+            "log_hall_to_pedersen_ratio": np.zeros(shape),
+        },
         time=0.0,
     )
 
@@ -489,7 +549,7 @@ def test_manual_input_preparation_writes_a_reusable_package(tmp_path):
 
     assert manifest["source"] == "test"
     assert manifest["input_contract"]["input_datasets"] == ["conductance"]
-    assert set(reopened.inputs) == {"conductance"}
+    assert set(reopened) == {"conductance"}
     assert not hasattr(reopened, "_time_evolution")
 
 
@@ -576,6 +636,41 @@ def test_run_from_inputs_skips_completed_simulation_before_geometry(monkeypatch,
     assert result is None
 
 
+def test_explicit_output_requests_can_extend_a_prepared_trajectory(tmp_path):
+    """Extend output requests without changing the input identity."""
+    input_directory = tmp_path / "inputs"
+    prepare_example_inputs(input_directory, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf")
+    options = dict(
+        simulation_directory=tmp_path / "simulation",
+        artifact_storage="netcdf",
+        integrator="exponential",
+        initialize_from_equilibrium=False,
+    )
+    run_from_inputs(input_directory, final_time=0.02, output_times=[0.02], **options)
+    extended = run_from_inputs(
+        input_directory, final_time=0.04, output_times=[0.02, 0.03, 0.04], **options
+    )
+    np.testing.assert_allclose(extended.outputs["dynamic"].time, [0.02, 0.03, 0.04])
+    assert (
+        run_from_inputs(
+            input_directory,
+            final_time=0.04,
+            output_times=[0.02, 0.03, 0.04],
+            skip_completed=True,
+            **options,
+        )
+        is None
+    )
+    with pytest.raises(ValueError, match="Cannot add output"):
+        run_from_inputs(
+            input_directory,
+            final_time=0.04,
+            output_times=[0.01, 0.04],
+            skip_completed=True,
+            **options,
+        )
+
+
 @pytest.mark.parametrize(
     ("kwargs", "match"),
     [
@@ -613,42 +708,59 @@ def test_run_from_inputs_requires_a_separate_simulation_directory(tmp_path):
         )
 
 
-def test_loading_prepared_inputs_transfers_simulation_ownership(tmp_path):
+@pytest.mark.parametrize("artifact_storage", ["netcdf", "zarr"])
+def test_loading_prepared_inputs_transfers_simulation_ownership(tmp_path, artifact_storage):
     """The simulation owns copied inputs and removes stale data."""
+    if artifact_storage == "zarr":
+        pytest.importorskip("zarr")
     input_directory = tmp_path / "inputs"
     simulation_directory = tmp_path / "simulation"
     prepared = prepare_example_inputs(
-        input_directory, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf", use_wind=False
+        input_directory, Nmax=2, Mmax=1, Ncs=8, artifact_storage=artifact_storage, use_wind=False
     )
     simulation = Simulation(
         simulation_directory=simulation_directory,
-        artifact_storage="netcdf",
+        artifact_storage=artifact_storage,
         **prepared.config.to_kwargs(),
     )
-    wind_shape = simulation.data.schema.input_field_spaces["u"].shape
-    simulation.set_neutral_wind(u_coefficients=np.zeros(wind_shape), time=0.0)
-    simulation.response.activate_inputs_at_time(simulation.data.input_series, 0.0)
+    wind_shape = simulation.results.schema.input_field_spaces["u"].shape
+    simulation.inputs.set_coefficients("u", np.zeros(wind_shape), time=0.0)
+    previous = simulation.response
 
     loaded = load_prepared_inputs_into_simulation(
-        simulation, input_directory, artifact_storage="netcdf", enabled_inputs=("conductance",)
+        simulation,
+        input_directory,
+        artifact_storage=artifact_storage,
+        enabled_inputs=("conductance",),
     )
 
     assert loaded == ["conductance"]
-    assert set(simulation.data.input_series.datasets) == {"conductance"}
-    assert simulation.inputs is simulation.data.input_series.datasets
+    assert set(simulation.results.input_series.datasets) == {"conductance"}
+    assert simulation.inputs.datasets is simulation.results.input_series.datasets
     assert set(simulation.inputs) == {"conductance"}
-    simulation.response.activate_inputs_at_time(simulation.data.input_series, 0.0)
-    assert simulation.response.u is None
+    assert simulation.response is not previous
     assert simulation.response.log_conductance_magnitude is not None
-    assert (simulation_directory / "conductance.ncdf").exists()
-    assert not (simulation_directory / "u.ncdf").exists()
+    store = simulation.results.artifact_store
+    assert store.get_dataset_storage_kind("conductance") == artifact_storage
+    assert store.existing_artifact_path("u") is None
     assert (
-        simulation.data.input_series.datasets["conductance"]
-        is not prepared.data.input_series.datasets["conductance"]
+        simulation.results.input_series.datasets["conductance"]
+        is not prepared.input_series.datasets["conductance"]
     )
 
+    expected = prepared.input_series.get_entry("conductance", 0.0)
     ArtifactStore(input_directory).remove_artifact("conductance")
-    assert simulation.data.input_series.get_entry("conductance", 0.0) is not None
+    copied = simulation.results.input_series.get_entry("conductance", 0.0)
+    for variable in expected:
+        np.testing.assert_array_equal(copied[variable], expected[variable])
+
+    # New streams need the simulation's metadata too, not only the
+    # attributes carried by the copied conductance dataset.
+    simulation.inputs.set_coefficients("u", np.zeros(wind_shape), time=0.0)
+    wind = simulation.inputs["u"]
+    variable = simulation.results.input_series.get_data_var_name("u", "u")
+    assert wind[variable].attrs["units"] == "m s-1"
+    assert wind.time.attrs["time_origin"] == simulation.config.t0
 
 
 def test_run_from_inputs_errors_on_requested_missing_dataset(tmp_path):
@@ -672,3 +784,26 @@ def test_run_from_inputs_errors_on_requested_missing_dataset(tmp_path):
         )
 
     assert not (simulation_directory / "settings.ncdf").exists()
+
+
+def test_continuation_can_change_output_cadence_and_write_batch(tmp_path):
+    """Storage policy does not change past samples or identity."""
+    input_directory = tmp_path / "inputs"
+    prepare_example_inputs(input_directory, Nmax=2, Mmax=1, Ncs=8, artifact_storage="netcdf")
+    options = dict(
+        simulation_directory=tmp_path / "simulation",
+        artifact_storage="netcdf",
+        integrator="exponential",
+        initialize_from_equilibrium=False,
+    )
+    first = run_from_inputs(
+        input_directory, final_time=0.02, output_interval=0.02, samples_per_write=1, **options
+    )
+    original = first.outputs["dynamic"].copy(deep=True)
+    extended = run_from_inputs(
+        input_directory, final_time=0.04, output_interval=0.005, samples_per_write=10, **options
+    )
+    np.testing.assert_allclose(
+        extended.outputs["dynamic"].time, [0, 0.02, 0.025, 0.03, 0.035, 0.04]
+    )
+    xr.testing.assert_identical(extended.outputs["dynamic"].sel(time=original.time), original)

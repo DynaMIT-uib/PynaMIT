@@ -6,7 +6,13 @@ from functools import cached_property, partial
 from typing import Any
 
 import numpy as np
-from kompe import GlobalCSBasis, SolidHarmonicOperators, SphericalGrid, SurfaceDifferentialBasis
+from kompe import (
+    GlobalCSBasis,
+    SHBasis,
+    SolidHarmonicOperators,
+    SphericalGrid,
+    SurfaceDifferentialBasis,
+)
 from kompe.constants import EARTH_RADIUS_M, MU0
 from kompe.math import (
     LinearMap,
@@ -15,6 +21,7 @@ from kompe.math import (
     dense_full_rank_least_squares_map,
     diagonal_linear_map,
     get_array_module,
+    get_backend,
     identity_linear_map,
     pointwise_component_map,
     take_linear_map,
@@ -27,6 +34,19 @@ from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.electrodynamics import ionospheric_closure, magnetic_boundary
 
 _BOUNDARY_JR_TO_GAP_BR_CACHE_VERSION = 1
+_GEOMETRY_SETTINGS = (
+    "RI",
+    "RM",
+    "magnetic_boundary_shielding",
+    "enable_pfac_coupling",
+    "fac_integration_radii",
+    "enable_interhemispheric_coupling",
+    "interhemispheric_coupling_latitude",
+    "area_weighted_least_squares",
+    "main_field_kind",
+    "main_field_epoch",
+    "main_field_B0",
+)
 
 
 def build_main_field(config: SimulationConfig) -> MainField:
@@ -45,6 +65,11 @@ class SimulationGeometry:
     The geometry owns grids, transforms, background-field factors,
     boundary maps, and interhemispheric mappings. It contains no mutable
     forcing coefficients or persistence-shaped objects.
+
+    Treat the shared numerical definitions as fixed. Use ``with_config``
+    to change physical assumptions without mutating sibling experiments.
+    Only spatial construction settings are retained. Time origin,
+    integrator, and fitting policy belong to the consuming experiment.
     """
 
     def __init__(
@@ -55,15 +80,20 @@ class SimulationGeometry:
         config: SimulationConfig,
         *,
         solid_harmonics: SolidHarmonicOperators,
+        sh_basis=None,
         boundary_jr_to_gap_Br_matrix: ArrayLike | None = None,
         operator_cache=None,
     ) -> None:
         """Initialize the geometric context."""
         self.horizontal_basis = horizontal_basis
+        self.cs_basis = cs_basis
         self.solid_harmonics = solid_harmonics
         self.poloidal_basis = self.solid_harmonics.basis
+        self.sh_basis = self.poloidal_basis.with_mean_free(False) if sh_basis is None else sh_basis
         self.main_field = main_field
         self.operator_cache = operator_cache
+        self._physical_settings = {name: getattr(config, name) for name in _GEOMETRY_SETTINGS}
+        self.backend = get_backend()
 
         # Store the configuration values used by geometric construction.
         self.RI = config.RI
@@ -75,17 +105,133 @@ class SimulationGeometry:
         self.fac_integration_radii = config.fac_integration_radii
         self.area_weighted_least_squares = config.area_weighted_least_squares
 
-        # Initialize the model grid, transforms, and magnetic geometry.
-        self._init_spatial_context(cs_basis)
-
-        # Build surface and magnetic-boundary maps.
-        self._init_surface_operators()
-
-        # Build optional interhemispheric constraint geometry.
-        self._init_constraint_mappings()
-
-        # Restore a persisted PFAC map or build it on first access.
+        self.model_grid = cs_basis.mesh.cell_centers
+        self.horizontal_transform = SphericalTransform(
+            horizontal_basis, self.model_grid, area_weighted=config.area_weighted_least_squares
+        )
         self._init_boundary_jr_to_gap_Br_matrix(boundary_jr_to_gap_Br_matrix)
+
+    @classmethod
+    def from_config(cls, config, *, operator_cache=None):
+        """Construct numerical objects from convenience settings."""
+        sh_basis = SHBasis(
+            config.Nmax, config.Mmax, mean_free=False, operator_cache=operator_cache
+        )
+        cs_basis = GlobalCSBasis(config.Ncs)
+        poloidal_basis = sh_basis.with_mean_free(True)
+        return cls(
+            cs_basis if config.horizontal_basis_kind == "CS" else poloidal_basis,
+            cs_basis,
+            build_main_field(config),
+            config,
+            sh_basis=sh_basis,
+            solid_harmonics=SolidHarmonicOperators(poloidal_basis),
+            operator_cache=operator_cache,
+        )
+
+    @classmethod
+    def from_bases(cls, sh_basis, cs_basis, *, horizontal_basis=None, **settings):
+        """Reuse Kompe bases and derive their simulation settings.
+
+        ``sh_basis`` supplies poloidal harmonics and SH projections;
+        ``cs_basis`` supplies the integration mesh and CS projections.
+        Horizontal fields default to mean-free SH. Pass ``cs_basis``
+        as ``horizontal_basis`` to use CS surface operators instead.
+        The horizontal basis must support a Laplacian within its own
+        coefficient space, as required by the MIT equations.
+        Supplied bases define the in-memory mathematics. Saving checks
+        separately whether the standard file recipe can reconstruct
+        them. Supply time origin and solver choices when constructing
+        InputPreparation or Simulation, not on the geometry.
+        """
+        if not isinstance(sh_basis, SurfaceDifferentialBasis) or not isinstance(
+            sh_basis.root_basis, SHBasis
+        ):
+            raise TypeError("sh_basis must be an SH basis or its mean-free view.")
+        if not isinstance(cs_basis, GlobalCSBasis):
+            raise TypeError("cs_basis must be a GlobalCSBasis.")
+        poloidal_basis = sh_basis.with_mean_free(True)
+        if horizontal_basis is None:
+            horizontal_basis = poloidal_basis
+        if not isinstance(horizontal_basis, SurfaceDifferentialBasis):
+            raise TypeError("horizontal_basis must provide surface differential operators.")
+        derived = dict(
+            Nmax=sh_basis.max_degree,
+            Mmax=sh_basis.max_order,
+            Ncs=cs_basis.cells_per_edge,
+            horizontal_basis_kind=horizontal_basis.kind,
+        )
+        overlap = derived.keys() & settings.keys()
+        if overlap:
+            raise ValueError(
+                f"Basis objects determine {sorted(overlap)}; do not also supply those settings."
+            )
+        nonspatial = settings.keys() - set(_GEOMETRY_SETTINGS)
+        if nonspatial:
+            raise ValueError(
+                f"{sorted(nonspatial)} are experiment controls; supply them to "
+                "InputPreparation.from_geometry or Simulation.from_geometry."
+            )
+        config = SimulationConfig(**derived, **settings)
+        operator_cache = sh_basis.root_basis.operator_cache
+        return cls(
+            horizontal_basis,
+            cs_basis,
+            build_main_field(config),
+            config,
+            sh_basis=sh_basis.with_mean_free(False),
+            solid_harmonics=SolidHarmonicOperators(poloidal_basis),
+            operator_cache=operator_cache,
+        )
+
+    def with_config(self, config):
+        """Reuse bases and share only compatible physical caches."""
+        for name, value in self.basis_settings.items():
+            if getattr(config, name) != value:
+                raise ValueError(f"{name} is determined by the existing basis objects.")
+        same_field = all(
+            np.array_equal(getattr(config, name), self._physical_settings[name])
+            for name in ("RI", "main_field_kind", "main_field_epoch", "main_field_B0")
+        )
+        if self.backend == get_backend() and all(
+            np.array_equal(getattr(config, name), self._physical_settings[name])
+            for name in _GEOMETRY_SETTINGS
+        ):
+            return self
+        geometry = type(self)(
+            self.horizontal_basis,
+            self.cs_basis,
+            self.main_field if same_field else build_main_field(config),
+            config,
+            sh_basis=self.sh_basis,
+            solid_harmonics=self.solid_harmonics,
+            operator_cache=self.operator_cache,
+        )
+        if (
+            self.backend == geometry.backend
+            and self.area_weighted_least_squares == geometry.area_weighted_least_squares
+        ):
+            geometry.horizontal_transform = self.horizontal_transform
+        return geometry
+
+    @property
+    def physical_settings(self):
+        """Return a snapshot of the fixed spatial settings."""
+        return self._physical_settings.copy()
+
+    @property
+    def basis_settings(self):
+        """Resolution and family defaults derived from actual bases.
+
+        These defaults do not describe arbitrary subsets or alternative
+        normalizations completely. Persistence checks those explicitly.
+        """
+        return dict(
+            Nmax=self.sh_basis.max_degree,
+            Mmax=self.sh_basis.max_order,
+            Ncs=self.cs_basis.cells_per_edge,
+            horizontal_basis_kind=self.horizontal_basis.kind,
+        )
 
     def __repr__(self):
         """Summarize the simulation's fixed spatial context."""
@@ -95,32 +241,62 @@ class SimulationGeometry:
             f"main_field={self.main_field.kind!r}, RI={self.RI:g}, RM={self.RM!r})"
         )
 
-    def _init_surface_operators(self) -> None:
-        """Compile surface and magnetic-boundary coefficient maps."""
-        self.surface_laplacian_operator = self.horizontal_basis.surface_laplacian_operator(self.RI)
-        self.poloidal_laplacian_operator = self.poloidal_basis.surface_laplacian_operator(self.RI)
-        self.helmholtz_curl_free_potential_operator = (
-            self.horizontal_basis.helmholtz_curl_free_potential_operator()
+    @cached_property
+    def u_coeffs_to_E_coeffs_operator(self):
+        """Map wind to motional E independently of conductance."""
+        return ionospheric_closure.wind_to_E_coeffs_operator(
+            self.helmholtz_analysis_operator,
+            self.wind_motional_E_tensor,
+            self.horizontal_transform.helmholtz_synthesis_operator,
         )
-        self.helmholtz_divergence_free_potential_operator = (
-            self.horizontal_basis.helmholtz_divergence_free_potential_operator()
-        )
-        self.surface_gauge_operator = self._build_surface_gauge_operator()
-        self.toroidal_potential_to_boundary_jr_operator = (
-            self.RI / MU0 * self.surface_laplacian_operator
-        )
-        self.induced_poloidal_potential_to_Br_operator = (
-            -(self.RI**2) * self.poloidal_laplacian_operator
-        )
+
+    @cached_property
+    def surface_laplacian_operator(self):
+        """Surface Laplacian at the ionosphere."""
+        return self.horizontal_basis.surface_laplacian_operator(self.RI)
+
+    @cached_property
+    def poloidal_laplacian_operator(self):
+        """Laplacian in the radial magnetic-field coefficient space."""
+        return self.poloidal_basis.surface_laplacian_operator(self.RI)
+
+    @cached_property
+    def helmholtz_curl_free_potential_operator(self):
+        """Select the curl-free electric potential."""
+        return self.horizontal_basis.helmholtz_curl_free_potential_operator()
+
+    @cached_property
+    def helmholtz_divergence_free_potential_operator(self):
+        """Select the divergence-free electric potential."""
+        return self.horizontal_basis.helmholtz_divergence_free_potential_operator()
+
+    @cached_property
+    def toroidal_potential_to_boundary_jr_operator(self):
+        """Ampere-law radial current from toroidal potential."""
+        return self.RI / MU0 * self.surface_laplacian_operator
+
+    @cached_property
+    def induced_poloidal_potential_to_Br_operator(self):
+        """Radial magnetic field from private poloidal potential."""
+        return -(self.RI**2) * self.poloidal_laplacian_operator
+
+    @cached_property
+    def induced_Br_to_poloidal_potential_operator(self):
+        """Invert the radial-field degree factors."""
         poloidal_degree = self.poloidal_basis.n
         xp = get_array_module(poloidal_degree)
         poloidal_degree = xp.asarray(poloidal_degree)
-        self.induced_Br_to_poloidal_potential_operator = diagonal_linear_map(
-            1.0 / (poloidal_degree * (poloidal_degree + 1))
-        )
-        self.induced_poloidal_potential_faraday_rate_scale = 1.0 / self.RI
-        self.surface_to_poloidal_operator = self._build_surface_to_poloidal_operator()
-        self.poloidal_to_normalized_potential_jump_operator = diagonal_linear_map(
+        return diagonal_linear_map(1.0 / (poloidal_degree * (poloidal_degree + 1)))
+
+    @property
+    def induced_poloidal_potential_faraday_rate_scale(self):
+        """Convert surface W to a poloidal-potential time derivative."""
+        return 1.0 / self.RI
+
+    @cached_property
+    def poloidal_to_normalized_potential_jump_operator(self):
+        """Jump in normalized magnetic potential across the sheet."""
+        return diagonal_linear_map(
             self.solid_harmonics.poloidal_to_normalized_potential_jump_factors
         )
 
@@ -148,32 +324,27 @@ class SimulationGeometry:
         """Map gridded vectors to Helmholtz coefficients."""
         return self.horizontal_transform.helmholtz_analysis_operator
 
-    def _init_spatial_context(self, cs_basis: GlobalCSBasis) -> None:
-        """Set up the model grid and its spherical transforms."""
-        self.model_grid = cs_basis.mesh.cell_centers
-        self.horizontal_transform = SphericalTransform(
-            self.horizontal_basis, self.model_grid, area_weighted=self.area_weighted_least_squares
-        )
-        if self.poloidal_basis is self.horizontal_basis:
-            self.poloidal_transform = self.horizontal_transform
-        else:
-            self.poloidal_transform = SphericalTransform(
-                self.poloidal_basis,
-                self.model_grid,
-                area_weighted=self.area_weighted_least_squares,
-            )
-        # Optional geometry for the conjugate hemisphere.
-        self.conjugate_grid = self.conjugate_horizontal_transform = None
+    @cached_property
+    def poloidal_transform(self):
+        """Evaluate and analyze poloidal harmonics on the model grid."""
+        return self.horizontal_transform.with_basis(self.poloidal_basis)
+
+    @cached_property
+    def conjugate_grid(self):
+        """Conjugate footpoints for interhemispheric constraints."""
         if self.enable_interhemispheric_coupling and self.main_field.kind != "radial":
             cp_theta, cp_phi = self.main_field.conjugate_coordinates(
                 self.RI, self.model_grid.theta, self.model_grid.phi
             )
-            self.conjugate_grid = SphericalGrid(theta=cp_theta, phi=cp_phi)
-            self.conjugate_horizontal_transform = SphericalTransform(
-                self.horizontal_basis,
-                self.conjugate_grid,
-                area_weighted=self.area_weighted_least_squares,
-            )
+            return SphericalGrid(theta=cp_theta, phi=cp_phi)
+        return None
+
+    @cached_property
+    def conjugate_horizontal_transform(self):
+        """Transform on conjugate footpoints for coupled hemispheres."""
+        if self.conjugate_grid is not None:
+            return SphericalTransform(self.horizontal_basis, self.conjugate_grid)
+        return None
 
     def model_grid_sqrt_weights(self, *, vector=False):
         """Return model-grid weights for area-weighted analysis."""
@@ -181,25 +352,8 @@ class SimulationGeometry:
             self.model_grid, area_weighted=self.area_weighted_least_squares, vector=vector
         )
 
-    def _build_surface_gauge_operator(self) -> LinearMap | None:
-        """Return a normalized zero-mean constraint if needed."""
-        if self.horizontal_basis.omits_constant_mode():
-            return None
-
-        weights_source = self.horizontal_basis.scalar_mean_weights
-        xp = get_array_module(weights_source)
-        weights = xp.asarray(weights_source, dtype=float)
-        expected_shape = (self.horizontal_basis.coefficient_count,)
-        if weights.shape != expected_shape:
-            raise ValueError(
-                f"Surface mean weights must have shape {expected_shape}; got {weights.shape}."
-            )
-        normalized_mean = self.horizontal_basis.coefficient_count**0.5 * weights
-        return as_linear_map(
-            normalized_mean.reshape(1, -1), input_shape=expected_shape, output_shape=(1,)
-        )
-
-    def _build_surface_to_poloidal_operator(self):
+    @cached_property
+    def surface_to_poloidal_operator(self):
         """Project surface coefficients into poloidal SH space.
 
         The horizontal basis owns ionospheric surface operators.
@@ -222,21 +376,12 @@ class SimulationGeometry:
         return grid_to_poloidal_operator @ self.horizontal_transform.scalar_synthesis_operator
 
     def induced_Br_to_gridded_JS_operator(
-        self,
-        transform: SphericalTransform | None = None,
-        *,
-        poloidal_transform: SphericalTransform | None = None,
+        self, transform: SphericalTransform | None = None
     ) -> LinearMap:
-        """Return the map from induced ``Br(RI)`` to sheet current."""
-        if poloidal_transform is None:
-            poloidal_transform = (
-                self.poloidal_transform
-                if transform is None
-                else transform.with_basis(self.poloidal_basis)
-            )
+        """Map induced Br to sheet current on the requested grid."""
         return magnetic_boundary.induced_Br_to_gridded_JS_operator(
             self.solid_harmonics,
-            poloidal_transform,
+            self.poloidal_transform if transform is None else transform,
             radius=self.RI,
             boundary_radius=self.RM,
             boundary_shielding=self.magnetic_boundary_shielding,
@@ -264,68 +409,63 @@ class SimulationGeometry:
         return MU0 / self.RI * self.horizontal_basis.mean_free_surface_poisson_operator(self.RI)
 
     def toroidal_potential_to_gridded_JS_operator(
-        self,
-        transform: SphericalTransform | None = None,
-        *,
-        poloidal_transform: SphericalTransform | None = None,
+        self, transform: SphericalTransform | None = None
     ) -> LinearMap:
-        """Return the private toroidal-potential current map."""
-        transform = self.horizontal_transform if transform is None else transform
-        gap_response = self._active_boundary_jr_to_gap_Br_operator
-        if gap_response is not None and poloidal_transform is None:
-            poloidal_transform = transform.with_basis(self.poloidal_basis)
+        """Map toroidal potential to sheet current on this grid."""
+        transform = (
+            self.horizontal_transform
+            if transform is None
+            else transform.with_basis(self.horizontal_basis)
+        )
         return magnetic_boundary.toroidal_potential_to_gridded_JS_operator(
             self.solid_harmonics,
             transform,
-            poloidal_transform=poloidal_transform,
-            toroidal_potential_to_boundary_jr=(self.toroidal_potential_to_boundary_jr_operator),
-            boundary_jr_to_gap_Br=gap_response,
+            toroidal_potential_to_boundary_jr=self.toroidal_potential_to_boundary_jr_operator,
+            boundary_jr_to_gap_Br=self._active_boundary_jr_to_gap_Br_operator,
         )
 
     def boundary_jr_to_gridded_JS_operator(
-        self,
-        transform: SphericalTransform | None = None,
-        *,
-        poloidal_transform: SphericalTransform | None = None,
+        self, transform: SphericalTransform | None = None
     ) -> LinearMap:
-        """Return the boundary-jr to total sheet-current map."""
-        transform = self.horizontal_transform if transform is None else transform
-        gap_response = self._active_boundary_jr_to_gap_Br_operator
-        if gap_response is not None and poloidal_transform is None:
-            poloidal_transform = transform.with_basis(self.poloidal_basis)
+        """Map boundary jr to sheet current on the transform's grid."""
+        transform = (
+            self.horizontal_transform
+            if transform is None
+            else transform.with_basis(self.horizontal_basis)
+        )
         return magnetic_boundary.boundary_jr_to_gridded_JS_operator(
             self.solid_harmonics,
             transform,
-            poloidal_transform=poloidal_transform,
-            boundary_jr_to_toroidal_potential=(self.boundary_jr_to_toroidal_potential_operator),
-            boundary_jr_to_gap_Br=gap_response,
+            boundary_jr_to_toroidal_potential=self.boundary_jr_to_toroidal_potential_operator,
+            boundary_jr_to_gap_Br=self._active_boundary_jr_to_gap_Br_operator,
         )
 
-    def _init_constraint_mappings(self) -> None:
-        """Initialize geometric operators related to constraints."""
-        self.radial_current_constraint_operator = (
-            self._build_radial_current_to_apex_current_operator()
-        )
-        self.interhemispheric_coupling_mask = None
-        self.interhemispheric_electric_field_difference_operator = None
-
+    @cached_property
+    def interhemispheric_coupling_mask(self):
+        """Select the coupled low-latitude region."""
         if self.enable_interhemispheric_coupling and self.main_field.kind != "radial":
             magnetic_latitude = self.main_field.magnetic_latitude(
                 self.RI, self.model_grid.theta, self.model_grid.phi
             )
-            self.interhemispheric_coupling_mask = (
-                np.abs(magnetic_latitude) < self.interhemispheric_coupling_latitude
-            )
+            return np.abs(magnetic_latitude) < self.interhemispheric_coupling_latitude
+        return None
 
-            # Compare mapped radial current at conjugate footpoints.
+    @cached_property
+    def radial_current_constraint_operator(self):
+        """Compare apex-mapped currents at conjugate footpoints."""
+        local = self._build_radial_current_to_apex_current_operator()
+        if self.interhemispheric_coupling_mask is not None:
             conjugate_operator = self._build_radial_current_to_apex_current_operator(
                 transform=self.conjugate_horizontal_transform,
                 output_scale=self.interhemispheric_coupling_mask,
             )
-            self.radial_current_constraint_operator = (
-                self.radial_current_constraint_operator - conjugate_operator
-            )
+            return local - conjugate_operator
+        return local
 
+    @cached_property
+    def interhemispheric_electric_field_difference_operator(self):
+        """Difference in mapped electric field at coupled footpoints."""
+        if self.interhemispheric_coupling_mask is not None:
             local_electric_field_to_apex = self._build_electric_field_to_apex_operator(
                 output_mask=self.interhemispheric_coupling_mask
             )
@@ -333,9 +473,8 @@ class SimulationGeometry:
                 transform=self.conjugate_horizontal_transform,
                 output_mask=self.interhemispheric_coupling_mask,
             )
-            self.interhemispheric_electric_field_difference_operator = (
-                local_electric_field_to_apex - conjugate_electric_field_to_apex
-            )
+            return local_electric_field_to_apex - conjugate_electric_field_to_apex
+        return None
 
     def _build_radial_current_to_apex_current_operator(self, *, transform=None, output_scale=None):
         """Return radial-current coefficients mapped to apex current."""
@@ -477,20 +616,14 @@ class SimulationGeometry:
         }
 
     def boundary_Br_to_gridded_JS_operator(
-        self,
-        transform: SphericalTransform | None = None,
-        *,
-        poloidal_transform: SphericalTransform | None = None,
+        self, transform: SphericalTransform | None = None
     ) -> LinearMap | None:
-        """Return the map from outer-boundary Br to sheet current."""
+        """Map boundary Br to sheet current on the requested grid."""
         if self.RM is None:
             return None
-        if poloidal_transform is None:
-            poloidal_transform = (
-                self.poloidal_transform
-                if transform is None
-                else transform.with_basis(self.poloidal_basis)
-            )
         return magnetic_boundary.boundary_Br_to_gridded_JS_operator(
-            self.solid_harmonics, poloidal_transform, radius=self.RI, boundary_radius=self.RM
+            self.solid_harmonics,
+            self.poloidal_transform if transform is None else transform,
+            radius=self.RI,
+            boundary_radius=self.RM,
         )

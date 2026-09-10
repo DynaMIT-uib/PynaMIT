@@ -28,9 +28,9 @@ def test_2d_igrf_pfac_hc_wind_grid(regression_approx):
         enable_interhemispheric_coupling=True,
         interhemispheric_coupling_latitude=50,
         use_wind=True,
-        boundary_jr_projection_basis="CS",
-        conductance_projection_basis="CS",
-        u_projection_basis="CS",
+        boundary_jr_remapping="CS",
+        conductance_basis="CS",
+        u_remapping="CS",
         initialize_from_equilibrium=False,
     )
 
@@ -41,7 +41,7 @@ def test_2d_igrf_pfac_hc_wind_grid(regression_approx):
     actual_coeff_max = np.max(coeff_array)
     actual_coeff_min = np.min(coeff_array)
     actual_n_coeffs = coeff_array.shape[0]
-    resistance = simulation.data.input_series.datasets["conductance"]
+    resistance = simulation.results.input_series.datasets["conductance"]
 
     print("actual_coeff_norm: ", actual_coeff_norm)
     print("actual_coeff_max: ", actual_coeff_max)

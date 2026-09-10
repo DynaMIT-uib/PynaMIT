@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from kompe.math import centered_derivative
 
 
 def datetime_at_index(times, index, *, start_time=None):
@@ -75,7 +76,7 @@ def median_cadence_seconds(time_index):
     return float(np.nanmedian(dt_seconds))
 
 
-def centered_difference_at_times(
+def time_derivative_at_times(
     source_index, source_values, target_times, half_window_points=1, cadence_seconds=None
 ):
     """Evaluate a centered finite difference on target datetimes."""
@@ -105,40 +106,16 @@ def centered_difference_at_times(
     return (right_values - left_values) / (2.0 * half_window_seconds)
 
 
-def compute_time_derivative_values(values, time_index, half_window_points=1):
-    """Return same-grid centered derivatives along the last axis."""
-    values_arr = np.asarray(values, dtype=float)
+def time_derivative(time_index, values, half_window_points=1):
+    """Differentiate on saved datetimes, retaining the values' backend.
+
+    Decode timestamps on the CPU and subtract the integer-nanosecond
+    origin before converting to floating seconds. Kompe owns the
+    coordinate-independent stencil and array-axis handling.
+    """
     time_ns = datetime_index_to_epoch_ns(time_index)
-    if values_arr.ndim == 0 or values_arr.shape[-1] != time_ns.size:
-        raise ValueError("The last values axis must match time_index.")
-    if time_ns.size < 2:
-        return np.full_like(values_arr, np.nan, dtype=float)
-
-    time_seconds = (time_ns - time_ns[0]).astype(float) * 1e-9
-    if np.any(np.diff(time_seconds) <= 0.0):
-        raise ValueError("time_index must be strictly increasing.")
-
-    n_times = time_seconds.size
-    if isinstance(half_window_points, (bool, np.bool_)):
-        raise ValueError("half_window_points must be a positive integer.")
-    integer_window = int(half_window_points)
-    if integer_window != half_window_points or integer_window < 1:
-        raise ValueError("half_window_points must be a positive integer.")
-    half_window_points = integer_window
-    if n_times <= 2 * half_window_points:
-        return np.full_like(values_arr, np.nan, dtype=float)
-
-    derivative = np.full_like(values_arr, np.nan, dtype=float)
-    center_idx = np.arange(half_window_points, n_times - half_window_points, dtype=int)
-    left_idx = center_idx - half_window_points
-    right_idx = center_idx + half_window_points
-    dt = time_seconds[right_idx] - time_seconds[left_idx]
-    valid_dt = np.isfinite(dt) & (dt > 0.0)
-    if np.any(valid_dt):
-        derivative[..., center_idx[valid_dt]] = (
-            values_arr[..., right_idx[valid_dt]] - values_arr[..., left_idx[valid_dt]]
-        ) / dt[valid_dt]
-    return derivative
+    seconds = (time_ns - time_ns[:1]).astype(float) * 1e-9
+    return centered_derivative(seconds, values, half_window_points=half_window_points)
 
 
 def vector_magnitude(component_values):
@@ -153,12 +130,12 @@ def vector_magnitude(component_values):
 
 
 __all__ = [
-    "centered_difference_at_times",
-    "compute_time_derivative_values",
     "datetime_at_index",
     "datetime_index_to_epoch_ns",
     "median_cadence_seconds",
     "resample_to_times",
     "time_index_from_dataset",
+    "time_derivative",
+    "time_derivative_at_times",
     "vector_magnitude",
 ]

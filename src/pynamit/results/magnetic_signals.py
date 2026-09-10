@@ -3,8 +3,8 @@
 import numpy as np
 
 from pynamit.results.time_series import (
-    centered_difference_at_times,
     resample_to_times,
+    time_derivative_at_times,
     vector_magnitude,
 )
 
@@ -36,7 +36,7 @@ def station_signal_at_times(
     columns = ["North", "East", "Down"] if base == "Magnitude" else [base]
     values = measured[columns].to_numpy(dtype=float).T
     if quantity == "dbdt":
-        sampled = centered_difference_at_times(
+        sampled = time_derivative_at_times(
             measured.index,
             values,
             target_times,
@@ -77,7 +77,7 @@ def ground_signal_at_times(
         else components[("North", "East", "Down").index(base)]
     ) * 1e9
     if quantity == "dbdt":
-        signal = centered_difference_at_times(
+        signal = time_derivative_at_times(
             source_times,
             values,
             target_times,

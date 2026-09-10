@@ -1,5 +1,6 @@
 """Simulation."""
 
+from kompe import SphericalGrid
 import numpy as np
 import kompe
 import pynamit
@@ -116,7 +117,7 @@ plt_lat, plt_lon = np.meshgrid(plt_lat, plt_lon)
 plt_grid = kompe.Grid(lat=plt_lat, lon=plt_lon)
 plt_evaluator = kompe.SphericalTransform(simulation.geometry.horizontal_basis, plt_grid)
 conductance_plt_evaluator = kompe.SphericalTransform(
-    simulation.data.schema.input_field_spaces["conductance"].representation, plt_grid
+    simulation.results.schema.input_field_spaces["conductance"].representation, plt_grid
 )
 
 time = file["time"][:]
@@ -158,14 +159,7 @@ for step in range(0, nstep):
     print("Setting jr with (abs. min, RMS, abs. max):")
     print(f"\t({np.min(np.abs(jr))}, {np.sqrt(np.mean(jr**2))}, {np.max(np.abs(jr))})")
 
-    simulation.set_boundary_jr(
-        jr,
-        lat=ionosphere_lat,
-        lon=ionosphere_lon,
-        time=dt * step,
-        sqrt_weights=np.sqrt(np.sin(np.deg2rad((90 - ionosphere_lat).flatten()))),
-        reg_lambda=JR_LAMBDA,
-    )
+    simulation.set_boundary_jr(jr, time=dt * step, sqrt_weights=np.sqrt(np.sin(np.deg2rad((90 - ionosphere_lat).flatten()))), reg_lambda=JR_LAMBDA, grid=SphericalGrid(lat=ionosphere_lat, lon=ionosphere_lon))
 
     # Get and set conductance input (given in S).
     conductance_hall = file["SH"][:][step, :, :].flatten()
@@ -193,15 +187,7 @@ for step in range(0, nstep):
         f"{np.max(np.abs(conductance_pedersen))})"
     )
 
-    simulation.set_conductance(
-        pedersen=conductance_pedersen,
-        hall=conductance_hall,
-        lat=ionosphere_lat,
-        lon=ionosphere_lon,
-        time=dt * step,
-        sqrt_weights=np.sqrt(np.sin(np.deg2rad((90 - ionosphere_lat).flatten()))),
-        reg_lambda=CONDUCTANCE_LAMBDA,
-    )
+    simulation.set_conductance(pedersen=conductance_pedersen, hall=conductance_hall, time=dt * step, sqrt_weights=np.sqrt(np.sin(np.deg2rad((90 - ionosphere_lat).flatten()))), reg_lambda=CONDUCTANCE_LAMBDA, grid=SphericalGrid(lat=ionosphere_lat, lon=ionosphere_lon))
 
     # Get and set wind input (given in m/s).
     u_east = file["We"][:][step, :, :]
@@ -222,15 +208,7 @@ for step in range(0, nstep):
         f"{np.max(np.sqrt(u_theta**2 + u_phi**2))})"
     )
 
-    simulation.set_neutral_wind(
-        u_theta=u_theta,
-        u_phi=u_phi,
-        lat=u_lat,
-        lon=u_lon,
-        time=dt * step,
-        sqrt_weights=np.tile(np.sqrt(np.sin(np.deg2rad(90 - u_lat.flatten()))), (2, 1)),
-        reg_lambda=U_LAMBDA,
-    )
+    simulation.set_neutral_wind(u_theta=u_theta, u_phi=u_phi, time=dt * step, sqrt_weights=np.tile(np.sqrt(np.sin(np.deg2rad(90 - u_lat.flatten()))), (2, 1)), reg_lambda=U_LAMBDA, grid=SphericalGrid(lat=u_lat, lon=u_lon))
 
 if PLOT:
     print("Plotting input data")

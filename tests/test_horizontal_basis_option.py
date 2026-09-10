@@ -2,11 +2,88 @@
 
 import numpy as np
 import pytest
-from kompe.constants import EARTH_RADIUS_M
-from kompe.math import tensor_pinv, weighted_tensor_pinv
+from kompe import SphericalGrid, SphericalTransform
+from kompe.constants import EARTH_RADIUS_M, MU0
+from kompe.math import LeastSquaresSolver
 
+from pynamit.results.output_fields import OutputEvaluation
+from pynamit.simulation.electrodynamics import magnetic_boundary
 from pynamit.simulation.simulation import Simulation
 from tests.example_scenario import run_example
+
+
+@pytest.mark.parametrize("horizontal_basis_kind", ["SH", "CS"])
+@pytest.mark.parametrize("enable_pfac_coupling", [False, True])
+def test_sheet_current_maps_share_grid_and_resolve_bases(
+    tmp_path, monkeypatch, horizontal_basis_kind, enable_pfac_coupling
+):
+    """One transform suffices for all physical current sources."""
+    RI = 6.5e6
+    simulation = Simulation(
+        tmp_path / "run",
+        Nmax=2,
+        Mmax=2,
+        Ncs=4,
+        RI=RI,
+        RM=2 * RI,
+        main_field_kind="dipole",
+        horizontal_basis_kind=horizontal_basis_kind,
+        enable_pfac_coupling=enable_pfac_coupling,
+        fac_integration_radii=[RI, 1.1 * RI],
+        enable_interhemispheric_coupling=False,
+    )
+    geometry = simulation.geometry
+    assert (
+        geometry.horizontal_transform.with_basis(geometry.poloidal_basis)
+        is geometry.poloidal_transform
+    )
+    grid = SphericalGrid(theta=[0.4, 0.8, 1.2, 2.5], phi=[0.1, 0.7, 1.9, 3.4])
+    # This full SH plotting basis differs from the CS horizontal basis
+    # and the mean-free SH basis used for radial magnetic fields.
+    transform = SphericalTransform(simulation.results.geometry.sh_basis, grid)
+    horizontal = transform.with_basis(geometry.horizontal_basis)
+    poloidal = horizontal.with_basis(geometry.poloidal_basis)
+    direct_current = (-1 / MU0) * horizontal.surface_gradient_operator
+    expected_jr = direct_current @ geometry.boundary_jr_to_toroidal_potential_operator
+    expected_toroidal = direct_current
+    if enable_pfac_coupling:
+        gap_current = (
+            magnetic_boundary.external_Br_to_gridded_JS_operator(
+                geometry.solid_harmonics, poloidal
+            )
+            @ geometry.boundary_jr_to_gap_Br_operator
+        )
+        expected_jr = expected_jr + gap_current
+        expected_toroidal = (
+            expected_toroidal + gap_current @ geometry.toroidal_potential_to_boundary_jr_operator
+        )
+    expected = {
+        "boundary_jr_to_JS": expected_jr,
+        "induced_Br_to_JS": magnetic_boundary.induced_Br_to_gridded_JS_operator(
+            geometry.solid_harmonics, poloidal, radius=RI
+        ),
+        "boundary_Br_to_JS": magnetic_boundary.boundary_Br_to_gridded_JS_operator(
+            geometry.solid_harmonics, poloidal, radius=RI, boundary_radius=2 * RI
+        ),
+    }
+
+    def unexpected_transform(*args, **kwargs):
+        pytest.fail("Sheet-current construction should reuse the cached basis transforms.")
+
+    monkeypatch.setattr(SphericalTransform, "__init__", unexpected_transform)
+    for _ in range(2):
+        operators = OutputEvaluation(geometry, transform=transform).sheet_current_operators
+        for name, operator in operators.items():
+            assert operator.output_shape == (2, grid.size)
+            np.testing.assert_allclose(
+                operator.to_array(), expected[name].to_array(), rtol=1e-12, atol=1e-12
+            )
+    np.testing.assert_allclose(
+        geometry.toroidal_potential_to_gridded_JS_operator(transform).to_array(),
+        expected_toroidal.to_array(),
+        rtol=1e-12,
+        atol=1e-12,
+    )
 
 
 def test_default_horizontal_basis_is_sh(tmp_path):
@@ -20,14 +97,13 @@ def test_default_horizontal_basis_is_sh(tmp_path):
         artifact_storage="netcdf",
     )
 
-    assert simulation.data.config.horizontal_basis_kind == "SH"
+    assert simulation.results.config.horizontal_basis_kind == "SH"
     assert simulation.geometry.horizontal_basis is simulation.geometry.solid_harmonics.basis
     geometry = simulation.geometry
-    schema = simulation.data.schema
     assert geometry.horizontal_basis.mean_free
-    assert not schema.sh_basis.mean_free
-    assert schema.sh_basis.coefficient_count == geometry.horizontal_basis.coefficient_count + 1
-    assert geometry.surface_gauge_operator is None
+    assert not geometry.sh_basis.mean_free
+    assert geometry.sh_basis.coefficient_count == geometry.horizontal_basis.coefficient_count + 1
+    assert simulation.response._toroidal_potential_problem.constraints is None
     np.testing.assert_allclose(
         geometry.surface_to_poloidal_operator.to_matrix(backend="numpy"),
         np.eye(geometry.poloidal_basis.coefficient_count),
@@ -46,14 +122,14 @@ def test_horizontal_basis_kind_is_persisted(tmp_path):
         artifact_storage="netcdf",
     )
 
-    assert simulation.data.config.horizontal_basis_kind == "CS"
-    assert simulation.data.schema.horizontal_basis is simulation.geometry.horizontal_basis
+    assert simulation.results.config.horizontal_basis_kind == "CS"
+    assert simulation.results.geometry.horizontal_basis is simulation.geometry.horizontal_basis
     assert simulation.geometry.solid_harmonics.basis is not simulation.geometry.horizontal_basis
-    assert simulation.data.schema.input_field_spaces["boundary_jr"].mean_free
-    assert simulation.data.schema.input_field_spaces["boundary_Br"].mean_free
-    assert simulation.data.schema.input_field_spaces["u"].mean_free
-    assert not simulation.data.schema.input_field_spaces["conductance"].mean_free
-    output_spaces = simulation.data.schema.output_field_spaces["dynamic"]
+    assert simulation.results.schema.input_field_spaces["boundary_jr"].mean_free
+    assert simulation.results.schema.input_field_spaces["boundary_Br"].mean_free
+    assert simulation.results.schema.input_field_spaces["u"].mean_free
+    assert not simulation.results.schema.input_field_spaces["conductance"].mean_free
+    output_spaces = simulation.results.schema.output_field_spaces["dynamic"]
     assert output_spaces["induced_Br"].mean_free
     assert not output_spaces["boundary_jr"].mean_free
     assert output_spaces["Phi"].mean_free
@@ -74,17 +150,20 @@ def test_cs_surface_gauge_makes_toroidal_potential_system_unique(tmp_path):
     )
 
     geometry = simulation.geometry
-    gauge = geometry.surface_gauge_operator
+    problem = simulation.response._toroidal_potential_problem
+    gauge = problem.solution_basis
     assert gauge is not None
     np.testing.assert_allclose(
-        gauge.matvec(np.ones(geometry.horizontal_basis.coefficient_count)),
-        np.sqrt(geometry.horizontal_basis.coefficient_count),
+        geometry.horizontal_basis.scalar_mean_weights
+        @ gauge.matmat(np.eye(geometry.horizontal_basis.coefficient_count - 1)),
+        0.0,
+        atol=1e-14,
     )
 
     system = simulation.response._toroidal_potential_problem.data_operator.to_matrix(
         backend="numpy"
     )
-    assert np.linalg.matrix_rank(system) == geometry.horizontal_basis.coefficient_count
+    assert np.linalg.matrix_rank(system) == geometry.horizontal_basis.coefficient_count - 1
 
 
 def test_cs_runtime_toroidal_solve_does_not_build_dense_response_matrix(tmp_path):
@@ -99,27 +178,57 @@ def test_cs_runtime_toroidal_solve_does_not_build_dense_response_matrix(tmp_path
         horizontal_basis_kind="CS",
         least_squares_solver="normal_pinv",
         artifact_storage="netcdf",
-        backend="numpy",
     )
     n = simulation.geometry.horizontal_basis.coefficient_count
-    simulation.set_conductance(
-        log_magnitude_coefficients=np.zeros(n), log_ratio_coefficients=np.zeros(n), time=0.0
+    simulation.inputs.set_coefficients(
+        "conductance",
+        {"log_conductance_magnitude": np.zeros(n), "log_hall_to_pedersen_ratio": np.zeros(n)},
+        time=0.0,
     )
-    simulation.set_boundary_jr(boundary_jr_coefficients=np.linspace(-1.0, 1.0, n), time=0.0)
-    response = simulation.response
-    response.activate_inputs_at_time(simulation.data.input_series, 0.0)
+    simulation.inputs.set_coefficients("boundary_jr", np.linspace(-1.0, 1.0, n), time=0.0)
+    response = simulation.response_at_time(0.0)
 
-    _, solved_boundary_jr = response.solve_noninductive_response()
+    forcing = simulation.results.input_series.get_entry("boundary_jr", 0.0)
+    _, solved_boundary_jr = response.solve_noninductive_response(**forcing)
 
-    assert response._boundary_jr_to_toroidal_potential_operator is None
+    assert "boundary_jr_to_toroidal_potential_operator" not in response.__dict__
     assert np not in response.toroidal_potential_to_E_coeffs_operator._dense_cache
     explicit_toroidal_potential = response.boundary_jr_to_toroidal_potential_operator.matvec(
-        response.boundary_jr.array
+        forcing["boundary_jr"]
     )
     expected_boundary_jr = simulation.geometry.toroidal_potential_to_boundary_jr_operator.matvec(
         explicit_toroidal_potential
     )
     np.testing.assert_allclose(solved_boundary_jr, expected_boundary_jr, atol=1e-12)
+
+
+@pytest.mark.parametrize("algorithm", LeastSquaresSolver.VALID_SOLVERS)
+@pytest.mark.parametrize("scale", [1e-10, 1.0, 1e10])
+def test_toroidal_gauge_does_not_depend_on_current_residual_units(algorithm, scale):
+    """Residual units do not change the zero-mean potential."""
+    simulation = Simulation(
+        Nmax=2,
+        Mmax=1,
+        Ncs=4,
+        horizontal_basis_kind="CS",
+        enable_pfac_coupling=False,
+        enable_interhemispheric_coupling=False,
+        toroidal_potential_regularization_lambda=0.0,
+        least_squares_solver=algorithm,
+        least_squares_tolerance=1e-12,
+    )
+    geometry = simulation.geometry
+    geometry.radial_current_constraint_operator = (
+        scale * geometry.radial_current_constraint_operator
+    )
+    n = geometry.horizontal_basis.coefficient_count
+    potential = geometry.horizontal_basis.project_scalar_mean_free(
+        np.random.default_rng(87).normal(size=n)
+    )
+    current = geometry.toroidal_potential_to_boundary_jr_operator(potential)
+    actual = simulation.response._solve_toroidal_potential(current, np.zeros((2, n)))
+    np.testing.assert_allclose(actual, potential, rtol=1e-8, atol=1e-8)
+    np.testing.assert_allclose(geometry.horizontal_basis.scalar_mean(actual), 0.0, atol=1e-12)
 
 
 def test_cs_reduced_induction_response_matches_full_E_response(tmp_path):
@@ -135,19 +244,16 @@ def test_cs_reduced_induction_response_matches_full_E_response(tmp_path):
         horizontal_basis_kind="CS",
         least_squares_solver="normal_pinv",
         artifact_storage="netcdf",
-        backend="numpy",
     )
     grid = simulation.geometry.model_grid
     phase = np.linspace(0.0, 2.0 * np.pi, grid.size, endpoint=False)
-    simulation.set_conductance(
+    simulation.inputs.set_conductance(
         pedersen=2.0 + 0.2 * np.cos(phase),
         hall=1.0 + 0.1 * np.sin(2.0 * phase),
-        lat=grid.lat,
-        lon=grid.lon,
         time=0.0,
+        grid=grid,
     )
-    response = simulation.response
-    response.activate_inputs_at_time(simulation.data.input_series, 0.0)
+    response = simulation.response_at_time(0.0)
 
     reduced = response.induced_Br_to_W_operator.to_matrix(backend="numpy")
     full = (response.driving_E_to_W_operator @ response.induced_Br_to_E_coeffs_operator).to_matrix(
@@ -175,15 +281,15 @@ def test_area_weighted_least_squares_option_is_persisted(tmp_path):
 
     geometry = simulation.geometry
 
-    assert simulation.data.config.area_weighted_least_squares
+    assert simulation.results.config.area_weighted_least_squares
     assert geometry.area_weighted_least_squares
     np.testing.assert_allclose(
         geometry.model_grid_sqrt_weights(),
-        np.sqrt(simulation.data.schema.cs_basis.mesh.cell_areas.reshape(-1)),
+        np.sqrt(simulation.results.geometry.cs_basis.mesh.cell_areas.reshape(-1)),
     )
     np.testing.assert_allclose(
         geometry.model_grid_sqrt_weights(vector=True),
-        np.tile(np.sqrt(simulation.data.schema.cs_basis.mesh.cell_areas.reshape(-1)), (2, 1)),
+        np.tile(np.sqrt(simulation.results.geometry.cs_basis.mesh.cell_areas.reshape(-1)), (2, 1)),
     )
 
 
@@ -197,15 +303,15 @@ def test_cs_horizontal_basis_runs_with_split_output_spaces(tmp_path):
         Ncs=8,
         enable_pfac_coupling=False,
         use_wind=False,
-        boundary_jr_projection_basis="CS",
-        conductance_projection_basis="CS",
-        u_projection_basis="CS",
+        boundary_jr_remapping="CS",
+        conductance_basis="CS",
+        u_remapping="CS",
         simulation_directory=str(tmp_path / "run"),
         horizontal_basis_kind="CS",
         artifact_storage="netcdf",
     )
 
-    output = simulation.data.output_series.datasets["dynamic"]
+    output = simulation.results.output_series.datasets["dynamic"]
     assert "SH_induced_Br" in output
     assert "CS_boundary_jr" in output
     assert (
@@ -215,7 +321,7 @@ def test_cs_horizontal_basis_runs_with_split_output_spaces(tmp_path):
         output["CS_boundary_jr"].shape[-1]
         == simulation.geometry.horizontal_basis.coefficient_count
     )
-    assert simulation.data.schema.horizontal_basis is simulation.geometry.horizontal_basis
+    assert simulation.results.geometry.horizontal_basis is simulation.geometry.horizontal_basis
 
 
 def test_cs_horizontal_basis_runs_with_pfac(tmp_path):
@@ -228,9 +334,9 @@ def test_cs_horizontal_basis_runs_with_pfac(tmp_path):
         Ncs=8,
         enable_pfac_coupling=True,
         use_wind=False,
-        boundary_jr_projection_basis="CS",
-        conductance_projection_basis="CS",
-        u_projection_basis="CS",
+        boundary_jr_remapping="CS",
+        conductance_basis="CS",
+        u_remapping="CS",
         simulation_directory=str(tmp_path / "run"),
         horizontal_basis_kind="CS",
         artifact_storage="netcdf",
@@ -242,7 +348,7 @@ def test_cs_horizontal_basis_runs_with_pfac(tmp_path):
     assert isinstance(response_matrix, np.ndarray)
     assert not response_matrix.flags.writeable
 
-    assert simulation.data.schema.horizontal_basis is simulation.geometry.horizontal_basis
+    assert simulation.results.geometry.horizontal_basis is simulation.geometry.horizontal_basis
     assert simulation.geometry.solid_harmonics.basis is not simulation.geometry.horizontal_basis
     assert response_matrix.shape == (
         simulation.geometry.poloidal_basis.coefficient_count,
@@ -292,9 +398,9 @@ def test_cs_horizontal_basis_supports_connected_hemispheres(tmp_path):
         enable_pfac_coupling=False,
         enable_interhemispheric_coupling=True,
         use_wind=False,
-        boundary_jr_projection_basis="CS",
-        conductance_projection_basis="CS",
-        u_projection_basis="CS",
+        boundary_jr_remapping="CS",
+        conductance_basis="CS",
+        u_remapping="CS",
         simulation_directory=str(tmp_path / "run"),
         horizontal_basis_kind="CS",
         artifact_storage="netcdf",
@@ -356,10 +462,10 @@ def test_cs_horizontal_basis_combines_pfac_rm_and_connected_terms(tmp_path):
         enable_pfac_coupling=True,
         enable_interhemispheric_coupling=True,
         use_wind=False,
-        boundary_jr_projection_basis="CS",
-        boundary_Br_projection_basis="CS",
-        conductance_projection_basis="CS",
-        u_projection_basis="CS",
+        boundary_jr_remapping="CS",
+        boundary_Br_remapping="CS",
+        conductance_basis="CS",
+        u_remapping="CS",
         simulation_directory=str(tmp_path / "run"),
         horizontal_basis_kind="CS",
         artifact_storage="netcdf",
@@ -397,10 +503,8 @@ def test_surface_to_poloidal_projection_matches_grid_least_squares(tmp_path):
     )
 
     geometry = simulation.geometry
-    assert not hasattr(geometry.horizontal_transform, "_scalar_coeffs_to_grid")
-    expected = tensor_pinv(
-        geometry.poloidal_transform.scalar_synthesis_array, n_leading_flattened=1
-    )
+    synthesis = np.asarray(geometry.poloidal_transform.scalar_synthesis_array)
+    expected = np.linalg.pinv(synthesis)
 
     surface_to_poloidal = geometry.surface_to_poloidal_operator.to_matrix(backend="numpy")
     np.testing.assert_allclose(surface_to_poloidal, expected)
@@ -428,12 +532,9 @@ def test_surface_to_poloidal_supports_area_weighted_projection(tmp_path):
     )
 
     geometry = simulation.geometry
-    assert not hasattr(geometry.horizontal_transform, "_scalar_coeffs_to_grid")
-    expected = weighted_tensor_pinv(
-        geometry.poloidal_transform.scalar_synthesis_array,
-        sqrt_weights=np.sqrt(simulation.data.schema.cs_basis.mesh.cell_areas.reshape(-1)),
-        n_leading_flattened=1,
-    )
+    synthesis = np.asarray(geometry.poloidal_transform.scalar_synthesis_array)
+    sqrt_weights = np.sqrt(simulation.results.geometry.cs_basis.mesh.cell_areas.reshape(-1))
+    expected = np.linalg.pinv(sqrt_weights[:, None] * synthesis) * sqrt_weights
 
     np.testing.assert_allclose(
         geometry.surface_to_poloidal_operator.to_matrix(backend="numpy"), expected

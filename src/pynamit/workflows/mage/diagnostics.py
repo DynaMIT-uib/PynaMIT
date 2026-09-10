@@ -11,7 +11,7 @@ import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 from kompe import SphericalGrid
-from kompe.spherical_transform import SphericalTransform, grid_sqrt_area_weights
+from kompe.spherical_transform import SphericalTransform
 
 from pynamit.plotting.contours import build_percentile_color_scale
 from pynamit.plotting.map_axes import style_global_axis
@@ -22,7 +22,11 @@ from pynamit.simulation.electrodynamics.ionospheric_closure import (
     CONDUCTANCE_REFERENCE_S,
     conductance_to_resistance,
 )
-from pynamit.workflows.mage.prepared_forcing import forcing_times, validate_prepared_forcing
+from pynamit.workflows.mage.prepared_forcing import (
+    forcing_times,
+    read_ionosphere_grid,
+    validate_prepared_forcing,
+)
 
 DEFAULT_PROJECTION_COMPARISON_FIELDS = ("etaP", "etaH", "SigmaP", "SigmaH", "jr", "Br")
 
@@ -120,30 +124,28 @@ def _validate_fields(fields) -> tuple[str, ...]:
 
 def _comparison_grids(h5_file):
     """Return prepared GEO grids and their fitting weights."""
-    ionosphere_lat = np.asarray(h5_file["ionosphere_lat"][:], dtype=float)
-    ionosphere_lon = np.asarray(h5_file["ionosphere_lon"][:], dtype=float)
     boundary_lat = np.asarray(h5_file["boundary_lat"][:], dtype=float)
     boundary_lon = np.asarray(h5_file["boundary_lon"][:], dtype=float)
     boundary_weights = np.asarray(h5_file["boundary_solid_angle"][:], dtype=float)
 
-    ionosphere_grid = SphericalGrid(lat=ionosphere_lat, lon=ionosphere_lon)
+    ionosphere_grid = read_ionosphere_grid(h5_file)
     boundary_grid = SphericalGrid(
         lat=boundary_lat, lon=boundary_lon, area_weights=boundary_weights
     )
     return {
         "ionosphere": {
             "grid": ionosphere_grid,
-            "latitude": ionosphere_lat,
-            "longitude": ionosphere_lon,
-            "shape": ionosphere_lat.shape,
-            "weights": np.asarray(grid_sqrt_area_weights(ionosphere_grid), dtype=float) ** 2,
+            "latitude": ionosphere_grid.lat.reshape(ionosphere_grid.shape),
+            "longitude": ionosphere_grid.lon.reshape(ionosphere_grid.shape),
+            "shape": ionosphere_grid.shape,
+            "weights": ionosphere_grid.area_weights,
         },
         "magnetosphere": {
             "grid": boundary_grid,
             "latitude": boundary_lat,
             "longitude": boundary_lon,
             "shape": boundary_lat.shape,
-            "weights": np.asarray(grid_sqrt_area_weights(boundary_grid), dtype=float) ** 2,
+            "weights": boundary_grid.area_weights,
         },
     }
 

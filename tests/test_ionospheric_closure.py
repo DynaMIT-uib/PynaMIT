@@ -6,6 +6,7 @@ from kompe.math import (
     LeastSquaresSolver,
     LinearMap,
     as_linear_map,
+    backend_context,
     get_array_module,
     get_backend,
     set_backend,
@@ -58,6 +59,33 @@ def test_log_conductance_coordinates_preserve_positive_tensor_and_reciprocal_pai
     np.testing.assert_allclose(resistance[0], expected_resistance[0])
     np.testing.assert_allclose(resistance[1], expected_resistance[1])
     np.testing.assert_allclose(log_ratio, np.log(hall / pedersen))
+
+
+def test_pedersen_hall_inversion_avoids_intermediate_overflow():
+    """A representable inverse must not disappear through overflow."""
+    xp = get_array_module()
+    values = xp.asarray([1e-300, 1e300])
+    pedersen, hall = conductance_to_resistance(values, values)
+    np.testing.assert_allclose(pedersen * values, 0.5, rtol=1e-14, atol=0)
+    np.testing.assert_allclose(hall * values, 0.5, rtol=1e-14, atol=0)
+    # JAX devices may flush subnormal results to zero. NumPy also
+    # preserves the representable inverse at the floating-point limit.
+    with backend_context("numpy"):
+        result = conductance_to_resistance(1e308, 1e308)
+    np.testing.assert_allclose(result, [5e-309, 5e-309], rtol=1e-14, atol=0)
+
+
+def test_log_coordinates_do_not_require_a_representable_magnitude():
+    """Logs remain finite even when the physical norm overflows."""
+    xp = get_array_module()
+    values = xp.asarray([1e-300, 1.6e308])
+    log_norm = np.log(np.asarray(values)) + 0.5 * np.log(2.0)
+    conductance = conductance_to_log_coordinates(values, values)
+    resistance = resistance_to_log_conductance_coordinates(values, values)
+    np.testing.assert_allclose(conductance[0], log_norm, atol=0, rtol=1e-14)
+    np.testing.assert_allclose(resistance[0], -log_norm, atol=0, rtol=1e-14)
+    np.testing.assert_allclose(conductance[1], 0, atol=0)
+    np.testing.assert_allclose(resistance[1], 0, atol=0)
 
 
 def test_resistance_maps_directly_to_the_same_log_conductance_coordinates():
@@ -312,24 +340,30 @@ def test_weighted_winds_preserve_sample_axes_and_broadcast_conductance(sample_sh
     np.testing.assert_allclose(E_phi, wind[0] * magnetic_field[0], rtol=1e-13)
 
 
-def test_Q_eff_coefficient_solve_recovers_exact_response():
+@pytest.mark.parametrize("algorithm", LeastSquaresSolver.VALID_SOLVERS)
+def test_Q_eff_coefficient_solve_recovers_exact_response(algorithm):
     """Recover an exactly representable Q_eff response."""
     matrix = np.array([[2.0, 1.0], [-1.0, 3.0], [4.0, -2.0]])
     expected = np.array([1.5, -0.5])
     operator = as_linear_map(matrix)
 
-    coefficients = solve_Q_eff_coefficients(operator, matrix @ expected)
+    coefficients = solve_Q_eff_coefficients(
+        operator, matrix @ expected, solver=LeastSquaresSolver(algorithm)
+    )
 
     np.testing.assert_allclose(coefficients, expected)
 
 
-def test_Q_eff_regularization_weights_the_squared_coefficient_norm():
+@pytest.mark.parametrize("algorithm", LeastSquaresSolver.VALID_SOLVERS)
+def test_Q_eff_regularization_weights_the_squared_coefficient_norm(algorithm):
     """reg_lambda weights ||Q_eff||² in the fitted objective."""
     matrix = np.array([[2.0, 1.0], [-1.0, 3.0], [4.0, -2.0]])
     rhs = np.array([1.0, -0.5, 2.0])
     reg_lambda = 0.25
 
-    coefficients = solve_Q_eff_coefficients(as_linear_map(matrix), rhs, reg_lambda=reg_lambda)
+    coefficients = solve_Q_eff_coefficients(
+        as_linear_map(matrix), rhs, reg_lambda=reg_lambda, solver=LeastSquaresSolver(algorithm)
+    )
     expected = np.linalg.solve(
         matrix.T @ matrix + reg_lambda * np.eye(matrix.shape[1]), matrix.T @ rhs
     )
@@ -340,7 +374,7 @@ def test_Q_eff_regularization_weights_the_squared_coefficient_norm():
 @pytest.mark.parametrize("rhs_shape", [(4,), (2, 4)])
 @pytest.mark.parametrize("matrix_kind", ["tall", "wide", "rank_deficient"])
 def test_Q_eff_regularized_solver_handles_rhs_blocks(rhs_shape, matrix_kind):
-    """Damping preserves the regularized solution and RHS axes."""
+    """The absolute penalty preserves the solution and RHS axes."""
     xp = get_array_module()
     matrix = np.array([[2.0, 1.0], [-1.0, 3.0], [4.0, -2.0]])
     if matrix_kind == "wide":
@@ -370,8 +404,9 @@ def test_Q_eff_regularized_solver_handles_rhs_blocks(rhs_shape, matrix_kind):
 
 
 @pytest.mark.parametrize("reg_lambda", [0.0, 0.25])
-def test_Q_eff_solver_reuses_a_matrix_free_operator(monkeypatch, reg_lambda):
-    """Repeated fits neither materialize nor augment the operator."""
+@pytest.mark.parametrize("algorithm", ["lsmr", "cgls"])
+def test_Q_eff_solver_reuses_a_matrix_free_operator(monkeypatch, reg_lambda, algorithm):
+    """Iterative fits retain structure, including the penalty."""
     matrix = np.array([[2.0, 1.0], [-1.0, 3.0], [4.0, -2.0]])
 
     def fail_dense(_xp):
@@ -388,13 +423,16 @@ def test_Q_eff_solver_reuses_a_matrix_free_operator(monkeypatch, reg_lambda):
     )
     original_solve = LeastSquaresSolver.solve
 
-    def solve_without_augmentation(self, problem, rhs, **kwargs):
-        assert problem.system_operator is operator
-        assert kwargs["damp"] == pytest.approx(reg_lambda**0.5)
+    def solve_without_materialization(self, problem, rhs, **kwargs):
+        assert problem.data_operators[0] is operator
+        if reg_lambda:
+            assert problem.regularization_operators[0].is_diagonal
         return original_solve(self, problem, rhs, **kwargs)
 
-    monkeypatch.setattr(LeastSquaresSolver, "solve", solve_without_augmentation)
-    solve = build_Q_eff_coefficient_solver(operator, reg_lambda=reg_lambda)
+    monkeypatch.setattr(LeastSquaresSolver, "solve", solve_without_materialization)
+    solve = build_Q_eff_coefficient_solver(
+        operator, solver=LeastSquaresSolver(algorithm), reg_lambda=reg_lambda
+    )
 
     for coefficients in (np.array([1.5, -0.5]), np.array([-0.25, 2.0])):
         rhs = matrix @ coefficients
@@ -402,6 +440,29 @@ def test_Q_eff_solver_reuses_a_matrix_free_operator(monkeypatch, reg_lambda):
             matrix.T @ matrix + reg_lambda * np.eye(matrix.shape[1]), matrix.T @ rhs
         )
         np.testing.assert_allclose(solve(rhs), expected)
+
+
+@pytest.mark.parametrize("reg_lambda", [0.0, 0.25])
+@pytest.mark.parametrize("algorithm", LeastSquaresSolver.VALID_SOLVERS)
+def test_Q_eff_fit_preserves_exact_gauge_and_absolute_penalty_meaning(reg_lambda, algorithm):
+    """A gauge or coefficient penalty fixes the unobservable offset."""
+    from scipy.linalg import null_space
+
+    matrix = np.array([[1.0, -1.0, 0.0], [0.0, 1.0, -1.0]])
+    gauge = np.array([[0.2, 0.3, 0.5]])
+    rhs = np.array([2.0, -0.5])
+    if reg_lambda:
+        expected = np.linalg.solve(matrix.T @ matrix + reg_lambda * np.eye(3), matrix.T @ rhs)
+    else:
+        Z = null_space(gauge)
+        expected = Z @ np.linalg.lstsq(matrix @ Z, rhs, rcond=None)[0]
+    solve = build_Q_eff_coefficient_solver(
+        as_linear_map(matrix),
+        reg_lambda=reg_lambda,
+        gauge_constraints=gauge,
+        solver=LeastSquaresSolver(algorithm, tolerance=1e-12),
+    )
+    np.testing.assert_allclose(solve(rhs), expected, rtol=1e-10, atol=1e-10)
 
 
 @pytest.mark.requires_jax
@@ -458,8 +519,7 @@ def test_closure_math_preserves_explicit_jax_arrays(backend, data_source):
     ("kwargs", "error", "message"),
     [
         ({"reg_lambda": -1.0}, ValueError, "reg_lambda"),
-        ({"tolerance": np.nan}, ValueError, "tolerance"),
-        ({"tolerance": True}, TypeError, "tolerance"),
+        ({"reg_lambda": np.nan}, ValueError, "reg_lambda"),
     ],
 )
 def test_Q_eff_coefficient_solve_rejects_invalid_controls(kwargs, error, message):

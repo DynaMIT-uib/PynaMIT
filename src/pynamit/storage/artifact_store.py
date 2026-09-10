@@ -13,7 +13,6 @@ import shutil
 import tempfile
 import uuid
 from collections.abc import Callable
-from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
 
@@ -87,8 +86,19 @@ class ArtifactStore:
     def _zarr_config_context():
         """Return a context that fails on missing zarr chunks."""
         if not ArtifactStore.zarr_available():
-            return nullcontext()
+            raise ImportError(
+                "Zarr storage requested but the optional 'zarr' dependency is not installed. "
+                "Install pynamit[zarr] or select NetCDF storage."
+            )
         zarr = importlib.import_module("zarr")
+        if (
+            not hasattr(zarr, "config")
+            or zarr.config.get("array.read_missing_chunks", None) is None
+        ):
+            raise ImportError(
+                "Zarr storage requires zarr>=3.2 for strict missing-chunk checks. "
+                "Install pynamit[zarr] or select NetCDF storage."
+            )
         return zarr.config.set(ZARR_READ_CONFIG)
 
     @staticmethod
@@ -267,11 +277,6 @@ class ArtifactStore:
             else:
                 normalized = self.default_dataset_storage_kind()
 
-        if normalized == "zarr" and not self.zarr_available():
-            raise ImportError(
-                "Zarr storage requested but the optional 'zarr' dependency is not installed."
-            )
-
         return normalized
 
     def _resolve_existing_dataset_storage_kind(self, name: str, storage: str | None) -> str | None:
@@ -290,10 +295,6 @@ class ArtifactStore:
             if not filename.exists():
                 return None
 
-        if normalized == "zarr" and not self.zarr_available():
-            raise ImportError(
-                "Zarr storage requested but the optional 'zarr' dependency is not installed."
-            )
         return normalized
 
     def save_dataset(
@@ -314,14 +315,17 @@ class ArtifactStore:
         filename.parent.mkdir(parents=True, exist_ok=True)
 
         if storage_kind == "zarr":
-            dataset = self._prepare_dataset_for_zarr_write(dataset)
-            if append_dim is None:
-                self._write_zarr_atomically(
-                    filename,
-                    lambda temp_store: dataset.to_zarr(temp_store, mode="w", **ZARR_WRITE_KWARGS),
-                )
-            else:
-                dataset.to_zarr(filename, append_dim=append_dim, **ZARR_WRITE_KWARGS)
+            with self._zarr_config_context():
+                dataset = self._prepare_dataset_for_zarr_write(dataset)
+                if append_dim is None:
+                    self._write_zarr_atomically(
+                        filename,
+                        lambda temp_store: dataset.to_zarr(
+                            temp_store, mode="w", **ZARR_WRITE_KWARGS
+                        ),
+                    )
+                else:
+                    dataset.to_zarr(filename, append_dim=append_dim, **ZARR_WRITE_KWARGS)
         else:
             self._write_netcdf_atomically(filename, lambda temp_file: dataset.to_netcdf(temp_file))
 
@@ -379,11 +383,14 @@ class ArtifactStore:
         filename.parent.mkdir(parents=True, exist_ok=True)
 
         if storage_kind == "zarr":
-            dataarray = self._prepare_dataarray_for_zarr_write(dataarray)
-            self._write_zarr_atomically(
-                filename,
-                lambda temp_store: dataarray.to_zarr(temp_store, mode="w", **ZARR_WRITE_KWARGS),
-            )
+            with self._zarr_config_context():
+                dataarray = self._prepare_dataarray_for_zarr_write(dataarray)
+                self._write_zarr_atomically(
+                    filename,
+                    lambda temp_store: dataarray.to_zarr(
+                        temp_store, mode="w", **ZARR_WRITE_KWARGS
+                    ),
+                )
         else:
             self._write_netcdf_atomically(
                 filename, lambda temp_file: dataarray.to_netcdf(temp_file)

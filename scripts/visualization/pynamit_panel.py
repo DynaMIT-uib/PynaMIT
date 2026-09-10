@@ -10,11 +10,8 @@ directory without editing this file.
 
 from __future__ import annotations
 
-import os
-
 from pynamit.gui.panel_app import servable
 
-SIMULATION_DIRECTORY = os.environ.get("PYNAMIT_SIMULATION_DIR") or None
 TITLE = "PynaMIT Plot"
 
-app = servable(simulation_directory=SIMULATION_DIRECTORY, title=TITLE)
+app = servable(title=TITLE)

@@ -75,8 +75,8 @@ if False:
     ugrid = kompe.SphericalGrid(lat=u_lat.flatten(), lon=u_lon.flatten())
 
     Gphi, Gtheta = (
-        ubasis.scalar_evaluation_array(ugrid, derivative="phi"),
-        ubasis.scalar_evaluation_array(ugrid, derivative="theta"),
+        ubasis.scalar_evaluation_array(ugrid, gradient_component="phi"),
+        ubasis.scalar_evaluation_array(ugrid, gradient_component="theta"),
     )
     divergence_free_potential_matrix = np.vstack((-Gphi, Gtheta))
     curl_free_potential_matrix = np.vstack((Gtheta, Gphi))

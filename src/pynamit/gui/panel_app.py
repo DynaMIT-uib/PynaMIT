@@ -2,20 +2,31 @@
 
 from __future__ import annotations
 
+import asyncio
 import datetime
-import traceback
+import json
+import logging
+import os
+import sys
+from collections import deque
+from dataclasses import replace
+from functools import partial
 from io import StringIO
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+from kompe.math import get_backend
 
 from pynamit.gui.figure_settings_binding import (
     apply_figure_settings_to_widgets,
     current_figure_settings,
+    manual_color_values,
+    manual_line_values,
     set_widget_value,
 )
-from pynamit.plotting.figure_builder import render_figure, save_movie
+from pynamit.plotting.figure_builder import render_figure
 from pynamit.plotting.figure_settings import (
+    FIGURE_DEFAULTS_FILENAME,
     MAP_FILL_OPTIONS,
     MAP_LINE_OPTIONS,
     PLOT_TYPE_OPTIONS,
@@ -29,46 +40,23 @@ from pynamit.plotting.figure_styles import (
     manual_line_parameters,
     map_line_keys,
 )
-from pynamit.plotting.plot_data import clear_plot_data_cache, get_plot_data
+from pynamit.plotting.plot_data import get_plot_data
 from pynamit.simulation.config import INTEGRATORS
+from pynamit.simulation.evolution import DEFAULT_ATOL, DEFAULT_DT_SECONDS, DEFAULT_RTOL
 
 PANEL_PLOT_TYPE_OPTIONS = {label: key for key, label in PLOT_TYPE_OPTIONS.items()}
 MAP_PLOT_TYPES = {"global", "hemispheres"}
 GROUND_PLOT_TYPES = {"ground_curve_map", "ground_timeseries"}
 MOVIE_PLOT_TYPES = MAP_PLOT_TYPES | {"input_summary"}
 PANEL_LINE_UNITS = {"Phi": "kV", "W": "kV", "Jeq": "A"}
+logger = logging.getLogger(__name__)
 
 
-def _manual_color_values(settings):
-    """Return manual limits for the selected fill."""
-    field_key = settings.fill if settings.fill != "none" else "Br"
-    if settings.manual_color_min is not None:
-        minimum, maximum = float(settings.manual_color_min), float(settings.manual_color_max)
-    else:
-        minimum, maximum = manual_color_limits(field_key)
-    return (
-        manual_color_display_value(field_key, minimum),
-        manual_color_display_value(field_key, maximum),
-    )
-
-
-def _manual_line_values(settings):
-    """Return manual parameters for the selected overlay."""
-    if settings.line_first_abs_level is not None:
-        return (
-            float(settings.line_first_abs_level),
-            float(settings.line_interval),
-            int(settings.line_levels_per_sign),
-        )
-    line_keys = map_line_keys(settings.lines)
-    return manual_line_parameters(line_keys[0] if line_keys else "Phi")
-
-
-def _absolute_output_path(value):
-    """Return one user-entered output path as an absolute path."""
+def _absolute_path(value):
+    """Resolve a user-entered path without accepting an empty field."""
     text = str(value).strip()
     if not text:
-        raise ValueError("Output path cannot be empty.")
+        raise ValueError("Path cannot be empty.")
     return Path(text).expanduser().resolve()
 
 
@@ -80,7 +68,7 @@ def _panel():
             "The Panel plotting app requires panel. Install it in the active environment, "
             "for example with `conda install -c conda-forge panel` or `pip install panel`."
         ) from exc
-    pn.extension(sizing_mode="stretch_width")
+    pn.extension("modal", sizing_mode="stretch_width")
     return pn
 
 
@@ -90,17 +78,11 @@ def _has_pynamit_settings(directory):
 
 
 def _default_simulation_directory():
-    cwd = Path(".")
-    candidates = [cwd]
-    candidates.extend(sorted(cwd.glob("results/*")))
-    candidates.extend(sorted(cwd.glob("projections/*")))
-    candidates.extend(sorted(cwd.glob("mage_output/*/resolutions/*/simulations/*")))
-    candidates.extend(sorted(cwd.glob("mage_output/*/resolutions/*/projections/*")))
-    candidates.extend([Path("sim_dir"), Path("notebooks/sim_dir")])
-    for candidate in candidates:
-        if _has_pynamit_settings(candidate):
-            return str(candidate)
-    return "."
+    """Use an explicit preference or the current artifact directory."""
+    configured = os.environ.get("PYNAMIT_SIMULATION_DIR")
+    if configured:
+        return str(Path(configured).expanduser().resolve())
+    return str(Path.cwd()) if _has_pynamit_settings(Path.cwd()) else ""
 
 
 class PynamitGUI:
@@ -108,26 +90,39 @@ class PynamitGUI:
 
     def __init__(self, simulation_directory=None):
         self.pn = _panel()
-        self.figure_settings = FigureSettings.from_simulation_directory(
-            str(simulation_directory or _default_simulation_directory())
+        directory = (
+            _default_simulation_directory()
+            if simulation_directory is None
+            else str(Path(simulation_directory).expanduser().resolve())
         )
+        self.figure_settings = FigureSettings(simulation_directory=directory)
         self.plot_data = None
         self.figure = None
+        self._rendered_settings = None
         self._busy = False
         self._syncing_style_controls = False
         self._loaded_simulation_directory = None
+        self._loaded_input_directory = None
+        self._workflow_process = None
+        self._workflow_cancelled = False
 
         self._build_mode_widgets()
-        default_input_directory = str(
-            Path(self.figure_settings.simulation_directory).expanduser() / "prepared_inputs"
-        )
+        default_input_directory = str(Path.cwd() / "prepared_inputs")
         self._build_input_preparation_widgets(default_input_directory)
         self._build_simulation_widgets(default_input_directory)
         self._build_data_widgets()
         self._build_visualization_widgets()
         self._build_output_widgets()
+        self._layout = self._build_layout()
         self._bind_callbacks()
-        self._load_simulation()
+        if self.pn.state.curdoc is not None:
+            self.pn.state.on_session_destroyed(self._session_destroyed)
+        if directory:
+            self._load_simulation()
+        else:
+            self._set_status(
+                "Choose a simulation or projected-input directory, then press **Load**."
+            )
 
     def _build_mode_widgets(self):
         pn = self.pn
@@ -144,6 +139,7 @@ class PynamitGUI:
         self.simulation_directory = pn.widgets.TextInput(
             name="Simulation directory",
             value=self.figure_settings.simulation_directory,
+            placeholder="Path to saved simulation or projected inputs",
             min_width=280,
         )
         self.load_button = pn.widgets.Button(name="Load", button_type="primary", width=85)
@@ -154,11 +150,16 @@ class PynamitGUI:
             width=180,
         )
         self.time_index = pn.widgets.IntSlider(
-            name="Time", start=0, end=0, value=0, step=1, min_width=320
+            name="Sample", start=0, end=0, value=0, step=1, min_width=280
         )
         self.time_label = pn.pane.Markdown("", width=260)
         self.time_range = pn.widgets.IntRangeSlider(
-            name="Time range", start=0, end=0, value=(0, 0), step=1, min_width=320
+            name="Sample range (curves / movie)",
+            start=0,
+            end=0,
+            value=(0, 0),
+            step=1,
+            min_width=280,
         )
 
     def _build_input_preparation_widgets(self, default_input_directory):
@@ -168,7 +169,7 @@ class PynamitGUI:
         )
         self.prepare_Nmax = pn.widgets.IntInput(name="Nmax", value=20, start=1, width=90)
         self.prepare_Mmax = pn.widgets.IntInput(name="Mmax", value=20, start=0, width=90)
-        self.prepare_Ncs = pn.widgets.IntInput(name="Ncs", value=30, start=4, width=90)
+        self.prepare_Ncs = pn.widgets.IntInput(name="Ncs", value=30, start=4, step=2, width=90)
         self.prepare_horizontal_basis = pn.widgets.Select(
             name="Basis",
             options={"Spherical harmonics": "SH", "Cubed sphere": "CS"},
@@ -181,8 +182,28 @@ class PynamitGUI:
         self.prepare_use_wind = pn.widgets.Checkbox(name="u", value=False, width=70)
         self.prepare_use_q_eff = pn.widgets.Checkbox(name="Q_eff from u", value=False, width=120)
         self.prepare_button = pn.widgets.Button(
-            name="Prepare 12 May 2001 example", button_type="primary", width=220
+            name="Prepare example inputs", button_type="primary", width=220
         )
+        self.example_parameters = {
+            "event_time": pn.widgets.DatetimeInput(
+                name="Event time (UTC)", value=datetime.datetime(2001, 5, 12, 21, 45), width=220
+            ),
+            "kp": pn.widgets.FloatInput(name="Kp", value=5, start=0, end=9, width=100),
+            "starlight_conductance_S": pn.widgets.FloatInput(
+                name="Starlight conductance (S)", value=1, width=200
+            ),
+            "solar_wind_speed_km_s": pn.widgets.FloatInput(
+                name="Solar wind speed (km/s)", value=300, width=200
+            ),
+            "imf_By_nT": pn.widgets.FloatInput(name="IMF By (nT)", value=0, width=130),
+            "imf_Bz_nT": pn.widgets.FloatInput(name="IMF Bz (nT)", value=-4, width=130),
+            "dipole_tilt_deg": pn.widgets.FloatInput(name="Dipole tilt (°)", value=20, width=130),
+            "f107_sfu": pn.widgets.FloatInput(name="F10.7 (sfu)", value=100, width=130),
+            "amps_min_latitude_deg": pn.widgets.FloatInput(
+                name="AMPS minimum latitude (°)", value=50, width=200
+            ),
+            "hwm_ap": pn.widgets.LiteralInput(name="HWM Ap inputs", value=(-1, 35), type=tuple),
+        }
 
     def _build_simulation_widgets(self, default_input_directory):
         pn = self.pn
@@ -190,20 +211,40 @@ class PynamitGUI:
             name="Input package", value=default_input_directory, min_width=280
         )
         self.new_simulation_directory = pn.widgets.TextInput(
-            name="Simulation output",
-            value=self.figure_settings.simulation_directory,
-            min_width=280,
+            name="Simulation output", value=str(Path.cwd() / "simulation"), min_width=280
         )
         self.sim_final_time = pn.widgets.FloatInput(
-            name="Final time", value=100.0, start=0.0, width=120
+            name="Final time (s)", value=100.0, start=0.0, width=120
         )
-        self.sim_dt = pn.widgets.FloatInput(name="dt", value=5e-4, start=1e-12, width=110)
+        self.sim_dt = pn.widgets.FloatInput(
+            name="dt (s)", value=DEFAULT_DT_SECONDS, start=1e-12, width=110
+        )
         self.sim_samples_per_write = pn.widgets.IntInput(
             name="Samples per save", value=200, start=1, width=150
+        )
+        self.sim_output_interval = pn.widgets.FloatInput(
+            name="Output interval (s)", value=1.0, start=1e-12, width=150
         )
         self.sim_integrator = pn.widgets.Select(
             name="Integrator", options=list(INTEGRATORS.values()), value="euler", width=140
         )
+        self.sim_rtol = pn.widgets.FloatInput(name="ODE rtol", value=DEFAULT_RTOL, width=130)
+        self.sim_atol = pn.widgets.FloatInput(name="ODE atol (T)", value=DEFAULT_ATOL, width=150)
+        self.sim_run_dynamic = pn.widgets.Checkbox(name="Dynamic", value=True, width=110)
+
+        def update_integrator_controls(_event=None):
+            method = self.sim_integrator.value
+            dynamic = self.sim_run_dynamic.value
+            self.sim_integrator.disabled = not dynamic
+            self.sim_dt.disabled = not dynamic or method != "euler"
+            self.sim_rtol.disabled = self.sim_atol.disabled = not dynamic or method in (
+                "euler",
+                "exponential",
+            )
+
+        self.sim_integrator.param.watch(update_integrator_controls, "value")
+        self.sim_run_dynamic.param.watch(update_integrator_controls, "value")
+        update_integrator_controls()
         self.sim_enable_pfac_coupling = pn.widgets.Checkbox(
             name="PFAC coupling", value=False, width=130
         )
@@ -213,23 +254,27 @@ class PynamitGUI:
         self.sim_magnetic_boundary_shielding = pn.widgets.Checkbox(
             name="Boundary shielding", value=False, width=150
         )
-        self.sim_run_dynamic = pn.widgets.Checkbox(name="Dynamic", value=True, width=110)
         self.sim_sample_equilibrium = pn.widgets.Checkbox(
             name="Equilibrium", value=True, width=130
         )
         self.sim_interhemispheric_coupling_latitude = pn.widgets.FloatInput(
             name="Coupling latitude", value=50.0, width=140
         )
-        self.sim_use_conductance = pn.widgets.Checkbox(name="Conductance", value=True, width=120)
-        self.sim_use_boundary_jr = pn.widgets.Checkbox(name="Boundary jr", value=True, width=110)
-        self.sim_use_br = pn.widgets.Checkbox(name="Br", value=True, width=70)
-        self.sim_use_u = pn.widgets.Checkbox(name="u", value=True, width=70)
-        self.sim_use_q_eff = pn.widgets.Checkbox(name="Q_eff", value=True, width=90)
-        self.sim_use_e_neutral_wind = pn.widgets.Checkbox(
-            name="Neutral-wind E", value=True, width=130
-        )
+        self.simulation_inputs = {
+            key: pn.widgets.Checkbox(name=label, value=False, disabled=True, width=150)
+            for key, label in {
+                "conductance": "Conductance",
+                "boundary_jr": "Boundary current jr",
+                "boundary_Br": "Boundary field Br",
+                "u": "Wind u",
+                "Q_eff": "Q_eff",
+                "E_neutral_wind": "Neutral-wind E",
+            }.items()
+        }
+        self.load_inputs_button = pn.widgets.Button(name="Load inputs", width=120)
+        self.input_status = pn.pane.Str("Load a prepared input package to choose its inputs.")
         self.run_simulation_button = pn.widgets.Button(
-            name="Run from inputs", button_type="primary", width=150
+            name="Run or resume", button_type="primary", width=150, disabled=True
         )
 
     def _build_data_widgets(self):
@@ -260,7 +305,19 @@ class PynamitGUI:
             width=130,
         )
         self.station = pn.widgets.TextInput(
-            name="Station", value=self.figure_settings.ground_station, width=120
+            name="Station",
+            value=self.figure_settings.ground_station,
+            placeholder="Station code",
+            width=120,
+        )
+        self.station_data_directory = pn.widgets.TextInput(
+            name="Station-data directory",
+            value=self.figure_settings.station_data_directory,
+            placeholder="Optional local IAGA data directory",
+            min_width=280,
+        )
+        self.show_station_labels = pn.widgets.Checkbox(
+            name="Station labels", value=self.figure_settings.show_station_labels, width=130
         )
         self.ground_component = pn.widgets.Select(
             name="Component",
@@ -341,8 +398,8 @@ class PynamitGUI:
 
     def _build_visualization_widgets(self):
         pn = self.pn
-        color_min, color_max = _manual_color_values(self.figure_settings)
-        line_start, line_interval, line_count = _manual_line_values(self.figure_settings)
+        color_min, color_max = manual_color_values(self.figure_settings)
+        line_start, line_interval, line_count = manual_line_values(self.figure_settings)
         self.show_reference_line = pn.widgets.Checkbox(
             name="Reference line", value=self.figure_settings.show_reference_line, width=130
         )
@@ -460,14 +517,19 @@ class PynamitGUI:
         self.save_movie_button = pn.widgets.Button(
             name="Save movie", button_type="warning", width=120
         )
+        self.save_defaults_button = pn.widgets.Button(name="Save plot defaults", width=155)
+        self.cancel_workflow_button = pn.widgets.Button(
+            name="Stop workflow", button_type="danger", disabled=True, width=140
+        )
+        self.workflow_log = pn.pane.Str(
+            "", height=180, styles={"overflow-y": "auto", "white-space": "pre-wrap"}
+        )
         self.output_filename = pn.widgets.TextInput(
-            name="Figure path",
-            value=str(_absolute_output_path("pynamit_figure.png")),
-            min_width=360,
+            name="Figure path", value=str(_absolute_path("pynamit_figure.png")), min_width=360
         )
         self.movie_filename = pn.widgets.TextInput(
             name="Movie path",
-            value=str(_absolute_output_path(self.figure_settings.movie_filename)),
+            value=str(_absolute_path(self.figure_settings.movie_filename)),
             min_width=360,
         )
         self.movie_fps = pn.widgets.FloatInput(
@@ -526,9 +588,16 @@ class PynamitGUI:
         self.redraw_button.on_click(self._redraw)
         self.save_button.on_click(self._save_figure)
         self.save_movie_button.on_click(self._save_movie)
+        self.save_defaults_button.on_click(self._save_plot_defaults)
+        self.cancel_workflow_button.on_click(self._cancel_workflow)
+        self.load_inputs_button.on_click(self._sync_simulation_input_availability)
         self.confirm_overwrite_button.on_click(self._confirm_overwrite)
         self.cancel_overwrite_button.on_click(self._cancel_overwrite)
         self.app_mode.param.watch(self._mode_changed, "value")
+        self.simulation_directory.param.watch(self._directory_changed, "value")
+        self.simulation_input_directory.param.watch(
+            self._sync_simulation_input_availability, "value"
+        )
         for widget in (
             self.plot_type,
             self.time_index,
@@ -539,6 +608,8 @@ class PynamitGUI:
             self.show_south,
             self.min_abs_lat,
             self.station,
+            self.station_data_directory,
+            self.show_station_labels,
             self.ground_component,
             self.ground_quantity,
             self.include_station_data,
@@ -581,301 +652,396 @@ class PynamitGUI:
         prefix = "**Error:** " if error else ""
         self.status.object = f"{prefix}{message}" if message else ""
 
+    def _session_destroyed(self, session_context):
+        """Release resources when the server expires this session."""
+        self._cancel_workflow()
+        self._discard_figure()
+
     def _mode_changed(self, event=None):
         if self.app_mode.value == "run_simulation":
             self._sync_simulation_input_availability()
         self._sync_visibility()
 
-    def _simulation_input_widgets(self):
-        return {
-            "conductance": self.sim_use_conductance,
-            "boundary_jr": self.sim_use_boundary_jr,
-            "boundary_Br": self.sim_use_br,
-            "u": self.sim_use_u,
-            "Q_eff": self.sim_use_q_eff,
-            "E_neutral_wind": self.sim_use_e_neutral_wind,
-        }
+    def _show_error(self, error):
+        """Show a concise error; keep the traceback in server logs."""
+        logger.exception("PynaMIT GUI operation failed")
+        self._set_status(f"{type(error).__name__}: {error}", error=True)
 
-    def _available_simulation_inputs(self, input_directory):
+    def _sync_simulation_input_availability(self, event=None):
+        """Read the inputs actually present in the chosen package."""
         from pynamit.simulation.input_manifest import available_prepared_inputs
 
-        return set(available_prepared_inputs(Path(input_directory).expanduser()))
-
-    def _sync_simulation_input_availability(self):
         try:
-            available = self._available_simulation_inputs(self.simulation_input_directory.value)
-        except Exception:
-            available = None
-        for key, widget in self._simulation_input_widgets().items():
-            if available is None:
-                widget.disabled = False
-                continue
-            present = key in available
-            widget.disabled = not present
-            if not present and widget.value:
-                set_widget_value(widget, False)
+            directory = _absolute_path(self.simulation_input_directory.value)
+            available = set(available_prepared_inputs(directory))
+        except (OSError, ValueError) as exc:
+            self._loaded_input_directory = None
+            for widget in self.simulation_inputs.values():
+                widget.disabled = True
+                widget.value = False
+            self.run_simulation_button.disabled = True
+            self.input_status.object = str(exc)
+            return False
+        changed = directory != self._loaded_input_directory
+        for key, widget in self.simulation_inputs.items():
+            widget.disabled = key not in available
+            if changed or widget.disabled:
+                widget.value = key in available
+        self._loaded_input_directory = directory
+        self.run_simulation_button.disabled = not available
+        self.input_status.object = "Available inputs: " + ", ".join(sorted(available))
+        return True
 
     def _selected_simulation_inputs(self):
-        selected = []
-        if self.sim_use_conductance.value:
-            selected.append("conductance")
-        if self.sim_use_boundary_jr.value:
-            selected.append("boundary_jr")
-        if self.sim_use_br.value:
-            selected.append("boundary_Br")
-        if self.sim_use_u.value:
-            selected.append("u")
-        if self.sim_use_q_eff.value:
-            selected.append("Q_eff")
-        if self.sim_use_e_neutral_wind.value:
-            selected.append("E_neutral_wind")
-        return tuple(selected)
+        return tuple(key for key, widget in self.simulation_inputs.items() if widget.value)
 
-    def _prepare_example_inputs(self, event=None):
+    async def _run_workflow(self, workflow, parameters):
+        """Run a scientific workflow outside the Panel process."""
+        self.workflow_log.object = ""
+        self._workflow_cancelled = False
+        backend = get_backend()
+        environment = os.environ.copy()
+        if backend == "jax":
+            import jax
+
+            environment["JAX_ENABLE_X64"] = str(jax.config.x64_enabled)
+        process = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-u",
+            "-m",
+            "pynamit.gui.workflow_runner",
+            workflow,
+            "--backend",
+            backend,
+            env=environment,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        self._workflow_process = process
+        self.cancel_workflow_button.disabled = False
+        self._sync_visibility()
+        lines = deque(maxlen=80)
+        try:
+            process.stdin.write(json.dumps(parameters).encode("utf-8"))
+            await process.stdin.drain()
+            process.stdin.close()
+            async for line in process.stdout:
+                lines.append(line.decode("utf-8", errors="replace"))
+                self.workflow_log.object = "".join(lines)
+            returncode = await process.wait()
+        finally:
+            if process.returncode is None:
+                process.terminate()
+                await process.wait()
+            self._workflow_process = None
+            self.cancel_workflow_button.disabled = True
+            self._sync_visibility()
+        if self._workflow_cancelled:
+            self._set_status(
+                "Workflow stopped. Completed artifacts and checkpoints were retained."
+            )
+            return False
+        if returncode:
+            logger.error("PynaMIT workflow output:\n%s", self.workflow_log.object)
+            raise RuntimeError(f"Workflow exited with code {returncode}; see the workflow log.")
+        return True
+
+    def _cancel_workflow(self, event=None):
+        process = self._workflow_process
+        if process is not None and process.returncode is None:
+            self._workflow_cancelled = True
+            process.terminate()
+
+    async def _prepare_example_inputs(self, event=None):
         if self._busy:
             return
         self._busy = True
         self.prepare_button.loading = True
         try:
-            from pynamit.workflows.example_inputs import prepare_example_inputs
-
             if self.prepare_use_q_eff.value and not self.prepare_use_wind.value:
                 raise ValueError("Q_eff from u requires the wind input source.")
-            input_directory = Path(self.prepared_input_directory.value).expanduser()
-            preparation = prepare_example_inputs(
-                input_directory=input_directory,
-                event_time=datetime.datetime(2001, 5, 12, 21, 45),
-                kp=5,
-                starlight_conductance_S=1.0,
-                solar_wind_speed_km_s=300.0,
-                imf_By_nT=0.0,
-                imf_Bz_nT=-4.0,
-                dipole_tilt_deg=20.0,
-                f107_sfu=100.0,
-                amps_min_latitude_deg=50.0,
-                hwm_ap=(-1, 35),
-                Nmax=int(self.prepare_Nmax.value),
-                Mmax=int(self.prepare_Mmax.value),
-                Ncs=int(self.prepare_Ncs.value),
-                use_wind=bool(self.prepare_use_wind.value),
-                use_Q_eff=bool(self.prepare_use_q_eff.value),
-                use_boundary_jr=bool(self.prepare_use_boundary_jr.value),
+            input_directory = _absolute_path(self.prepared_input_directory.value)
+            if input_directory.exists() and any(input_directory.iterdir()):
+                raise FileExistsError(
+                    "Input preparation replaces artifacts. Choose a new or empty input directory."
+                )
+            parameters = {name: widget.value for name, widget in self.example_parameters.items()}
+            parameters["event_time"] = parameters["event_time"].isoformat()
+            parameters.update(
+                input_directory=str(input_directory),
+                Nmax=self.prepare_Nmax.value,
+                Mmax=self.prepare_Mmax.value,
+                Ncs=self.prepare_Ncs.value,
+                use_wind=self.prepare_use_wind.value,
+                use_Q_eff=self.prepare_use_q_eff.value,
+                use_boundary_jr=self.prepare_use_boundary_jr.value,
                 horizontal_basis_kind=self.prepare_horizontal_basis.value,
             )
-            prepared_path = Path(preparation.input_directory)
-            set_widget_value(self.prepared_input_directory, str(prepared_path))
-            set_widget_value(self.simulation_input_directory, str(prepared_path))
-            self._set_status(f"Prepared inputs in [`{prepared_path}`]({prepared_path}).")
-        except Exception:
-            self._set_status(traceback.format_exc(limit=8), error=True)
+            self._set_status("Preparing inputs; progress appears in the workflow log.")
+            if not await self._run_workflow("prepare", parameters):
+                return
+            set_widget_value(self.prepared_input_directory, str(input_directory))
+            set_widget_value(self.simulation_input_directory, str(input_directory))
+            self._sync_simulation_input_availability()
+            self._set_status(f"Prepared inputs in {input_directory}.")
+        except Exception as exc:
+            self._show_error(exc)
         finally:
             self.prepare_button.loading = False
             self._busy = False
 
-    def _run_simulation(self, event=None):
+    async def _run_simulation(self, event=None):
         if self._busy:
             return
         self._busy = True
         self.run_simulation_button.loading = True
-        should_load_simulation = False
+        completed = False
         try:
-            from pynamit.workflows.prepared_inputs import run_from_inputs
-
-            self._sync_simulation_input_availability()
+            if not self._sync_simulation_input_availability():
+                raise ValueError("Load a valid prepared input package before running.")
             enabled_inputs = self._selected_simulation_inputs()
             if not enabled_inputs:
                 raise ValueError("Select at least one prepared input dataset.")
-            input_directory = Path(self.simulation_input_directory.value).expanduser()
-            simulation_directory = Path(self.new_simulation_directory.value).expanduser()
-            simulation = run_from_inputs(
-                input_directory,
-                simulation_directory=simulation_directory,
+            input_directory = _absolute_path(self.simulation_input_directory.value)
+            simulation_directory = _absolute_path(self.new_simulation_directory.value)
+            parameters = dict(
+                input_directory=str(input_directory),
+                simulation_directory=str(simulation_directory),
                 enabled_inputs=enabled_inputs,
-                final_time=float(self.sim_final_time.value),
-                samples_per_write=int(self.sim_samples_per_write.value),
-                dt=float(self.sim_dt.value),
-                enable_pfac_coupling=bool(self.sim_enable_pfac_coupling.value),
-                enable_interhemispheric_coupling=bool(
-                    self.sim_enable_interhemispheric_coupling.value
-                ),
-                interhemispheric_coupling_latitude=float(
-                    self.sim_interhemispheric_coupling_latitude.value
-                ),
-                run_dynamic=bool(self.sim_run_dynamic.value),
-                sample_equilibrium=bool(self.sim_sample_equilibrium.value),
+                final_time=self.sim_final_time.value,
+                dt=self.sim_dt.value
+                if self.sim_run_dynamic.value and self.sim_integrator.value == "euler"
+                else None,
+                output_interval=self.sim_output_interval.value,
+                rtol=self.sim_rtol.value,
+                atol=self.sim_atol.value,
+                samples_per_write=self.sim_samples_per_write.value,
+                enable_pfac_coupling=self.sim_enable_pfac_coupling.value,
+                enable_interhemispheric_coupling=self.sim_enable_interhemispheric_coupling.value,
+                interhemispheric_coupling_latitude=self.sim_interhemispheric_coupling_latitude.value,
+                run_dynamic=self.sim_run_dynamic.value,
+                sample_equilibrium=self.sim_sample_equilibrium.value,
                 integrator=self.sim_integrator.value,
-                magnetic_boundary_shielding=bool(self.sim_magnetic_boundary_shielding.value),
+                magnetic_boundary_shielding=self.sim_magnetic_boundary_shielding.value,
             )
-            simulation_path = Path(simulation.simulation_directory)
-            set_widget_value(self.new_simulation_directory, str(simulation_path))
-            set_widget_value(self.simulation_directory, str(simulation_path))
-            set_widget_value(self.app_mode, "visualize")
-            self._set_status(f"Finished simulation in [`{simulation_path}`]({simulation_path}).")
-            should_load_simulation = True
-        except Exception:
-            self._set_status(traceback.format_exc(limit=8), error=True)
+            self._set_status("Running simulation; progress appears in the workflow log.")
+            completed = await self._run_workflow("simulate", parameters)
+            if completed:
+                set_widget_value(self.new_simulation_directory, str(simulation_directory))
+                set_widget_value(self.simulation_directory, str(simulation_directory))
+                set_widget_value(self.app_mode, "visualize")
+        except Exception as exc:
+            self._show_error(exc)
         finally:
             self.run_simulation_button.loading = False
             self._busy = False
-        if should_load_simulation:
+        if completed:
             self._load_simulation()
+
+    def _discard_figure(self):
+        """Release the displayed figure and its settings."""
+        if self.figure is not None:
+            plt.close(self.figure)
+        self.figure = None
+        self._rendered_settings = None
+        self.plot_pane.object = None
+
+    def _directory_changed(self, event=None):
+        """Never label previously loaded arrays with a new directory."""
+        self.plot_data = None
+        self._loaded_simulation_directory = None
+        self._discard_figure()
+        self.time_label.object = ""
+        self._sync_visibility()
+        self._set_status("Directory changed. Press Load to read its saved data and plot defaults.")
 
     def _load_simulation(self, event=None):
         if self._busy:
             return
         self._busy = True
-        should_redraw = False
+        loaded = False
         try:
-            clear_plot_data_cache()
-            simulation_directory = self.simulation_directory.value
-            expanded_simulation_directory = str(Path(simulation_directory).expanduser())
-            if expanded_simulation_directory != self._loaded_simulation_directory:
-                self.figure_settings = FigureSettings.from_simulation_directory(
-                    simulation_directory
-                )
-            else:
-                self.figure_settings = current_figure_settings(self)
-            self.plot_data = get_plot_data(self.figure_settings)
-            if (
-                not self.plot_data.has_model_output
-                and self.figure_settings.plot_type != "input_summary"
-            ):
-                settings_data = self.figure_settings.to_dict()
-                settings_data["plot_type"] = "input_summary"
-                self.figure_settings = self.figure_settings.from_dict(settings_data)
-            elif (
-                self.plot_data.has_model_output
-                and self.figure_settings.plot_type != "input_summary"
-            ):
-                has_state = "dynamic" in self.plot_data.results.datasets
-                has_steady = "equilibrium" in self.plot_data.results.datasets
-                settings_data = self.figure_settings.to_dict()
-                if not has_state and settings_data["plot_type"] not in {"global", "hemispheres"}:
-                    settings_data["plot_type"] = "global"
-                settings_data["show_dynamic"] = bool(has_state and settings_data["show_dynamic"])
-                settings_data["show_equilibrium"] = bool(
-                    has_steady and (settings_data["show_equilibrium"] or not has_state)
-                )
-                settings_data["show_difference"] = bool(
-                    has_state and has_steady and settings_data["show_difference"]
-                )
-                self.figure_settings = self.figure_settings.from_dict(settings_data)
-            self.time_index.end = max(0, self.plot_data.n_time - 1)
-            self.time_range.end = max(0, self.plot_data.n_time - 1)
-            if self.time_range.value == (0, 0):
-                self.time_range.value = (0, min(int(self.time_range.end), 60))
-            apply_figure_settings_to_widgets(self, self.figure_settings)
-            set_widget_value(
-                self.movie_filename, str(_absolute_output_path(self.movie_filename.value))
+            directory = str(_absolute_path(self.simulation_directory.value))
+            settings = FigureSettings.from_simulation_directory(directory)
+            plot_data = get_plot_data(settings)
+            datasets = plot_data.results.datasets
+            has_dynamic = "dynamic" in datasets
+            has_equilibrium = "equilibrium" in datasets
+            available_plots = set(PLOT_TYPE_OPTIONS)
+            if not plot_data.has_model_output:
+                available_plots = {"input_summary"}
+            elif not has_dynamic:
+                available_plots -= GROUND_PLOT_TYPES
+            if not plot_data.available_inputs:
+                available_plots.discard("input_summary")
+            plot_type = settings.plot_type
+            if plot_type not in available_plots:
+                plot_type = "global" if plot_data.has_model_output else "input_summary"
+            maximum = max(0, plot_data.n_time - 1)
+            start = min(settings.time_range[0], maximum)
+            end = max(start, min(settings.time_range[1], maximum))
+            settings = replace(
+                settings,
+                plot_type=plot_type,
+                time_index=min(settings.time_index, maximum),
+                time_range=(start, end),
+                show_dynamic=has_dynamic and settings.show_dynamic,
+                show_equilibrium=has_equilibrium
+                and (settings.show_equilibrium or not has_dynamic),
+                show_difference=has_dynamic and has_equilibrium and settings.show_difference,
             )
-            self._loaded_simulation_directory = expanded_simulation_directory
-            self._set_status(
-                f"Loaded `{Path(self.figure_settings.simulation_directory).expanduser()}`."
-            )
-            should_redraw = True
-        except Exception:
-            self._set_status(traceback.format_exc(limit=6), error=True)
+            self._discard_figure()
+            self.time_index.value = 0
+            self.time_range.value = (0, 0)
+            self.time_index.end = maximum
+            self.time_range.end = maximum
+            self.plot_type.options = {
+                label: key
+                for label, key in PANEL_PLOT_TYPE_OPTIONS.items()
+                if key in available_plots
+            }
+            apply_figure_settings_to_widgets(self, settings)
+            set_widget_value(self.movie_filename, str(_absolute_path(self.movie_filename.value)))
+            self.figure_settings = settings
+            self.plot_data = plot_data
+            self._loaded_simulation_directory = directory
+            loaded = True
+        except Exception as exc:
+            self.plot_data = None
+            self._loaded_simulation_directory = None
+            self._discard_figure()
+            self._show_error(exc)
         finally:
             self._busy = False
-        if should_redraw:
+            self._sync_visibility()
+        if loaded:
             self._redraw()
 
     def _control_changed(self, event=None):
-        if self._syncing_style_controls:
+        if self._busy or self._syncing_style_controls:
             return
         if event is not None and event.obj in {self.fill, self.lines}:
             self._syncing_style_controls = True
             try:
                 if event.obj is self.fill:
                     self._reset_manual_color_controls()
-                if event.obj is self.lines:
+                else:
                     self._reset_manual_line_controls()
                 self._sync_style_control_labels()
             finally:
                 self._syncing_style_controls = False
-        if self._busy:
-            return
-        if self.app_mode.value != "visualize":
-            return
-        if self.plot_data is None:
-            return
-        self.figure_settings = current_figure_settings(self)
         self._sync_visibility()
-        self._set_status("Controls changed. Press **Redraw** to update the figure.")
+        if self.app_mode.value == "visualize" and self.plot_data is not None:
+            self._set_status(
+                "Controls changed. Press Redraw; figure and script exports still describe the displayed figure."
+            )
+
+    def _require_loaded_directory(self):
+        directory = str(_absolute_path(self.simulation_directory.value))
+        if self.plot_data is None or directory != self._loaded_simulation_directory:
+            raise ValueError("Press Load before using this simulation directory.")
+        return directory
 
     def _redraw(self, event=None):
         if self._busy:
             return
         self._busy = True
         try:
-            self.figure_settings = current_figure_settings(self)
-            self._sync_visibility()
-            plot_data = (
-                self.plot_data
-                if self.plot_data is not None
-                else get_plot_data(self.figure_settings)
+            self._require_loaded_directory()
+            settings = current_figure_settings(self)
+            if settings.plot_type == "ground_timeseries" and not settings.ground_station.strip():
+                raise ValueError("Choose a station code for the ground time series.")
+            figure = render_figure(settings, plot_data=self.plot_data)
+            self._discard_figure()
+            self.figure = figure
+            self._rendered_settings = settings
+            self.figure_settings = settings
+            self.plot_pane.object = figure
+            time_text = self.plot_data.timestamp_at_index(settings.time_index).strftime(
+                "%Y-%m-%d %H:%M:%S"
             )
-            index = min(max(0, int(self.figure_settings.time_index)), plot_data.n_time - 1)
-            time_text = plot_data.timestamp_at_index(index).strftime("%Y-%m-%d %H:%M:%S")
             self.time_label.object = f"**{time_text}**"
-            if self.figure is not None:
-                plt.close(self.figure)
-            self.figure = render_figure(self.figure_settings, plot_data=plot_data)
-            self.plot_pane.object = self.figure
-            self._set_status("")
-        except Exception:
-            self._set_status(traceback.format_exc(limit=8), error=True)
+            self._set_status(f"Loaded {self._loaded_simulation_directory}.")
+        except Exception as exc:
+            self._show_error(exc)
         finally:
             self._busy = False
+            self._sync_visibility()
 
     def _save_figure(self, event=None):
+        if self._busy:
+            return
         if self.figure is None:
             self._redraw()
         if self.figure is None:
             return
         try:
             path = self._output_widget_path(self.output_filename)
-            self._save_or_confirm_overwrite(path, self._write_figure)
-        except Exception:
-            self._set_status(traceback.format_exc(limit=6), error=True)
+            self._save_or_confirm_overwrite(path, partial(self._write_figure, figure=self.figure))
+        except Exception as exc:
+            self._show_error(exc)
 
-    def _write_figure(self, path):
-        """Write the active figure to one confirmed path."""
+    def _write_figure(self, path, *, figure):
+        """Save the figure selected when the overwrite was requested."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        figure.savefig(path, dpi=300, bbox_inches="tight")
+        self._set_status(f"Saved figure to {path}")
+
+    def _save_plot_defaults(self, event=None):
+        if self._busy:
+            return
         try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            self.figure.savefig(path, dpi=300, bbox_inches="tight")
-            self._set_status(f"Saved figure to [{path}]({path})")
-        except Exception:
-            self._set_status(traceback.format_exc(limit=6), error=True)
+            directory = self._require_loaded_directory()
+            settings = current_figure_settings(self)
+            path = Path(directory) / FIGURE_DEFAULTS_FILENAME
+            self._save_or_confirm_overwrite(
+                path, partial(self._write_plot_defaults, settings=settings)
+            )
+        except Exception as exc:
+            self._show_error(exc)
+
+    def _write_plot_defaults(self, path, *, settings):
+        settings.save_defaults(path.parent)
+        self._set_status(f"Saved plot defaults to {path}")
 
     def _save_movie(self, event=None):
         if self._busy:
             return
         try:
+            self._require_loaded_directory()
+            settings = current_figure_settings(self)
             path = self._output_widget_path(self.movie_filename)
-            self._save_or_confirm_overwrite(path, self._write_movie)
-        except Exception:
-            self._set_status(traceback.format_exc(limit=8), error=True)
+            self._save_or_confirm_overwrite(
+                path,
+                lambda path: self.pn.state.execute(
+                    partial(self._write_movie, path, settings=settings)
+                ),
+            )
+        except Exception as exc:
+            self._show_error(exc)
 
-    def _write_movie(self, path):
-        """Render a movie to one confirmed path."""
+    async def _write_movie(self, path, *, settings):
+        """Use the settings selected before overwrite confirmation."""
+        if self._busy:
+            return
         self._busy = True
         self.save_movie_button.loading = True
         try:
-            settings = current_figure_settings(self)
-            path = save_movie(
-                settings, path, fps=float(self.movie_fps.value), dpi=int(settings.movie_dpi)
-            )
-            self._set_status(f"Saved movie to [{path}]({path})")
-        except Exception:
-            self._set_status(traceback.format_exc(limit=8), error=True)
+            self._set_status("Rendering movie; progress appears in the workflow log.")
+            if await self._run_workflow(
+                "movie", {"settings": settings.to_dict(), "output_path": str(path)}
+            ):
+                self._set_status(f"Saved movie to {path}")
+        except Exception as exc:
+            self._show_error(exc)
         finally:
             self.save_movie_button.loading = False
             self._busy = False
 
     def _output_widget_path(self, widget):
         """Normalize an output widget to its absolute path."""
-        path = _absolute_output_path(widget.value)
+        path = _absolute_path(widget.value)
         set_widget_value(widget, str(path))
         return path
 
@@ -887,19 +1053,21 @@ class PynamitGUI:
             self._pending_overwrite = (path, save)
             self.overwrite_message.object = f"{path}\n\nThis file already exists. Overwrite it?"
             self.overwrite_modal.open = True
-            self._set_status(f"`{path}` already exists. Confirm or cancel the overwrite.")
+            self._set_status(f"{path} already exists. Confirm or cancel the overwrite.")
             return
         save(path)
 
     def _confirm_overwrite(self, event=None):
-        """Run the pending save after overwrite confirmation."""
+        """Run the captured save after overwrite confirmation."""
         pending = self._pending_overwrite
         self._pending_overwrite = None
         self.overwrite_modal.open = False
-        if pending is None:
-            return
-        path, save = pending
-        save(path)
+        if pending is not None:
+            path, save = pending
+            try:
+                save(path)
+            except Exception as exc:
+                self._show_error(exc)
 
     def _cancel_overwrite(self, event=None):
         """Cancel without touching the existing file."""
@@ -907,30 +1075,35 @@ class PynamitGUI:
         self._pending_overwrite = None
         self.overwrite_modal.open = False
         if pending is not None:
-            self._set_status(f"Save cancelled; existing file left unchanged: `{pending[0]}`.")
+            self._set_status(f"Save cancelled; existing file left unchanged: {pending[0]}.")
 
     def _download_script(self):
-        settings = current_figure_settings(self)
-        text = publication_script(settings, output_path=self.output_filename.value)
-        return StringIO(text)
+        if self._rendered_settings is None:
+            raise ValueError("Render a figure before exporting its script.")
+        return StringIO(
+            publication_script(self._rendered_settings, output_path=self.output_filename.value)
+        )
 
     def _download_settings(self):
-        return StringIO(current_figure_settings(self).to_json())
+        if self._rendered_settings is None:
+            raise ValueError("Render a figure before exporting its settings.")
+        return StringIO(self._rendered_settings.to_json())
 
     def panel(self):
-        """Return the Panel layout."""
+        """Return this session's existing Panel layout."""
+        return self._layout
+
+    def _build_layout(self):
+        """Build controls once, before binding their callbacks."""
         pn = self.pn
-        app_controls = pn.Card(
-            self._control_row(self.app_mode),
-            title="Mode",
-            collapsed=False,
-            sizing_mode="stretch_width",
-        )
+        app_controls = self._control_row(pn.pane.Markdown("## PynaMIT", width=150), self.app_mode)
         mode_controls = pn.Card(
-            self._control_row(self.simulation_directory, self.load_button, self.plot_type),
+            self._control_row(
+                self.simulation_directory, self.load_button, self.plot_type, self.redraw_button
+            ),
             self._control_row(self.time_index, self.time_label),
             self.time_range,
-            title="Run",
+            title="Simulation data",
             collapsed=False,
             sizing_mode="stretch_width",
         )
@@ -945,15 +1118,24 @@ class PynamitGUI:
             self._control_row(
                 self.prepare_use_boundary_jr, self.prepare_use_wind, self.prepare_use_q_eff
             ),
+            pn.Card(
+                "Editable example scenario; all times are UTC.",
+                self._control_row(*self.example_parameters.values()),
+                title="Empirical model inputs",
+                collapsed=True,
+            ),
             title="Input Preparation",
             collapsed=False,
             sizing_mode="stretch_width",
         )
         simulation_controls = pn.Card(
-            self._control_row(self.simulation_input_directory, self.new_simulation_directory),
-            self._control_row(
-                self.sim_final_time, self.sim_dt, self.sim_samples_per_write, self.sim_integrator
-            ),
+            self._control_row(self.simulation_input_directory, self.load_inputs_button),
+            self.input_status,
+            self._control_row(*self.simulation_inputs.values()),
+            self._control_row(self.new_simulation_directory),
+            self._control_row(self.sim_final_time, self.sim_dt, self.sim_integrator),
+            self._control_row(self.sim_output_interval, self.sim_samples_per_write),
+            self._control_row(self.sim_rtol, self.sim_atol),
             self._control_row(
                 self.sim_enable_pfac_coupling,
                 self.sim_enable_interhemispheric_coupling,
@@ -962,16 +1144,8 @@ class PynamitGUI:
                 self.sim_sample_equilibrium,
                 self.sim_interhemispheric_coupling_latitude,
             ),
-            self._control_row(
-                self.sim_use_conductance,
-                self.sim_use_boundary_jr,
-                self.sim_use_br,
-                self.sim_use_u,
-                self.sim_use_q_eff,
-                self.sim_use_e_neutral_wind,
-            ),
             self._control_row(self.run_simulation_button),
-            title="Simulation Run",
+            title="Run or resume a simulation",
             collapsed=False,
             sizing_mode="stretch_width",
         )
@@ -984,6 +1158,7 @@ class PynamitGUI:
                 self.show_difference,
             ),
             self._control_row(self.station, self.ground_component, self.ground_quantity),
+            self._control_row(self.station_data_directory, self.show_station_labels),
             self._control_row(
                 self.sim_time_offset, self.data_time_offset, self.dbdt_window_points
             ),
@@ -1028,7 +1203,7 @@ class PynamitGUI:
             self._control_row(self.min_abs_lat),
             self._control_row(self.show_reference_line, self.reference_time),
             title="Visualization",
-            collapsed=False,
+            collapsed=True,
             sizing_mode="stretch_width",
         )
         output_controls = pn.Card(
@@ -1037,42 +1212,45 @@ class PynamitGUI:
                 self.save_button,
                 self.script_download,
                 self.figure_settings_download,
-                self.redraw_button,
+                self.save_defaults_button,
             ),
             self._control_row(self.movie_filename, self.movie_fps, self.save_movie_button),
             title="Output",
-            collapsed=False,
+            collapsed=True,
             sizing_mode="stretch_width",
         )
-        self.app_controls = app_controls
         self.mode_controls = mode_controls
         self.prepare_controls = prepare_controls
         self.simulation_controls = simulation_controls
         self.data_controls = data_controls
         self.visualization_controls = visualization_controls
         self.output_controls = output_controls
-        self._sync_visibility()
+        self.workflow_controls = pn.Card(
+            self.workflow_log, self.cancel_workflow_button, title="Workflow log", collapsed=False
+        )
         controls = pn.Column(
             app_controls,
             mode_controls,
+            self.status,
             prepare_controls,
             simulation_controls,
             data_controls,
             visualization_controls,
             output_controls,
-            self.status,
-            min_width=360,
-            max_width=720,
+            self.workflow_controls,
+            min_width=320,
+            max_width=440,
             sizing_mode="stretch_width",
-            styles={"flex": "1 1 560px"},
+            styles={"flex": "1 1 380px"},
         )
-        plot_area = pn.Column(
-            self.plot_pane, min_width=320, sizing_mode="stretch_both", styles={"flex": "4 1 760px"}
+        self.plot_area = pn.Column(
+            self.plot_pane, min_width=360, sizing_mode="stretch_both", styles={"flex": "3 1 600px"}
         )
+        self._sync_visibility()
         return pn.Column(
             pn.FlexBox(
                 controls,
-                plot_area,
+                self.plot_area,
                 flex_direction="row",
                 flex_wrap="wrap",
                 align_items="flex-start",
@@ -1098,13 +1276,31 @@ class PynamitGUI:
         is_visualize_mode = app_mode == "visualize"
         is_prepare_mode = app_mode == "prepare_example_inputs"
         is_simulation_mode = app_mode == "run_simulation"
-        if hasattr(self, "mode_controls"):
-            self.mode_controls.visible = is_visualize_mode
-            self.prepare_controls.visible = is_prepare_mode
-            self.simulation_controls.visible = is_simulation_mode
-            self.data_controls.visible = is_visualize_mode
-            self.visualization_controls.visible = is_visualize_mode
-            self.output_controls.visible = is_visualize_mode
+        self.mode_controls.visible = is_visualize_mode
+        self.prepare_controls.visible = is_prepare_mode
+        self.simulation_controls.visible = is_simulation_mode
+        self.data_controls.visible = is_visualize_mode
+        self.visualization_controls.visible = is_visualize_mode
+        self.output_controls.visible = is_visualize_mode
+        self.workflow_controls.visible = (
+            not is_visualize_mode
+            or self._workflow_process is not None
+            or bool(self.workflow_log.object)
+        )
+        self.plot_area.visible = is_visualize_mode
+        loaded = self.plot_data is not None
+        self.redraw_button.disabled = not loaded
+        self.save_defaults_button.disabled = not loaded
+        self.save_movie_button.disabled = not loaded
+        self.save_button.disabled = self.figure is None
+        self.script_download.disabled = self._rendered_settings is None
+        self.figure_settings_download.disabled = self._rendered_settings is None
+        datasets = self.plot_data.results.datasets if loaded else {}
+        self.show_dynamic.disabled = "dynamic" not in datasets
+        self.show_equilibrium.disabled = "equilibrium" not in datasets
+        self.show_difference.disabled = (
+            self.show_dynamic.disabled or self.show_equilibrium.disabled
+        )
 
         plot_type = self.plot_type.value
         is_map = plot_type in MAP_PLOT_TYPES
@@ -1124,6 +1320,8 @@ class PynamitGUI:
         self.show_south.visible = plot_type == "hemispheres"
 
         self.station.visible = is_ground_timeseries
+        self.station_data_directory.visible = is_ground
+        self.show_station_labels.visible = is_ground_curve and self.include_station_data.value
         self.ground_component.visible = is_ground_curve
         self.ground_quantity.visible = is_ground
         self.include_station_data.visible = is_ground
@@ -1138,7 +1336,7 @@ class PynamitGUI:
         self.show_hall_conductance_overlay.visible = is_ground_curve
 
         self.show_reference_line.visible = is_ground
-        self.reference_time.visible = is_ground
+        self.reference_time.visible = is_ground and self.show_reference_line.value
         self.min_abs_lat.visible = plot_type in {"hemispheres", "input_summary"}
         self.geo_lat_min.visible = is_ground_curve
         self.geo_lat_max.visible = is_ground_curve
@@ -1146,7 +1344,7 @@ class PynamitGUI:
         self.local_time_max.visible = is_ground_curve
         self.zoom_window.visible = is_ground_curve
         self.curve_scale_mode.visible = is_ground_curve
-        self.curve_scale.visible = is_ground_curve
+        self.curve_scale.visible = is_ground_curve and self.curve_scale_mode.value == "manual"
         self.time_scale.visible = is_ground_curve
         self.low_lat_cutoff.visible = is_ground_curve
         self.low_lat_scale.visible = is_ground_curve

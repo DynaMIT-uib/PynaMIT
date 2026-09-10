@@ -23,9 +23,9 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
         initialize_from_equilibrium=False,
         use_wind=False,
         simulation_directory=str(tmp_path / "run"),
-        boundary_jr_projection_basis="CS",
-        conductance_projection_basis="CS",
-        u_projection_basis="CS",
+        boundary_jr_remapping="CS",
+        conductance_basis="CS",
+        u_remapping="CS",
         least_squares_solver="normal_pinv",
         horizontal_basis_kind="CS",
         artifact_storage="netcdf",
@@ -33,10 +33,10 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
 
     assert isinstance(simulation.geometry.horizontal_basis, GlobalCSBasis)
     assert isinstance(simulation.geometry.solid_harmonics.basis.root_basis, SHBasis)
-    assert simulation.data.schema.horizontal_basis is simulation.geometry.horizontal_basis
+    assert simulation.results.geometry.horizontal_basis is simulation.geometry.horizontal_basis
     assert simulation.geometry.solid_harmonics.basis is not simulation.geometry.horizontal_basis
-    assert not simulation.data.schema.input_field_spaces["conductance"].mean_free
-    output_spaces = simulation.data.schema.output_field_spaces["dynamic"]
+    assert not simulation.results.schema.input_field_spaces["conductance"].mean_free
+    output_spaces = simulation.results.schema.output_field_spaces["dynamic"]
     assert output_spaces["induced_Br"].basis is simulation.geometry.poloidal_basis
     assert output_spaces["boundary_jr"].basis is simulation.geometry.horizontal_basis
 
@@ -81,7 +81,7 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
         simulation.geometry.poloidal_basis.coefficient_count,
     )
 
-    output = simulation.data.output_series.datasets["dynamic"]
+    output = simulation.results.output_series.datasets["dynamic"]
     assert "SH_induced_Br" in output
     assert "CS_boundary_jr" in output
 
@@ -109,11 +109,11 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
         pytest.approx(0.0, abs=1e-18)
     )
     assert simulation.geometry.horizontal_basis.scalar_mean(
-        simulation.response.boundary_jr.array
+        simulation._time_evolution._forcing_values["boundary_jr"]
     ) == (pytest.approx(0.0, abs=1e-18))
 
     view = PlotData.from_directory(
-        simulation.data.simulation_directory, nlat=8, nlon=12, wind_nlat=5, wind_nlon=7
+        simulation.results.simulation_directory, nlat=8, nlon=12, wind_nlat=5, wind_nlon=7
     )
     fields = view.output_plot_data(0)
     assert isinstance(view.output_transform.basis, GlobalCSBasis)
@@ -124,14 +124,16 @@ def test_2d_dipole_cs_surface_operators(tmp_path):
 
     renderer = GroundFigureRenderer(
         FigureSettings(
-            simulation_directory=simulation.data.simulation_directory, include_station_data=False
+            simulation_directory=simulation.results.simulation_directory,
+            include_station_data=False,
         ),
         plot_data=view,
     )
     ground_fields = renderer.plot_data.ground_magnetic_fields([65.0], [0.0])
     br_dynamic = ground_fields["dynamic"]["radial"]
     bh_dynamic = ground_fields["dynamic"]["tangential"]
-    assert renderer.plot_data.ground_magnetic_fields([65.0], [0.0]) is ground_fields
+    repeated = renderer.plot_data.ground_magnetic_fields([65.0], [0.0])
+    np.testing.assert_array_equal(repeated["dynamic"]["radial"], br_dynamic)
     assert br_dynamic.shape == (1, view.n_time)
     assert bh_dynamic.shape == (2, 1, view.n_time)
     assert not br_dynamic.flags.writeable

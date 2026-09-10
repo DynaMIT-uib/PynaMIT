@@ -4,7 +4,10 @@ from kompe.math import get_backend, set_backend
 
 from .geomagnetism import MainField
 from .results import SimulationResults
-from .simulation import InputPreparation, Simulation, SimulationConfig
+from .simulation.config import SimulationConfig
+from .simulation.geometry import SimulationGeometry
+from .simulation.input_preparation import InputPreparation
+from .simulation.simulation import Simulation
 
 __all__ = [
     "MainField",
@@ -12,6 +15,7 @@ __all__ = [
     "SimulationResults",
     "Simulation",
     "SimulationConfig",
+    "SimulationGeometry",
     "get_backend",
     "set_backend",
 ]

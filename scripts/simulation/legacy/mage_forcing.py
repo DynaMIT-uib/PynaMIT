@@ -1,18 +1,20 @@
 """Simulation."""
 
-import numpy as np
-import kompe
-import pynamit
-import dipole
 import datetime
+import os
+
+import cartopy.crs as ccrs
+import dipole
 import kaipy.gamera.magsphere as msph
 import kaipy.remix.remix as remix
-import os
-import cartopy.crs as ccrs
-from polplot import Polarplot
+import kompe
 import matplotlib.pyplot as plt
-from pynamit.plotting.quicklook import plot_global_polar_map
+import numpy as np
+from kompe import SphericalGrid
+from polplot import Polarplot
 
+import pynamit
+from pynamit.plotting.quicklook import plot_global_polar_map
 
 RE = 6381e3
 RI = 6.5e6
@@ -56,7 +58,7 @@ simulation = pynamit.Simulation(
 state_field_space = kompe.CoefficientSpace(
     simulation.geometry.horizontal_basis, representation="scalar"
 )
-conductance_field_space = simulation.data.schema.input_field_spaces["conductance"]
+conductance_field_space = simulation.results.schema.input_field_spaces["conductance"]
 
 mage_dir = "./mage_data/"
 mage_tag = "msphere"
@@ -64,7 +66,7 @@ mage_tag = "msphere"
 gsph = msph.GamsphPipe(mage_dir, mage_tag, doFast=False)
 nstep = gsph.sFin
 
-mixFiles = os.path.join(mage_dir, "%s.mix.h5" % (mage_tag))
+mixFiles = os.path.join(mage_dir, f"{mage_tag}.mix.h5")
 
 idx = 0  # Br at inner boundary?
 
@@ -125,8 +127,8 @@ for step in range(0, nstep):
         plt.show()
         plt.close(fig)
 
-    Br_field = kompe.FieldCoefficients(
-        state_field_space, Br_spherical_transform.analyze_scalar(delta_Br.flatten())
+    Br_field = state_field_space.project_mean_free(
+        Br_spherical_transform.analyze_scalar(delta_Br.flatten())
     )
 
     plt_lat, plt_lon = np.linspace(-89.9, 89.9, 60), np.linspace(-180, 180, 100)
@@ -196,9 +198,9 @@ for step in range(0, nstep):
         full_phi_centered = np.concatenate((north_phi_centered, south_phi_centered))
 
         # Zero pad by adding latitude_step degrees to theta, starting
-        # from 90 - interhemispheric_coupling_latitude + latitude_step until 90 degree
-        # theta is reached. Each latitude is repeated the same number of
-        # times as the number of longitude points.
+        # from 90 - interhemispheric_coupling_latitude + latitude_step
+        # until theta reaches 90 degrees. Repeat each latitude for all
+        # longitude points.
         theta_padding = np.tile(
             np.arange(
                 90 - interhemispheric_coupling_latitude + latitude_step,
@@ -307,21 +309,21 @@ for step in range(0, nstep):
     jr_input = full_current_padded.flatten() * unit_br
     simulation.set_boundary_jr(
         jr_input,
-        theta=full_theta_padded_centered.flatten(),
-        phi=full_phi_padded_centered.flatten(),
         time=dt * step,
         sqrt_weights=np.sqrt(np.sin(np.deg2rad(full_theta_padded_centered.flatten()))),
         reg_lambda=JR_LAMBDA,
+        grid=SphericalGrid(
+            theta=full_theta_padded_centered.flatten(), phi=full_phi_padded_centered.flatten()
+        ),
     )
 
     simulation.set_conductance(
         pedersen=full_conductance_pedersen.flatten(),
         hall=full_conductance_hall.flatten(),
-        theta=full_theta_centered.flatten(),
-        phi=full_phi_centered.flatten(),
         time=dt * step,
         sqrt_weights=np.sqrt(np.sin(np.deg2rad(full_theta_centered.flatten()))),
         reg_lambda=CONDUCTANCE_LAMBDA,
+        grid=SphericalGrid(theta=full_theta_centered.flatten(), phi=full_phi_centered.flatten()),
     )
 
     simulation.set_input_state_variables()
@@ -521,7 +523,8 @@ for step in range(0, nstep):
 
         plt.show()
 
-simulation.impose_equilibrium()
+simulation.set_state(simulation.equilibrium_coefficients(interpolation=True)["induced_Br"])
+simulation.record_state(save=True)
 
 final_time = 3600  # seconds
 simulation.evolve_to_time(final_time, dt=dt, sampling_step_interval=1, write_sample_interval=1)

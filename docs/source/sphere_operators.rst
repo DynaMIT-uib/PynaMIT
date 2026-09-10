@@ -14,6 +14,16 @@ the same ``SurfaceDifferentialBasis`` interface.
 analysis and synthesis between a surface basis and a spherical grid for
 both scalar and tangential Helmholtz fields.
 
+Kompe also accepts scalar-only bases for scalar transforms. This does not
+make them suitable for PynaMIT's closed-surface induction model, which still
+requires the operators and physical gauges of ``SurfaceDifferentialBasis``.
+
+Evaluation-cache policy is shared by scalar and vector operators. Transient
+magnetic-boundary evaluations disable disk access with
+``use_persistent_evaluation_cache=False``; bounded in-memory reuse remains
+available. SH vector operators reuse derivative components, and materialize
+stacked arrays only when explicitly requested.
+
 Horizontal Surface Convention
 -----------------------------
 
@@ -69,17 +79,18 @@ coefficients by ``(start/end)^(n+2)``.  The extra power comes from the
 leading reference-radius factor ``R``, not from the normalization of
 the angular spherical harmonics.
 
-The stored PynaMIT poloidal coefficient ``m_nm`` is not either raw
-potential coefficient.  At the reference sphere,
+PynaMIT's private poloidal coordinate ``k_nm`` is not either raw
+potential coefficient. At the reference sphere,
 
-``q_nm = -(n+1) m_nm``
+``q_nm = -(n+1) k_nm``
 
 and
 
-``g_nm = n m_nm``.
+``g_nm = n k_nm``.
 
-Consequently, ``B_r = n(n+1) m_nm Y_nm`` and
-``(V_irregular - V_regular) / R = (2n+1) m_nm Y_nm``.  These conversions
+Consequently, ``B_r = n(n+1) k_nm Y_nm`` and
+``(V_irregular - V_regular) / R = (2n+1) k_nm Y_nm``. The public evolving
+and saved quantity is physical ``induced_Br``, not ``k_nm``. These conversions
 are explicit ``SolidHarmonicOperators`` operations.  No additional conversion
 factor is needed for a reference-radius shift because the
 degree-dependent coefficient conversions cancel in the ratio.

@@ -1,5 +1,7 @@
 """Tests for reusable visualization field maps."""
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 import scipy.sparse
@@ -12,7 +14,7 @@ from pynamit.results.field_evaluation import (
     evaluate_tangential_coefficients,
     evaluate_wind_coefficients,
 )
-from pynamit.results.output_fields import evaluate_output_coefficients, evaluate_sheet_current
+from pynamit.results.output_fields import OutputEvaluation, evaluate_sheet_current
 from pynamit.simulation.electrodynamics.ionospheric_closure import (
     conductance_to_log_coordinates,
     conductance_to_resistance,
@@ -129,15 +131,15 @@ def test_JS_map_includes_optional_boundary_field():
 
 def test_live_JS_evaluation_includes_boundary_field():
     """Live output evaluation uses every physical JS source."""
-    fields = evaluate_output_coefficients(
+    evaluation = OutputEvaluation(SimpleNamespace(horizontal_transform=SimpleNamespace(grid=None)))
+    evaluation.sheet_current_operators = {
+        "boundary_jr_to_JS": as_linear_map(np.eye(4, 2), output_shape=(2, 2)),
+        "induced_Br_to_JS": as_linear_map(2.0 * np.eye(4, 2), output_shape=(2, 2)),
+        "boundary_Br_to_JS": as_linear_map(3.0 * np.eye(4, 2), output_shape=(2, 2)),
+    }
+    fields = evaluation.evaluate(
         {"boundary_jr": np.array([1.0, 2.0]), "induced_Br": np.array([3.0, 4.0])},
-        transform=None,
         field_names={"JS_theta", "JS_phi"},
-        sheet_current_operators={
-            "boundary_jr_to_JS": as_linear_map(np.eye(4, 2), output_shape=(2, 2)),
-            "induced_Br_to_JS": as_linear_map(2.0 * np.eye(4, 2), output_shape=(2, 2)),
-            "boundary_Br_to_JS": as_linear_map(3.0 * np.eye(4, 2), output_shape=(2, 2)),
-        },
         boundary_Br=np.array([5.0, 6.0]),
     )
     current = np.stack((fields["JS_theta"], fields["JS_phi"]))

@@ -1,5 +1,6 @@
 """Simulation with interpolated input."""
 
+from kompe import SphericalGrid
 import numpy as np
 import pynamit
 from lompe import conductance
@@ -52,7 +53,7 @@ _, noon_longitude, _ = apx.apex2geo(0, noon_mlon, (RI - RE) * 1e-3)  # Fix this
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50)
 jr = a.get_upward_current(mlat=mlat, mlt=mlt) * 1e-6
 jr[np.abs(jr_lat) < 50] = 0  # filter low latitude jr
-simulation.set_boundary_jr(jr, lat=jr_lat, lon=jr_lon)
+simulation.set_boundary_jr(jr, grid=SphericalGrid(lat=jr_lat, lon=jr_lon))
 
 # Get and set wind input.
 hwm14Obj = pyhwm2014.HWM142D(
@@ -77,13 +78,7 @@ u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing="ij")
 #     np.load("utheta.npy"),
 # )
 # u_lat, u_lon = np.meshgrid(u_lat, u_lon, indexing="ij")
-simulation.set_neutral_wind(
-    u_theta=u_theta,
-    u_phi=u_phi,
-    lat=u_lat,
-    lon=u_lon,
-    sqrt_weights=np.tile(np.sqrt(np.sin(np.deg2rad(90 - u_lat.flatten()))), (2, 1)),
-)
+simulation.set_neutral_wind(u_theta=u_theta, u_phi=u_phi, sqrt_weights=np.tile(np.sqrt(np.sin(np.deg2rad(90 - u_lat.flatten()))), (2, 1)), grid=SphericalGrid(lat=u_lat, lon=u_lon))
 
 # Get and set conductance input.
 conductance_lat = simulation.geometry.model_grid.lat
@@ -95,13 +90,7 @@ sza = conductance.sunlight.sza(conductance_lat, conductance_lon, current_date, d
 hall_EUV, pedersen_EUV = conductance.EUV_conductance(sza)
 # Add starlight.
 hall_EUV, pedersen_EUV = (np.sqrt(hall_EUV**2 + 1), np.sqrt(pedersen_EUV**2 + 1))
-simulation.set_conductance(
-    pedersen=pedersen_EUV,
-    hall=hall_EUV,
-    lat=conductance_lat,
-    lon=conductance_lon,
-    time=current_time,
-)
+simulation.set_conductance(pedersen=pedersen_EUV, hall=hall_EUV, time=current_time, grid=SphericalGrid(lat=conductance_lat, lon=conductance_lon))
 print("Updated conductance (without aurora) at t =", current_time, flush=True)
 
 current_time = np.float64(120)
@@ -110,13 +99,7 @@ Kp = 1
 hall_aurora, pedersen_aurora = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, current_date, starlight=1, dipole=False
 )
-simulation.set_conductance(
-    pedersen=pedersen_aurora,
-    hall=hall_aurora,
-    lat=conductance_lat,
-    lon=conductance_lon,
-    time=current_time,
-)
+simulation.set_conductance(pedersen=pedersen_aurora, hall=hall_aurora, time=current_time, grid=SphericalGrid(lat=conductance_lat, lon=conductance_lon))
 print("Updated conductance (with aurora) at t =", current_time, flush=True)
 
 current_time = np.float64(180)
@@ -125,13 +108,7 @@ Kp = 2
 hall_aurora, pedersen_aurora = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, current_date, starlight=1, dipole=False
 )
-simulation.set_conductance(
-    pedersen=pedersen_aurora,
-    hall=hall_aurora,
-    lat=conductance_lat,
-    lon=conductance_lon,
-    time=current_time,
-)
+simulation.set_conductance(pedersen=pedersen_aurora, hall=hall_aurora, time=current_time, grid=SphericalGrid(lat=conductance_lat, lon=conductance_lon))
 print("Updated conductance (with aurora) at t =", current_time, flush=True)
 
 current_time = np.float64(240)
@@ -140,13 +117,7 @@ Kp = 3
 hall_aurora, pedersen_aurora = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, current_date, starlight=1, dipole=False
 )
-simulation.set_conductance(
-    pedersen=pedersen_aurora,
-    hall=hall_aurora,
-    lat=conductance_lat,
-    lon=conductance_lon,
-    time=current_time,
-)
+simulation.set_conductance(pedersen=pedersen_aurora, hall=hall_aurora, time=current_time, grid=SphericalGrid(lat=conductance_lat, lon=conductance_lon))
 print("Updated conductance (with aurora) at t =", current_time, flush=True)
 
 current_time = np.float64(360)
@@ -155,13 +126,7 @@ Kp = 4
 hall_aurora, pedersen_aurora = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, current_date, starlight=1, dipole=False
 )
-simulation.set_conductance(
-    pedersen=pedersen_aurora,
-    hall=hall_aurora,
-    lat=conductance_lat,
-    lon=conductance_lon,
-    time=current_time,
-)
+simulation.set_conductance(pedersen=pedersen_aurora, hall=hall_aurora, time=current_time, grid=SphericalGrid(lat=conductance_lat, lon=conductance_lon))
 print("Updated conductance (with aurora) at t =", current_time, flush=True)
 
 current_time = np.float64(420)
@@ -170,13 +135,7 @@ Kp = 5
 hall_aurora, pedersen_aurora = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, current_date, starlight=1, dipole=False
 )
-simulation.set_conductance(
-    pedersen=pedersen_aurora,
-    hall=hall_aurora,
-    lat=conductance_lat,
-    lon=conductance_lon,
-    time=current_time,
-)
+simulation.set_conductance(pedersen=pedersen_aurora, hall=hall_aurora, time=current_time, grid=SphericalGrid(lat=conductance_lat, lon=conductance_lon))
 print("Updated conductance (with aurora) at t =", current_time, flush=True)
 
 current_time = np.float64(480)
@@ -185,13 +144,7 @@ Kp = 6
 hall_aurora, pedersen_aurora = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, current_date, starlight=1, dipole=False
 )
-simulation.set_conductance(
-    pedersen=pedersen_aurora,
-    hall=hall_aurora,
-    lat=conductance_lat,
-    lon=conductance_lon,
-    time=current_time,
-)
+simulation.set_conductance(pedersen=pedersen_aurora, hall=hall_aurora, time=current_time, grid=SphericalGrid(lat=conductance_lat, lon=conductance_lon))
 print("Updated conductance (with aurora) at t =", current_time, flush=True)
 
 current_time = np.float64(540)
@@ -200,13 +153,7 @@ Kp = 5
 hall_aurora, pedersen_aurora = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, current_date, starlight=1, dipole=False
 )
-simulation.set_conductance(
-    pedersen=pedersen_aurora,
-    hall=hall_aurora,
-    lat=conductance_lat,
-    lon=conductance_lon,
-    time=current_time,
-)
+simulation.set_conductance(pedersen=pedersen_aurora, hall=hall_aurora, time=current_time, grid=SphericalGrid(lat=conductance_lat, lon=conductance_lon))
 print("Updated conductance (with aurora) at t =", current_time, flush=True)
 
 current_time = np.float64(600)
@@ -215,13 +162,7 @@ Kp = 3
 hall_aurora, pedersen_aurora = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, current_date, starlight=1, dipole=False
 )
-simulation.set_conductance(
-    pedersen=pedersen_aurora,
-    hall=hall_aurora,
-    lat=conductance_lat,
-    lon=conductance_lon,
-    time=current_time,
-)
+simulation.set_conductance(pedersen=pedersen_aurora, hall=hall_aurora, time=current_time, grid=SphericalGrid(lat=conductance_lat, lon=conductance_lon))
 print("Updated conductance (with aurora) at t =", current_time, flush=True)
 
 simulation.evolve_to_time(current_time, interpolation=True)

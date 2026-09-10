@@ -45,7 +45,7 @@ def test_2d_igrf_pfac_hc_wind_nofac(regression_approx):
     print("actual_coeff_min: ", actual_coeff_min)
     print("actual_n_coeffs: ", actual_n_coeffs)
 
-    assert "jr" not in simulation.data.input_series.datasets
+    assert "jr" not in simulation.results.input_series.datasets
     assert actual_coeff_norm == regression_approx(expected_coeff_norm)
     assert actual_coeff_max == regression_approx(expected_coeff_max)
     assert actual_coeff_min == regression_approx(expected_coeff_min)

@@ -1,5 +1,6 @@
 """Script to check if the PFAC calculation gives a reasonable result."""
 
+from kompe import SphericalGrid
 from importlib import reload
 import kompe
 import pynamit
@@ -55,7 +56,7 @@ conductance_lon = simulation.geometry.model_grid.lon
 hall, pedersen = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, date, starlight=1, dipole=True
 )
-simulation.set_conductance(pedersen=pedersen, hall=hall, lat=conductance_lat, lon=conductance_lon)
+simulation.set_conductance(pedersen=pedersen, hall=hall, grid=SphericalGrid(lat=conductance_lat, lon=conductance_lon))
 
 # Get and set jr input.
 jr_lat = simulation.geometry.model_grid.lat
@@ -63,7 +64,7 @@ jr_lon = simulation.geometry.model_grid.lon
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50)
 jr = a.get_upward_current(mlat=jr_lat, mlt=d.mlon2mlt(jr_lon, date)) * 1e-6
 jr[np.abs(jr_lat) < 50] = 0  # filter low latitude jr
-simulation.set_boundary_jr(jr, lat=jr_lat, lon=jr_lon)
+simulation.set_boundary_jr(jr, grid=SphericalGrid(lat=jr_lat, lon=jr_lon))
 
 simulation.update_conductance()
 simulation.update_jr()
@@ -154,7 +155,7 @@ if SIMULATE_DYNAMIC_RESPONSE:
 if COMPARE_TO_SECS:
     print("Building SECS matrices. This takes some time (and memory) because of global grids...")
     secsI = (
-        -jr * simulation.data.schema.cs_basis.unit_area * RI**2
+        -jr * simulation.results.geometry.cs_basis.unit_area * RI**2
     )  # SECS amplitudes are downward current density times area
     lat, lon = plt_grid.lat.flatten(), plt_grid.lon.flatten()
     r = np.full(lat.size, RI - 1)

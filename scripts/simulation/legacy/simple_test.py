@@ -1,5 +1,6 @@
 """Simple test."""
 
+from kompe import SphericalGrid
 import numpy as np
 import pynamit
 from lompe import conductance
@@ -53,7 +54,7 @@ _, noon_longitude, _ = apx.apex2geo(0, noon_mlon, (RI - RE) * 1e-3)  # Fix this
 a = pyamps.AMPS(300, 0, -4, 20, 100, minlat=50)
 jr = a.get_upward_current(mlat=mlat, mlt=mlt) * 1e-6
 jr[np.abs(jr_lat) < 50] = 0  # Filter low latitude jr
-simulation.set_boundary_jr(jr, lat=jr_lat, lon=jr_lon)
+simulation.set_boundary_jr(jr, grid=SphericalGrid(lat=jr_lat, lon=jr_lon))
 
 # Get and set wind input.
 # hwm14Obj = pyhwm2014.HWM142D(
@@ -85,13 +86,7 @@ u_lat, u_lon, u_phi, u_theta = (
     np.load("utheta.npy"),
 )
 u_lat, u_lon = np.meshgrid(u_lat, u_lon, indexing="ij")
-simulation.set_neutral_wind(
-    u_theta=u_theta.flatten(),
-    u_phi=u_phi.flatten(),
-    lat=u_lat.flatten(),
-    lon=u_lon.flatten(),
-    sqrt_weights=np.tile(np.sqrt(np.sin(np.deg2rad(90 - u_lat.flatten()))), (2, 1)),
-)
+simulation.set_neutral_wind(u_theta=u_theta.flatten(), u_phi=u_phi.flatten(), sqrt_weights=np.tile(np.sqrt(np.sin(np.deg2rad(90 - u_lat.flatten()))), (2, 1)), grid=SphericalGrid(lat=u_lat.flatten(), lon=u_lon.flatten()))
 
 # Get and set conductance input.
 conductance_lat = simulation.geometry.model_grid.lat
@@ -104,9 +99,7 @@ Kp = 4
 hall_aurora, pedersen_aurora = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, date, starlight=1, dipole=False
 )
-simulation.set_conductance(
-    pedersen=pedersen_aurora, hall=hall_aurora, lat=conductance_lat, lon=conductance_lon
-)
+simulation.set_conductance(pedersen=pedersen_aurora, hall=hall_aurora, grid=SphericalGrid(lat=conductance_lat, lon=conductance_lon))
 
 simulation.input_selection("conductance")
 simulation.input_selection("jr")

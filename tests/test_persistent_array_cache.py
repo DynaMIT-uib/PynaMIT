@@ -22,7 +22,6 @@ def test_gap_Br_cache_excludes_transient_shell_evaluations(tmp_path, monkeypatch
         "enable_pfac_coupling": True,
         "artifact_storage": "netcdf",
         "operator_cache_directory": cache_directory,
-        "backend": "numpy",
     }
     first = pynamit.Simulation(simulation_directory=tmp_path / "first", **simulation_kwargs)
     _ = first.geometry

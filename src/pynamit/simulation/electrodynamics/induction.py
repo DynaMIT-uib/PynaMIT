@@ -1,142 +1,117 @@
 """Faraday-induction evolution of physical radial magnetic field."""
 
-from __future__ import annotations
-
-import logging
-
 import numpy as np
-from kompe.math import get_array_module, to_numpy
-from scipy.integrate import solve_ivp
-from scipy.linalg import expm as scipy_expm
+from kompe.math import get_array_module, prepare_linear_evolution
 
-logger = logging.getLogger(__name__)
+DEFAULT_DT_SECONDS = 5e-4
+DEFAULT_RTOL = 1e-3
+DEFAULT_ATOL = 1e-12  # Tesla, applied to physical induced-Br coefficients.
 
 
-def _poloidal_potential_time_derivative(
-    response, induced_poloidal_potential, E_coeffs_noninductive
-):
+def _poloidal_potential_time_derivative(response, potential, forcing_W):
     """Return the private potential-coordinate time derivative."""
-    poloidal_W = response.induced_poloidal_potential_feedback_operator.matvec(
-        induced_poloidal_potential
+    induced_W = response.induced_poloidal_potential_feedback_operator.matvec(potential)
+    return response.geometry.induced_poloidal_potential_faraday_rate_scale * (
+        induced_W + forcing_W
     )
-    surface_W_noninductive = response.geometry.helmholtz_divergence_free_potential_operator.matvec(
-        E_coeffs_noninductive
-    )
-    poloidal_W += response.geometry.surface_to_poloidal_operator.matvec(surface_W_noninductive)
-    return response.geometry.induced_poloidal_potential_faraday_rate_scale * poloidal_W
 
 
 def induced_Br_time_derivative(response, induced_Br, E_coeffs_noninductive):
-    """Return ``d(induced_Br)/dt`` for the current response."""
-    potential = response.geometry.induced_Br_to_poloidal_potential_operator.matvec(induced_Br)
-    potential_rate = _poloidal_potential_time_derivative(
-        response, potential, E_coeffs_noninductive
-    )
-    return response.geometry.induced_poloidal_potential_to_Br_operator.matvec(potential_rate)
+    """Return d(induced_Br)/dt for the current response."""
+    geometry = response.geometry
+    potential = geometry.induced_Br_to_poloidal_potential_operator.matvec(induced_Br)
+    surface_W = geometry.helmholtz_divergence_free_potential_operator.matvec(E_coeffs_noninductive)
+    forcing_W = geometry.surface_to_poloidal_operator.matvec(surface_W)
+    rate = _poloidal_potential_time_derivative(response, potential, forcing_W)
+    return geometry.induced_poloidal_potential_to_Br_operator.matvec(rate)
 
 
 def equilibrium_induced_Br(response, E_coeffs_noninductive):
-    """Return induced Br for zero Faraday time derivative."""
-    W_noninductive = response.geometry.helmholtz_divergence_free_potential_operator.matvec(
-        E_coeffs_noninductive
+    """Return equilibrium Br from a minimum-norm potential fit.
+
+    The solve minimizes the poloidal W residual. Singular or truncated
+    modes can leave a residual; inspect induced_Br_time_derivative for
+    the estimate's remaining evolution. This diagnostic is not a
+    prerequisite for any integrator.
+    """
+    W = response.geometry.helmholtz_divergence_free_potential_operator(E_coeffs_noninductive)
+    return response.noninductive_W_to_equilibrium_induced_Br_operator(W)
+
+
+def build_induction_stepper(
+    response, E_coeffs_noninductive, *, dt=None, rtol=DEFAULT_RTOL, atol=DEFAULT_ATOL
+):
+    """Prepare Faraday evolution with fixed conductance and forcing.
+
+    Return `advance(initial_Br, times, *, batch_size=32)`, an iterator
+    of physical Br arrays with a trailing sample axis. `times` gives
+    offsets from the initial state.
+    The generic integration lives in Kompe; coordinate conversion and
+    error tolerances belong here. `atol` is in tesla.
+    Euler uses `dt` (default 0.5 ms); other methods need no fixed step.
+    """
+    integrator = response.config.integrator
+    for name, value in (("rtol", rtol), ("atol", atol)):
+        if isinstance(value, (bool, np.bool_)) or not np.isfinite(value) or value <= 0:
+            raise ValueError(f"{name} must be finite and greater than zero.")
+
+    geometry = response.geometry
+    surface_W = geometry.helmholtz_divergence_free_potential_operator.matvec(E_coeffs_noninductive)
+    forcing_W = geometry.surface_to_poloidal_operator.matvec(surface_W)
+    rate_scale = float(geometry.induced_poloidal_potential_faraday_rate_scale)
+
+    # Faraday's law in poloidal-potential coordinates: dP/dt = A P + b.
+    A = rate_scale * response.induced_poloidal_potential_feedback_operator
+    b = rate_scale * forcing_W
+    xp = get_array_module(*A.backend_operands, b)
+    potential_atol = atol
+    if integrator not in ("euler", "exponential"):
+        potential_atol = geometry.induced_Br_to_poloidal_potential_operator.matvec(
+            xp.full(b.shape, atol)
+        )
+    advance_potential = prepare_linear_evolution(
+        A,
+        b,
+        method=integrator,
+        dt=DEFAULT_DT_SECONDS if integrator == "euler" and dt is None else dt,
+        rtol=rtol,
+        atol=potential_atol,
     )
-    return response.noninductive_W_to_equilibrium_induced_Br_operator.matvec(W_noninductive)
 
+    def advance(initial_Br, times, *, batch_size=32, output_interval=None):
+        potential = geometry.induced_Br_to_poloidal_potential_operator.matvec(
+            xp.asarray(initial_Br)
+        )
+        for samples in advance_potential(
+            potential, times, batch_size=batch_size, output_interval=output_interval
+        ):
+            yield geometry.induced_poloidal_potential_to_Br_operator(samples)
 
-def poloidal_potential_exponential_propagator(response, dt, *, feedback_matrix=None):
-    """Return the exact propagator in private potential coordinates."""
-    if feedback_matrix is None:
-        feedback_matrix = response.induced_poloidal_potential_feedback_matrix
-    rate_matrix = response.geometry.induced_poloidal_potential_faraday_rate_scale * feedback_matrix
-    xp = get_array_module(rate_matrix)
-    if xp is np:
-        return scipy_expm(float(dt) * xp.asarray(rate_matrix))
-
-    from jax.scipy.linalg import expm as jax_expm
-
-    return jax_expm(float(dt) * xp.asarray(rate_matrix))
+    return advance
 
 
 def evolve_induced_Br(
     response,
     induced_Br,
-    dt,
+    duration,
     E_coeffs_noninductive,
-    equilibrium=None,
     *,
-    poloidal_potential_propagator=None,
+    dt=None,
+    rtol=DEFAULT_RTOL,
+    atol=DEFAULT_ATOL,
 ):
-    """Advance physical induced-Br coefficients by one model time step.
+    """Advance one physical field, retaining only the final state.
 
-    Time integration is performed in the better-conditioned private
-    poloidal-potential coordinate and converted exactly at the API
-    boundary.
+    For repeated or sampled evolution, reuse build_induction_stepper.
+    duration is the physical interval; dt is Euler's internal step.
     """
-    geometry = response.geometry
-    xp = get_array_module(induced_Br, E_coeffs_noninductive)
-    backend_induced_Br = xp.asarray(induced_Br)
-    potential = geometry.induced_Br_to_poloidal_potential_operator.matvec(backend_induced_Br)
-    backend_E_noninductive = xp.asarray(E_coeffs_noninductive)
-    integrator = response.config.integrator
-
-    if integrator == "euler":
-        potential_rate = _poloidal_potential_time_derivative(
-            response, potential, backend_E_noninductive
-        )
-        evolved_potential = potential + dt * potential_rate
-        return geometry.induced_poloidal_potential_to_Br_operator.matvec(evolved_potential)
-
-    if integrator == "exponential":
-        if equilibrium is None:
-            equilibrium = equilibrium_induced_Br(response, backend_E_noninductive)
-        equilibrium_potential = geometry.induced_Br_to_poloidal_potential_operator.matvec(
-            xp.asarray(equilibrium)
-        )
-        if poloidal_potential_propagator is None:
-            poloidal_potential_propagator = poloidal_potential_exponential_propagator(response, dt)
-        difference = potential - equilibrium_potential
-        xp = get_array_module(poloidal_potential_propagator, difference, equilibrium_potential)
-        evolved_potential = xp.asarray(poloidal_potential_propagator) @ xp.asarray(
-            difference
-        ) + xp.asarray(equilibrium_potential)
-        evolved_Br = geometry.induced_poloidal_potential_to_Br_operator.matvec(evolved_potential)
-        return evolved_Br
-
-    logger.debug("Using scipy.solve_ivp with method=%r.", integrator)
-    feedback = response.induced_poloidal_potential_feedback_operator.to_matrix(backend="numpy")
-    W_noninductive = geometry.helmholtz_divergence_free_potential_operator.matvec(
-        backend_E_noninductive
-    )
-    # Finish the forcing on its backend before transferring to SciPy.
-    poloidal_W_noninductive = to_numpy(
-        geometry.surface_to_poloidal_operator.matvec(W_noninductive)
-    )
-    rate_scale = float(geometry.induced_poloidal_potential_faraday_rate_scale)
-
-    def rhs(_time, values):
-        return rate_scale * (feedback @ values + poloidal_W_noninductive)
-
-    solution = solve_ivp(
-        fun=rhs,
-        t_span=(0, dt),
-        y0=to_numpy(potential),
-        method=integrator,
-        t_eval=[dt],
-        dense_output=False,
-    )
-    if not solution.success:
-        raise RuntimeError(
-            f"solve_ivp integrator {integrator!r} failed with status "
-            f"{solution.status}: {solution.message}"
-        )
-
-    evolved_Br = geometry.induced_poloidal_potential_to_Br_operator.matvec(solution.y[:, -1])
-    return xp.asarray(evolved_Br)
+    advance = build_induction_stepper(response, E_coeffs_noninductive, dt=dt, rtol=rtol, atol=atol)
+    return next(advance(induced_Br, [duration]))[..., 0]
 
 
 __all__ = [
+    "build_induction_stepper",
     "equilibrium_induced_Br",
     "evolve_induced_Br",
     "induced_Br_time_derivative",
-    "poloidal_potential_exponential_propagator",
 ]

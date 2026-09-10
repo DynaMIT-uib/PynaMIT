@@ -7,7 +7,7 @@ starting point for simulation scripts.
 
 from pathlib import Path
 
-from pynamit.simulation.evolution import DEFAULT_DT_SECONDS
+from pynamit.simulation.evolution import DEFAULT_ATOL, DEFAULT_RTOL
 from pynamit.storage import ArtifactStore
 from pynamit.workflows.example_inputs import prepare_example_inputs
 from pynamit.workflows.prepared_inputs import run_from_inputs
@@ -15,9 +15,12 @@ from pynamit.workflows.prepared_inputs import run_from_inputs
 
 def run_example(
     final_time=100,
-    steps_per_sample=1,
+    output_interval=None,
+    output_times=None,
     samples_per_write=200,
-    dt=DEFAULT_DT_SECONDS,
+    dt=None,
+    rtol=DEFAULT_RTOL,
+    atol=DEFAULT_ATOL,
     Nmax=20,
     Mmax=20,
     Ncs=30,
@@ -34,17 +37,18 @@ def run_example(
     initialize_from_equilibrium=True,
     run_dynamic=True,
     sample_equilibrium=True,
-    boundary_jr_projection_basis=None,
-    boundary_Br_projection_basis=None,
-    conductance_projection_basis=None,
-    u_projection_basis=None,
-    Q_eff_projection_basis=None,
+    boundary_jr_remapping=None,
+    boundary_Br_remapping=None,
+    conductance_basis=None,
+    u_remapping=None,
+    Q_eff_remapping=None,
     integrator="euler",
     boundary_jr_lambda=None,
     conductance_lambda=None,
     u_lambda=None,
     Q_eff_lambda=None,
     least_squares_solver=None,
+    least_squares_tolerance=1e-15,
     least_squares_preconditioner=None,
     reuse_preconditioner=False,
     toroidal_potential_regularization_lambda=0.0,
@@ -72,12 +76,16 @@ def run_example(
     ----------
     final_time : float, optional
         The final time of the simulation in seconds.
-    steps_per_sample : int, optional
-        Number of integration steps between retained output samples.
+    output_interval : float, optional
+        Seconds between outputs (default 0.1), independent of steps.
+    output_times : array-like, optional
+        Explicit output times in seconds instead of a uniform interval.
     samples_per_write : int, optional
         Number of output samples between persistence writes.
     dt : float, optional
-        The time step for the simulation.
+        Euler step in seconds (default 0.0005); omit otherwise.
+    rtol, atol : float, optional
+        Adaptive induced-Br tolerances; atol is in tesla (1e-12).
     Nmax : int, optional
         The maximum degree of the spherical harmonics.
     Mmax : int, optional
@@ -114,22 +122,22 @@ def run_example(
     sample_equilibrium : bool, optional
         Whether to calculate and save the instantaneous equilibrium
         solution.
-    boundary_jr_projection_basis : {'SH', 'CS'}, optional
-        Basis route used when projecting radial-current inputs. Defaults
-        to ``horizontal_basis_kind``.
-    boundary_Br_projection_basis : {'SH', 'CS'}, optional
-        Basis route used when projecting radial magnetic-field inputs.
-        Defaults to ``horizontal_basis_kind``.
-    conductance_projection_basis : {'SH', 'CS'}, optional
+    boundary_jr_remapping : {'direct', 'CS'}, optional
+        Sample remapping before fitting radial-current inputs.
+        Defaults to direct fitting for SH and CS remapping for CS.
+    boundary_Br_remapping : {'direct', 'CS'}, optional
+        Sample remapping before fitting radial magnetic-field inputs.
+        Defaults to direct fitting for SH and CS remapping for CS.
+    conductance_basis : {'SH', 'CS'}, optional
         Basis used to store the dimensionless log conductance magnitude
         and log Hall/Pedersen ratio. ``'CS'`` makes matching model-grid
         inputs a no-op. Defaults to ``horizontal_basis_kind``.
-    u_projection_basis : {'SH', 'CS'}, optional
-        Basis route used when projecting neutral-wind inputs. Defaults
-        to ``horizontal_basis_kind``.
-    Q_eff_projection_basis : {'SH', 'CS'}, optional
-        Basis route used when projecting effective wind-current inputs.
-        Defaults to ``u_projection_basis``.
+    u_remapping : {'direct', 'CS'}, optional
+        Sample remapping before fitting neutral-wind inputs.
+        Defaults to direct fitting for SH and CS remapping for CS.
+    Q_eff_remapping : {'direct', 'CS'}, optional
+        Sample remapping before fitting effective wind-current inputs.
+        Defaults to ``u_remapping``.
     integrator : {'euler', 'exponential', 'RK23', 'RK45', 'DOP853',
                   'Radau', 'BDF', 'LSODA'}, optional
         Integrator used for ``induced_Br`` evolution. SciPy method names
@@ -143,10 +151,12 @@ def run_example(
     Q_eff_lambda : float, optional
         Regularization parameter for the effective wind current.
     least_squares_solver : str, optional
-        Toroidal-potential solver. SH defaults to ``normal_pinv`` and CS
-        defaults to matrix-free ``lsmr``.
+        Shared input and response fit algorithm. SH defaults to
+        ``normal_pinv`` and CS defaults to matrix-free ``lsmr``.
+    least_squares_tolerance : float, optional
+        Shared fit tolerance; see ``kompe.math.LeastSquaresSolver``.
     least_squares_preconditioner : {'jacobi', 'pinv', None}, optional
-        Preconditioner used by iterative toroidal-potential solves.
+        Preconditioner used by iterative fits.
     reuse_preconditioner : bool, optional
         Keep a reusable iterative-solver preconditioner when valid.
     toroidal_potential_regularization_lambda : float, optional
@@ -219,11 +229,11 @@ def run_example(
         main_field_kind=main_field_kind,
         main_field_epoch=main_field_epoch,
         main_field_B0=main_field_B0,
-        boundary_jr_projection_basis=boundary_jr_projection_basis,
-        boundary_Br_projection_basis=boundary_Br_projection_basis,
-        conductance_projection_basis=conductance_projection_basis,
-        u_projection_basis=u_projection_basis,
-        Q_eff_projection_basis=Q_eff_projection_basis,
+        boundary_jr_remapping=boundary_jr_remapping,
+        boundary_Br_remapping=boundary_Br_remapping,
+        conductance_basis=conductance_basis,
+        u_remapping=u_remapping,
+        Q_eff_remapping=Q_eff_remapping,
         boundary_jr_lambda=boundary_jr_lambda,
         conductance_lambda=conductance_lambda,
         u_lambda=u_lambda,
@@ -231,6 +241,9 @@ def run_example(
         artifact_storage=artifact_storage,
         horizontal_basis_kind=horizontal_basis_kind,
         area_weighted_least_squares=area_weighted_least_squares,
+        least_squares_solver=least_squares_solver,
+        least_squares_tolerance=least_squares_tolerance,
+        least_squares_preconditioner=least_squares_preconditioner,
         use_wind=use_wind,
         use_Q_eff=use_Q_eff,
         use_boundary_jr=use_boundary_jr,
@@ -240,7 +253,10 @@ def run_example(
         input_directory,
         simulation_directory=simulation_directory,
         final_time=final_time,
-        steps_per_sample=steps_per_sample,
+        output_interval=output_interval,
+        output_times=output_times,
+        rtol=rtol,
+        atol=atol,
         samples_per_write=samples_per_write,
         dt=dt,
         RM=RM,
@@ -253,6 +269,7 @@ def run_example(
         sample_equilibrium=sample_equilibrium,
         integrator=integrator,
         least_squares_solver=least_squares_solver,
+        least_squares_tolerance=least_squares_tolerance,
         least_squares_preconditioner=least_squares_preconditioner,
         reuse_preconditioner=reuse_preconditioner,
         toroidal_potential_regularization_lambda=toroidal_potential_regularization_lambda,

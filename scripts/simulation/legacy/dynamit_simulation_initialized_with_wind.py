@@ -1,5 +1,6 @@
 """Simulation with initialized wind input."""
 
+from kompe import SphericalGrid
 import numpy as np
 import pynamit
 from lompe import conductance
@@ -79,9 +80,8 @@ u_lat, u_lon = np.meshgrid(hwm14Obj.glatbins, hwm14Obj.glonbins, indexing="ij")
 simulation.set_neutral_wind(
     u_theta=u_theta,
     u_phi=u_phi,
-    lat=u_lat,
-    lon=u_lon,
     sqrt_weights=np.tile(np.sqrt(np.sin(np.deg2rad(90 - u_lat.flatten()))), (2, 1)),
+    grid=SphericalGrid(lat=u_lat, lon=u_lon),
 )
 
 # Get and set conductance input.
@@ -93,17 +93,20 @@ hall_aurora, pedersen_aurora = conductance.hardy_EUV(
     conductance_lon, conductance_lat, Kp, date, starlight=1, dipole=False
 )
 simulation.set_conductance(
-    pedersen=pedersen_aurora, hall=hall_aurora, lat=conductance_lat, lon=conductance_lon
+    pedersen=pedersen_aurora,
+    hall=hall_aurora,
+    grid=SphericalGrid(lat=conductance_lat, lon=conductance_lon),
 )
 
 
 # Initialize with zero jr.
-simulation.set_boundary_jr(boundary_jr=jr * 0, lat=jr_lat, lon=jr_lon)
+simulation.set_boundary_jr(boundary_jr=jr * 0, grid=SphericalGrid(lat=jr_lat, lon=jr_lon))
 
-simulation.impose_equilibrium()
+simulation.set_state(simulation.equilibrium_coefficients(interpolation=True)["induced_Br"])
+simulation.record_state(save=True)
 
 # Turn jr on and evolve.
-simulation.set_boundary_jr(jr, lat=jr_lat, lon=jr_lon)
+simulation.set_boundary_jr(jr, grid=SphericalGrid(lat=jr_lat, lon=jr_lon))
 
 
 simulation.evolve_to_time(10 * 60)

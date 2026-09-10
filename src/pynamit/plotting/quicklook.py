@@ -20,7 +20,7 @@ from pynamit.plotting.hemisphere import (
 from pynamit.plotting.map_axes import style_global_axis
 from pynamit.plotting.map_coordinates import MapCoordinateContext
 from pynamit.results.field_evaluation import model_grid_from_geographic
-from pynamit.results.output_fields import evaluate_output_coefficients, output_at_current_time
+from pynamit.results.output_fields import OutputEvaluation
 
 
 def plot_global_polar_map(
@@ -120,7 +120,8 @@ def plot_output_quicklook(
     Parameters
     ----------
     simulation : Simulation
-        Simulation simulation object containing time series data.
+        Simulation with an initialized live magnetic state.
+        Recorded output is not required.
     title : str, optional
         Plot title.
     filename : str, optional
@@ -130,10 +131,14 @@ def plot_output_quicklook(
     coordinate_context : MapCoordinateContext, optional
         Map coordinate context for projection and local-time axes.
 
+    Returns
+    -------
+    matplotlib.figure.Figure
+        Editable figure; display and closing remain with the caller.
+
     Notes
     -----
-    Generates plots on a 50x90 lat-lon grid interpolated from
-    simulation grid.
+    Evaluates live coefficients on a 50x90 latitude/longitude grid.
 
     Shows:
     - Radial magnetic field (Br).
@@ -204,17 +209,15 @@ def plot_output_quicklook(
         0
     ]
 
-    output_coefficients = output_at_current_time(simulation)
+    output_coefficients = simulation.output_coefficients()
     requested_fields = {"induced_Br", "boundary_jr", "equivalent_current_function"}
-    global_fields = evaluate_output_coefficients(
-        output_coefficients,
-        global_transform,
-        geometry=simulation.geometry,
-        field_names=requested_fields,
+    global_fields = OutputEvaluation(simulation.geometry, transform=global_transform).evaluate(
+        output_coefficients, field_names=requested_fields
     )
-    global_br = global_fields["induced_Br"]
-    global_fac = global_fields["boundary_jr"] / global_unit_br
-    global_eq_current = global_fields["equivalent_current_function"]
+    # CPU plotting boundary: Polplot needs mutable NumPy slices.
+    global_br = np.asarray(global_fields["induced_Br"])
+    global_fac = np.asarray(global_fields["boundary_jr"] / global_unit_br)
+    global_eq_current = np.asarray(global_fields["equivalent_current_function"])
 
     # Evaluate hemisphere fields on the model grid, then express the
     # sample positions in magnetic coordinates for polar display.
@@ -222,15 +225,12 @@ def plot_output_quicklook(
     model_grid = SphericalGrid(lat=model_lat, lon=model_lon)
     model_transform = SphericalTransform(simulation.geometry.horizontal_basis, model_grid)
     model_unit_br = simulation.geometry.main_field.unit_vector(model_grid, simulation.config.RI)[0]
-    model_fields = evaluate_output_coefficients(
-        output_coefficients,
-        model_transform,
-        geometry=simulation.geometry,
-        field_names=requested_fields,
+    model_fields = OutputEvaluation(simulation.geometry, transform=model_transform).evaluate(
+        output_coefficients, field_names=requested_fields
     )
-    model_br = model_fields["induced_Br"]
-    model_fac = model_fields["boundary_jr"] / model_unit_br
-    model_eq_current = model_fields["equivalent_current_function"]
+    model_br = np.asarray(model_fields["induced_Br"])
+    model_fac = np.asarray(model_fields["boundary_jr"] / model_unit_br)
+    model_eq_current = np.asarray(model_fields["equivalent_current_function"])
     if magnetic_coordinates_available:
         geographic_model_lat, geographic_model_lon = main_field.model_to_geo_coordinates(
             model_lat, model_lon
@@ -309,7 +309,4 @@ def plot_output_quicklook(
     plt.subplots_adjust(top=0.89, bottom=0.095, left=0.025, right=0.95, hspace=0.0, wspace=0.185)
     if filename is not None:
         fig.savefig(filename)
-    else:
-        plt.show()
-
-    plt.close()
+    return fig

@@ -10,7 +10,11 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 from kompe.constants import EARTH_RADIUS_M
-from kompe.math import LeastSquaresSolver, get_default_least_squares_solver
+from kompe.math import (
+    LINEAR_EVOLUTION_METHODS,
+    LeastSquaresSolver,
+    get_default_least_squares_solver,
+)
 
 from pynamit.coordinates import decimal_year
 from pynamit.geomagnetism.main_field import (
@@ -19,26 +23,9 @@ from pynamit.geomagnetism.main_field import (
 )
 
 SIMULATION_SCHEMA_VERSION = 4
-INDEPENDENT_PROJECTION_BASIS_KEYS = (
-    "boundary_jr",
-    "boundary_Br",
-    "conductance",
-    "u",
-    "E_neutral_wind",
-)
-PROJECTION_BASIS_KEYS = INDEPENDENT_PROJECTION_BASIS_KEYS + ("Q_eff",)
-PROJECTION_BASIS_SETTING_NAMES = tuple(f"{key}_projection_basis" for key in PROJECTION_BASIS_KEYS)
-HORIZONTAL_PROJECTION_BASIS_KEYS = ("boundary_jr", "u", "Q_eff", "E_neutral_wind")
-INTEGRATORS = {
-    "euler": "euler",
-    "exponential": "exponential",
-    "rk23": "RK23",
-    "rk45": "RK45",
-    "dop853": "DOP853",
-    "radau": "Radau",
-    "bdf": "BDF",
-    "lsoda": "LSODA",
-}
+INPUT_REMAPPING_KEYS = ("boundary_jr", "boundary_Br", "u", "E_neutral_wind", "Q_eff")
+INPUT_REMAPPING_SETTINGS = tuple(f"{key}_remapping" for key in INPUT_REMAPPING_KEYS)
+INTEGRATORS = {method.lower(): method for method in LINEAR_EVOLUTION_METHODS}
 
 
 def _integer_setting(value: Any, *, name: str, minimum: int) -> int:
@@ -151,43 +138,25 @@ def normalize_horizontal_basis_kind(kind: str) -> str:
     return normalized
 
 
-def normalize_projection_basis_kind(kind: str, *, name: str = "projection_basis") -> str:
-    """Normalize an input projection-basis kind."""
-    normalized = str(kind).strip().upper()
-    if normalized not in {"SH", "CS"}:
-        raise ValueError(f"{name} must be one of ['CS', 'SH'].")
-    return normalized
+def normalize_input_remapping(value, *, name="input_remapping"):
+    """Select direct fitting or cubed-sphere sample remapping."""
+    normalized = str(value).strip().lower()
+    if normalized not in {"direct", "cs"}:
+        raise ValueError(f"{name} must be 'direct' or 'CS'.")
+    return "CS" if normalized == "cs" else "direct"
 
 
-def _projection_basis_kind(settings: Any, key: str, default: str) -> str:
-    """Return normalized projection-basis setting for one input key."""
-    name = f"{key}_projection_basis"
-    return normalize_projection_basis_kind(settings.get(name, default), name=name)
-
-
-def resolve_projection_basis_settings(settings: Any, horizontal_basis_kind: str) -> dict[str, str]:
-    """Return normalized input projection-basis settings."""
-    horizontal_basis_kind = normalize_horizontal_basis_kind(horizontal_basis_kind)
-    projection_settings = {
-        f"{key}_projection_basis": _projection_basis_kind(settings, key, horizontal_basis_kind)
-        for key in INDEPENDENT_PROJECTION_BASIS_KEYS
-    }
-    projection_settings["Q_eff_projection_basis"] = _projection_basis_kind(
-        settings, "Q_eff", projection_settings["u_projection_basis"]
-    )
-
-    if horizontal_basis_kind == "CS":
-        invalid = [
-            f"{key}_projection_basis"
-            for key in HORIZONTAL_PROJECTION_BASIS_KEYS
-            if projection_settings[f"{key}_projection_basis"] != "CS"
-        ]
-        if invalid:
-            raise ValueError(
-                ", ".join(invalid) + " must be 'CS' when horizontal_basis_kind is 'CS'."
-            )
-
-    return projection_settings
+def resolve_input_remapping(settings, horizontal_basis_kind):
+    """Resolve remapping independently of coefficient spaces."""
+    default = "CS" if horizontal_basis_kind == "CS" else "direct"
+    resolved = {}
+    for key in INPUT_REMAPPING_KEYS:
+        name = f"{key}_remapping"
+        inherited = resolved["u_remapping"] if key == "Q_eff" else default
+        resolved[name] = normalize_input_remapping(settings.get(name, inherited), name=name)
+        if horizontal_basis_kind == "CS" and key != "boundary_Br" and resolved[name] != "CS":
+            raise ValueError(f"{name} must be 'CS' when horizontal_basis_kind is 'CS'.")
+    return resolved
 
 
 def _zero_to_none(value):
@@ -201,7 +170,13 @@ def _zero_to_none(value):
 
 @dataclass(frozen=True)
 class SimulationConfig:
-    """Typed source of simulation settings and defaults."""
+    """Typed source of simulation settings and defaults.
+
+    ``interhemispheric_electric_field_weight`` multiplies the conjugate
+    electric-field residual before combining it with radial-current
+    residuals. Its SI units are S/m, not a dimensionless probability or
+    an exact constraint; its square weights the least-squares term.
+    """
 
     Nmax: int = 20
     Mmax: int = 20
@@ -217,18 +192,19 @@ class SimulationConfig:
     main_field_kind: str = "dipole"
     main_field_epoch: float | None = None
     main_field_B0: float | None = None
-    boundary_jr_projection_basis: str | None = None
-    boundary_Br_projection_basis: str | None = None
-    conductance_projection_basis: str | None = None
-    u_projection_basis: str | None = None
-    Q_eff_projection_basis: str | None = None
-    E_neutral_wind_projection_basis: str | None = None
+    boundary_jr_remapping: str | None = None
+    boundary_Br_remapping: str | None = None
+    conductance_basis: str | None = None
+    u_remapping: str | None = None
+    Q_eff_remapping: str | None = None
+    E_neutral_wind_remapping: str | None = None
     horizontal_basis_kind: str = "SH"
     area_weighted_least_squares: bool = False
     t0: str = "2020-01-01 00:00:00"
     save_equilibria: bool = True
     integrator: str = "euler"
     least_squares_solver: str | None = None
+    least_squares_tolerance: float = 1e-15
     least_squares_preconditioner: str | None = None
     reuse_preconditioner: bool = False
     toroidal_potential_regularization_lambda: float = 0.0
@@ -351,18 +327,25 @@ class SimulationConfig:
                 raise ValueError("main_field_B0 is not supported for the IGRF main-field model.")
 
     def _normalize_bases(self):
-        """Normalize simulation and input-projection basis choices."""
+        """Normalize basis and sample-remapping choices."""
         horizontal_basis_kind = normalize_horizontal_basis_kind(self.horizontal_basis_kind)
-        projection_input = {
-            name: getattr(self, name)
-            for name in PROJECTION_BASIS_SETTING_NAMES
-            if getattr(self, name) is not None
-        }
-        projection_settings = resolve_projection_basis_settings(
-            projection_input, horizontal_basis_kind
+        remapping = resolve_input_remapping(
+            {
+                name: getattr(self, name)
+                for name in INPUT_REMAPPING_SETTINGS
+                if getattr(self, name) is not None
+            },
+            horizontal_basis_kind,
         )
         object.__setattr__(self, "horizontal_basis_kind", horizontal_basis_kind)
-        for name, value in projection_settings.items():
+        object.__setattr__(
+            self,
+            "conductance_basis",
+            normalize_horizontal_basis_kind(
+                horizontal_basis_kind if self.conductance_basis is None else self.conductance_basis
+            ),
+        )
+        for name, value in remapping.items():
             object.__setattr__(self, name, value)
 
     def _normalize_numerical_policy(self):
@@ -393,6 +376,11 @@ class SimulationConfig:
             "least_squares_preconditioner",
             _normalize_least_squares_preconditioner(self.least_squares_preconditioner),
         )
+        if isinstance(self.least_squares_tolerance, (bool, np.bool_)):
+            raise TypeError("least_squares_tolerance must be a finite non-negative scalar.")
+        object.__setattr__(self, "least_squares_tolerance", float(self.least_squares_tolerance))
+        if not np.isfinite(self.least_squares_tolerance) or self.least_squares_tolerance < 0.0:
+            raise ValueError("least_squares_tolerance must be a finite non-negative scalar.")
         object.__setattr__(
             self,
             "reuse_preconditioner",
@@ -435,18 +423,25 @@ class SimulationConfig:
             "main_field_epoch": self.main_field_epoch,
             "main_field_B0": 0 if self.main_field_B0 is None else self.main_field_B0,
             "horizontal_coordinate_system": self.horizontal_coordinate_system,
-            "boundary_jr_projection_basis": self.boundary_jr_projection_basis,
-            "boundary_Br_projection_basis": self.boundary_Br_projection_basis,
-            "conductance_projection_basis": self.conductance_projection_basis,
-            "u_projection_basis": self.u_projection_basis,
-            "Q_eff_projection_basis": self.Q_eff_projection_basis,
-            "E_neutral_wind_projection_basis": self.E_neutral_wind_projection_basis,
+            "boundary_jr_projection_basis": "SH"
+            if self.boundary_jr_remapping == "direct"
+            else "CS",
+            "boundary_Br_projection_basis": "SH"
+            if self.boundary_Br_remapping == "direct"
+            else "CS",
+            "conductance_projection_basis": self.conductance_basis,
+            "u_projection_basis": "SH" if self.u_remapping == "direct" else "CS",
+            "Q_eff_projection_basis": "SH" if self.Q_eff_remapping == "direct" else "CS",
+            "E_neutral_wind_projection_basis": "SH"
+            if self.E_neutral_wind_remapping == "direct"
+            else "CS",
             "horizontal_basis_kind": self.horizontal_basis_kind,
             "area_weighted_least_squares": int(self.area_weighted_least_squares),
             "t0": self.t0,
             "save_equilibria": int(self.save_equilibria),
             "integrator": self.integrator,
             "least_squares_solver": self.least_squares_solver,
+            "least_squares_tolerance": self.least_squares_tolerance,
             "least_squares_preconditioner": (
                 "none"
                 if self.least_squares_preconditioner is None
@@ -469,6 +464,43 @@ class SimulationConfig:
         }
 
     @classmethod
+    def from_geometry(cls, geometry, **settings):
+        """Combine spatial objects with explicit experiment controls.
+
+        The geometry contributes radii, background-field and coupling
+        settings, and basis resolution. Other choices use the normal
+        experiment defaults unless supplied here.
+        """
+        for name, value in geometry.basis_settings.items():
+            if name in settings and settings[name] != value:
+                raise ValueError(f"{name} is determined by the existing basis objects.")
+        return cls(**(geometry.physical_settings | geometry.basis_settings | settings))
+
+    def validate_geometry_for_storage(self, geometry):
+        """Require the file recipe to reproduce the supplied bases.
+
+        This is a serialization restriction, not a requirement for
+        in-memory calculations with other coefficient spaces.
+        """
+        from kompe import GlobalCSBasis, SHBasis
+
+        sh = SHBasis(self.Nmax, self.Mmax, mean_free=False)
+        cs = GlobalCSBasis(self.Ncs)
+        poloidal = sh.with_mean_free(True)
+        expected = {
+            "sh_basis": sh,
+            "cs_basis": cs,
+            "poloidal_basis": poloidal,
+            "horizontal_basis": cs if self.horizontal_basis_kind == "CS" else poloidal,
+        }
+        for name, basis in expected.items():
+            if not getattr(geometry, name).coefficients_are_compatible_with(basis):
+                raise ValueError(
+                    f"Cannot save {name}: the file format reconstructs standard Schmidt SH "
+                    "truncations and global CS bases. This geometry can be used in memory."
+                )
+
+    @classmethod
     def from_settings(cls, settings: SimulationConfig | xr.Dataset | Mapping) -> SimulationConfig:
         """Read configuration from saved or in-memory settings.
 
@@ -482,6 +514,15 @@ class SimulationConfig:
         elif not isinstance(settings, Mapping):
             raise TypeError("settings must be a SimulationConfig, xarray Dataset, or mapping.")
 
+        # Version-4 artifacts retain their historical projection-setting
+        # names. Translate only at this settings/file boundary.
+        settings = dict(settings)
+        for key in INPUT_REMAPPING_KEYS:
+            old_name, name = f"{key}_projection_basis", f"{key}_remapping"
+            if name not in settings and old_name in settings:
+                settings[name] = "direct" if settings[old_name] == "SH" else settings[old_name]
+        if "conductance_basis" not in settings and "conductance_projection_basis" in settings:
+            settings["conductance_basis"] = settings["conductance_projection_basis"]
         kwargs = {}
         for config_field in fields(cls):
             name = config_field.name

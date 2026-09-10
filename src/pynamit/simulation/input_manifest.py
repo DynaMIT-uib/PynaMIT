@@ -38,7 +38,8 @@ _INPUT_DATASET_REQUIREMENT_KEYS = {"boundary_Br": ("RM",)}
 def input_projection_settings(config_or_settings: Any) -> dict[str, Any]:
     """Return settings defining prepared input coefficient space."""
     config = SimulationConfig.from_settings(config_or_settings)
-    return {name: getattr(config, name) for name in _INPUT_PROJECTION_SETTING_KEYS}
+    attrs = config.to_attrs()
+    return {name: attrs[name] for name in _INPUT_PROJECTION_SETTING_KEYS}
 
 
 def input_geometry_settings(config_or_settings: Any) -> dict[str, Any]:

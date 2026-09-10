@@ -1,1 +1,1 @@
-"""Package containing bundled fallback datasets for optional dependencies."""
+"""Bundled fallback datasets for optional input providers."""

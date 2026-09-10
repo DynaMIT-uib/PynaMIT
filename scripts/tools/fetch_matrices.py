@@ -13,7 +13,7 @@ import datetime
 
 import numpy as np
 from kompe.constants import EARTH_RADIUS_M
-from kompe.math import block_until_ready, to_numpy
+from kompe.math import to_numpy
 
 from pynamit import Simulation
 from pynamit.external_inputs import get_conductance_inputs
@@ -69,10 +69,7 @@ def build_simulation(
     pedersen, hall, _, _ = get_conductance_inputs(
         date, coordinates=coordinates, kp=5, starlight=1.0
     )
-    simulation.set_conductance(pedersen=pedersen, hall=hall, lat=grid.lat, lon=grid.lon)
-    simulation.response.activate_inputs_at_time(
-        simulation.data.input_series, time=0.0, interpolation=False
-    )
+    simulation.inputs.set_conductance(pedersen=pedersen, hall=hall, grid=grid)
     return simulation
 
 
@@ -81,14 +78,12 @@ def fetch_model_dense_matrices(
 ) -> dict[str, np.ndarray]:
     """Return dense matrices from the active simulation response."""
     response = simulation.response
-    matrices = (
-        response.source_to_W_matrices(include_boundary_Br=include_boundary_Br)
+    operators = (
+        response.source_to_W_operators(include_boundary_Br=include_boundary_Br)
         if w_only
-        else response.source_to_induced_Br_rate_matrices(include_boundary_Br=include_boundary_Br)
+        else response.source_to_induced_Br_rate_operators(include_boundary_Br=include_boundary_Br)
     )
-    return {
-        key: np.asarray(to_numpy(block_until_ready(matrix))) for key, matrix in matrices.items()
-    }
+    return {key: to_numpy(operator.to_matrix()) for key, operator in operators.items()}
 
 
 def _print_summary(matrices: dict[str, np.ndarray]) -> None:
@@ -111,7 +106,7 @@ def main() -> None:
     parser.add_argument("--mmax", type=int, default=12)
     parser.add_argument("--ncs", type=int, default=22)
     parser.add_argument(
-        "--main_field-kind", type=str, default="dipole", choices=["dipole", "igrf", "radial"]
+        "--main-field-kind", type=str, default="dipole", choices=["dipole", "igrf", "radial"]
     )
     parser.add_argument(
         "--rm-over-re",
@@ -147,13 +142,13 @@ def main() -> None:
         type=str,
         default="netcdf",
         choices=["auto", "netcdf", "zarr"],
-        help="Storage backend for the temporary Simulation artifacts.",
+        help="Storage backend when a simulation directory is supplied.",
     )
     parser.add_argument(
         "--simulation-directory",
         type=str,
         default=None,
-        help="Optional simulation directory. Defaults to a temporary directory.",
+        help="Optional simulation directory. Defaults to keeping the calculation in memory.",
     )
     parser.add_argument(
         "--out",
@@ -180,14 +175,14 @@ def main() -> None:
         main_field_kind=args.main_field_kind,
         rm_re=args.rm_over_re,
         horizontal_basis_kind=args.horizontal_basis_kind,
-        enable_pfac_coupling=bool(args.enable_pfac_coupling),
-        enable_interhemispheric_coupling=bool(args.enable_interhemispheric_coupling),
+        enable_pfac_coupling=args.enable_pfac_coupling,
+        enable_interhemispheric_coupling=args.enable_interhemispheric_coupling,
         simulation_directory=args.simulation_directory,
         artifact_storage=args.artifact_storage,
         least_squares_solver=args.least_squares_solver,
     )
     matrices = fetch_model_dense_matrices(
-        simulation, w_only=bool(args.w_only), include_boundary_Br=not bool(args.exclude_br)
+        simulation, w_only=args.w_only, include_boundary_Br=not args.exclude_br
     )
     _print_summary(matrices)
 

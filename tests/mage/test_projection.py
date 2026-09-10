@@ -17,6 +17,7 @@ from pynamit.workflows.mage.prepared_forcing import (
     MAGE_FORCING_KIND,
     MAGE_FORCING_VERSION,
     forcing_times,
+    read_ionosphere_grid,
     validate_prepared_forcing,
 )
 from pynamit.workflows.mage.projection import (
@@ -61,6 +62,31 @@ def test_prepared_forcing_schema_contains_only_projection_inputs(tmp_path):
 def test_mage_projection_uses_kaiju_dipole_by_default():
     """MAGE projection uses Kaiju dipole physics on a GEO model grid."""
     assert MAGE_MAIN_FIELD_KIND == "kaiju_dipole"
+
+
+def test_prepared_ionosphere_grid_retains_the_tiegcm_measure(tmp_path):
+    """The file reader supplies the known sampling measure."""
+    forcing_path = tmp_path / "forcing.h5"
+    _write_projection_forcing(forcing_path)
+    with h5py.File(forcing_path) as forcing:
+        grid = read_ionosphere_grid(forcing)
+        expected = np.sin(np.deg2rad(90.0 - forcing["ionosphere_lat"][:])).reshape(-1)
+    assert grid.shape == (4, 4)
+    np.testing.assert_array_equal(grid.area_weights, expected)
+
+
+@pytest.mark.parametrize("distortion", ["spacing", "curvilinear"])
+def test_tiegcm_area_measure_rejects_a_different_sampling_grid(tmp_path, distortion):
+    """A regular-grid measure cannot describe arbitrary points."""
+    forcing_path = tmp_path / "forcing.h5"
+    _write_projection_forcing(forcing_path)
+    with h5py.File(forcing_path, "r+") as forcing:
+        if distortion == "spacing":
+            forcing["ionosphere_lat"][1, :] += 1.0
+        else:
+            forcing["ionosphere_lon"][1, 1] += 1.0
+        with pytest.raises(ValueError, match="uniform angular spacing"):
+            read_ionosphere_grid(forcing)
 
 
 def test_mage_projection_replaces_stale_pynamit_input_artifacts(tmp_path):
@@ -315,6 +341,21 @@ def test_mage_projection_reuses_geometry_for_complete_input_series(tmp_path):
     forcing_path = tmp_path / "forcing.h5"
     input_directory = tmp_path / "projection"
     _write_projection_forcing(forcing_path)
+    # Source snapshots retain their offsets; activation follows the
+    # nominal TIEGCM clock, including fractional output coincidences.
+    with h5py.File(forcing_path, "r+") as forcing:
+        forcing["time"][:] = ["2020-01-01T00:00:00", "2020-01-01T00:00:00.300000"]
+        forcing["gamera_source_time"][:] = [
+            "2020-01-01T00:00:00.012674",
+            "2020-01-01T00:00:00.316929",
+        ]
+        forcing["remix_source_time"][:] = [
+            "2020-01-01T00:00:00.013074",
+            "2020-01-01T00:00:00.317329",
+        ]
+        forcing["gamera_time_offset_seconds"][:] = [0.012674, 0.016929]
+        forcing["remix_time_offset_seconds"][:] = [0.013074, 0.017329]
+        forcing["SH"][1] = 6.0
 
     result = prepare_inputs(
         forcing_path=forcing_path,
@@ -340,6 +381,39 @@ def test_mage_projection_reuses_geometry_for_complete_input_series(tmp_path):
     assert manifest["metadata"]["projection_regularization"]["boundary_Br_lambda"] == 0.1
     for dataset in ("boundary_Br", "boundary_jr", "conductance", "E_neutral_wind"):
         assert (input_directory / f"{dataset}.ncdf").is_file()
+
+    from pynamit import InputPreparation, Simulation
+    from pynamit.simulation.electrodynamics import induction
+
+    preparation = InputPreparation.from_directory(input_directory)
+    for dataset in preparation.values():
+        np.testing.assert_array_equal(dataset.time, [0.0, 0.3])
+    simulation = Simulation.from_inputs(preparation, integrator="exponential")
+    series = simulation.results.input_series
+    intervals = list(series.iter_intervals(0, 0.6))
+    assert [(left, right) for left, right, _ in intervals] == [(0, 0.3), (0.3, 0.6), (0.6, 0.6)]
+    for key in series.datasets:
+        for name, value in series.get_entry(key, 0.3).items():
+            np.testing.assert_array_equal(series.get_entry(key, 3 * 0.1)[name], value)
+
+    # Independently compose the two fixed physical intervals. An output
+    # exactly at the jump contains the old integrated state and new E.
+    evolution = simulation._time_evolution
+    before, E_before, _ = evolution._response_and_forcing(intervals[0][2])
+    after, E_after, _ = evolution._response_and_forcing(intervals[1][2])
+    initial = np.zeros(simulation.geometry.poloidal_basis.coefficient_count)
+    at_jump = induction.evolve_induced_Br(before, initial, 0.3, E_before)
+    final = induction.evolve_induced_Br(after, at_jump, 0.3, E_after)
+    simulation.evolve_to_time(
+        0.6, output_interval=0.1, initialize_from_equilibrium=False, quiet=True
+    )
+    outputs = simulation.results.output_series
+    np.testing.assert_allclose(
+        outputs.get_entry("dynamic", 0.3)["induced_Br"], at_jump, rtol=1e-10, atol=1e-18
+    )
+    np.testing.assert_allclose(
+        outputs.get_entry("dynamic", 0.6)["induced_Br"], final, rtol=1e-10, atol=1e-18
+    )
 
 
 def test_projection_diagnostics_write_figure_and_area_weighted_metrics(monkeypatch, tmp_path):

@@ -45,7 +45,7 @@ run_example(
     simulation_directory=output,
     final_time=2.0,
     dt=5e-4,
-    steps_per_sample=4000,
+    output_interval=2.0,
     samples_per_write=1,
     Nmax=resolution,
     Mmax=resolution,

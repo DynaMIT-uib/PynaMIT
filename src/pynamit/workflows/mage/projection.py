@@ -16,6 +16,7 @@ from typing import Any
 
 import numpy as np
 from kompe import SphericalGrid
+from kompe.math import get_array_module
 from kompe.spherical_transform import grid_sqrt_area_weights
 
 import pynamit
@@ -31,6 +32,7 @@ from pynamit.workflows.mage.prepared_forcing import (
     IONOSPHERE_RADIUS_M,
     PEDERSEN_CONDUCTANCE_FLOOR_S,
     forcing_times,
+    read_ionosphere_grid,
     validate_prepared_forcing,
 )
 
@@ -238,8 +240,9 @@ class _MageInputProjector:
 
         self._magnetosphere_sqrt_weights = grid_sqrt_area_weights(magnetosphere_grid)
         self._ionosphere_sqrt_weights = grid_sqrt_area_weights(ionosphere_grid)
-        self._ionosphere_tangential_sqrt_weights = np.tile(self._ionosphere_sqrt_weights, (2, 1))
-        conductance_space = preparation.data.schema.input_field_spaces["conductance"]
+        xp = get_array_module(self._ionosphere_sqrt_weights)
+        self._ionosphere_tangential_sqrt_weights = xp.tile(self._ionosphere_sqrt_weights, (2, 1))
+        conductance_space = preparation.schema.input_field_spaces["conductance"]
         self._conductance_evaluator = conductance_space.basis.scalar_evaluation_operator(
             ionosphere_grid
         )
@@ -264,11 +267,10 @@ class _MageInputProjector:
         _print_field_stats("  Delta Br [T]", delta_br)
         self._preparation.set_boundary_Br(
             delta_br,
-            lat=self._magnetosphere_grid.lat,
-            lon=self._magnetosphere_grid.lon,
             time=input_time,
             sqrt_weights=self._magnetosphere_sqrt_weights,
             reg_lambda=self._boundary_Br_lambda,
+            grid=self._magnetosphere_grid,
         )
 
     def _project_radial_current(self, boundary_jr, input_time: float) -> None:
@@ -278,11 +280,10 @@ class _MageInputProjector:
         _print_field_stats("  boundary jr [A/m^2]", boundary_jr)
         self._preparation.set_boundary_jr(
             boundary_jr,
-            lat=self._ionosphere_grid.lat,
-            lon=self._ionosphere_grid.lon,
             time=input_time,
             sqrt_weights=self._ionosphere_sqrt_weights,
             reg_lambda=self._boundary_jr_lambda,
+            grid=self._ionosphere_grid,
         )
 
     def _project_conductance(self, SigmaP, SigmaH, input_time: float) -> None:
@@ -298,16 +299,15 @@ class _MageInputProjector:
         self._preparation.set_conductance(
             pedersen=SigmaP,
             hall=SigmaH,
-            lat=self._ionosphere_grid.lat,
-            lon=self._ionosphere_grid.lon,
             time=input_time,
             sqrt_weights=self._ionosphere_sqrt_weights,
             reg_lambda=self._conductance_lambda,
+            grid=self._ionosphere_grid,
         )
 
     def _projected_resistance(self, input_time: float) -> tuple[np.ndarray, np.ndarray]:
         """Reconstruct fitted sheet resistance on the forcing grid."""
-        input_series = self._preparation.data.input_series
+        input_series = self._preparation.input_series
         conductance_entry = input_series.get_entry("conductance", input_time)
         if conductance_entry is None:
             raise RuntimeError("Conductance must be set before computing wind-driven E.")
@@ -356,11 +356,10 @@ class _MageInputProjector:
         self._preparation.set_E_neutral_wind(
             E_neutral_wind_theta=wind_driven_e_theta,
             E_neutral_wind_phi=wind_driven_e_phi,
-            lat=self._ionosphere_grid.lat,
-            lon=self._ionosphere_grid.lon,
             time=input_time,
             sqrt_weights=self._ionosphere_tangential_sqrt_weights,
             reg_lambda=self._e_neutral_wind_lambda,
+            grid=self._ionosphere_grid,
         )
 
 
@@ -418,9 +417,7 @@ def prepare_inputs(
             main_field = MainField(kind=MAGE_MAIN_FIELD_KIND, epoch=dipole_epoch, B0=dipole_B0)
             gamera_dipole = _gamera_dipole_metadata(file)
             alignment = main_field.alignment_metadata(event_time)
-            ionosphere_lat = np.asarray(file["ionosphere_lat"][:], dtype=float)
-            ionosphere_lon = wrap_longitude_180(file["ionosphere_lon"][:])
-            ionosphere_grid = SphericalGrid(lat=ionosphere_lat, lon=ionosphere_lon)
+            ionosphere_grid = read_ionosphere_grid(file)
 
             magnetosphere_lat = np.asarray(file["boundary_lat"][:], dtype=float)
             magnetosphere_lon = wrap_longitude_180(file["boundary_lon"][:])

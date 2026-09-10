@@ -1,22 +1,14 @@
 """Simulation storage schema construction.
 
-This module centralizes basis and ``CoefficientSpace`` choices for
-persisted simulation input and output time series.
+This module describes existing numerical bases with ``CoefficientSpace``
+and physical metadata for persisted input and output time series.
 """
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 
-from kompe import (
-    GlobalCSBasis,
-    ScalarBasis,
-    SHBasis,
-    SolidHarmonicOperators,
-    SurfaceDifferentialBasis,
-)
 from kompe.coefficients import CoefficientSpace
 
-from pynamit.simulation.config import PROJECTION_BASIS_KEYS, SimulationConfig
+from pynamit.storage import FieldTimeSeries
 
 INPUT_VARIABLES = {
     "boundary_jr": ("boundary_jr",),
@@ -25,15 +17,6 @@ INPUT_VARIABLES = {
     "u": ("u",),
     "Q_eff": ("Q_eff",),
     "E_neutral_wind": ("E_neutral_wind",),
-}
-
-INPUT_FIELD_TYPES = {
-    "boundary_jr": "scalar",
-    "boundary_Br": "scalar",
-    "conductance": "scalar",
-    "u": "tangential",
-    "Q_eff": "tangential",
-    "E_neutral_wind": "tangential",
 }
 
 WIND_FORCING_INPUTS = frozenset({"u", "Q_eff", "E_neutral_wind"})
@@ -111,99 +94,70 @@ __all__ = [
     "WIND_FORCING_INPUTS",
     "SimulationSchema",
     "build_simulation_schema",
-    "field_spaces_from_bases",
 ]
 
 
 @dataclass
 class SimulationSchema:
-    """Basis and field-space choices for one simulation configuration.
+    """Basis choices and physical storage metadata for one simulation.
 
     The mappings are ordinary dictionaries, making the complete schema
     easy to inspect interactively. The builder creates them once;
     simulation code treats them as configuration, not mutable state.
+    Series created from this schema own their datasets independently.
     """
 
-    cs_basis: GlobalCSBasis
-    sh_basis: SHBasis
-    mean_free_sh_basis: SurfaceDifferentialBasis
-    horizontal_basis: SurfaceDifferentialBasis
-    solid_harmonics: SolidHarmonicOperators
     input_variables: dict[str, tuple[str, ...]]
     output_variables: dict[str, tuple[str, ...]]
     input_field_spaces: dict[str, CoefficientSpace]
     output_field_spaces: dict[str, dict[str, CoefficientSpace]]
-    input_projection_bases: dict[str, SurfaceDifferentialBasis]
 
-
-def field_spaces_from_bases(
-    bases: Mapping[str, ScalarBasis],
-    field_types: Mapping[str, str],
-    mean_free_by_key: Mapping[str, bool] | None = None,
-) -> dict[str, CoefficientSpace]:
-    """Return field-space descriptors for time-series schemas."""
-    if set(bases) != set(field_types):
-        raise ValueError("Basis and field-type schemas must use the same keys.")
-    if mean_free_by_key is not None and set(mean_free_by_key) != set(bases):
-        raise ValueError("Mean-free and basis schemas must use the same keys.")
-
-    field_spaces = {}
-    for key, basis in bases.items():
-        if field_types[key] not in {"scalar", "tangential"}:
-            raise ValueError(f"Unsupported field_type {field_types[key]!r} for {key!r}.")
-        default_mean_free = (
-            basis.omits_constant_mode() if isinstance(basis, SurfaceDifferentialBasis) else False
+    def create_input_series(self, *, time_origin) -> FieldTimeSeries:
+        """Create empty input streams with units and a UTC origin."""
+        return FieldTimeSeries(
+            self.input_field_spaces,
+            self.input_variables,
+            variable_attrs=INPUT_VARIABLE_ATTRS,
+            time_origin=time_origin,
         )
-        field_spaces[key] = CoefficientSpace(
-            basis,
-            representation="helmholtz" if field_types[key] == "tangential" else "scalar",
-            mean_free=(default_mean_free if mean_free_by_key is None else mean_free_by_key[key]),
+
+    def create_output_series(self, *, time_origin) -> FieldTimeSeries:
+        """Create empty output streams with units and a UTC origin."""
+        return FieldTimeSeries(
+            self.output_field_spaces,
+            self.output_variables,
+            variable_attrs=OUTPUT_VARIABLE_ATTRS,
+            time_origin=time_origin,
         )
-    return field_spaces
 
 
-def build_simulation_schema(config: SimulationConfig, *, operator_cache=None) -> SimulationSchema:
-    """Build the basis and storage schema for one ``Simulation``."""
-    horizontal_basis_kind = config.horizontal_basis_kind
+def build_simulation_schema(geometry, config) -> SimulationSchema:
+    """Describe existing numerical objects with storage metadata."""
+    sh_basis = geometry.sh_basis
+    mean_free_sh_basis = geometry.poloidal_basis
+    cs_basis = geometry.cs_basis
+    horizontal_basis = geometry.horizontal_basis
 
-    sh_basis = SHBasis(config.Nmax, config.Mmax, mean_free=False, operator_cache=operator_cache)
-    mean_free_sh_basis = sh_basis.with_mean_free(True)
-    cs_basis = GlobalCSBasis(config.Ncs)
-    horizontal_basis = cs_basis if horizontal_basis_kind == "CS" else mean_free_sh_basis
-    solid_harmonics = SolidHarmonicOperators(mean_free_sh_basis)
-
-    projection_basis_kinds = {
-        key: getattr(config, f"{key}_projection_basis") for key in PROJECTION_BASIS_KEYS
-    }
-    conductance_projection_basis = projection_basis_kinds["conductance"]
-
-    projection_bases = {"SH": mean_free_sh_basis, "CS": cs_basis}
-    input_projection_bases = {
-        key: projection_bases[kind] for key, kind in projection_basis_kinds.items()
-    }
-    input_bases = {
-        "boundary_jr": horizontal_basis,
+    poloidal_space = CoefficientSpace(mean_free_sh_basis, representation="scalar", mean_free=True)
+    surface_space = CoefficientSpace(horizontal_basis, representation="scalar", mean_free=True)
+    tangential_space = CoefficientSpace(
+        horizontal_basis, representation="helmholtz", mean_free=True
+    )
+    input_field_spaces = {
+        "boundary_jr": surface_space,
         # Boundary Br participates in radial continuation, so it is
         # always stored in poloidal SH space.
-        "boundary_Br": mean_free_sh_basis,
+        "boundary_Br": poloidal_space,
         # Conductance has a nonzero mean, so SH needs the full basis.
-        "conductance": sh_basis if conductance_projection_basis == "SH" else cs_basis,
-        "u": horizontal_basis,
-        "Q_eff": horizontal_basis,
-        "E_neutral_wind": horizontal_basis,
+        "conductance": CoefficientSpace(
+            sh_basis if config.conductance_basis == "SH" else cs_basis,
+            representation="scalar",
+            mean_free=False,
+        ),
+        "u": tangential_space,
+        "Q_eff": tangential_space,
+        "E_neutral_wind": tangential_space,
     }
-    input_projection_bases["conductance"] = input_bases["conductance"]
-    input_mean_free = {key: key != "conductance" for key in input_bases}
-
-    input_field_spaces = field_spaces_from_bases(
-        input_bases, INPUT_FIELD_TYPES, mean_free_by_key=input_mean_free
-    )
-    poloidal_output_space = CoefficientSpace(
-        mean_free_sh_basis, representation="scalar", mean_free=True
-    )
-    surface_output_space = CoefficientSpace(
-        horizontal_basis, representation="scalar", mean_free=True
-    )
     boundary_current_output_space = CoefficientSpace(
         horizontal_basis,
         representation="scalar",
@@ -215,23 +169,17 @@ def build_simulation_schema(config: SimulationConfig, *, operator_cache=None) ->
     )
     output_field_spaces = {
         key: {
-            "induced_Br": poloidal_output_space,
+            "induced_Br": poloidal_space,
             "boundary_jr": boundary_current_output_space,
-            "Phi": surface_output_space,
-            "W": surface_output_space,
+            "Phi": surface_space,
+            "W": surface_space,
         }
         for key in OUTPUT_VARIABLES
     }
 
     return SimulationSchema(
-        cs_basis=cs_basis,
-        sh_basis=sh_basis,
-        mean_free_sh_basis=mean_free_sh_basis,
-        horizontal_basis=horizontal_basis,
-        solid_harmonics=solid_harmonics,
         input_variables=dict(INPUT_VARIABLES),
         output_variables=dict(OUTPUT_VARIABLES),
         input_field_spaces=input_field_spaces,
         output_field_spaces=output_field_spaces,
-        input_projection_bases=input_projection_bases,
     )

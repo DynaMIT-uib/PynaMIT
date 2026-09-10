@@ -59,10 +59,16 @@ gui = [
     "panel",
     "pillow>=9.1",
     "polplot @ git+https://github.com/klaundal/polplot.git@main",
-    "zarr",
 ]
 mage = [
     "h5py",
+]
+zarr = [
+    "zarr>=3.2",
+]
+test = [
+    "pytest>=8",
+    "ruff==0.16.1",
 ]
 [project.scripts]
 pynamit-gui = "pynamit.gui.cli:main"
@@ -77,7 +83,7 @@ pynamit = ["data/*.json"]
 
 [tool.ruff]
 src = ["src", "tests", "scripts"]
-extend-exclude = ["__init__.py", "notebooks/", "scripts/simulation/legacy/"]
+extend-exclude = ["notebooks/", "scripts/simulation/legacy/"]
 line-length = 99
 
 [tool.ruff.lint]

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from pynamit.plotting.figure_settings import FigureSettings
 from pynamit.plotting.figure_styles import (
     manual_color_control_units,
@@ -18,14 +20,34 @@ def set_widget_value(widget, value):
         widget.value = value
 
 
+def manual_color_values(settings):
+    """Return manual limits in the selected field's display units."""
+    field_key = settings.fill if settings.fill != "none" else "Br"
+    minimum, maximum = (
+        manual_color_limits(field_key)
+        if settings.manual_color_min is None
+        else (settings.manual_color_min, settings.manual_color_max)
+    )
+    return tuple(manual_color_display_value(field_key, value) for value in (minimum, maximum))
+
+
+def manual_line_values(settings):
+    """Return manual contour parameters in display units."""
+    if settings.line_first_abs_level is not None:
+        return settings.line_first_abs_level, settings.line_interval, settings.line_levels_per_sign
+    line_keys = map_line_keys(settings.lines)
+    return manual_line_parameters(line_keys[0] if line_keys else "Phi")
+
+
 def current_figure_settings(app) -> FigureSettings:
     """Return the settings described by the current Panel controls."""
     fill_key = app.fill.value if app.fill.value != "none" else "Br"
     _, color_display_scale = manual_color_control_units(fill_key)
 
-    return FigureSettings(
+    return replace(
+        app.figure_settings,
         simulation_directory=app.simulation_directory.value,
-        station_data_directory=app.figure_settings.station_data_directory,
+        station_data_directory=app.station_data_directory.value,
         plot_type=app.plot_type.value,
         time_index=int(app.time_index.value),
         time_range=tuple(int(value) for value in app.time_range.value),
@@ -43,7 +65,7 @@ def current_figure_settings(app) -> FigureSettings:
         show_difference=bool(app.show_difference.value),
         show_reference_line=bool(app.show_reference_line.value),
         reference_time_of_day_utc=str(app.reference_time.value),
-        show_station_labels=bool(app.figure_settings.show_station_labels),
+        show_station_labels=bool(app.show_station_labels.value),
         simulation_time_offset_seconds=float(app.sim_time_offset.value),
         data_time_offset_seconds=float(app.data_time_offset.value),
         dbdt_window_points=int(app.dbdt_window_points.value),
@@ -73,29 +95,23 @@ def current_figure_settings(app) -> FigureSettings:
         zoom_window=bool(app.zoom_window.value),
         movie_filename=str(app.movie_filename.value),
         movie_fps=float(app.movie_fps.value),
-        movie_dpi=int(app.figure_settings.movie_dpi),
     )
 
 
 def apply_figure_settings_to_widgets(app, settings: FigureSettings) -> None:
     """Apply figure settings to the Panel controls."""
-    max_time = int(app.time_index.end)
-    time_start, time_end = [int(value) for value in settings.time_range]
-    time_start = max(0, min(time_start, max_time))
-    time_end = max(time_start, min(time_end, max_time))
-    if time_start == 0 and time_end == 0 and max_time > 0:
-        time_end = min(max_time, 60)
-
     set_widget_value(app.simulation_directory, settings.simulation_directory)
     set_widget_value(app.plot_type, settings.plot_type)
-    set_widget_value(app.time_index, max(0, min(int(settings.time_index), max_time)))
-    set_widget_value(app.time_range, (time_start, time_end))
+    set_widget_value(app.time_index, settings.time_index)
+    set_widget_value(app.time_range, tuple(settings.time_range))
     set_widget_value(app.fill, settings.fill)
     set_widget_value(app.lines, settings.lines)
     set_widget_value(app.show_north, bool(settings.show_north))
     set_widget_value(app.show_south, bool(settings.show_south))
     set_widget_value(app.min_abs_lat, float(settings.hemisphere_min_abs_latitude))
     set_widget_value(app.station, str(settings.ground_station).upper())
+    set_widget_value(app.station_data_directory, settings.station_data_directory)
+    set_widget_value(app.show_station_labels, settings.show_station_labels)
     set_widget_value(app.ground_component, settings.ground_component)
     set_widget_value(app.ground_quantity, settings.ground_quantity)
     set_widget_value(app.include_station_data, bool(settings.include_station_data))
@@ -127,22 +143,10 @@ def apply_figure_settings_to_widgets(app, settings: FigureSettings) -> None:
     set_widget_value(app.show_low_lat_curve, bool(settings.show_low_latitude_curve))
     set_widget_value(app.color_scale_mode, settings.color_scale_mode)
     set_widget_value(app.color_scale_percentile, float(settings.color_scale_percentile))
-    fill_key = settings.fill if settings.fill != "none" else "Br"
-    if settings.manual_color_min is None:
-        color_min, color_max = manual_color_limits(fill_key)
-    else:
-        color_min, color_max = settings.manual_color_min, settings.manual_color_max
-    set_widget_value(app.manual_color_min, manual_color_display_value(fill_key, color_min))
-    set_widget_value(app.manual_color_max, manual_color_display_value(fill_key, color_max))
-    if settings.line_first_abs_level is None:
-        line_keys = map_line_keys(settings.lines)
-        line_start, line_interval, line_count = manual_line_parameters(
-            line_keys[0] if line_keys else "Phi"
-        )
-    else:
-        line_start = settings.line_first_abs_level
-        line_interval = settings.line_interval
-        line_count = settings.line_levels_per_sign
+    color_min, color_max = manual_color_values(settings)
+    set_widget_value(app.manual_color_min, color_min)
+    set_widget_value(app.manual_color_max, color_max)
+    line_start, line_interval, line_count = manual_line_values(settings)
     set_widget_value(app.line_first_abs_level, float(line_start))
     set_widget_value(app.line_interval, float(line_interval))
     set_widget_value(app.line_levels_per_sign, int(line_count))
@@ -156,4 +160,10 @@ def apply_figure_settings_to_widgets(app, settings: FigureSettings) -> None:
     set_widget_value(app.movie_fps, float(settings.movie_fps))
 
 
-__all__ = ["apply_figure_settings_to_widgets", "current_figure_settings", "set_widget_value"]
+__all__ = [
+    "apply_figure_settings_to_widgets",
+    "current_figure_settings",
+    "manual_color_values",
+    "manual_line_values",
+    "set_widget_value",
+]

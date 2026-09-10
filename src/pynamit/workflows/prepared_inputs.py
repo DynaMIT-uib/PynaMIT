@@ -19,14 +19,19 @@ import numpy as np
 
 from pynamit.simulation import input_manifest as _input_manifest
 from pynamit.simulation.config import SimulationConfig
-from pynamit.simulation.evolution import DEFAULT_DT_SECONDS, _EvolutionOptions
+from pynamit.simulation.evolution import (
+    DEFAULT_ATOL,
+    DEFAULT_RTOL,
+    _boolean_option,
+    _EvolutionOptions,
+)
 from pynamit.simulation.schema import INPUT_DATASET_KEYS, WIND_FORCING_INPUTS
 from pynamit.simulation.simulation import Simulation
-from pynamit.storage import ArtifactStore, FieldTimeSeries
-from pynamit.storage.field_time_series import TIME_TOLERANCE_SECONDS
+from pynamit.storage import ArtifactStore
+from pynamit.storage.field_time_series import time_roundoff
 
 SIMULATION_MANIFEST_FILENAME = "pynamit_simulation_manifest.json"
-_SIMULATION_MANIFEST_VERSION = 6
+_SIMULATION_MANIFEST_VERSION = 7
 
 _SIMULATION_SETTING_KEYS = (
     "RM",
@@ -42,27 +47,11 @@ _SIMULATION_SETTING_KEYS = (
     "save_equilibria",
     "integrator",
     "least_squares_solver",
+    "least_squares_tolerance",
     "least_squares_preconditioner",
     "reuse_preconditioner",
     "toroidal_potential_regularization_lambda",
 )
-
-
-def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    """Write a small JSON sidecar."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(payload, indent=2, sort_keys=True, default=_input_manifest._setting_json_value)
-        + "\n",
-        encoding="utf-8",
-    )
-
-
-def _read_json(path: Path) -> dict[str, Any] | None:
-    """Read a JSON sidecar if it exists."""
-    if not path.exists():
-        return None
-    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _validate_and_select_prepared_inputs(
@@ -117,27 +106,24 @@ def _copy_prepared_inputs(
     simulation: Simulation, input_store: ArtifactStore, selected_inputs: list[str]
 ) -> list[str]:
     """Copy validated input streams into a simulation-owned store."""
-    series = FieldTimeSeries(
-        simulation.data.schema.input_field_spaces, simulation.data.schema.input_variables
-    )
+    series = simulation.results.schema.create_input_series(time_origin=simulation.config.t0)
     for key in selected_inputs:
         series.load(key, input_store)
 
     loaded = [key for key in INPUT_DATASET_KEYS if key in series.datasets]
-    for key in INPUT_DATASET_KEYS:
-        if key not in loaded:
-            simulation.data.artifact_store.remove_artifact(key)
-    for key in loaded:
-        simulation.data.artifact_store.save_dataset(series.datasets[key].reset_index("i"), key)
-
-    # Reload through the consuming simulation's store. Lazy Zarr arrays
-    # must not leave an active simulation dependent on the preparation
-    # package.
-    simulation_series = FieldTimeSeries(
-        simulation.data.schema.input_field_spaces, simulation.data.schema.input_variables
-    )
-    simulation_series.load_all(simulation.data.artifact_store)
-    simulation.data.input_series = simulation_series
+    if simulation.results.artifact_store is None:
+        series.datasets = {
+            key: dataset.compute().copy(deep=True) for key, dataset in series.datasets.items()
+        }
+    else:
+        for key in INPUT_DATASET_KEYS:
+            if key not in loaded:
+                simulation.results.artifact_store.remove_artifact(key)
+        for key in loaded:
+            series.save(key, simulation.results.artifact_store)
+            # Reload so lazy arrays belong to the destination store.
+            series.load(key, simulation.results.artifact_store)
+    simulation.inputs.input_series = series
     return loaded
 
 
@@ -150,9 +136,10 @@ def _validate_simulation_identity(
     evolution_policy: dict[str, Any],
 ) -> bool:
     """Require a trajectory to keep one identity."""
-    existing = _read_json(Path(simulation_directory) / SIMULATION_MANIFEST_FILENAME)
-    if existing is None:
+    path = Path(simulation_directory) / SIMULATION_MANIFEST_FILENAME
+    if not path.exists():
         return False
+    existing = json.loads(path.read_text(encoding="utf-8"))
     if (
         not isinstance(existing, dict)
         or existing.get("kind") not in {"pynamit_simulation", "pynamit_paper_simulation"}
@@ -164,7 +151,8 @@ def _validate_simulation_identity(
         )
 
     existing_evolution = dict(existing.get("time_evolution", {}))
-    existing_evolution.pop("final_time", None)
+    for name in ("final_time", "output_times", "output_interval", "samples_per_write"):
+        existing_evolution.pop(name, None)
     expected = {
         "enabled_inputs": selected_inputs,
         "input_manifest": input_manifest,
@@ -183,7 +171,12 @@ def _validate_simulation_identity(
 
 
 def _stored_simulation_outputs_reach(
-    store: ArtifactStore, target_time: float, *, run_dynamic: bool, sample_equilibrium: bool
+    store: ArtifactStore,
+    target_time: float,
+    *,
+    run_dynamic: bool,
+    sample_equilibrium: bool,
+    output_times=None,
 ) -> bool:
     """Return whether all requested persisted outputs reach a target."""
     requested_outputs = []
@@ -204,7 +197,11 @@ def _stored_simulation_outputs_reach(
         times = np.asarray(dataset.time.values, dtype=float)
         if not np.all(np.isfinite(times)):
             return False
-        if float(np.max(times)) < float(target_time) - TIME_TOLERANCE_SECONDS:
+        if float(np.max(times)) < float(target_time) - time_roundoff(target_time):
+            return False
+        if output_times is not None and any(
+            not np.any(np.abs(times - time) <= time_roundoff(time)) for time in output_times
+        ):
             return False
     return True
 
@@ -241,7 +238,7 @@ def load_prepared_inputs_into_simulation(
 
     _input_manifest.validate_prepared_input_compatibility(
         input_settings,
-        simulation.data.config,
+        simulation.results.config,
         input_datasets=selected_inputs,
         input_directory=input_directory,
     )
@@ -254,9 +251,12 @@ def run_from_inputs(
     simulation_directory=None,
     enabled_inputs=None,
     final_time=100,
-    steps_per_sample=1,
+    output_interval=None,
+    output_times=None,
     samples_per_write=200,
-    dt=DEFAULT_DT_SECONDS,
+    dt=None,
+    rtol=DEFAULT_RTOL,
+    atol=DEFAULT_ATOL,
     RM=None,
     main_field_kind=None,
     fac_integration_radii=None,
@@ -269,6 +269,7 @@ def run_from_inputs(
     sample_equilibrium=True,
     integrator="euler",
     least_squares_solver=None,
+    least_squares_tolerance=None,
     least_squares_preconditioner=None,
     reuse_preconditioner=False,
     toroidal_potential_regularization_lambda=0.0,
@@ -279,9 +280,15 @@ def run_from_inputs(
 ):
     """Run simulation from a prepared input package.
 
-    ``steps_per_sample`` is the number of integration steps
-    between retained output samples. ``samples_per_write`` is the
-    number of retained samples accumulated between persistence writes.
+    ``output_interval`` (seconds, default 0.1) or ``output_times``
+    selects samples independently of solver steps. The final state is
+    always retained. ``dt`` controls Euler only; adaptive methods use
+    ``rtol`` and ``atol`` (tesla) for physical induced-Br coefficients.
+    ``samples_per_write`` controls persistence batching.
+
+    Solver settings inherit the prepared package unless supplied here.
+    Use ``least_squares_preconditioner="none"`` to disable an inherited
+    preconditioner explicitly.
 
     With ``skip_completed=True``, a matching simulation returns ``None``
     before geometry construction when its requested outputs reach
@@ -303,11 +310,22 @@ def run_from_inputs(
             "interhemispheric_coupling_latitude": interhemispheric_coupling_latitude,
             "save_equilibria": sample_equilibrium,
             "integrator": integrator,
-            "least_squares_solver": least_squares_solver,
-            "least_squares_preconditioner": least_squares_preconditioner,
             "reuse_preconditioner": reuse_preconditioner,
             "toroidal_potential_regularization_lambda": toroidal_potential_regularization_lambda,
             "magnetic_boundary_shielding": magnetic_boundary_shielding,
+        }
+    )
+    # Prepared inputs record one shared fit policy. Retain it unless
+    # the consuming simulation explicitly selects another value.
+    config_kwargs.update(
+        {
+            name: value
+            for name, value in {
+                "least_squares_solver": least_squares_solver,
+                "least_squares_tolerance": least_squares_tolerance,
+                "least_squares_preconditioner": least_squares_preconditioner,
+            }.items()
+            if value is not None
         }
     )
     if RM is not None:
@@ -333,31 +351,42 @@ def run_from_inputs(
         config,
         t=final_time,
         dt=dt,
-        steps_per_sample=steps_per_sample,
+        output_interval=output_interval,
+        output_times=output_times,
+        rtol=rtol,
+        atol=atol,
         samples_per_write=samples_per_write,
         quiet=False,
         initialize_from_equilibrium=initialize_from_equilibrium,
-        run_dynamic=run_dynamic,
         sample_equilibrium=sample_equilibrium,
     )
     final_time = options.target_time
-    dt = float(options.dt)
-    steps_per_sample = options.steps_per_sample
+    dt = options.dt
+    output_interval = options.output_interval
+    output_times = None if options.output_times is None else list(options.output_times)
+    rtol, atol = options.rtol, options.atol
     samples_per_write = options.samples_per_write
     initialize_from_equilibrium = options.initialize_from_equilibrium
-    run_dynamic = options.run_dynamic
+    run_dynamic = _boolean_option(run_dynamic, name="run_dynamic")
     sample_equilibrium = options.sample_equilibrium
+    if not run_dynamic and not sample_equilibrium:
+        raise ValueError("At least one of run_dynamic or sample_equilibrium must be True.")
     time_evolution = {
         "final_time": final_time,
         "dt": dt,
-        "steps_per_sample": steps_per_sample,
+        "output_interval": output_interval,
+        "output_times": output_times,
+        "rtol": rtol,
+        "atol": atol,
         "samples_per_write": samples_per_write,
         "initialize_from_equilibrium": initialize_from_equilibrium,
         "run_dynamic": run_dynamic,
         "sample_equilibrium": sample_equilibrium,
     }
     evolution_policy = {
-        name: value for name, value in time_evolution.items() if name != "final_time"
+        name: value
+        for name, value in time_evolution.items()
+        if name not in ("final_time", "output_times", "output_interval", "samples_per_write")
     }
     simulation_settings = {
         name: _input_manifest._setting_json_value(getattr(config, name))
@@ -390,6 +419,7 @@ def run_from_inputs(
             final_time,
             run_dynamic=run_dynamic,
             sample_equilibrium=sample_equilibrium,
+            output_times=output_times,
         ):
             print(
                 f"Simulation output in {simulation_directory} already reaches "
@@ -412,28 +442,41 @@ def run_from_inputs(
         else _copy_prepared_inputs(simulation, input_store, selected_inputs)
     )
 
-    _write_json(
-        Path(simulation_directory) / SIMULATION_MANIFEST_FILENAME,
-        {
-            "kind": "pynamit_simulation",
-            "version": _SIMULATION_MANIFEST_VERSION,
-            "input_directory": str(Path(input_directory).resolve()),
-            "enabled_inputs": loaded_inputs,
-            "input_manifest": input_manifest,
-            "simulation_settings": simulation_settings,
-            "time_evolution": time_evolution,
-        },
+    manifest = {
+        "kind": "pynamit_simulation",
+        "version": _SIMULATION_MANIFEST_VERSION,
+        "input_directory": str(Path(input_directory).resolve()),
+        "enabled_inputs": loaded_inputs,
+        "input_manifest": input_manifest,
+        "simulation_settings": simulation_settings,
+        "time_evolution": time_evolution,
+    }
+    (Path(simulation_directory) / SIMULATION_MANIFEST_FILENAME).write_text(
+        json.dumps(manifest, indent=2, sort_keys=True, default=_input_manifest._setting_json_value)
+        + "\n",
+        encoding="utf-8",
     )
 
-    simulation.evolve_to_time(
-        t=final_time,
-        dt=dt,
-        steps_per_sample=steps_per_sample,
-        samples_per_write=samples_per_write,
-        initialize_from_equilibrium=initialize_from_equilibrium,
-        run_dynamic=run_dynamic,
-        sample_equilibrium=sample_equilibrium,
-    )
+    if run_dynamic:
+        simulation.evolve_to_time(
+            t=final_time,
+            dt=dt,
+            output_interval=output_interval,
+            output_times=output_times,
+            rtol=rtol,
+            atol=atol,
+            samples_per_write=samples_per_write,
+            initialize_from_equilibrium=initialize_from_equilibrium,
+            sample_equilibrium=sample_equilibrium,
+        )
+    else:
+        times = (
+            np.arange(int(np.floor(final_time / output_interval)) + 1) * output_interval
+            if output_times is None
+            else np.asarray(output_times)
+        )
+        times = np.r_[times[times < final_time - time_roundoff(final_time)], final_time]
+        simulation.sample_equilibria(times, samples_per_write=samples_per_write)
     return simulation
 
 

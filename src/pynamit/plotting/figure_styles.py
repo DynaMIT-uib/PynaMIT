@@ -3,10 +3,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-from pynamit.plotting.contours import (
-    symmetric_contour_levels,
-    symmetric_contour_levels_without_zero,
-)
+from pynamit.plotting.contours import symmetric_contour_levels_without_zero
 
 FIELD_PLOT_KWARGS = {
     "Br": {
@@ -166,11 +163,6 @@ def manual_line_parameters(field_key):
     return float(positive[0]), float(interval), int(positive.size)
 
 
-def manual_line_levels(first_abs_level, interval, levels_per_sign):
-    """Return a user-configured zero-free symmetric line sequence."""
-    return symmetric_contour_levels(first_abs_level, interval, levels_per_sign)
-
-
 __all__ = [
     "FIELD_DIFF_KWARGS",
     "FIELD_PLOT_KWARGS",
@@ -179,7 +171,6 @@ __all__ = [
     "manual_color_display_value",
     "manual_color_levels",
     "manual_color_limits",
-    "manual_line_levels",
     "manual_line_parameters",
     "map_line_keys",
 ]

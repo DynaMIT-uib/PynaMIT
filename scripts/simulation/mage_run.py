@@ -20,6 +20,7 @@ from pathlib import Path
 
 import numpy as np
 
+from pynamit.plotting.figure_settings import FIGURE_DEFAULTS_FILENAME, FigureSettings
 from pynamit.simulation.config import SimulationConfig, dipole_fac_integration_radii
 from pynamit.storage import ArtifactStore
 from pynamit.workflows.mage.projection import MAGE_MAIN_FIELD_KIND
@@ -43,9 +44,9 @@ class SimulationSweep:
     fac_integration_points: int = 40
     interhemispheric_coupling_latitude: float = 35.0
     interhemispheric_electric_field_weight: float = 1e-5
-    dt: float = 10.0
+    dt: float | None = None
     final_time: float | None = None
-    steps_per_sample: int = 1
+    output_interval: float = 10.0
     samples_per_write: int = 1
     integrator: str = "exponential"
     toroidal_potential_regularization_lambda: float = 0.0
@@ -55,6 +56,21 @@ class SimulationSweep:
 
 
 SETTINGS = SimulationSweep()
+
+# Plotting choices for this event, not for every simulation.
+# Existing per-simulation choices are preserved when the sweep is rerun.
+PLOT_DEFAULTS = FigureSettings(
+    plot_type="ground_curve_map",
+    time_range=(0, 60),
+    ground_station="IPM",
+    include_station_data=True,
+    show_difference=True,
+    show_reference_line=True,
+    reference_time_of_day_utc="18:31:00",
+    simulation_time_offset_seconds=30.0,
+    curve_scale_mode="manual",
+    color_scale_mode="manual",
+)
 
 
 @dataclass(frozen=True)
@@ -186,7 +202,7 @@ def main(settings: SimulationSweep = SETTINGS) -> None:
             simulation_directory=target.simulation_directory,
             final_time=target.final_time,
             dt=settings.dt,
-            steps_per_sample=settings.steps_per_sample,
+            output_interval=settings.output_interval,
             samples_per_write=settings.samples_per_write,
             fac_integration_radii=target.fac_integration_radii,
             enable_pfac_coupling=True,
@@ -205,6 +221,8 @@ def main(settings: SimulationSweep = SETTINGS) -> None:
             operator_cache_directory=target.operator_cache_directory,
             skip_completed=True,
         )
+        if not (target.simulation_directory / FIGURE_DEFAULTS_FILENAME).exists():
+            PLOT_DEFAULTS.save_defaults(target.simulation_directory)
         if simulation is not None:
             print(f"{target.resolution_name} time evolution complete", flush=True)
 

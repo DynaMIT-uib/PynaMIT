@@ -1,5 +1,7 @@
 """Evaluate simulation output fields on requested grids."""
 
+from functools import cached_property
+
 import numpy as np
 from kompe import SphericalTransform
 from kompe.constants import EARTH_RADIUS_M, MU0
@@ -48,41 +50,6 @@ def select_output_stream(datasets, preferred=None):
     if "equilibrium" in datasets:
         return "equilibrium"
     raise RuntimeError("No dynamic or equilibrium output is available to visualize.")
-
-
-def output_at_current_time(simulation, key=None):
-    """Return current output coefficients from a simulation."""
-    key = select_output_stream(simulation.outputs, preferred=key)
-    entry = simulation.data.output_series.get_entry(key, simulation.current_time)
-    if entry is None:
-        raise RuntimeError(
-            f"No {key!r} output is available at t={float(simulation.current_time):.3f}."
-        )
-    return entry
-
-
-def build_output_evaluation_operators(geometry, transform, *, include_joule=False):
-    """Build field maps and optional Joule geometry for one grid."""
-    horizontal_transform = transform.with_basis(geometry.horizontal_basis)
-    poloidal_transform = transform.with_basis(geometry.poloidal_basis)
-    operators = {
-        "RI": float(geometry.RI),
-        "horizontal_transform": horizontal_transform,
-        "induced_Br_to_Br": poloidal_transform.scalar_synthesis_operator,
-        "boundary_jr_to_jr": horizontal_transform.scalar_synthesis_operator,
-        "induced_Br_to_Jeq": (-float(geometry.RI) / MU0)
-        * (
-            poloidal_transform.scalar_synthesis_operator
-            @ geometry.poloidal_to_normalized_potential_jump_operator
-            @ geometry.induced_Br_to_poloidal_potential_operator
-        ),
-    }
-    if include_joule:
-        unit_br, unit_btheta, unit_bphi = geometry.main_field.unit_vector(
-            transform.grid, geometry.RI
-        )
-        operators["pedersen_geometry"] = pedersen_geometry_tensor(unit_btheta, unit_bphi, unit_br)
-    return operators
 
 
 def build_ground_magnetic_field_operators(
@@ -139,7 +106,7 @@ def evaluate_ground_magnetic_field(
 ):
     """Evaluate the induced ground-field contribution in tesla.
 
-    ``source`` is a live Simulation or saved SimulationResults. ``time``
+    ``source`` is live or saved SimulationResults. ``time``
     selects model seconds (scalar or 1-D); None selects all saved times
     in ``key``. Input coefficients are selected without interpolation.
     Arrays retain ``grid.shape`` followed by a time axis; tangential
@@ -151,14 +118,10 @@ def evaluate_ground_magnetic_field(
     grid, frame and radius with build_ground_magnetic_field_operators.
     """
     from pynamit.results.simulation_results import SimulationResults
-    from pynamit.simulation import Simulation
 
-    if isinstance(source, SimulationResults):
-        series = source.load_output_series(key) if key is not None else source.load_output_series()
-    elif isinstance(source, Simulation):
-        series = source.data.output_series
-    else:
-        raise TypeError("source must be a Simulation or SimulationResults.")
+    if not isinstance(source, SimulationResults):
+        raise TypeError("source must be SimulationResults; use simulation.results for a live run.")
+    series = source.load_output_series(key) if key is not None else source.load_output_series()
     key = select_output_stream(series.datasets, preferred=key)
     if time is None:
         coefficients = series.datasets[key][series.get_data_var_name(key, "induced_Br")].values.T
@@ -166,10 +129,10 @@ def evaluate_ground_magnetic_field(
         times = np.atleast_1d(np.asarray(time, dtype=float))
         if times.ndim != 1 or times.size == 0:
             raise ValueError("time must be a scalar or non-empty 1-D array.")
-        entries = [series.get_entry(key, value) for value in times]
-        if any(entry is None for entry in entries):
+        entry = series.get_entry(key, times, variables=("induced_Br",))
+        if entry is None:
             raise ValueError("No output is available at one or more requested times.")
-        coefficients = np.stack([entry["induced_Br"] for entry in entries], axis=-1)
+        coefficients = entry["induced_Br"]
     if operators is None:
         operators = build_ground_magnetic_field_operators(
             source.geometry, grid, ground_radius=ground_radius, coordinate_system=coordinate_system
@@ -183,23 +146,6 @@ def evaluate_ground_magnetic_field(
     }
 
 
-def build_sheet_current_operators(geometry, transform):
-    """Build reusable sheet-current operators for one grid."""
-    horizontal_transform = transform.with_basis(geometry.horizontal_basis)
-    poloidal_transform = transform.with_basis(geometry.poloidal_basis)
-    return {
-        "induced_Br_to_JS": geometry.induced_Br_to_gridded_JS_operator(
-            horizontal_transform, poloidal_transform=poloidal_transform
-        ),
-        "boundary_jr_to_JS": geometry.boundary_jr_to_gridded_JS_operator(
-            horizontal_transform, poloidal_transform=poloidal_transform
-        ),
-        "boundary_Br_to_JS": geometry.boundary_Br_to_gridded_JS_operator(
-            horizontal_transform, poloidal_transform=poloidal_transform
-        ),
-    }
-
-
 def evaluate_sheet_current(
     boundary_jr,
     induced_Br,
@@ -210,239 +156,268 @@ def evaluate_sheet_current(
     boundary_Br_to_JS=None,
 ):
     """Evaluate sheet current from physical magnetic quantities."""
-    current = as_linear_map(boundary_jr_to_JS).matvec(boundary_jr) + as_linear_map(
-        induced_Br_to_JS
-    ).matvec(induced_Br)
+    jr_map = as_linear_map(boundary_jr_to_JS)
+    Br_map = as_linear_map(induced_Br_to_JS)
+    batch_shape = np.shape(boundary_jr)[len(jr_map.input_shape) :]
+    shape = (2, jr_map.shape[0] // 2) + batch_shape
+    current = jr_map(boundary_jr).reshape(shape) + Br_map(induced_Br).reshape(shape)
     if boundary_Br is not None:
         if boundary_Br_to_JS is None:
             raise ValueError("boundary_Br_to_JS is required when boundary_Br is provided.")
-        current += as_linear_map(boundary_Br_to_JS).matvec(boundary_Br)
-    return current.reshape(2, -1)
+        current = current + as_linear_map(boundary_Br_to_JS)(boundary_Br).reshape(shape)
+    return current
 
 
-def evaluate_output_coefficients(
-    coefficients,
-    transform,
-    *,
-    geometry=None,
-    field_names=None,
-    operators=None,
-    sheet_current_operators=None,
-    boundary_Br=None,
-    etaP=None,
-    pedersen_geometry=None,
-):
-    """Evaluate one output coefficient row as SI-valued physical fields.
+class OutputEvaluation:
+    """Reusable physical field maps on one simulation geometry/grid.
 
-    Optional operator dictionaries let plotting and movie workflows
-    reuse materialized maps across times without maintaining another
-    implementation of the physical field evaluation.
+    ``evaluate`` accepts coefficients with trailing batch axes and
+    returns SI-valued fields. Only requested maps are constructed.
+    Geometry and materializations are reused, never sampled values.
+    For histories, pass this object as ``evaluation`` to
+    ``evaluate_simulation_output``.
     """
-    requested = set(_OUTPUT_VALUE_NAMES) if field_names is None else set(field_names)
-    if field_names is None and (etaP is None or pedersen_geometry is None):
-        requested.remove("joule_heating")
-    unknown = requested - _OUTPUT_VALUE_NAMES
-    if unknown:
-        raise ValueError(f"Unknown output fields requested: {sorted(unknown)}.")
 
-    basic_fields = requested & {
-        "induced_Br",
-        "boundary_jr",
-        "equivalent_current_function",
-        "Phi",
-        "W",
-        "E_theta",
-        "E_phi",
-        "E_mag",
-    }
-    if operators is None and basic_fields:
-        if geometry is None:
-            raise ValueError("geometry is required when operators are not supplied.")
-        operators = build_output_evaluation_operators(geometry, transform)
-    values = {}
+    def __init__(self, geometry, grid=None, *, transform=None):
+        if grid is not None and transform is not None:
+            raise ValueError("Supply either grid or transform, not both.")
+        self.geometry = geometry
+        self.transform = (
+            transform.with_basis(geometry.horizontal_basis)
+            if transform is not None
+            else geometry.horizontal_transform
+            if grid is None
+            else SphericalTransform(geometry.horizontal_basis, grid)
+        )
+        self.grid = self.transform.grid
 
-    if "induced_Br" in requested:
-        values["induced_Br"] = as_linear_map(operators["induced_Br_to_Br"])(
-            coefficients["induced_Br"]
-        )
-    if "boundary_jr" in requested:
-        values["boundary_jr"] = as_linear_map(operators["boundary_jr_to_jr"])(
-            coefficients["boundary_jr"]
-        )
-    if "equivalent_current_function" in requested:
-        values["equivalent_current_function"] = as_linear_map(operators["induced_Br_to_Jeq"])(
-            coefficients["induced_Br"]
+    @cached_property
+    def poloidal_transform(self):
+        """Scalar magnetic-field synthesis on the same grid."""
+        return self.transform.with_basis(self.geometry.poloidal_basis)
+
+    @cached_property
+    def equivalent_current_operator(self):
+        """Induced radial field to equivalent current function."""
+        return (-self.geometry.RI / MU0) * (
+            self.poloidal_transform.scalar_synthesis_operator
+            @ self.geometry.poloidal_to_normalized_potential_jump_operator
+            @ self.geometry.induced_Br_to_poloidal_potential_operator
         )
 
-    potential_fields = requested & {"Phi", "W"}
-    if potential_fields:
-        radius = float(operators["RI"])
-        horizontal_transform = operators["horizontal_transform"]
-    if "Phi" in potential_fields:
-        values["Phi"] = radius * horizontal_transform.scalar_synthesis_operator(
-            coefficients["Phi"]
-        )
-    if "W" in potential_fields:
-        values["W"] = radius * horizontal_transform.scalar_synthesis_operator(coefficients["W"])
+    @cached_property
+    def sheet_current_operators(self):
+        """Current contributions from induced and boundary fields."""
+        geometry, transform = self.geometry, self.transform
+        return {
+            "induced_Br_to_JS": geometry.induced_Br_to_gridded_JS_operator(transform),
+            "boundary_jr_to_JS": geometry.boundary_jr_to_gridded_JS_operator(transform),
+            "boundary_Br_to_JS": geometry.boundary_Br_to_gridded_JS_operator(transform),
+        }
 
-    electric_fields = requested & {"E_theta", "E_phi", "E_mag"}
-    if electric_fields:
-        horizontal_transform = operators["horizontal_transform"]
-        xp = get_array_module(coefficients["Phi"], coefficients["W"])
-        E_theta, E_phi = horizontal_transform.synthesize_helmholtz(
-            xp.stack((coefficients["Phi"], coefficients["W"]))
+    @cached_property
+    def pedersen_geometry(self):
+        """Dissipative geometry tensor in (theta, phi) components."""
+        unit_br, unit_btheta, unit_bphi = self.geometry.main_field.unit_vector(
+            self.grid, self.geometry.RI
         )
-        if "E_theta" in requested:
-            values["E_theta"] = E_theta
-        if "E_phi" in requested:
-            values["E_phi"] = E_phi
-        if "E_mag" in requested:
-            values["E_mag"] = xp.hypot(E_theta, E_phi)
+        return pedersen_geometry_tensor(unit_btheta, unit_bphi, unit_br)
 
-    current_fields = requested & {"JS_theta", "JS_phi", "JS_mag", "joule_heating"}
-    if current_fields:
-        if sheet_current_operators is None:
-            if geometry is None:
-                raise ValueError(
-                    "geometry is required when sheet-current operators are not supplied."
-                )
-            sheet_current_operators = build_sheet_current_operators(geometry, transform)
-        sheet_current = evaluate_sheet_current(
-            coefficients["boundary_jr"],
-            coefficients["induced_Br"],
-            boundary_jr_to_JS=sheet_current_operators["boundary_jr_to_JS"],
-            induced_Br_to_JS=sheet_current_operators["induced_Br_to_JS"],
-            boundary_Br=boundary_Br,
-            boundary_Br_to_JS=sheet_current_operators["boundary_Br_to_JS"],
-        )
-        xp = get_array_module(sheet_current)
-        if "JS_theta" in requested:
-            values["JS_theta"] = sheet_current[0]
-        if "JS_phi" in requested:
-            values["JS_phi"] = sheet_current[1]
-        if "JS_mag" in requested:
-            values["JS_mag"] = xp.hypot(sheet_current[0], sheet_current[1])
-        if "joule_heating" in requested:
-            if etaP is None or pedersen_geometry is None:
-                raise ValueError(
-                    "etaP and pedersen_geometry are required to evaluate Joule heating."
-                )
-            values["joule_heating"] = joule_heating_from_current(
-                sheet_current, etaP, pedersen_geometry
+    def evaluate(self, coefficients, *, field_names=None, boundary_Br=None, etaP=None):
+        """Evaluate flat grid fields with trailing coefficient batches.
+
+        Potentials Phi/W become volts; E is V/m, sheet current A/m,
+        induced Br tesla, boundary jr A/m², equivalent current amperes,
+        and Joule heating W/m². ``etaP`` supplies Pedersen resistance on
+        this grid when Joule heating is requested.
+        """
+        requested = set(_OUTPUT_VALUE_NAMES) if field_names is None else set(field_names)
+        if field_names is None and etaP is None:
+            requested.remove("joule_heating")
+        unknown = requested - _OUTPUT_VALUE_NAMES
+        if unknown:
+            raise ValueError(f"Unknown output fields requested: {sorted(unknown)}.")
+
+        values = {}
+
+        if "induced_Br" in requested:
+            values["induced_Br"] = self.poloidal_transform.scalar_synthesis_operator(
+                coefficients["induced_Br"]
             )
-    return values
+        if "boundary_jr" in requested:
+            values["boundary_jr"] = self.transform.scalar_synthesis_operator(
+                coefficients["boundary_jr"]
+            )
+        if "equivalent_current_function" in requested:
+            values["equivalent_current_function"] = self.equivalent_current_operator(
+                coefficients["induced_Br"]
+            )
+
+        potential_fields = requested & {"Phi", "W"}
+        if potential_fields:
+            radius = self.geometry.RI
+            horizontal_transform = self.transform
+        if "Phi" in potential_fields:
+            values["Phi"] = radius * horizontal_transform.scalar_synthesis_operator(
+                coefficients["Phi"]
+            )
+        if "W" in potential_fields:
+            values["W"] = radius * horizontal_transform.scalar_synthesis_operator(
+                coefficients["W"]
+            )
+
+        electric_fields = requested & {"E_theta", "E_phi", "E_mag"}
+        if electric_fields:
+            horizontal_transform = self.transform
+            xp = get_array_module(coefficients["Phi"], coefficients["W"])
+            E_theta, E_phi = horizontal_transform.synthesize_helmholtz(
+                xp.stack((coefficients["Phi"], coefficients["W"]))
+            )
+            if "E_theta" in requested:
+                values["E_theta"] = E_theta
+            if "E_phi" in requested:
+                values["E_phi"] = E_phi
+            if "E_mag" in requested:
+                values["E_mag"] = xp.hypot(E_theta, E_phi)
+
+        current_fields = requested & {"JS_theta", "JS_phi", "JS_mag", "joule_heating"}
+        if current_fields:
+            sheet_current = evaluate_sheet_current(
+                coefficients["boundary_jr"],
+                coefficients["induced_Br"],
+                boundary_jr_to_JS=self.sheet_current_operators["boundary_jr_to_JS"],
+                induced_Br_to_JS=self.sheet_current_operators["induced_Br_to_JS"],
+                boundary_Br=boundary_Br,
+                boundary_Br_to_JS=self.sheet_current_operators["boundary_Br_to_JS"],
+            )
+            xp = get_array_module(sheet_current)
+            if "JS_theta" in requested:
+                values["JS_theta"] = sheet_current[0]
+            if "JS_phi" in requested:
+                values["JS_phi"] = sheet_current[1]
+            if "JS_mag" in requested:
+                values["JS_mag"] = xp.hypot(sheet_current[0], sheet_current[1])
+            if "joule_heating" in requested:
+                if etaP is None:
+                    raise ValueError("etaP is required to evaluate Joule heating.")
+                # Geometry is fixed; time axes belong to J and etaP.
+                tensor = xp.asarray(self.pedersen_geometry).reshape(
+                    (2, 2, sheet_current.shape[1]) + (1,) * (sheet_current.ndim - 2)
+                )
+                values["joule_heating"] = joule_heating_from_current(sheet_current, etaP, tensor)
+        return values
 
 
 def evaluate_simulation_output(
-    source, time, *, key=None, grid=None, transform=None, interpolation=False, include_derived=True
+    source,
+    time,
+    *,
+    key=None,
+    grid=None,
+    transform=None,
+    interpolation=False,
+    field_names=None,
+    evaluation=None,
 ):
-    """Evaluate saved physical output on one spherical grid.
+    """Evaluate live or saved output as SI-valued fields on one grid.
 
-    Parameters
-    ----------
-    source : Simulation or SimulationResults
-        Live or persisted simulation containing output coefficients.
-    time : float
-        Simulation time in seconds after ``t0``.
-    key : {'dynamic', 'equilibrium'}, optional
-        Output stream. The dynamic stream is preferred when both exist.
-    grid : SphericalGrid, optional
-        Evaluation grid. Defaults to the simulation model grid.
-    transform : SphericalTransform, optional
-        Explicit transform whose grid is used for evaluation.
-    interpolation : bool, optional
-        Interpolate coefficients between stored output and input times.
-    include_derived : bool, optional
-        Include electric field, sheet current, equivalent-current
-        stream function, and Joule heating when conductance is present.
+    `source` is SimulationResults; `time` is seconds after its t0.
+    `key` selects dynamic or equilibrium (dynamic is preferred).
+    Supply a grid or a reusable transform; otherwise use the model grid.
+    Scalar queries retain the grid's broadcast shape. A non-empty
+    time array adds a trailing time axis, preserving query order.
+    Default selection omits Joule heating if conductance is missing
+    at any requested time; explicit requests then raise ValueError.
 
-    Returns
-    -------
-    dict
-        SI-valued arrays in the evaluation grid's shape. ``theta``
-        components point south and ``phi`` components point east.
+    `field_names` selects physical quantities, for example
+    `{"induced_Br", "Phi", "joule_heating"}`. Omission evaluates all
+    fields, excluding Joule heating when no conductance is available.
+    Explicit Joule requests require conductance at the requested time.
+
+    Supply ``evaluation=OutputEvaluation(geometry, grid)`` to reuse
+    physical field maps across requests. It replaces grid/transform;
+    maps are cached, never sampled field values.
+    Input and output time selection shares FieldTimeSeries semantics:
+    held values are causal, or linearly interpolated when requested.
     """
     from pynamit.results.input_fields import evaluate_projected_input
     from pynamit.results.simulation_results import SimulationResults
-    from pynamit.simulation import Simulation
 
     if grid is not None and transform is not None:
         raise ValueError("Supply either grid or transform, not both.")
-
-    if isinstance(source, Simulation):
-        output_series = source.data.output_series
-        input_series = source.data.input_series
-        geometry = source.geometry
-    elif isinstance(source, SimulationResults):
-        output_series = (
-            source.load_output_series(key) if key is not None else source.load_output_series()
-        )
-        input_series = None
-        geometry = source.geometry
-    else:
-        raise TypeError("source must be a Simulation or SimulationResults.")
-
+    if not isinstance(source, SimulationResults):
+        raise TypeError("source must be SimulationResults; use simulation.results for a live run.")
+    if evaluation is not None and (grid is not None or transform is not None):
+        raise ValueError("Supply evaluation or grid/transform, not both.")
+    if evaluation is None:
+        evaluation = OutputEvaluation(source.geometry, grid, transform=transform)
+    elif evaluation.geometry is not source.geometry:
+        raise ValueError("evaluation must use this result's geometry.")
+    transform = evaluation.transform
+    requested = set(_OUTPUT_VALUE_NAMES if field_names is None else field_names)
+    unknown = requested - _OUTPUT_VALUE_NAMES
+    if unknown:
+        raise ValueError(f"Unknown output fields requested: {sorted(unknown)}.")
+    output_series = (
+        source.load_output_series(key) if key is not None else source.load_output_series()
+    )
     key = select_output_stream(output_series.datasets, preferred=key)
-    entry = output_series.get_entry(key, time, interpolation=interpolation)
-    if entry is None:
-        raise ValueError(f"No {key!r} output is available at t={float(time):.3f}.")
-
-    if transform is None:
-        target_grid = geometry.model_grid if grid is None else grid
-        transform = SphericalTransform(geometry.horizontal_basis, target_grid)
-    basic_fields = {"induced_Br", "boundary_jr", "Phi", "W"}
-    if not include_derived:
-        return evaluate_output_coefficients(
-            entry, transform, geometry=geometry, field_names=basic_fields
-        )
-
-    if input_series is None:
-        input_series = source.load_input_series("boundary_Br", "conductance")
-
-    boundary_Br = None
-    if "boundary_Br" in input_series.datasets:
-        boundary_entry = input_series.get_entry("boundary_Br", time, interpolation=interpolation)
-        if boundary_entry is not None:
-            boundary_Br = boundary_entry["boundary_Br"]
-    field_names = basic_fields | {
-        "E_theta",
-        "E_phi",
-        "E_mag",
+    required_coefficients = requested & {"induced_Br", "boundary_jr", "Phi", "W"}
+    if requested & {
         "equivalent_current_function",
         "JS_theta",
         "JS_phi",
         "JS_mag",
-    }
-    etaP = None
-    if "conductance" in input_series.datasets:
-        conductance = evaluate_projected_input(
-            source, "conductance", time, transform=transform, interpolation=interpolation
+        "joule_heating",
+    }:
+        required_coefficients |= {"induced_Br"}
+    if requested & {"JS_theta", "JS_phi", "JS_mag", "joule_heating"}:
+        required_coefficients |= {"boundary_jr"}
+    if requested & {"E_theta", "E_phi", "E_mag"}:
+        required_coefficients |= {"Phi", "W"}
+    entry = output_series.get_entry(
+        key, time, interpolation=interpolation, variables=required_coefficients
+    )
+    if entry is None:
+        raise ValueError(f"No {key!r} output is available at one or more requested times.")
+
+    boundary_Br = None
+    if requested & {"JS_theta", "JS_phi", "JS_mag", "joule_heating"}:
+        series = source.load_input_series("boundary_Br")
+        boundary = (
+            series.get_entry("boundary_Br", time, interpolation=interpolation, fill_value=0.0)
+            if "boundary_Br" in series.datasets
+            else None
         )
-        etaP = conductance["etaP"]
-        field_names.add("joule_heating")
-    operators = build_output_evaluation_operators(
-        geometry, transform, include_joule="joule_heating" in field_names
-    )
-    return evaluate_output_coefficients(
-        entry,
-        transform,
-        geometry=geometry,
-        field_names=field_names,
-        operators=operators,
-        boundary_Br=boundary_Br,
-        etaP=etaP,
-        pedersen_geometry=operators.get("pedersen_geometry"),
-    )
+        if boundary is not None:
+            boundary_Br = boundary["boundary_Br"]
+
+    etaP = None
+    if "joule_heating" in requested:
+        series = source.load_input_series("conductance")
+        conductance = series.get_entry("conductance", time, variables=())
+        if conductance is None:
+            if field_names is not None:
+                raise ValueError(
+                    "No conductance is available at one or more requested times for Joule heating."
+                )
+            requested.remove("joule_heating")
+        else:
+            etaP = evaluate_projected_input(
+                series, "conductance", time, transform=transform, interpolation=interpolation
+            )["etaP"]
+    values = evaluation.evaluate(entry, field_names=requested, boundary_Br=boundary_Br, etaP=etaP)
+    batch_shape = () if np.ndim(time) == 0 else (len(time),)
+    return {
+        name: array.reshape(transform.grid.shape + batch_shape) for name, array in values.items()
+    }
 
 
 __all__ = [
     "evaluate_sheet_current",
     "evaluate_ground_magnetic_field",
     "build_ground_magnetic_field_operators",
-    "build_output_evaluation_operators",
-    "build_sheet_current_operators",
-    "output_at_current_time",
     "select_output_stream",
-    "evaluate_output_coefficients",
+    "OutputEvaluation",
     "evaluate_simulation_output",
 ]

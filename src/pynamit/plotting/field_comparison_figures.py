@@ -14,13 +14,13 @@ from pynamit.plotting.contours import (
     get_ticks_from_levels,
     percentile_contour_levels,
     set_contour_edges_to_face,
+    symmetric_contour_levels,
 )
 from pynamit.plotting.figure_settings import as_figure_settings
 from pynamit.plotting.figure_styles import (
     FIELD_DIFF_KWARGS,
     FIELD_PLOT_KWARGS,
     manual_color_levels,
-    manual_line_levels,
     map_line_keys,
 )
 from pynamit.plotting.hemisphere import hemisphere_masks_for_latitude, make_hemisphere_polarplot
@@ -65,10 +65,7 @@ def _draw_field_comparison_artists(
     panel_keys=("dynamic", "equilibrium", "diff"),
 ):
     """Draw dynamic, equilibrium, and difference fields."""
-    new_artists, main_mappable, diff_mappable = [], None, None
-    filled_key = None if str(filled_key) == "none" else str(filled_key)
-    overlay_keys = list(overlay_keys)
-    panel_keys = list(panel_keys)
+    main_mappable, diff_mappable = None, None
     polar_lat = lat
     polar_time = coordinate_context.longitude_to_local_time(lon)
     polar_north_mask, polar_south_mask = hemisphere_masks_for_latitude(
@@ -98,9 +95,8 @@ def _draw_field_comparison_artists(
         else:
             mask = None
 
-        for panel_index, axis in enumerate(axes):
-            panel_key = panel_keys[panel_index] if panel_index < len(panel_keys) else "empty"
-            if panel_key not in {"dynamic", "equilibrium", "diff"}:
+        for axis, panel_key in zip(axes, panel_keys, strict=True):
+            if panel_key == "empty":
                 continue
 
             if filled_key is not None:
@@ -110,7 +106,6 @@ def _draw_field_comparison_artists(
                 )
                 artist = axis.contourf(*plot_args, **transform_args, **display_kwargs)
                 set_contour_edges_to_face(artist)
-                new_artists.append(artist)
                 if panel_key in {"dynamic", "equilibrium"}:
                     main_mappable = artist
                 if panel_key == "diff":
@@ -121,9 +116,9 @@ def _draw_field_comparison_artists(
                 plot_args, transform_args = _contour_plot_arguments(
                     is_polar, mask, polar_lat, polar_time, lon, lat, overlay_fields[panel_key]
                 )
-                new_artists.append(axis.contour(*plot_args, **transform_args, **display_kwargs))
+                axis.contour(*plot_args, **transform_args, **display_kwargs)
 
-    return new_artists, main_mappable, diff_mappable
+    return main_mappable, diff_mappable
 
 
 class FieldComparisonRenderer:
@@ -149,7 +144,8 @@ class FieldComparisonRenderer:
             )
         if self.settings.show_difference and not (has_dynamic and has_equilibrium):
             raise ValueError("Difference plots require both dynamic and equilibrium outputs.")
-        field_names = set(map_line_keys(self.settings.lines))
+        line_keys = map_line_keys(self.settings.lines)
+        field_names = set(line_keys)
         if self.settings.fill != "none":
             field_names.add(self.settings.fill)
         display_coordinate_system = (
@@ -169,7 +165,7 @@ class FieldComparisonRenderer:
             display_coordinate_context = self.plot_data.magnetic_map_context(timestamp)
         plot_kwargs = {key: dict(value) for key, value in FIELD_PLOT_KWARGS.items()}
         diff_kwargs = {key: dict(value) for key, value in FIELD_DIFF_KWARGS.items()}
-        filled_key = None if str(self.settings.fill) == "none" else str(self.settings.fill)
+        filled_key = None if self.settings.fill == "none" else self.settings.fill
         if filled_key is not None:
             if self.settings.color_scale_mode == "percentile":
                 percentile_fields = []
@@ -198,9 +194,8 @@ class FieldComparisonRenderer:
                     filled_key, self.settings.manual_color_min, self.settings.manual_color_max
                 )
 
-        line_keys = map_line_keys(self.settings.lines)
         if self.settings.line_first_abs_level is not None:
-            levels = manual_line_levels(
+            levels = symmetric_contour_levels(
                 self.settings.line_first_abs_level,
                 self.settings.line_interval,
                 self.settings.line_levels_per_sign,
@@ -209,11 +204,16 @@ class FieldComparisonRenderer:
                 plot_kwargs[key]["levels"] = levels
 
         panel_specs = self._panel_specs()
-        fig, axes_groups, colorbar_axes = self._create_axes(panel_specs, timestamp)
-        _, main_mappable, diff_mappable = _draw_field_comparison_artists(
+        if self.settings.plot_type == "hemispheres":
+            fig, axes_groups, colorbar_axes = self._create_hemisphere_axes(panel_specs)
+        else:
+            fig, axes_groups, colorbar_axes = self._create_global_axes(
+                panel_specs, display_coordinate_context
+            )
+        main_mappable, diff_mappable = _draw_field_comparison_artists(
             axes_groups,
-            self.settings.fill,
-            map_line_keys(self.settings.lines),
+            filled_key,
+            line_keys,
             fields,
             display_latitude,
             display_longitude,
@@ -232,7 +232,6 @@ class FieldComparisonRenderer:
             if self.settings.fill == "none"
             else FIELD_PLOT_KWARGS[self.settings.fill]["symbol"]
         )
-        line_keys = map_line_keys(self.settings.lines)
         line_label = ", ".join(line_keys) if line_keys else "none"
         fig.suptitle(
             f"Time: {format_figure_time(timestamp)} | filled: {fill_label}; lines: {line_label}",
@@ -250,13 +249,8 @@ class FieldComparisonRenderer:
             panels.append(("diff", "Difference"))
         return panels or [("empty", "No data selected")]
 
-    def _create_axes(self, panel_specs, timestamp):
-        n_panels = max(1, len(panel_specs))
-        if self.settings.plot_type == "hemispheres":
-            return self._create_hemisphere_axes(panel_specs, n_panels)
-        return self._create_global_axes(panel_specs, n_panels, timestamp)
-
-    def _create_hemisphere_axes(self, panel_specs, n_panels):
+    def _create_hemisphere_axes(self, panel_specs):
+        n_panels = len(panel_specs)
         rows = []
         if self.settings.show_north:
             rows.append("north")
@@ -308,8 +302,8 @@ class FieldComparisonRenderer:
         ]
         return fig, axes_groups, colorbar_axes
 
-    def _create_global_axes(self, panel_specs, n_panels, timestamp):
-        coordinate_context = self.plot_data.geographic_map_context(timestamp)
+    def _create_global_axes(self, panel_specs, coordinate_context):
+        n_panels = len(panel_specs)
         fig = plt.figure(figsize=(13, 6), constrained_layout=True)
         grid = gridspec.GridSpec(
             1,
@@ -347,7 +341,7 @@ class FieldComparisonRenderer:
         self, fig, colorbar_axes, main_mappable, diff_mappable, plot_kwargs, diff_kwargs
     ):
         overlay_keys = map_line_keys(self.settings.lines)
-        filled_key = None if str(self.settings.fill) == "none" else str(self.settings.fill)
+        filled_key = None if self.settings.fill == "none" else self.settings.fill
         cax_dynamic, cax_diff, cax_lines = colorbar_axes
 
         if main_mappable is not None and filled_key is not None:
@@ -363,7 +357,7 @@ class FieldComparisonRenderer:
             colorbar = fig.colorbar(main_mappable, cax=cax_dynamic, ticks=ticks)
             colorbar.set_label(f"{kwargs.get('symbol', filled_key)} ({kwargs.get('units', '')})")
         else:
-            self._draw_line_legend(cax_dynamic, overlay_keys, plot_kwargs, "Lines")
+            draw_line_contour_legend(cax_dynamic, overlay_keys, plot_kwargs, title="Lines")
 
         if self.settings.show_difference and diff_mappable is not None and filled_key is not None:
             kwargs = diff_kwargs[filled_key]
@@ -372,7 +366,7 @@ class FieldComparisonRenderer:
             )
             colorbar.set_label(f"{kwargs.get('symbol', filled_key)} ({kwargs.get('units', '')})")
         elif self.settings.show_difference:
-            self._draw_line_legend(cax_diff, overlay_keys, diff_kwargs, "Difference lines")
+            draw_line_contour_legend(cax_diff, overlay_keys, diff_kwargs, title="Difference lines")
         else:
             cax_diff.cla()
             cax_diff.axis("off")
@@ -388,10 +382,6 @@ class FieldComparisonRenderer:
         else:
             cax_lines.cla()
             cax_lines.axis("off")
-
-    @staticmethod
-    def _draw_line_legend(axis, overlay_keys, kwargs_source, title):
-        draw_line_contour_legend(axis, overlay_keys, kwargs_source, title=title)
 
     @staticmethod
     def _draw_map_line_legend(

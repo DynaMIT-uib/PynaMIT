@@ -36,7 +36,7 @@ GROUND_QUANTITY_OPTIONS = {"b", "dbdt"}
 CURVE_SCALE_MODE_OPTIONS = {"auto", "manual"}
 COLOR_SCALE_MODE_OPTIONS = {"manual", "percentile"}
 
-_PLOT_DEFAULT_FILENAME = "pynamit_plot_defaults.json"
+FIGURE_DEFAULTS_FILENAME = "pynamit_plot_defaults.json"
 
 
 def as_figure_settings(settings):
@@ -50,7 +50,7 @@ class FigureSettings:
 
     simulation_directory: str = "."
     station_data_directory: str = ""
-    plot_type: str = "ground_curve_map"
+    plot_type: str = "global"
     time_index: int = 0
     time_range: tuple[int, int] = (0, 0)
     fill: str = "Br"
@@ -58,17 +58,17 @@ class FigureSettings:
     show_north: bool = True
     show_south: bool = True
     hemisphere_min_abs_latitude: float = 40.0
-    ground_station: str = "IPM"
+    ground_station: str = ""
     ground_component: str = "Magnitude"
     ground_quantity: str = "dbdt"
-    include_station_data: bool = True
+    include_station_data: bool = False
     show_station_labels: bool = True
     show_dynamic: bool = True
     show_equilibrium: bool = True
-    show_difference: bool = True
-    show_reference_line: bool = True
-    reference_time_of_day_utc: str = "18:31:00"
-    simulation_time_offset_seconds: float = 30.0
+    show_difference: bool = False
+    show_reference_line: bool = False
+    reference_time_of_day_utc: str = "00:00:00"
+    simulation_time_offset_seconds: float = 0.0
     data_time_offset_seconds: float = 0.0
     dbdt_window_points: int = 1
     ground_model_lt_count: int = 8
@@ -80,10 +80,10 @@ class FigureSettings:
     low_latitude_scale: float = 3.0
     show_dip_equator_curve: bool = True
     show_low_latitude_curve: bool = True
-    curve_scale_mode: str = "manual"
+    curve_scale_mode: str = "auto"
     curve_scale_value: float = 10.0
     curve_time_width_scale: float = 1.0
-    color_scale_mode: str = "manual"
+    color_scale_mode: str = "percentile"
     color_scale_percentile: float = 99.8
     manual_color_min: float | None = None
     manual_color_max: float | None = None
@@ -240,7 +240,7 @@ class FigureSettings:
     def from_simulation_directory(cls, simulation_directory, **overrides):
         """Load a simulation's optional plotting defaults."""
         simulation_directory = Path(simulation_directory).expanduser()
-        path = simulation_directory / _PLOT_DEFAULT_FILENAME
+        path = simulation_directory / FIGURE_DEFAULTS_FILENAME
         data = {}
         if path.exists():
             try:
@@ -252,7 +252,28 @@ class FigureSettings:
                 raise ValueError(f"Plotting defaults in {path} must be a JSON object.")
         data["simulation_directory"] = str(simulation_directory)
         data.update(overrides)
+        station_directory = data.get("station_data_directory")
+        if station_directory and not Path(station_directory).expanduser().is_absolute():
+            data["station_data_directory"] = str(
+                (simulation_directory / station_directory).resolve()
+            )
         return cls.from_dict(data)
+
+    def save_defaults(self, simulation_directory=None):
+        """Save plotting choices, replacing a simulation's defaults.
+
+        Loading supplies the simulation location, so copying this file
+        to another simulation does not point back to the original.
+        """
+        directory = Path(
+            self.simulation_directory if simulation_directory is None else simulation_directory
+        ).expanduser()
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / FIGURE_DEFAULTS_FILENAME
+        data = self.to_dict()
+        del data["simulation_directory"]
+        path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        return path
 
 
 def publication_script(settings, *, output_path="figure.png"):
@@ -282,6 +303,7 @@ def publication_script(settings, *, output_path="figure.png"):
 
 
 __all__ = [
+    "FIGURE_DEFAULTS_FILENAME",
     "as_figure_settings",
     "MAP_FILL_OPTIONS",
     "MAP_LINE_OPTIONS",

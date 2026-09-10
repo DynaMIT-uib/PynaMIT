@@ -17,7 +17,6 @@ def test_physical_magnetic_coordinates_roundtrip(tmp_path, horizontal_basis_kind
         horizontal_basis_kind=horizontal_basis_kind,
         enable_pfac_coupling=False,
         artifact_storage="netcdf",
-        backend="numpy",
     )
     geometry = simulation.geometry
     rng = np.random.default_rng(20260729)
@@ -64,7 +63,7 @@ def test_output_schema_persists_only_physical_magnetic_variables(tmp_path):
         artifact_storage="netcdf",
     )
 
-    assert simulation.data.schema.output_variables == {
+    assert simulation.results.schema.output_variables == {
         "dynamic": ("induced_Br", "boundary_jr", "Phi", "W"),
         "equilibrium": ("induced_Br", "boundary_jr", "Phi", "W"),
     }
@@ -79,12 +78,11 @@ def test_gap_response_has_physical_domain_and_codomain(tmp_path):
         Ncs=4,
         enable_pfac_coupling=True,
         artifact_storage="netcdf",
-        backend="numpy",
     )
     matrix = simulation.geometry.boundary_jr_to_gap_Br_matrix
-    simulation.data.save_boundary_jr_to_gap_Br_matrix_if_missing(matrix)
+    simulation.results.save_boundary_jr_to_gap_Br_matrix_if_missing(matrix)
 
-    stored = simulation.data.boundary_jr_to_gap_Br_matrix
+    stored = simulation.results.boundary_jr_to_gap_Br_matrix
     assert stored is not None
     assert stored.attrs["input_quantity"] == "boundary_jr_at_RI"
     assert stored.attrs["output_quantity"] == "unshielded_gap_Br_at_RI"

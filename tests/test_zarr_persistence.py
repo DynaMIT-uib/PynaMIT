@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -51,10 +52,6 @@ def _add_sample(ts: FieldTimeSeries, time: float, scale: float) -> None:
     ts.add_entry("sample", {"first": values, "second": -values}, time)
 
 
-def _regression_coordinates(simulation: Simulation) -> np.ndarray:
-    return magnetic_potential_coordinate_array(simulation)
-
-
 def test_artifact_store_auto_uses_netcdf_when_zarr_is_unavailable(tmp_path, monkeypatch):
     """Auto storage remains usable without optional zarr installed."""
     monkeypatch.setattr(ArtifactStore, "zarr_available", staticmethod(lambda: False))
@@ -73,6 +70,23 @@ def test_artifact_store_explicit_zarr_requires_dependency(tmp_path, monkeypatch)
 
     with pytest.raises(ImportError, match="optional 'zarr' dependency"):
         store.save_dataset(_small_dataset(), "sample")
+
+
+@pytest.mark.parametrize("zarr_module", [SimpleNamespace(), SimpleNamespace(config={})])
+def test_artifact_store_rejects_zarr_without_strict_chunk_reads(
+    tmp_path, monkeypatch, zarr_module
+):
+    """Older Zarr must not silently replace missing scientific data."""
+    from pynamit.storage import artifact_store
+
+    monkeypatch.setattr(ArtifactStore, "zarr_available", staticmethod(lambda: True))
+    monkeypatch.setattr(
+        artifact_store, "importlib", SimpleNamespace(import_module=lambda name: zarr_module)
+    )
+    store = ArtifactStore(tmp_path / "run", preferred_dataset_storage="zarr")
+    with pytest.raises(ImportError, match="zarr>=3.2"):
+        store.save_dataset(_small_dataset(), "sample")
+    assert not (tmp_path / "run" / "sample.zarr").exists()
 
 
 def test_artifact_store_scans_only_explicit_artifact_names(tmp_path):
@@ -256,12 +270,45 @@ def test_timeseries_save_appends_only_new_zarr_slices(tmp_path):
 
     _add_sample(ts, 0.0, 0.0)
     ts.save("sample", store)
+    ts = _build_sample_timeseries()
+    ts.load("sample", store)
+    ts.save("sample", store)  # An unchanged reload needs no write.
     _add_sample(ts, 1.0, 10.0)
     ts.save("sample", store)
 
     assert calls == [("sample", None, 1), ("sample", "time", 1)]
     loaded = store.load_dataset("sample")
     np.testing.assert_allclose(loaded.time.values, [0.0, 1.0])
+
+
+@pytest.mark.parametrize("interpolation", [False, True])
+def test_timeseries_selection_reads_only_the_requested_time_bracket(tmp_path, interpolation):
+    """Unrequested time chunks are not read during one selection."""
+    zarr = pytest.importorskip("zarr")
+    store = ArtifactStore(tmp_path / "run", preferred_dataset_storage="zarr")
+    source = _build_sample_timeseries()
+    _add_sample(source, 0.0, 0.0)
+    source.save("sample", store)
+    _add_sample(source, 1.0, 10.0)
+    _add_sample(source, 2.0, 20.0)
+    source.save("sample", store)
+    variable_name = source.get_data_var_name("sample", "first")
+    variable_path = tmp_path / "run" / "sample.zarr" / variable_name
+    array = zarr.open_array(variable_path, mode="r")
+    assert array.chunks == (1, source.get_field_space("sample").size)
+    # This store was initialized with one time per chunk. Remove only
+    # the third time, outside the requested [0, 1] bracket.
+    (variable_path / array.metadata.encode_chunk_key((2, 0))).unlink()
+    loaded = _build_sample_timeseries()
+    loaded.load("sample", store)
+
+    values = loaded.get_entry("sample", 0.5, interpolation=interpolation)
+
+    expected = np.arange(source.get_field_space("sample").size) + (5 if interpolation else 0)
+    np.testing.assert_allclose(values["first"], expected)
+    np.testing.assert_allclose(values["second"], -expected)
+    with pytest.raises(zarr.errors.ChunkNotFoundError):
+        loaded.get_entry("sample", 2.0)
 
 
 def test_timeseries_rewrites_zarr_for_same_time_replacement(tmp_path):
@@ -319,9 +366,9 @@ def test_run_example_default_simulation_directories_are_isolated(backend, data_s
         artifact_storage="netcdf",
     )
 
-    assert first.data.simulation_directory != second.data.simulation_directory
-    assert Path(first.data.simulation_directory, "settings.ncdf").is_file()
-    assert Path(second.data.simulation_directory, "settings.ncdf").is_file()
+    assert first.results.simulation_directory != second.results.simulation_directory
+    assert Path(first.results.simulation_directory, "settings.ncdf").is_file()
+    assert Path(second.results.simulation_directory, "settings.ncdf").is_file()
 
 
 @pytest.mark.parametrize(("backend", "data_source"), [("numpy", "fallback")])
@@ -335,6 +382,7 @@ def test_simulation_restart_continues_to_match_direct_simulation(
 
     common_kwargs = dict(
         dt=0.05,
+        output_interval=0.05,
         Nmax=4,
         Mmax=3,
         Ncs=8,
@@ -359,16 +407,19 @@ def test_simulation_restart_continues_to_match_direct_simulation(
     resumed.evolve_to_time(
         t=0.1,
         dt=0.05,
-        steps_per_sample=1,
+        output_interval=0.05,
         samples_per_write=1,
         initialize_from_equilibrium=False,
         quiet=True,
     )
 
     np.testing.assert_allclose(
-        _regression_coordinates(resumed), _regression_coordinates(direct), rtol=1e-10, atol=0.0
+        magnetic_potential_coordinate_array(resumed),
+        magnetic_potential_coordinate_array(direct),
+        rtol=1e-10,
+        atol=0.0,
     )
     np.testing.assert_allclose(
-        resumed.data.output_series.datasets["dynamic"].time.values,
-        direct.data.output_series.datasets["dynamic"].time.values,
+        resumed.results.output_series.datasets["dynamic"].time.values,
+        direct.results.output_series.datasets["dynamic"].time.values,
     )

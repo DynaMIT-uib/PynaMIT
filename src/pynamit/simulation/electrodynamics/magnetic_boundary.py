@@ -41,7 +41,12 @@ def _poloidal_degree_factor(solid_harmonics):
 
 
 def poloidal_potential_to_gridded_JS_operator(solid_harmonics, transform, *, poloidal_scale=None):
-    """Map private poloidal-potential coefficients to sheet current."""
+    """Map poloidal coefficients to gridded sheet current.
+
+    The radial operators own the poloidal basis. The supplied transform
+    contributes the grid and reuses its cached basis transforms.
+    """
+    transform = transform.with_basis(solid_harmonics.basis)
     scale = _coefficient_scale(solid_harmonics.poloidal_to_normalized_potential_jump_factors)
     if poloidal_scale is not None:
         xp = get_array_module(scale, poloidal_scale)
@@ -204,7 +209,6 @@ def toroidal_potential_to_gridded_JS_operator(
     solid_harmonics,
     horizontal_transform,
     *,
-    poloidal_transform,
     toroidal_potential_to_boundary_jr,
     boundary_jr_to_gap_Br=None,
 ):
@@ -213,7 +217,7 @@ def toroidal_potential_to_gridded_JS_operator(
     if boundary_jr_to_gap_Br is None:
         return direct_sheet_current
     gap_shielding_current = (
-        external_Br_to_gridded_JS_operator(solid_harmonics, poloidal_transform)
+        external_Br_to_gridded_JS_operator(solid_harmonics, horizontal_transform)
         @ boundary_jr_to_gap_Br
         @ toroidal_potential_to_boundary_jr
     )
@@ -224,7 +228,6 @@ def boundary_jr_to_gridded_JS_operator(
     solid_harmonics,
     horizontal_transform,
     *,
-    poloidal_transform,
     boundary_jr_to_toroidal_potential,
     boundary_jr_to_gap_Br=None,
 ):
@@ -242,7 +245,7 @@ def boundary_jr_to_gridded_JS_operator(
     if boundary_jr_to_gap_Br is None:
         return direct_sheet_current
     gap_shielding_current = (
-        external_Br_to_gridded_JS_operator(solid_harmonics, poloidal_transform)
+        external_Br_to_gridded_JS_operator(solid_harmonics, horizontal_transform)
         @ boundary_jr_to_gap_Br
     )
     return direct_sheet_current + gap_shielding_current

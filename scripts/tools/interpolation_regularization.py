@@ -219,14 +219,14 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
             else input_spherical_transform.apply_scalar_regularization
         )
 
-        input_sh = kompe.FieldCoefficients(field_space, analyze_input(input_grid_values))
+        input_sh = field_space.project_mean_free(analyze_input(input_grid_values))
 
         print(f"Interpolation with Nmax = {Nmax:d}, Mmax = {Mmax:d}:, reg lambda: {reg_lambda:e}")
 
         if L_CURVE:
             reg_lambda_values.append(reg_lambda)
-            # sh_norms.append(np.linalg.norm(input_sh.array))
-            sh_norms.append(np.linalg.norm(apply_regularization(input_sh.array)))
+            # sh_norms.append(np.linalg.norm(input_sh))
+            sh_norms.append(np.linalg.norm(apply_regularization(input_sh)))
             input_sh_on_input_grid = synthesize_input(input_sh)
             sh_residual_norms.append(
                 np.linalg.norm(input_sh_on_input_grid - input_grid_values)
@@ -243,12 +243,12 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
             print(f"   Relative grid error = {relative_grid_errors[-1]:e}")
 
         if SH_COMPARISON:
-            cs_interpolated_output_sh = kompe.FieldCoefficients(
-                field_space, analyze_output(interpolated_data)
+            cs_interpolated_output_sh = field_space.project_mean_free(
+                analyze_output(interpolated_data)
             )
             relative_coeff_errors.append(
-                np.linalg.norm(cs_interpolated_output_sh.array - input_sh.array)
-                / np.linalg.norm(cs_interpolated_output_sh.array)
+                np.linalg.norm(cs_interpolated_output_sh - input_sh)
+                / np.linalg.norm(cs_interpolated_output_sh)
             )
             print(f"   Relative coefficient error = {relative_coeff_errors[-1]:e}")
 
@@ -306,8 +306,8 @@ for reg_lambda in np.logspace(MIN_REG_LAMBDA_LOG, MAX_REG_LAMBDA_LOG, REG_LAMBDA
 
             if SH_COMPARISON:
                 coeff_fig, (coeff_cs_ax, coeff_sh_ax) = plt.subplots(1, 2, figsize=(20, 5))
-                abs_coeff_cs = np.abs(cs_interpolated_output_sh.array)
-                abs_coeff_sh = np.abs(input_sh.array)
+                abs_coeff_cs = np.abs(cs_interpolated_output_sh)
+                abs_coeff_sh = np.abs(input_sh)
 
                 coeff_cs_ax.set_title("Cubed sphere coefficient magnitudes")
                 coeff_sh_ax.set_title("Spherical harmonics coefficient magnitudes")

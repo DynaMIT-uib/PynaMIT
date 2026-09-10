@@ -1,5 +1,6 @@
 """Oscillating input simulation."""
 
+from kompe import SphericalGrid
 import numpy as np
 import pynamit
 from lompe import conductance
@@ -103,7 +104,9 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
     # Add starlight.
     hall_EUV, pedersen_EUV = (np.sqrt(hall_EUV**2 + 1), np.sqrt(pedersen_EUV**2 + 1))
     simulation.set_conductance(
-        pedersen=pedersen_EUV, hall=hall_EUV, lat=conductance_lat, lon=conductance_lon
+        pedersen=pedersen_EUV,
+        hall=hall_EUV,
+        grid=SphericalGrid(lat=conductance_lat, lon=conductance_lon),
     )
 
     # Get and set static jr input.
@@ -118,9 +121,10 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
     jr[np.abs(jr_lat) < 50] = 0  # Filter low latitude jr
 
     if STEADY_STATE_INITIALIZATION:
-        simulation.set_boundary_jr(boundary_jr=jr, lat=jr_lat, lon=jr_lon)
+        simulation.set_boundary_jr(boundary_jr=jr, grid=SphericalGrid(lat=jr_lat, lon=jr_lon))
 
-        simulation.impose_equilibrium()
+        simulation.set_state(simulation.equilibrium_coefficients(interpolation=True)["induced_Br"])
+        simulation.record_state(save=True)
 
     # Create array that will store all jr values.
     time_values = np.arange(
@@ -170,7 +174,7 @@ for JR_PERIOD in [50, 25, 10, 5, 1]:
 
     print("Setting jr", flush=True)
     simulation.set_boundary_jr(
-        boundary_jr=scaled_jr_values, lat=jr_lat, lon=jr_lon, time=time_values
+        boundary_jr=scaled_jr_values, time=time_values, grid=SphericalGrid(lat=jr_lat, lon=jr_lon)
     )
 
     print("Starting simulation", flush=True)

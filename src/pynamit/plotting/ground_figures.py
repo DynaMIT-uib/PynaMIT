@@ -32,7 +32,7 @@ from pynamit.plotting.map_curves import (
 )
 from pynamit.plotting.plot_data import get_plot_data
 from pynamit.results.magnetic_signals import ground_signal_at_times, station_signal_at_times
-from pynamit.results.time_series import centered_difference_at_times, median_cadence_seconds
+from pynamit.results.time_series import median_cadence_seconds, time_derivative_at_times
 
 
 class GroundFigureRenderer:
@@ -252,7 +252,7 @@ class GroundFigureRenderer:
                 values = measured.loc[x_start:x_end, component]
                 if self.settings.ground_quantity == "dbdt":
                     values = pd.Series(
-                        centered_difference_at_times(
+                        time_derivative_at_times(
                             measured.index,
                             measured[component].to_numpy(dtype=float),
                             values.index,
@@ -608,7 +608,10 @@ class GroundFigureRenderer:
         ):
             return handles
 
-        fields = self.plot_data.input_plot_data_at_time(target_time)
+        model_time = (
+            pd.Timestamp(target_time) - pd.Timestamp(self.plot_data.results.config.t0)
+        ) / pd.Timedelta(seconds=1)
+        fields = self.plot_data.input_plot_data_at_time(model_time)
 
         overlay_specs = [
             (

@@ -22,6 +22,40 @@ from pynamit.simulation.config import SimulationConfig
 from pynamit.simulation.geometry import build_main_field
 
 
+def test_dipole_mapping_preserves_field_line_shell_and_apex_current():
+    """Preserve the dipole shell and apex current along field lines."""
+    from kompe import SphericalGrid
+    from kompe.constants import EARTH_RADIUS_M
+
+    main_field = MainField("dipole", B0=3e-5)
+    radius = EARTH_RADIUS_M
+    theta = np.array([25.0, 60.0, 120.0, 155.0])
+    phi = np.array([0.0, 20.0, 120.0, 200.0])
+    mapped_theta, mapped_phi = main_field.map_along_field_lines(1.1 * radius, radius, theta, phi)
+    np.testing.assert_allclose(
+        radius / np.sin(np.deg2rad(theta)) ** 2,
+        1.1 * radius / np.sin(np.deg2rad(mapped_theta)) ** 2,
+        rtol=1e-14,
+    )
+    np.testing.assert_allclose(mapped_phi, phi)
+    currents = []
+    for r, t, p in ((radius, theta, phi), (1.1 * radius, mapped_theta, mapped_phi)):
+        grid = SphericalGrid(theta=t, phi=p)
+        B = np.asarray(main_field.evaluate(grid, r))
+        # A current proportional to B is divergence-free and aligned.
+        currents.append(np.asarray(main_field.radial_to_apex_scale(grid, r)) * B[0])
+    np.testing.assert_allclose(currents[0], currents[1], rtol=1e-13)
+
+
+def test_dipole_apex_mapping_does_not_invent_a_field_line():
+    """An apex maps to two lower footpoints, not another apex."""
+    main_field = MainField("dipole")
+    with pytest.raises(ValueError, match="hemisphere"):
+        main_field.map_along_field_lines(6.5e6, 7e6, 90.0, 0.0)
+    theta, phi = main_field.map_along_field_lines(7e6, 7e6, 90.0, 0.0)
+    np.testing.assert_allclose([theta, phi], [90.0, 0.0])
+
+
 def test_dipole_B0_override_preserves_epoch_alignment():
     """Dipole B0 changes magnitude without moving the pole."""
     epoch = 2011
