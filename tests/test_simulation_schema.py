@@ -2,25 +2,26 @@
 
 import numpy as np
 import pytest
-import xarray as xr
 
 from pynamit.simulation.config import (
+    SimulationConfig,
     normalize_horizontal_basis_kind,
-    normalize_projection_basis_kind,
-    resolve_projection_basis_settings,
-    setting_value,
+    normalize_input_remapping,
+    resolve_input_remapping,
 )
-from pynamit.simulation.schema import build_simulation_schema, field_spaces_from_bases
+from pynamit.simulation.geometry import SimulationGeometry
+from pynamit.simulation.schema import INPUT_VARIABLES, build_simulation_schema
+
+
+def _geometry_and_schema(config):
+    geometry = SimulationGeometry.from_config(config)
+    return geometry, build_simulation_schema(geometry, config)
 
 
 def _settings(**attrs):
-    defaults = {
-        "Nmax": 3,
-        "Mmax": 2,
-        "Ncs": 4,
-    }
+    defaults = {"Nmax": 3, "Mmax": 2, "Ncs": 4}
     defaults.update(attrs)
-    return xr.Dataset(attrs=defaults)
+    return SimulationConfig(**defaults)
 
 
 def test_horizontal_basis_kind_is_simulation_policy():
@@ -31,148 +32,186 @@ def test_horizontal_basis_kind_is_simulation_policy():
         normalize_horizontal_basis_kind("grid")
 
 
-def test_projection_basis_kind_is_input_policy():
-    """Normalize projection-basis choices within simulation policy."""
-    assert normalize_projection_basis_kind(" sh ", name="jr_projection_basis") == "SH"
-    assert normalize_projection_basis_kind("cs", name="u_projection_basis") == "CS"
-    with pytest.raises(ValueError, match="jr_projection_basis"):
-        normalize_projection_basis_kind("grid", name="jr_projection_basis")
+def test_remapping_is_input_policy():
+    """Normalize sample-remapping choices within simulation policy."""
+    assert normalize_input_remapping(" direct ", name="boundary_jr_remapping") == "direct"
+    assert normalize_input_remapping("cs", name="u_remapping") == "CS"
+    with pytest.raises(ValueError, match="boundary_jr_remapping"):
+        normalize_input_remapping("grid", name="boundary_jr_remapping")
 
 
-def test_projection_basis_settings_resolve_defaults_and_inheritance():
-    """Projection-basis settings share one normalization path."""
-    settings = {"u_projection_basis": "CS"}
+def test_remapping_settings_resolve_defaults_and_inheritance():
+    """Remapping settings share one normalization path."""
+    settings = {"u_remapping": "CS"}
 
-    resolved = resolve_projection_basis_settings(settings, "SH")
+    resolved = resolve_input_remapping(settings, "SH")
 
     assert resolved == {
-        "jr_projection_basis": "SH",
-        "Br_projection_basis": "SH",
-        "conductance_projection_basis": "SH",
-        "u_projection_basis": "CS",
-        "Q_eff_projection_basis": "CS",
+        "boundary_jr_remapping": "direct",
+        "boundary_Br_remapping": "direct",
+        "u_remapping": "CS",
+        "E_neutral_wind_remapping": "direct",
+        "Q_eff_remapping": "CS",
     }
 
 
-def test_projection_basis_settings_reject_sh_projection_in_cs_mode():
-    """CS horizontal state mode requires CS input settings."""
-    with pytest.raises(ValueError, match="jr_projection_basis"):
-        resolve_projection_basis_settings({"jr_projection_basis": "SH"}, "CS")
-
-
-def test_setting_value_accepts_attrs_and_data_vars():
-    """Settings access unwraps saved scalar values at the boundary."""
-    attr_settings = xr.Dataset(attrs={"Nmax": np.array(3)})
-    data_var_settings = xr.Dataset({"Nmax": ((), np.array(4))})
-    mapping_settings = {"Nmax": np.array(5)}
-
-    assert setting_value(attr_settings, "Nmax") == 3
-    assert setting_value(data_var_settings, "Nmax") == 4
-    assert setting_value(mapping_settings, "Nmax") == 5
-    assert setting_value(attr_settings, "missing", "fallback") == "fallback"
+def test_remapping_settings_require_model_nodes_in_cs_mode():
+    """A CS horizontal basis requires matching CS input settings."""
+    with pytest.raises(ValueError, match="boundary_jr_remapping"):
+        resolve_input_remapping({"boundary_jr_remapping": "direct"}, "CS")
 
 
 def test_sh_schema_uses_mean_free_sh_inputs_and_outputs():
     """SH mode keeps the established mean-free SH storage choices."""
-    schema = build_simulation_schema(_settings(), "SH")
+    geometry, schema = _geometry_and_schema(_settings())
 
-    assert schema.horizontal_basis is schema.sh_basis_mean_free
-    assert schema.solid_harmonics.basis is schema.horizontal_basis
-    assert schema.input_field_spaces["jr"].representation is schema.sh_basis_mean_free
-    assert schema.input_field_spaces["Br"].representation is schema.sh_basis_mean_free
-    assert schema.input_field_spaces["u"].representation is schema.sh_basis_mean_free
-    assert schema.input_field_spaces["Q_eff"].representation is schema.sh_basis_mean_free
-    assert schema.input_field_spaces["conductance"].representation is schema.sh_basis
-    assert schema.output_field_spaces["state"].representation is schema.horizontal_basis
+    assert geometry.horizontal_basis is geometry.poloidal_basis
+    assert geometry.solid_harmonics.basis is geometry.horizontal_basis
+    assert schema.input_field_spaces["boundary_jr"].basis is geometry.poloidal_basis
+    assert schema.input_field_spaces["boundary_Br"].basis is geometry.poloidal_basis
+    assert schema.input_field_spaces["u"].basis is geometry.poloidal_basis
+    assert schema.input_field_spaces["Q_eff"].basis is geometry.poloidal_basis
+    assert schema.input_field_spaces["conductance"].basis is geometry.sh_basis
+    assert all(
+        space.basis is geometry.horizontal_basis
+        for space in schema.output_field_spaces["dynamic"].values()
+    )
 
-    assert schema.input_field_spaces["jr"].mean_free
-    assert schema.input_field_spaces["Br"].mean_free
+    assert schema.input_field_spaces["boundary_jr"].mean_free
+    assert schema.input_field_spaces["boundary_Br"].mean_free
     assert schema.input_field_spaces["u"].mean_free
     assert schema.input_field_spaces["Q_eff"].mean_free
     assert not schema.input_field_spaces["conductance"].mean_free
-    assert schema.output_field_spaces["state"].mean_free
+    assert schema.output_field_spaces["dynamic"]["induced_Br"].mean_free
+    assert not schema.output_field_spaces["dynamic"]["boundary_jr"].mean_free
+    assert schema.output_field_spaces["dynamic"]["Phi"].mean_free
+    assert schema.output_field_spaces["dynamic"]["W"].mean_free
 
 
-def test_cs_schema_uses_full_length_storage_with_mean_free_intent():
-    """CS mode stores full grid coefficients with zero-mean intent."""
-    schema = build_simulation_schema(_settings(), "cs")
+def test_cs_schema_separates_poloidal_and_surface_output_spaces():
+    """Keep radial magnetic quantities in mean-free SH space."""
+    geometry, schema = _geometry_and_schema(_settings(horizontal_basis_kind="cs"))
 
-    assert schema.horizontal_basis is schema.cs_basis
-    assert schema.solid_harmonics.basis is schema.sh_basis_mean_free
+    assert geometry.horizontal_basis is geometry.cs_basis
+    assert geometry.solid_harmonics.basis is geometry.poloidal_basis
+    assert schema.input_field_spaces["boundary_Br"].basis is geometry.poloidal_basis
     assert all(
-        space.representation is schema.cs_basis
-        for space in schema.input_field_spaces.values()
-    )
-    assert all(
-        space.representation is schema.cs_basis
-        for space in schema.output_field_spaces.values()
-    )
-    assert all(
-        basis is schema.cs_basis for basis in schema.input_projection_bases.values()
+        space.basis is geometry.cs_basis
+        for key, space in schema.input_field_spaces.items()
+        if key != "boundary_Br"
     )
 
-    state_space = schema.output_field_spaces["state"]
-    assert state_space.mean_free
-    assert state_space.index_length == schema.cs_basis.index_length
-    assert state_space.coefficient_length == schema.cs_basis.index_length
+    output_spaces = schema.output_field_spaces["dynamic"]
+    assert output_spaces["induced_Br"].basis is geometry.poloidal_basis
+    assert all(
+        output_spaces[name].basis is geometry.cs_basis for name in ("boundary_jr", "Phi", "W")
+    )
+    assert output_spaces["induced_Br"].mean_free
+    assert not output_spaces["boundary_jr"].mean_free
+    assert output_spaces["Phi"].mean_free
+    assert output_spaces["W"].mean_free
 
 
-def test_schema_respects_input_projection_basis_for_sh_mode():
-    """Input projection choices are explicit in SH mode."""
-    schema = build_simulation_schema(
+def test_remapping_does_not_change_coefficient_spaces():
+    """Remapping leaves coefficient spaces fixed."""
+    geometry, schema = _geometry_and_schema(
         _settings(
-            jr_projection_basis="CS",
-            Br_projection_basis="CS",
-            conductance_projection_basis="CS",
-            u_projection_basis="CS",
-            Q_eff_projection_basis="CS",
-        ),
-        "SH",
+            boundary_jr_remapping="CS",
+            boundary_Br_remapping="CS",
+            conductance_basis="CS",
+            u_remapping="CS",
+            Q_eff_remapping="CS",
+            E_neutral_wind_remapping="CS",
+        )
     )
 
-    assert schema.input_field_spaces["jr"].representation is schema.sh_basis_mean_free
-    assert schema.input_field_spaces["conductance"].representation is schema.cs_basis
-    assert all(
-        basis is schema.cs_basis for basis in schema.input_projection_bases.values()
-    )
+    assert schema.input_field_spaces["boundary_jr"].basis is geometry.poloidal_basis
+    assert schema.input_field_spaces["conductance"].basis is geometry.cs_basis
 
 
 def test_sh_schema_can_store_conductance_on_cs_grid():
-    """CS conductance projection basis keeps SH state storage."""
-    schema = build_simulation_schema(_settings(conductance_projection_basis="CS"), "SH")
+    """CS conductance storage keeps the SH horizontal basis."""
+    geometry, schema = _geometry_and_schema(_settings(conductance_basis="CS"))
 
-    assert schema.horizontal_basis is schema.sh_basis_mean_free
-    assert schema.input_field_spaces["conductance"].representation is schema.cs_basis
-    assert schema.input_projection_bases["conductance"] is schema.cs_basis
+    assert geometry.horizontal_basis is geometry.poloidal_basis
+    assert schema.input_field_spaces["conductance"].basis is geometry.cs_basis
     assert not schema.input_field_spaces["conductance"].mean_free
 
 
-def test_field_spaces_from_bases_rejects_invalid_field_type():
-    """Field spaces reject invalid field type metadata."""
-    schema = build_simulation_schema(_settings(), "SH")
+@pytest.mark.parametrize("horizontal_basis_kind", ["SH", "CS"])
+def test_schema_creates_independent_input_series_with_physical_metadata(horizontal_basis_kind):
+    """Input streams keep their units and UTC origin in either basis."""
+    config = _settings(horizontal_basis_kind=horizontal_basis_kind)
+    geometry, schema = _geometry_and_schema(config)
+    series = schema.create_input_series(time_origin=config.t0)
+    other = schema.create_input_series(time_origin=config.t0)
+    expected_units = {
+        "boundary_jr": "A m-2",
+        "boundary_Br": "T",
+        "conductance": "1",
+        "u": "m s-1",
+        "Q_eff": "A m-1",
+        "E_neutral_wind": "V m-1",
+    }
 
-    with pytest.raises(ValueError, match="field_type"):
-        field_spaces_from_bases(
-            {"bad": schema.sh_basis},
-            {"bad": "vector"},
-        )
+    for key, units in expected_units.items():
+        space = schema.input_field_spaces[key]
+        data = {name: np.zeros(space.shape) for name in schema.input_variables[key]}
+        series.add_entry(key, data, time=3.0)
+        dataset = series.datasets[key]
+        row = series.get_entry(key, 3.0)
+        assert dataset.time.attrs["time_origin"] == config.t0
+        assert dataset.time.attrs["units"] == "s"
+        for name in data:
+            variable = series.get_data_var_name(key, name)
+            assert dataset[variable].attrs["units"] == units
+            np.testing.assert_array_equal(row[name], data[name])
+
+    assert other.datasets == {}
 
 
-def test_field_spaces_from_bases_requires_matching_keys():
-    """Basis and field-type schemas must describe the same groups."""
-    schema = build_simulation_schema(_settings(), "SH")
+@pytest.mark.parametrize("horizontal_basis_kind", ["SH", "CS"])
+def test_schema_creates_independent_output_series_with_physical_metadata(horizontal_basis_kind):
+    """Output streams keep units and mixed SH/CS coefficient layouts."""
+    config = _settings(horizontal_basis_kind=horizontal_basis_kind)
+    geometry, schema = _geometry_and_schema(config)
+    series = schema.create_output_series(time_origin=config.t0)
+    other = schema.create_output_series(time_origin=config.t0)
+    expected_units = {"induced_Br": "T", "boundary_jr": "A m-2", "Phi": "V m-1", "W": "V m-1"}
 
-    with pytest.raises(ValueError, match="same keys"):
-        field_spaces_from_bases({"bad": schema.sh_basis}, {})
+    for key, spaces in schema.output_field_spaces.items():
+        data = {name: np.zeros(space.shape) for name, space in spaces.items()}
+        series.add_entry(key, data, time=3.0)
+        dataset = series.datasets[key]
+        row = series.get_entry(key, 3.0)
+        assert dataset.time.attrs["time_origin"] == config.t0
+        assert dataset.time.attrs["units"] == "s"
+        for name, units in expected_units.items():
+            variable = series.get_data_var_name(key, name)
+            assert dataset[variable].attrs["units"] == units
+            np.testing.assert_array_equal(row[name], data[name])
+
+    assert other.datasets == {}
 
 
-def test_schema_mean_free_projection_is_operational_for_cs_state_space():
-    """Schema FieldSpace metadata can project CS coefficients."""
-    schema = build_simulation_schema(_settings(), "CS")
-    field_space = schema.output_field_spaces["state"]
-    coeffs = np.linspace(0.0, 1.0, field_space.index_length) + 5.0
+def test_schema_mean_free_projection_is_operational_for_cs_potential_space():
+    """Surface-potential metadata applies the CS mean-free gauge."""
+    geometry, schema = _geometry_and_schema(_settings(horizontal_basis_kind="CS"))
+    field_space = schema.output_field_spaces["dynamic"]["Phi"]
+    coeffs = np.linspace(0.0, 1.0, field_space.coefficient_count) + 5.0
 
     projected = field_space.project_mean_free(coeffs)
 
     assert projected.shape == coeffs.shape
-    np.testing.assert_allclose(schema.cs_basis.scalar_mean(projected), 0.0, atol=1e-12)
+    np.testing.assert_allclose(geometry.cs_basis.scalar_mean(projected), 0.0, atol=1e-12)
+
+
+def test_schema_mappings_are_ordinary_independent_dictionaries():
+    """Keep storage metadata inspectable without aliasing constants."""
+    geometry, schema = _geometry_and_schema(_settings())
+
+    schema.input_variables["new"] = ("value",)
+
+    assert isinstance(schema.input_variables, dict)
+    assert isinstance(schema.output_field_spaces["dynamic"], dict)
+    assert "new" not in INPUT_VARIABLES

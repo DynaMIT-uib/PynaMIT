@@ -1,17 +1,28 @@
-Sphere Operators
-================
+Kompe Sphere Operators
+======================
 
-The ``pynamit.sphere`` package contains spherical representations,
-surface bases, transforms, and solid-harmonic radial operations.
+The standalone ``kompe`` package owns spherical grids, surface bases,
+transforms, and solid-harmonic radial operations. PynaMIT imports these
+objects directly.
 
-``Grid`` and the basis classes are spherical representations.  ``Grid``
-stores sampled values, while ``SHBasis`` and ``CSBasis`` reconstruct
-functions and provide surface operators.  Both basis classes implement
-the same ``SurfaceOperators`` interface.
+``SphericalGrid`` stores sample coordinates and optional weights, while
+``SHBasis`` and ``GlobalCSBasis`` reconstruct functions and provide surface
+operators. Both basis classes implement
+the same ``SurfaceDifferentialBasis`` interface.
 
 ``SphericalTransform`` also belongs to this package.  It performs
 analysis and synthesis between a surface basis and a spherical grid for
 both scalar and tangential Helmholtz fields.
+
+Kompe also accepts scalar-only bases for scalar transforms. This does not
+make them suitable for PynaMIT's closed-surface induction model, which still
+requires the operators and physical gauges of ``SurfaceDifferentialBasis``.
+
+Evaluation-cache policy is shared by scalar and vector operators. Transient
+magnetic-boundary evaluations disable disk access with
+``use_persistent_evaluation_cache=False``; bounded in-memory reuse remains
+available. SH vector operators reuse derivative components, and materialize
+stacked arrays only when explicitly requested.
 
 Horizontal Surface Convention
 -----------------------------
@@ -19,6 +30,10 @@ Horizontal Surface Convention
 Tangential Helmholtz coefficients are ordered as two scalar potentials:
 
 ``(curl-free potential, divergence-free potential)``.
+
+PynaMIT's direct tangential-input setters therefore accept one coefficient
+array with shape ``(2, N)``, or ``(T, 2, N)`` for multiple times. Sampled
+physical vector components remain separate ``theta`` and ``phi`` arguments.
 
 The synthesized tangential field is
 
@@ -32,7 +47,7 @@ and
 
 ``radial_curl(F) = surface_laplacian(psi)``.
 
-These identities are exposed by the shared ``SurfaceOperators`` methods,
+These identities are exposed by the shared ``SurfaceDifferentialBasis`` methods,
 so code outside the basis implementations can ask for scalar evaluation,
 surface gradients, Helmholtz synthesis, surface divergence, radial curl,
 and surface Laplacian through the same interface for SH and CS bases.
@@ -43,7 +58,7 @@ Surface Bases Versus Solid Harmonics
 ------------------------------------
 
 The surface basis describes functions on one spherical surface.
-``SolidHarmonics`` is a separate object wrapping an ``SHBasis``.  It
+``SolidHarmonicOperators`` is a separate object wrapping an ``SHBasis``.  It
 describes how the wrapped angular coefficients participate in regular
 and irregular three-dimensional Laplace solutions.  Radial operations
 are deliberately not methods on ``SHBasis`` because a surface basis does
@@ -64,32 +79,44 @@ coefficients by ``(start/end)^(n+2)``.  The extra power comes from the
 leading reference-radius factor ``R``, not from the normalization of
 the angular spherical harmonics.
 
-The stored PynaMIT poloidal coefficient ``m_nm`` is not either raw
-potential coefficient.  At the reference sphere,
+PynaMIT's private poloidal coordinate ``k_nm`` is not either raw
+potential coefficient. At the reference sphere,
 
-``q_nm = -(n+1) m_nm``
+``q_nm = -(n+1) k_nm``
 
 and
 
-``g_nm = n m_nm``.
+``g_nm = n k_nm``.
 
-Consequently, ``B_r = n(n+1) m_nm Y_nm`` and
-``(V_irregular - V_regular) / R = (2n+1) m_nm Y_nm``.  These conversions
-are explicit ``SolidHarmonics`` operations.  No additional conversion
+Consequently, ``B_r = n(n+1) k_nm Y_nm`` and
+``(V_irregular - V_regular) / R = (2n+1) k_nm Y_nm``. The public evolving
+and saved quantity is physical ``induced_Br``, not ``k_nm``. These conversions
+are explicit ``SolidHarmonicOperators`` operations.  No additional conversion
 factor is needed for a reference-radius shift because the
 degree-dependent coefficient conversions cancel in the ratio.
 
 When the horizontal basis is CS, radial terms are handled by projecting
 between CS horizontal coefficients and the SH basis wrapped by
-``SolidHarmonics``.  This keeps the CS finite-difference operators local
+``SolidHarmonicOperators``.  This keeps the CS finite-difference operators local
 to the surface while retaining SH angular coefficients for radial
 Laplace physics.
 
 Regularization
 --------------
 
-Current least-squares regularization is a degree-weighted spectral
-penalty and therefore requires harmonic degree metadata.  The transform
-constructs those penalties using the Helmholtz selector operators, but
-the weighting policy itself is not part of the shared surface-basis
-interface.
+Least-squares input projection uses surface-smoothness penalties and
+therefore requires harmonic degree metadata.  With the real Schmidt
+normalization used by PynaMIT, ``q_n = 1 / (2 n + 1)`` and
+``mu_n = n (n + 1)``.  Scalar fields use
+``L_n = sqrt(q_n mu_n)``, the square root of surface-gradient energy.
+Tangential fields represented as
+``F = -grad(phi) + rhat cross grad(psi)`` use
+``L_n = sqrt(q_n) mu_n`` for *both* potentials, corresponding to equal
+surface divergence/curl smoothness.  The degree-zero scalar mode is
+unpenalized, so a dimensionless logarithmic field is invariant to its
+fixed reference scale.
+
+These projection penalties are deliberately distinct from the optional
+toroidal-potential inverse-problem regularization. The latter acts on the
+private coordinate used to satisfy physical ``boundary_jr`` and
+interhemispheric constraints rather than on generic sampled input fields.

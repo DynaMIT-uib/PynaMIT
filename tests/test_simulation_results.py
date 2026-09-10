@@ -1,0 +1,288 @@
+"""Shared result ownership, persistence, and restart contracts."""
+
+import numpy as np
+import pytest
+import xarray as xr
+
+import pynamit
+from pynamit.results.simulation_results import SimulationResults
+from pynamit.simulation.config import SimulationConfig
+from pynamit.simulation.simulation import Simulation
+from pynamit.storage import ArtifactStore
+
+
+def _settings(**attrs):
+    defaults = {"Nmax": 3, "Mmax": 2, "Ncs": 4}
+    defaults.update(attrs)
+    return xr.Dataset(attrs=defaults)
+
+
+def _output_payload(n_magnetic, n_surface):
+    return {
+        "induced_Br": np.zeros(n_magnetic),
+        "boundary_jr": np.zeros(n_surface),
+        "Phi": np.zeros(n_surface),
+        "W": np.zeros(n_surface),
+    }
+
+
+def test_public_simulation_name_is_canonical():
+    """The public facade has one descriptive class name."""
+    assert pynamit.Simulation is Simulation
+    assert "Dynamics" not in pynamit.__all__
+    assert not hasattr(pynamit, "Dynamics")
+
+
+def test_invalid_settings_fail_before_creating_a_directory(monkeypatch):
+    """Configuration validation precedes persistence side effects."""
+
+    def unexpected_directory():
+        pytest.fail("Invalid settings must not create a temporary directory.")
+
+    monkeypatch.setattr(ArtifactStore, "create_temporary_directory", unexpected_directory)
+    with pytest.raises(ValueError, match="Nmax"):
+        SimulationResults.open({"Nmax": -1})
+
+
+def test_simulation_results_owns_schema_artifacts_and_field_series(tmp_path):
+    """The shared owner creates and reloads persisted histories."""
+    simulation_directory = tmp_path / "simulation"
+    settings = _settings(horizontal_basis_kind="CS", area_weighted_least_squares=1)
+    data = SimulationResults.open(
+        settings, simulation_directory=simulation_directory, artifact_storage="netcdf"
+    )
+
+    assert data.simulation_directory == str(simulation_directory.resolve())
+    assert not hasattr(data, "run_directory")
+    assert data.inputs.settings_saved is False
+    assert data.boundary_jr_to_gap_Br_matrix is None
+    assert data.config.horizontal_basis_kind == "CS"
+    assert data.config.boundary_jr_remapping == "CS"
+    data.inputs.save_settings_if_missing()
+    output_spaces = data.schema.output_field_spaces["dynamic"]
+    n_magnetic = output_spaces["induced_Br"].size
+    n_surface = output_spaces["boundary_jr"].size
+    data.save_boundary_jr_to_gap_Br_matrix_if_missing(np.zeros((n_magnetic, n_surface)))
+    data.input_series.add_entry(
+        "boundary_jr",
+        {"boundary_jr": np.arange(data.schema.input_field_spaces["boundary_jr"].size)},
+        time=0.0,
+    )
+    data.input_series.save("boundary_jr", data.artifact_store)
+    data.output_series.add_entry("dynamic", _output_payload(n_magnetic, n_surface), time=0.0)
+    data.output_series.save("dynamic", data.artifact_store)
+
+    reloaded = SimulationResults.open(
+        settings, simulation_directory=simulation_directory, artifact_storage="netcdf"
+    )
+
+    assert reloaded.inputs.settings_saved is True
+    assert reloaded.boundary_jr_to_gap_Br_matrix is not None
+    assert reloaded.boundary_jr_to_gap_Br_matrix.dims == ("poloidal_i", "surface_i")
+    assert "boundary_jr" in reloaded.input_series.datasets
+    assert "dynamic" in reloaded.output_series.datasets
+    np.testing.assert_allclose(
+        reloaded.boundary_jr_to_gap_Br_matrix.values, np.zeros((n_magnetic, n_surface))
+    )
+    np.testing.assert_allclose(
+        reloaded.output_series.get_entry("dynamic", 0.0)["boundary_jr"], np.zeros(n_surface)
+    )
+
+
+def test_simulation_results_reuses_validated_config(tmp_path):
+    """The runtime shares one immutable validated configuration."""
+    config = SimulationConfig(Nmax=2, Mmax=1, Ncs=8, enable_pfac_coupling=False)
+
+    data = SimulationResults.open(
+        config, simulation_directory=tmp_path / "simulation", artifact_storage="netcdf"
+    )
+
+    assert data.config is config
+
+
+def test_simulation_results_rejects_saved_settings_mismatch(tmp_path):
+    """Saved settings guard against restarting with new args."""
+    simulation_directory = tmp_path / "simulation"
+    settings = _settings(Nmax=3)
+    data = SimulationResults.open(
+        settings, simulation_directory=simulation_directory, artifact_storage="netcdf"
+    )
+    data.inputs.save_settings_if_missing()
+
+    with pytest.raises(ValueError, match="Mismatch"):
+        SimulationResults.open(
+            _settings(Nmax=4), simulation_directory=simulation_directory, artifact_storage="netcdf"
+        )
+
+
+def test_simulation_results_rejects_legacy_magnetic_schema(tmp_path):
+    """Legacy data cannot be misread as physical magnetic variables."""
+    simulation_directory = tmp_path / "simulation"
+    legacy_settings = _settings()
+    ArtifactStore(simulation_directory, preferred_dataset_storage="netcdf").save_dataset(
+        legacy_settings, "settings"
+    )
+
+    with pytest.raises(ValueError, match="uses schema"):
+        SimulationResults.open(
+            legacy_settings, simulation_directory=simulation_directory, artifact_storage="netcdf"
+        )
+
+
+def test_simulation_exposes_interactive_views_without_copying_data(tmp_path):
+    """Common notebook data is available without internal navigation."""
+    simulation = Simulation(
+        simulation_directory=str(tmp_path / "simulation"),
+        Nmax=2,
+        Mmax=1,
+        Ncs=8,
+        enable_pfac_coupling=True,
+        artifact_storage="netcdf",
+    )
+
+    assert "surface_to_poloidal_operator" not in simulation.inputs.geometry.__dict__
+    assert simulation._response is None
+    assert simulation.config is simulation.results.config
+    assert simulation.geometry.horizontal_basis is simulation.results.geometry.horizontal_basis
+    assert simulation.response.geometry is simulation.geometry
+    assert simulation.simulation_directory == simulation.results.simulation_directory
+    assert simulation.model_grid is simulation.geometry.model_grid
+    assert simulation.inputs.datasets is simulation.results.input_series.datasets
+    assert simulation.outputs is simulation.results.output_series.datasets
+    assert repr(simulation).startswith("Simulation(Nmax=2, Mmax=1, Ncs=8, current_time=0")
+    for redundant_name in (
+        "settings",
+        "io",
+        "schema",
+        "cs_basis",
+        "horizontal_basis",
+        "solid_harmonics",
+        "input_field_spaces",
+        "output_field_spaces",
+        "input_series",
+        "output_series",
+        "backend",
+    ):
+        assert not hasattr(simulation, redundant_name)
+    assert simulation.main_field is simulation.geometry.main_field
+    assert simulation.results.boundary_jr_to_gap_Br_matrix is None
+
+
+@pytest.mark.parametrize(
+    ("enable_pfac_coupling", "expected_persisted"), [(True, True), (False, False)]
+)
+def test_simulation_persists_only_active_gap_Br_response(
+    tmp_path, enable_pfac_coupling, expected_persisted
+):
+    """Defer active gap-field work until model output is requested."""
+    simulation = Simulation(
+        simulation_directory=str(tmp_path / "simulation"),
+        Nmax=2,
+        Mmax=1,
+        Ncs=8,
+        enable_pfac_coupling=enable_pfac_coupling,
+        artifact_storage="netcdf",
+    )
+    resistance_shape = simulation.results.schema.input_field_spaces["conductance"].shape
+    simulation.inputs.set_coefficients(
+        "conductance",
+        {
+            "log_conductance_magnitude": np.zeros(resistance_shape),
+            "log_hall_to_pedersen_ratio": np.zeros(resistance_shape),
+        },
+        time=0.0,
+    )
+    boundary_jr_shape = simulation.results.schema.input_field_spaces["boundary_jr"].shape
+    simulation.inputs.set_coefficients("boundary_jr", np.zeros(boundary_jr_shape), time=0.0)
+
+    assert simulation.results.boundary_jr_to_gap_Br_matrix is None
+    simulation.set_state(
+        simulation.equilibrium_coefficients(time=0.0, interpolation=True)["induced_Br"], time=0.0
+    )
+    simulation.record_state(save=True)
+    assert (simulation.results.boundary_jr_to_gap_Br_matrix is not None) is expected_persisted
+
+
+def test_simulation_from_directory_uses_saved_configuration(tmp_path):
+    """Saved settings seed restart construction."""
+    simulation_directory = tmp_path / "simulation"
+    original = Simulation(
+        simulation_directory=str(simulation_directory),
+        Nmax=2,
+        Mmax=1,
+        Ncs=8,
+        horizontal_basis_kind="CS",
+        enable_pfac_coupling=False,
+        artifact_storage="netcdf",
+    )
+
+    reloaded = Simulation.from_directory(str(simulation_directory), artifact_storage="netcdf")
+
+    assert reloaded.config.Nmax == original.config.Nmax
+    assert not hasattr(reloaded, "run_data")
+    assert not hasattr(reloaded, "run_directory")
+    assert reloaded.config.Mmax == original.config.Mmax
+    assert reloaded.config.horizontal_basis_kind == "CS"
+    assert (
+        reloaded.results.geometry.horizontal_basis
+        is not original.results.geometry.horizontal_basis
+    )
+    assert reloaded.results.geometry.horizontal_basis.coefficient_count == (
+        original.results.geometry.horizontal_basis.coefficient_count
+    )
+
+
+@pytest.mark.parametrize("constructor", [pynamit.InputPreparation, Simulation])
+@pytest.mark.parametrize("override", [None, 2, 3])
+def test_from_directory_has_no_physical_overrides(tmp_path, constructor, override):
+    """Reopening does not offer physical settings it cannot change."""
+    simulation_directory = tmp_path / "simulation"
+    Simulation(
+        simulation_directory=str(simulation_directory),
+        Nmax=2,
+        Mmax=1,
+        Ncs=8,
+        enable_pfac_coupling=False,
+        artifact_storage="netcdf",
+    )
+
+    with pytest.raises(TypeError, match="Nmax"):
+        constructor.from_directory(simulation_directory, Nmax=override, artifact_storage="netcdf")
+
+
+@pytest.mark.parametrize("constructor", [pynamit.InputPreparation, Simulation])
+def test_from_directory_reads_settings_once(tmp_path, monkeypatch, constructor):
+    """The shared data owner loads and validates saved settings once."""
+    original = constructor(tmp_path, Nmax=2, Mmax=1, Ncs=4, artifact_storage="netcdf")
+    load_dataset = ArtifactStore.load_dataset
+    settings_reads = []
+
+    def counted_load(store, key, **kwargs):
+        if key == "settings":
+            settings_reads.append(key)
+        return load_dataset(store, key, **kwargs)
+
+    monkeypatch.setattr(ArtifactStore, "load_dataset", counted_load)
+    reopened = constructor.from_directory(tmp_path, artifact_storage="netcdf")
+    assert type(reopened) is constructor
+    assert settings_reads == ["settings"]
+    assert reopened.config.to_dataset().identical(original.config.to_dataset())
+    preparation = reopened.inputs if constructor is Simulation else reopened
+    assert "surface_to_poloidal_operator" not in preparation.geometry.__dict__
+    assert hasattr(reopened, "_time_evolution") == (constructor is Simulation)
+
+
+@pytest.mark.parametrize("constructor", [pynamit.InputPreparation, Simulation])
+def test_reopening_requires_saved_settings_without_creating_files(tmp_path, constructor):
+    """Reopening a missing directory must not create files."""
+    missing = tmp_path / "missing"
+    with pytest.raises(ValueError, match="No saved 'settings'"):
+        constructor.from_directory(missing)
+    assert not missing.exists()
+
+
+@pytest.mark.parametrize("constructor", [pynamit.InputPreparation, Simulation])
+def test_physical_constructor_options_are_keyword_only(tmp_path, constructor):
+    """Keep a script's numerical choices visible beside their values."""
+    with pytest.raises(TypeError, match="positional"):
+        constructor(tmp_path, 2)
